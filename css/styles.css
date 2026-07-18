@@ -1,0 +1,124 @@
+:root {
+  --color-bg: #f7f7f8;
+  --color-surface: #ffffff;
+  --color-border: #e2e2e6;
+  --color-text: #1a1a1e;
+  --color-text-muted: #6b6b73;
+  --color-primary: #1f7a5c;
+  --color-primary-hover: #175f47;
+  --color-danger: #c23838;
+  --radius: 10px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-md);
+}
+
+.auth-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--spacing-lg);
+  width: 100%;
+  max-width: 360px;
+}
+
+.auth-card h1 {
+  font-size: 1.25rem;
+  margin: 0 0 var(--spacing-md);
+}
+
+.field {
+  margin-bottom: var(--spacing-md);
+}
+
+.field label {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+  color: var(--color-text-muted);
+}
+
+.field input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 1rem;
+}
+
+button.primary {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+button.primary:hover { background: var(--color-primary-hover); }
+
+.error-text {
+  color: var(--color-danger);
+  font-size: 0.85rem;
+  margin-top: var(--spacing-sm);
+}
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.app-nav {
+  width: 220px;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  padding: var(--spacing-md);
+}
+
+.app-nav h2 {
+  font-size: 1rem;
+  margin: 0 0 var(--spacing-md);
+}
+
+.app-nav ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.app-nav li a {
+  display: block;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  color: var(--color-text);
+  text-decoration: none;
+  font-size: 0.9rem;
+  margin-bottom: 4px;
+}
+
+.app-nav li a:hover { background: var(--color-bg); }
+
+.app-content {
+  flex: 1;
+  padding: var(--spacing-lg);
+}

@@ -1,0 +1,21 @@
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Supabase CLI local artifacts
+supabase/.temp/
+supabase/.branches/
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# In case any tooling is added later
+node_modules/
+
+# Build/output artifacts
+dist/
+outputs/
