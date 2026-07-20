@@ -1,6 +1,7 @@
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext } from './auth/auth.js';
 import { getActiveModules, getModuleRenderer, registerModule } from './core/module-loader.js';
 import { renderMasterUserPage } from './modules/master-user/master-user.page.js';
+import { renderAttendanceAdminPage } from './modules/attendance/attendance.admin.page.js';
 
 const app = document.getElementById('app');
 const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
@@ -8,6 +9,7 @@ const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
 // Modul "core" admin: selalu tampil untuk admin, tidak tergantung toggle bu_modules
 // (beda dengan modul operasional seperti presensi/inventory yang di-toggle per BU)
 registerModule('master_user', renderMasterUserPage);
+registerModule('attendance', renderAttendanceAdminPage);
 const CORE_ADMIN_MENU = [{ code: 'master_user', name: 'Master User' }];
 
 async function bootstrap() {

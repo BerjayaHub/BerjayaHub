@@ -54,6 +54,15 @@ Karena Master User butuh admin yang sudah ada untuk menambah staff baru, user **
    ```
    (Business Unit & Outlet pertama juga masih perlu di-insert manual lewat SQL Editor sampai modul Organization dibangun.)
 
+## Fase 2 — Presensi: aktifkan modulnya untuk BU kamu
+
+Modul "attendance" tersedia di sistem sejak Fase 0, tapi baru muncul di menu Staff App/Admin Portal kalau di-toggle aktif untuk BU tertentu. Karena modul Organization (buat toggle ini lewat UI) belum dibangun, aktifkan manual lewat SQL Editor:
+
+```sql
+insert into bu_modules (business_unit_id, module_id, is_active)
+select '<BUSINESS_UNIT_ID>', id, true from modules where code = 'attendance';
+```
+
 ## Arsitektur modular per Business Unit
 
 Setiap Business Unit punya daftar modul aktif sendiri (tabel `bu_modules`), jadi menu & fitur yang muncul di Staff App/Admin Portal beda-beda tergantung BU tempat staff login. Modul baru didaftarkan lewat `registerModule(code, renderFn)` di `module-loader.js` — tidak perlu ubah kode shell.
@@ -66,7 +75,7 @@ Outlet punya `outlet_role`: `standalone`, `central_kitchen`, atau `served_by_ck`
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
 - [x] **Fase 1** — Master User/Staff (admin CRUD)
-- [ ] **Fase 2** — Presensi (lintas semua BU)
+- [x] **Fase 2** — Presensi (lintas semua BU)
 - [ ] **Fase 3** — Ceklis Kebersihan (lintas semua BU)
 - [ ] **Fase 4** — Master Produk & Master Formula/Resep (Cafe)
 - [ ] **Fase 5** — Inventory (Cafe)

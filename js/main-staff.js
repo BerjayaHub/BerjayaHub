@@ -1,5 +1,8 @@
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext } from './auth/auth.js';
-import { getActiveModules, getModuleRenderer } from './core/module-loader.js';
+import { getActiveModules, getModuleRenderer, registerModule } from './core/module-loader.js';
+import { renderAttendancePage } from './modules/attendance/attendance.page.js';
+
+registerModule('attendance', renderAttendancePage);
 
 const app = document.getElementById('app');
 
@@ -106,7 +109,7 @@ async function renderShell() {
       const renderer = getModuleRenderer(code);
       const content = document.getElementById('module-content');
       if (renderer) {
-        renderer(content, { businessUnitId: activeScope.business_unit_id, outletId: activeScope.outlet_id });
+        renderer(content, { userId: context.profile.id, businessUnitId: activeScope.business_unit_id, outletId: activeScope.outlet_id });
       } else {
         content.innerHTML = `<p>Modul "${code}" belum dibangun.</p>`;
       }
