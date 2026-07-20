@@ -31,6 +31,29 @@ berjaya-hub/
 └── supabase/migrations/
 ```
 
+## Fase 1 — Master User: deploy Edge Function
+
+Bikin staff baru butuh `service_role key`, jadi harus lewat Supabase Edge Function (jalan di server, bukan di browser).
+
+```bash
+supabase functions deploy create-staff-user
+```
+
+`SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY` otomatis tersedia sebagai environment variable di Edge Function — tidak perlu di-set manual.
+
+### Membuat Super Admin pertama (manual, sebelum ada staff lain)
+
+Karena Master User butuh admin yang sudah ada untuk menambah staff baru, user **pertama** harus dibuat manual:
+
+1. Supabase Dashboard → Authentication → Add User (isi email + password)
+2. SQL Editor, jalankan (ganti `<AUTH_USER_ID>` dan `<BUSINESS_UNIT_ID>` sesuai punya kamu):
+   ```sql
+   insert into user_profiles (id, full_name) values ('<AUTH_USER_ID>', 'Nama Admin');
+   insert into membership_scopes (user_id, business_unit_id, role)
+     values ('<AUTH_USER_ID>', '<BUSINESS_UNIT_ID>', 'super_admin');
+   ```
+   (Business Unit & Outlet pertama juga masih perlu di-insert manual lewat SQL Editor sampai modul Organization dibangun.)
+
 ## Arsitektur modular per Business Unit
 
 Setiap Business Unit punya daftar modul aktif sendiri (tabel `bu_modules`), jadi menu & fitur yang muncul di Staff App/Admin Portal beda-beda tergantung BU tempat staff login. Modul baru didaftarkan lewat `registerModule(code, renderFn)` di `module-loader.js` — tidak perlu ubah kode shell.
@@ -42,7 +65,7 @@ Outlet punya `outlet_role`: `standalone`, `central_kitchen`, atau `served_by_ck`
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
-- [ ] **Fase 1** — Master User/Staff (admin CRUD)
+- [x] **Fase 1** — Master User/Staff (admin CRUD)
 - [ ] **Fase 2** — Presensi (lintas semua BU)
 - [ ] **Fase 3** — Ceklis Kebersihan (lintas semua BU)
 - [ ] **Fase 4** — Master Produk & Master Formula/Resep (Cafe)

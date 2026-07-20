@@ -1,8 +1,14 @@
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext } from './auth/auth.js';
-import { getActiveModules, getModuleRenderer } from './core/module-loader.js';
+import { getActiveModules, getModuleRenderer, registerModule } from './core/module-loader.js';
+import { renderMasterUserPage } from './modules/master-user/master-user.page.js';
 
 const app = document.getElementById('app');
 const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
+
+// Modul "core" admin: selalu tampil untuk admin, tidak tergantung toggle bu_modules
+// (beda dengan modul operasional seperti presensi/inventory yang di-toggle per BU)
+registerModule('master_user', renderMasterUserPage);
+const CORE_ADMIN_MENU = [{ code: 'master_user', name: 'Master User' }];
 
 async function bootstrap() {
   const session = await getSession();
@@ -83,8 +89,9 @@ async function renderShell() {
     ? []
     : await getActiveModules(activeScope.business_unit_id);
 
-  const menuItems = modules
-    .map((mod) => `<li><a href="#" data-module="${mod.code}">Master ${mod.name}</a></li>`)
+  const allMenu = [...CORE_ADMIN_MENU, ...modules];
+  const menuItems = allMenu
+    .map((mod) => `<li><a href="#" data-module="${mod.code}">${mod.name}</a></li>`)
     .join('');
 
   app.innerHTML = `
