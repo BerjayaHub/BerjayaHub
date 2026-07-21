@@ -40,6 +40,10 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
                 ? ''
                 : `<div class="field"><label>Outlet</label><select id="clock-in-outlet">${outletOptions}</select></div>`
             }
+            <div class="field" style="display:flex;align-items:center;gap:8px">
+              <input type="checkbox" id="clock-in-storing" style="width:auto" />
+              <label for="clock-in-storing" style="margin:0">Tugas storing (di luar outlet)</label>
+            </div>
             <button class="primary" id="btn-clock-in">Clock In</button>
           `
       }
@@ -73,23 +77,26 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
     try {
       const chosenOutletId = outletId ?? document.getElementById('clock-in-outlet')?.value;
       if (!chosenOutletId) throw new Error('Pilih outlet dulu.');
+      const isStoring = document.getElementById('clock-in-storing')?.checked ?? false;
 
-      const outlet = await getOutletGeofence(chosenOutletId);
       const location = await getGeolocation();
 
-      if (outlet.latitude != null && outlet.longitude != null) {
-        if (!location) {
-          throw new Error(`Outlet ini butuh validasi lokasi. Aktifkan izin lokasi di browser/HP kamu, lalu coba lagi.`);
-        }
-        const dist = distanceMeters(location.lat, location.lng, outlet.latitude, outlet.longitude);
-        if (dist > outlet.geofence_radius_m) {
-          throw new Error(
-            `Kamu berada ${Math.round(dist)}m dari outlet (maks ${outlet.geofence_radius_m}m). Mendekatlah ke outlet untuk clock in.`
-          );
+      if (!isStoring) {
+        const outlet = await getOutletGeofence(chosenOutletId);
+        if (outlet.latitude != null && outlet.longitude != null) {
+          if (!location) {
+            throw new Error(`Outlet ini butuh validasi lokasi. Aktifkan izin lokasi di browser/HP kamu, lalu coba lagi.`);
+          }
+          const dist = distanceMeters(location.lat, location.lng, outlet.latitude, outlet.longitude);
+          if (dist > outlet.geofence_radius_m) {
+            throw new Error(
+              `Kamu berada ${Math.round(dist)}m dari outlet (maks ${outlet.geofence_radius_m}m). Mendekatlah ke outlet, atau centang "Tugas storing" kalau memang sedang bertugas di luar.`
+            );
+          }
         }
       }
 
-      await clockIn({ userId, businessUnitId, outletId: chosenOutletId, location });
+      await clockIn({ userId, businessUnitId, outletId: chosenOutletId, location, isStoring });
       await renderAttendancePage(container, { userId, businessUnitId, outletId });
     } catch (error) {
       errorEl.textContent = error.message ?? 'Gagal clock in.';

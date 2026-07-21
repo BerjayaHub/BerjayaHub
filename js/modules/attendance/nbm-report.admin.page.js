@@ -1,0 +1,110 @@
+import { listAttendanceForAdmin, listOutletsWithGeofence } from './attendance.service.js';
+import { getNbmConfig, listOvertimeTiers, listHolidays, calculateNbm, toDateKey } from './nbm.service.js';
+
+export async function renderNbmReportTab(container, businessUnitId) {
+  container.innerHTML = `<p>Memuat...</p>`;
+  const outlets = await listOutletsWithGeofence(businessUnitId);
+
+  container.innerHTML = `
+    <div class="inline-card" style="max-width:640px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+      <div class="field" style="margin:0">
+        <label>Outlet</label>
+        <select id="nbm-report-outlet">
+          <option value="">Semua outlet</option>
+          ${outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="nbm-report-from" /></div>
+      <div class="field" style="margin:0"><label>Sampai tanggal</label><input type="date" id="nbm-report-to" /></div>
+      <button class="primary" id="btn-nbm-report" style="max-width:120px">Tampilkan</button>
+    </div>
+    <div id="nbm-report-result"></div>
+  `;
+
+  document.getElementById('btn-nbm-report').addEventListener('click', () => runReport(businessUnitId, outlets));
+}
+
+async function runReport(businessUnitId, outlets) {
+  const outletId = document.getElementById('nbm-report-outlet').value || '';
+  const from = document.getElementById('nbm-report-from').value;
+  const to = document.getElementById('nbm-report-to').value;
+  const resultEl = document.getElementById('nbm-report-result');
+  resultEl.innerHTML = `<p>Menghitung...</p>`;
+
+  const records = await listAttendanceForAdmin({
+    businessUnitId,
+    outletId,
+    dateFrom: from ? new Date(from).toISOString() : '',
+    dateTo: to ? new Date(to + 'T23:59:59').toISOString() : ''
+  });
+
+  // Preload config/tier/holiday per outlet yang muncul di hasil, biar gak query berulang
+  const outletIds = [...new Set(records.map((r) => r.outlets?.id).filter(Boolean))];
+  const configByOutlet = {};
+  const tiersByOutlet = {};
+  const holidaysByOutlet = {};
+
+  for (const oid of outletIds) {
+    configByOutlet[oid] = await getNbmConfig(oid);
+    tiersByOutlet[oid] = await listOvertimeTiers(oid);
+    const holidays = await listHolidays({ businessUnitId, outletId: oid });
+    holidaysByOutlet[oid] = holidays.map((h) => h.holiday_date);
+  }
+
+  const rows = records.map((r) => {
+    const oid = r.outlets?.id;
+    const nbm = calculateNbm(r, configByOutlet[oid], tiersByOutlet[oid], holidaysByOutlet[oid] ?? []);
+    return { record: r, nbm };
+  });
+
+  const totalsByStaff = {};
+  for (const { record, nbm } of rows) {
+    if (!nbm) continue;
+    const name = record.user_profiles?.full_name ?? '-';
+    totalsByStaff[name] = (totalsByStaff[name] ?? 0) + nbm.total;
+  }
+
+  resultEl.innerHTML = `
+    <table class="data-table" style="margin-top:16px">
+      <thead>
+        <tr><th>Staff</th><th>Outlet</th><th>Tanggal</th><th>Storing</th><th>Libur</th><th>Base</th><th>Lembur</th><th>Storing+</th><th>Total</th></tr>
+      </thead>
+      <tbody>
+        ${
+          rows
+            .map(({ record, nbm }) => {
+              if (!nbm) {
+                return `<tr><td>${record.user_profiles?.full_name ?? '-'}</td><td>${record.outlets?.name ?? '-'}</td><td>${toDateKey(new Date(record.clock_in_at))}</td><td colspan="6">Belum bisa dihitung (belum clock out / NBM outlet belum diset)</td></tr>`;
+              }
+              return `
+                <tr>
+                  <td>${record.user_profiles?.full_name ?? '-'}</td>
+                  <td>${record.outlets?.name ?? '-'}</td>
+                  <td>${toDateKey(new Date(record.clock_in_at))}</td>
+                  <td>${record.is_storing ? 'Ya' : '-'}</td>
+                  <td>${nbm.isHoliday ? 'Ya' : '-'}</td>
+                  <td>Rp${nbm.base.toLocaleString('id-ID')}</td>
+                  <td>Rp${nbm.overtimeBonus.toLocaleString('id-ID')}</td>
+                  <td>Rp${nbm.storingBonus.toLocaleString('id-ID')}</td>
+                  <td><strong>Rp${nbm.total.toLocaleString('id-ID')}</strong></td>
+                </tr>
+              `;
+            })
+            .join('') || '<tr><td colspan="9">Tidak ada data.</td></tr>'
+        }
+      </tbody>
+    </table>
+
+    <h2 style="font-size:1rem;margin-top:20px">Total per Staff (periode ini)</h2>
+    <table class="data-table" style="max-width:400px">
+      <thead><tr><th>Staff</th><th>Total NBM</th></tr></thead>
+      <tbody>
+        ${
+          Object.entries(totalsByStaff)
+            .map(([name, total]) => `<tr><td>${name}</td><td>Rp${total.toLocaleString('id-ID')}</td></tr>`)
+            .join('') || '<tr><td colspan="2">-</td></tr>'
+        }
+      </tbody>
+    </table>
+  `;
+}

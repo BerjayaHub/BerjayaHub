@@ -4,24 +4,54 @@ import {
   listOutletsWithGeofence,
   setOutletLocation
 } from './attendance.service.js';
+import { renderNbmSettingsTab } from './nbm-settings.admin.page.js';
+import { renderNbmReportTab } from './nbm-report.admin.page.js';
+
+const TABS = [
+  { key: 'presensi', label: 'Presensi' },
+  { key: 'nbm-settings', label: 'Pengaturan NBM & Lembur' },
+  { key: 'nbm-report', label: 'Rekap NBM' }
+];
 
 export async function renderAttendanceAdminPage(container, { businessUnitId }) {
+  container.innerHTML = `
+    <h1>Master Presensi</h1>
+    <div class="tab-bar" id="attendance-tabs">
+      ${TABS.map((t, i) => `<button class="tab-btn ${i === 0 ? 'active' : ''}" data-tab="${t.key}">${t.label}</button>`).join('')}
+    </div>
+    <div id="attendance-tab-content"></div>
+  `;
+
+  const content = document.getElementById('attendance-tab-content');
+
+  async function showTab(key) {
+    container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));
+    if (key === 'presensi') await renderPresensiTab(content, businessUnitId);
+    if (key === 'nbm-settings') await renderNbmSettingsTab(content, businessUnitId);
+    if (key === 'nbm-report') await renderNbmReportTab(content, businessUnitId);
+  }
+
+  container.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => showTab(btn.dataset.tab));
+  });
+
+  await showTab('presensi');
+}
+
+async function renderPresensiTab(container, businessUnitId) {
   container.innerHTML = `<p>Memuat presensi...</p>`;
 
   const outlets = await listOutletsWithGeofence(businessUnitId);
-
   const filters = { businessUnitId, outletId: '', dateFrom: '', dateTo: '' };
 
   async function refresh() {
     const records = await listAttendanceForAdmin(filters);
     container.querySelector('#attendance-table-body').innerHTML =
-      records.map((r) => rowHtml(r)).join('') || '<tr><td colspan="5">Tidak ada data.</td></tr>';
+      records.map((r) => rowHtml(r)).join('') || '<tr><td colspan="6">Tidak ada data.</td></tr>';
     wireEditButtons(container);
   }
 
   container.innerHTML = `
-    <h1>Master Presensi</h1>
-
     <details class="inline-card" style="max-width:640px">
       <summary style="cursor:pointer;font-weight:600">Pengaturan Lokasi Outlet (Geofencing)</summary>
       <table class="data-table" style="margin-top:12px">
@@ -32,6 +62,7 @@ export async function renderAttendanceAdminPage(container, { businessUnitId }) {
       </table>
       <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:8px">
         Kalau koordinat belum diisi, staff bisa clock in dari mana saja (geofence belum aktif untuk outlet itu).
+        Staff yang centang "Tugas storing" juga otomatis lewati geofence.
       </p>
     </details>
 
@@ -72,10 +103,11 @@ export async function renderAttendanceAdminPage(container, { businessUnitId }) {
 
 function rowHtml(r) {
   const coord = r.clock_in_lat != null ? `${r.clock_in_lat.toFixed(5)}, ${r.clock_in_lng.toFixed(5)}` : '-';
+  const storingTag = r.is_storing ? ' <span class="scope-badge">storing</span>' : '';
   return `
     <tr data-record-id="${r.id}">
       <td>${r.user_profiles?.full_name ?? '-'}</td>
-      <td>${r.outlets?.name ?? '-'}</td>
+      <td>${r.outlets?.name ?? '-'}${storingTag}</td>
       <td>${formatTime(r.clock_in_at)}</td>
       <td style="font-size:0.78rem">${coord}</td>
       <td>${r.clock_out_at ? formatTime(r.clock_out_at) : '—'}</td>

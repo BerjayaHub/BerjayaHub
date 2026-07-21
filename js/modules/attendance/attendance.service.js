@@ -74,7 +74,7 @@ export async function getMyRecentAttendance(limit = 10) {
   return data ?? [];
 }
 
-export async function clockIn({ userId, businessUnitId, outletId, location }) {
+export async function clockIn({ userId, businessUnitId, outletId, location, isStoring }) {
   const loc = location !== undefined ? location : await getGeolocation();
   const { data, error } = await supabase
     .from('attendance_records')
@@ -83,7 +83,8 @@ export async function clockIn({ userId, businessUnitId, outletId, location }) {
       business_unit_id: businessUnitId,
       outlet_id: outletId,
       clock_in_lat: loc?.lat ?? null,
-      clock_in_lng: loc?.lng ?? null
+      clock_in_lng: loc?.lng ?? null,
+      is_storing: !!isStoring
     })
     .select()
     .single();
@@ -109,7 +110,7 @@ export async function clockOut(recordId) {
 export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFrom, dateTo }) {
   let query = supabase
     .from('attendance_records')
-    .select('id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, user_profiles(full_name), outlets(id, name)')
+    .select('id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, user_profiles(full_name), outlets(id, name)')
     .eq('business_unit_id', businessUnitId)
     .order('clock_in_at', { ascending: false })
     .limit(200);
