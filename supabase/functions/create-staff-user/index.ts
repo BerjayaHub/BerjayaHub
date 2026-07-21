@@ -49,10 +49,13 @@ Deno.serve(async (req) => {
     return json({ error: 'Invalid JSON body' }, 400);
   }
 
-  const { full_name, email, phone, business_unit_id, outlet_id, role } = payload;
+  const { full_name, email, phone, business_unit_id, outlet_id, role, password } = payload;
 
-  if (!full_name || !email || !business_unit_id || !role) {
-    return json({ error: 'full_name, email, business_unit_id, dan role wajib diisi' }, 400);
+  if (!full_name || !email || !business_unit_id || !role || !password) {
+    return json({ error: 'full_name, email, password, business_unit_id, dan role wajib diisi' }, 400);
+  }
+  if (password.length < 6) {
+    return json({ error: 'Password minimal 6 karakter' }, 400);
   }
   if (!['bu_admin', 'outlet_admin', 'staff'].includes(role)) {
     return json({ error: 'role tidak valid' }, 400);
@@ -80,14 +83,18 @@ Deno.serve(async (req) => {
     return json({ error: 'Hanya Super Admin yang bisa menambahkan bu_admin' }, 403);
   }
 
-  // Buat akun auth lewat alur invite: Supabase langsung kirim email berisi
-  // link buat staff set password sendiri. Ini 1 langkah (bukan createUser
-  // dulu lalu invite terpisah), jadi gak ada risiko akun "yatim" tanpa invite.
-  const { data: invited, error: createError } = await admin.auth.admin.inviteUserByEmail(email);
+  // Admin yang tentukan password awal secara langsung (bukan invite email) —
+  // lebih praktis buat staff yang gak selalu cek email. Staff bisa ganti
+  // sendiri nanti lewat "Ubah Password" di Staff App.
+  const { data: created, error: createError } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true
+  });
 
   if (createError) return json({ error: createError.message }, 400);
 
-  const newUserId = invited.user.id;
+  const newUserId = created.user.id;
 
   const { error: profileError } = await admin.from('user_profiles').insert({
     id: newUserId,

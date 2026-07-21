@@ -1,4 +1,4 @@
-import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext } from './auth/auth.js';
+import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
 import { getActiveModules, getModuleRenderer, registerModule } from './core/module-loader.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
 
@@ -99,7 +99,9 @@ async function renderShell() {
           </div>
         </div>
         <ul>${menuItems || '<li>Belum ada modul aktif</li>'}</ul>
-        <button class="primary" id="btn-logout" style="margin-top:16px">Keluar</button>
+        <button id="btn-change-password" style="margin-top:16px;width:100%">Ubah Password</button>
+        <div id="change-password-wrap"></div>
+        <button class="primary" id="btn-logout" style="margin-top:8px">Keluar</button>
       </nav>
       <main class="app-content" id="module-content">
         <p>Pilih modul di sebelah kiri.</p>
@@ -112,6 +114,37 @@ async function renderShell() {
   });
 
   document.getElementById('btn-logout').addEventListener('click', signOut);
+
+  document.getElementById('btn-change-password').addEventListener('click', () => {
+    const wrap = document.getElementById('change-password-wrap');
+    if (wrap.innerHTML) {
+      wrap.innerHTML = '';
+      return;
+    }
+    wrap.innerHTML = `
+      <form id="change-password-form" style="margin-top:8px">
+        <div class="field" style="margin-bottom:6px">
+          <input type="password" name="new_password" placeholder="Password baru (min 6 karakter)" minlength="6" required />
+        </div>
+        <button class="primary" type="submit" style="min-height:36px">Simpan</button>
+        <p class="error-text" id="change-password-error" style="margin:4px 0 0"></p>
+        <p id="change-password-success" style="color:var(--color-primary);font-size:0.85rem;margin:4px 0 0"></p>
+      </form>
+    `;
+    document.getElementById('change-password-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const newPassword = e.target.new_password.value;
+      try {
+        await changeOwnPassword(newPassword);
+        document.getElementById('change-password-error').textContent = '';
+        document.getElementById('change-password-success').textContent = 'Password berhasil diubah.';
+        e.target.reset();
+      } catch (error) {
+        document.getElementById('change-password-success').textContent = '';
+        document.getElementById('change-password-error').textContent = error.message ?? 'Gagal ubah password.';
+      }
+    });
+  });
 
   document.querySelectorAll('[data-module]').forEach((link) => {
     link.addEventListener('click', (event) => {

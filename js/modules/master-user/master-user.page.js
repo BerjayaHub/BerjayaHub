@@ -5,7 +5,8 @@ import {
   updateProfile,
   addMembershipScope,
   removeMembershipScope,
-  createStaffUser
+  createStaffUser,
+  resetStaffPassword
 } from './master-user.service.js';
 
 const ROLE_LABEL = {
@@ -71,6 +72,7 @@ function staffRowHtml(s) {
       <td>${s.profile.is_active ? 'Aktif' : 'Nonaktif'}</td>
       <td>
         <button class="btn-edit" data-user-id="${s.profile.id}">Edit</button>
+        <button class="btn-reset-password" data-user-id="${s.profile.id}">Reset Password</button>
         <button class="btn-toggle-active" data-user-id="${s.profile.id}" data-active="${s.profile.is_active}">
           ${s.profile.is_active ? 'Nonaktifkan' : 'Aktifkan'}
         </button>
@@ -86,6 +88,7 @@ function renderNewStaffForm(container, businessUnits) {
       <h3>Tambah Staff Baru</h3>
       <div class="field"><label>Nama Lengkap</label><input name="full_name" required /></div>
       <div class="field"><label>Email</label><input name="email" type="email" required /></div>
+      <div class="field"><label>Password Awal</label><input name="password" type="text" minlength="6" required placeholder="Minimal 6 karakter" /></div>
       <div class="field"><label>No. Telp</label><input name="phone" /></div>
       <div class="field">
         <label>Business Unit</label>
@@ -130,6 +133,7 @@ function renderNewStaffForm(container, businessUnits) {
     const payload = {
       full_name: form.full_name.value.trim(),
       email: form.email.value.trim(),
+      password: form.password.value,
       phone: form.phone.value.trim() || null,
       business_unit_id: form.business_unit_id.value,
       outlet_id: form.outlet_id.value || null,
@@ -152,6 +156,20 @@ function wireRowActions(container, businessUnits) {
       const isActive = btn.dataset.active === 'true';
       await updateProfile(userId, { is_active: !isActive });
       await renderMasterUserPage(container);
+    });
+  });
+
+  container.querySelectorAll('.btn-reset-password').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const newPassword = prompt('Password baru untuk staff ini (minimal 6 karakter):');
+      if (!newPassword) return;
+      if (newPassword.length < 6) return alert('Password minimal 6 karakter.');
+      try {
+        await resetStaffPassword(btn.dataset.userId, newPassword);
+        alert('Password berhasil direset. Kasih tau staff-nya password barunya.');
+      } catch (error) {
+        alert(error.message ?? 'Gagal reset password.');
+      }
     });
   });
 

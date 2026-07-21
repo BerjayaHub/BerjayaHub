@@ -39,6 +39,15 @@ export function onAuthStateChange(callback) {
  * Ini dipakai module-loader untuk tahu BU/outlet mana saja yang bisa diakses user,
  * dan modul apa saja yang aktif di situ.
  */
+/**
+ * Staff/admin ganti password sendiri, pakai sesi login yang sedang aktif.
+ * Tidak butuh service_role — cukup sesi user yang sudah terautentikasi.
+ */
+export async function changeOwnPassword(newPassword) {
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw error;
+}
+
 export async function getCurrentUserContext() {
   const session = await getSession();
   if (!session?.user) return null;

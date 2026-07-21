@@ -79,3 +79,11 @@ export async function createStaffUser(payload) {
   if (error) throw error;
   return data;
 }
+
+export async function resetStaffPassword(targetUserId, newPassword) {
+  const { data, error } = await supabase.functions.invoke('reset-staff-password', {
+    body: { target_user_id: targetUserId, new_password: newPassword }
+  });
+  if (error) throw error;
+  return data;
+}

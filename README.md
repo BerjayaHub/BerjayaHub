@@ -31,15 +31,18 @@ berjaya-hub/
 └── supabase/migrations/
 ```
 
-## Fase 1 — Master User: deploy Edge Function
+## Fase 1 — Master User: deploy Edge Functions
 
-Bikin staff baru butuh `service_role key`, jadi harus lewat Supabase Edge Function (jalan di server, bukan di browser).
+Bikin staff baru & reset password butuh `service_role key`, jadi harus lewat Supabase Edge Function (jalan di server, bukan di browser).
 
 ```bash
 supabase functions deploy create-staff-user
+supabase functions deploy reset-staff-password
 ```
 
 `SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY` otomatis tersedia sebagai environment variable di Edge Function — tidak perlu di-set manual.
+
+**Cara login staff baru:** admin isi password awal langsung di form "Tambah Staff" (bukan lewat email invite). Staff login pakai email + password itu, lalu bisa ganti sendiri kapan saja lewat tombol **"Ubah Password"** di nav Staff App/Admin Portal. Kalau staff lupa password, admin bisa reset dari tombol **"Reset Password"** di Master User.
 
 ### Membuat Super Admin pertama (manual, sebelum ada staff lain)
 
