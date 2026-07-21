@@ -33,6 +33,7 @@ function renderLogin(errorMessage = '') {
   app.innerHTML = `
     <section class="auth-page">
       <form class="auth-card" id="login-form">
+        <img src="images/logo.svg" alt="Berjaya Hub" class="auth-logo" onerror="this.style.display='none'" />
         <h1>Berjaya Hub — Admin Portal</h1>
         <div class="field">
           <label for="email">Email</label>
@@ -98,11 +99,17 @@ async function renderShell() {
 
   app.innerHTML = `
     <div class="app-shell">
-      <nav class="app-nav">
-        <h2>${context.profile.full_name}</h2>
-        <p style="font-size:0.8rem;color:var(--color-text-muted)">
-          ${activeScope.role} — ${activeScope.business_units?.name ?? 'Semua BU'}
-        </p>
+      <button class="nav-toggle" id="btn-nav-toggle" aria-label="Buka menu">☰</button>
+      <nav class="app-nav" id="app-nav">
+        <div class="nav-brand">
+          <img src="images/logo.svg" alt="" class="nav-logo" onerror="this.style.display='none'" />
+          <div>
+            <div style="font-weight:600">${context.profile.full_name}</div>
+            <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0">
+              ${activeScope.role} — ${activeScope.business_units?.name ?? 'Semua BU'}
+            </p>
+          </div>
+        </div>
         <ul>${menuItems || '<li>Belum ada modul aktif</li>'}</ul>
         <button class="primary" id="btn-logout" style="margin-top:16px">Keluar</button>
       </nav>
@@ -112,11 +119,16 @@ async function renderShell() {
     </div>
   `;
 
+  document.getElementById('btn-nav-toggle').addEventListener('click', () => {
+    document.getElementById('app-nav').classList.toggle('open');
+  });
+
   document.getElementById('btn-logout').addEventListener('click', signOut);
 
   document.querySelectorAll('[data-module]').forEach((link) => {
     link.addEventListener('click', (event) => {
       event.preventDefault();
+      document.getElementById('app-nav')?.classList.remove('open');
       const code = event.target.dataset.module;
       const renderer = getModuleRenderer(code);
       const content = document.getElementById('module-content');

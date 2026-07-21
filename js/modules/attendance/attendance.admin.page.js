@@ -1,14 +1,14 @@
-import { supabase } from '../../config/supabase-client.js';
-import { listAttendanceForAdmin, correctAttendanceRecord } from './attendance.service.js';
+import {
+  listAttendanceForAdmin,
+  correctAttendanceRecord,
+  listOutletsWithGeofence,
+  setOutletLocation
+} from './attendance.service.js';
 
 export async function renderAttendanceAdminPage(container, { businessUnitId }) {
   container.innerHTML = `<p>Memuat presensi...</p>`;
 
-  const { data: outlets } = await supabase
-    .from('outlets')
-    .select('id, name')
-    .eq('business_unit_id', businessUnitId)
-    .order('name');
+  const outlets = await listOutletsWithGeofence(businessUnitId);
 
   const filters = { businessUnitId, outletId: '', dateFrom: '', dateTo: '' };
 
@@ -21,7 +21,21 @@ export async function renderAttendanceAdminPage(container, { businessUnitId }) {
 
   container.innerHTML = `
     <h1>Master Presensi</h1>
-    <div class="inline-card" style="max-width:640px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+
+    <details class="inline-card" style="max-width:640px">
+      <summary style="cursor:pointer;font-weight:600">Pengaturan Lokasi Outlet (Geofencing)</summary>
+      <table class="data-table" style="margin-top:12px">
+        <thead><tr><th>Outlet</th><th>Koordinat</th><th>Radius</th><th>Aksi</th></tr></thead>
+        <tbody id="outlet-geofence-body">
+          ${(outlets ?? []).map((o) => outletGeofenceRowHtml(o)).join('')}
+        </tbody>
+      </table>
+      <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:8px">
+        Kalau koordinat belum diisi, staff bisa clock in dari mana saja (geofence belum aktif untuk outlet itu).
+      </p>
+    </details>
+
+    <div class="inline-card" style="max-width:640px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:16px">
       <div class="field" style="margin:0">
         <label>Outlet</label>
         <select id="filter-outlet">
@@ -36,11 +50,13 @@ export async function renderAttendanceAdminPage(container, { businessUnitId }) {
 
     <table class="data-table">
       <thead>
-        <tr><th>Staff</th><th>Outlet</th><th>Clock In</th><th>Clock Out</th><th>Aksi</th></tr>
+        <tr><th>Staff</th><th>Outlet</th><th>Clock In</th><th>Koordinat In</th><th>Clock Out</th><th>Aksi</th></tr>
       </thead>
       <tbody id="attendance-table-body"></tbody>
     </table>
   `;
+
+  wireOutletGeofenceButtons(container, businessUnitId);
 
   document.getElementById('btn-filter').addEventListener('click', () => {
     filters.outletId = document.getElementById('filter-outlet').value || '';
@@ -55,15 +71,54 @@ export async function renderAttendanceAdminPage(container, { businessUnitId }) {
 }
 
 function rowHtml(r) {
+  const coord = r.clock_in_lat != null ? `${r.clock_in_lat.toFixed(5)}, ${r.clock_in_lng.toFixed(5)}` : '-';
   return `
     <tr data-record-id="${r.id}">
       <td>${r.user_profiles?.full_name ?? '-'}</td>
       <td>${r.outlets?.name ?? '-'}</td>
       <td>${formatTime(r.clock_in_at)}</td>
+      <td style="font-size:0.78rem">${coord}</td>
       <td>${r.clock_out_at ? formatTime(r.clock_out_at) : '—'}</td>
       <td><button class="btn-edit" data-record-id="${r.id}">Koreksi</button></td>
     </tr>
   `;
+}
+
+function outletGeofenceRowHtml(o) {
+  const coord = o.latitude != null ? `${o.latitude.toFixed(5)}, ${o.longitude.toFixed(5)}` : 'Belum diset';
+  return `
+    <tr data-outlet-id="${o.id}">
+      <td>${o.name}</td>
+      <td style="font-size:0.8rem">${coord}</td>
+      <td>${o.geofence_radius_m}m</td>
+      <td><button class="btn-set-geofence" data-outlet-id="${o.id}">Atur Lokasi</button></td>
+    </tr>
+  `;
+}
+
+function wireOutletGeofenceButtons(container, businessUnitId) {
+  container.querySelectorAll('.btn-set-geofence').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const lat = prompt('Latitude outlet (contoh: -6.301944):');
+      if (lat === null || lat.trim() === '') return;
+      const lng = prompt('Longitude outlet (contoh: 106.652778):');
+      if (lng === null || lng.trim() === '') return;
+      const radius = prompt('Radius toleransi (meter):', '100');
+      if (radius === null) return;
+      try {
+        await setOutletLocation(btn.dataset.outletId, {
+          latitude: parseFloat(lat),
+          longitude: parseFloat(lng),
+          geofence_radius_m: parseInt(radius, 10) || 100
+        });
+        const outlets = await listOutletsWithGeofence(businessUnitId);
+        container.querySelector('#outlet-geofence-body').innerHTML = outlets.map((o) => outletGeofenceRowHtml(o)).join('');
+        wireOutletGeofenceButtons(container, businessUnitId);
+      } catch (error) {
+        alert(error.message ?? 'Gagal menyimpan lokasi outlet.');
+      }
+    });
+  });
 }
 
 function wireEditButtons(container) {
@@ -71,7 +126,7 @@ function wireEditButtons(container) {
     btn.addEventListener('click', async () => {
       const row = container.querySelector(`tr[data-record-id="${btn.dataset.recordId}"]`);
       const currentIn = row.children[2].textContent;
-      const currentOut = row.children[3].textContent === '—' ? '' : row.children[3].textContent;
+      const currentOut = row.children[4].textContent === '—' ? '' : row.children[4].textContent;
 
       const newInRaw = prompt('Clock In (format: YYYY-MM-DD HH:MM):', toInputFormat(currentIn));
       if (newInRaw === null) return;

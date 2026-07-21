@@ -1,5 +1,13 @@
 import { supabase } from '../../config/supabase-client.js';
-import { getMyOpenSession, getMyRecentAttendance, clockIn, clockOut } from './attendance.service.js';
+import {
+  getMyOpenSession,
+  getMyRecentAttendance,
+  clockIn,
+  clockOut,
+  getGeolocation,
+  getOutletGeofence,
+  distanceMeters
+} from './attendance.service.js';
 
 export async function renderAttendancePage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = `<p>Memuat presensi...</p>`;
@@ -65,7 +73,23 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
     try {
       const chosenOutletId = outletId ?? document.getElementById('clock-in-outlet')?.value;
       if (!chosenOutletId) throw new Error('Pilih outlet dulu.');
-      await clockIn({ userId, businessUnitId, outletId: chosenOutletId });
+
+      const outlet = await getOutletGeofence(chosenOutletId);
+      const location = await getGeolocation();
+
+      if (outlet.latitude != null && outlet.longitude != null) {
+        if (!location) {
+          throw new Error(`Outlet ini butuh validasi lokasi. Aktifkan izin lokasi di browser/HP kamu, lalu coba lagi.`);
+        }
+        const dist = distanceMeters(location.lat, location.lng, outlet.latitude, outlet.longitude);
+        if (dist > outlet.geofence_radius_m) {
+          throw new Error(
+            `Kamu berada ${Math.round(dist)}m dari outlet (maks ${outlet.geofence_radius_m}m). Mendekatlah ke outlet untuk clock in.`
+          );
+        }
+      }
+
+      await clockIn({ userId, businessUnitId, outletId: chosenOutletId, location });
       await renderAttendancePage(container, { userId, businessUnitId, outletId });
     } catch (error) {
       errorEl.textContent = error.message ?? 'Gagal clock in.';

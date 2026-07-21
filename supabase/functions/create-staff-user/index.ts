@@ -80,19 +80,14 @@ Deno.serve(async (req) => {
     return json({ error: 'Hanya Super Admin yang bisa menambahkan bu_admin' }, 403);
   }
 
-  // Buat akun auth. Password sementara acak — staff diarahkan reset password
-  // sendiri lewat email undangan (pakai admin.inviteUserByEmail bila SMTP sudah aktif).
-  const tempPassword = crypto.randomUUID();
-
-  const { data: createdUser, error: createError } = await admin.auth.admin.createUser({
-    email,
-    password: tempPassword,
-    email_confirm: true
-  });
+  // Buat akun auth lewat alur invite: Supabase langsung kirim email berisi
+  // link buat staff set password sendiri. Ini 1 langkah (bukan createUser
+  // dulu lalu invite terpisah), jadi gak ada risiko akun "yatim" tanpa invite.
+  const { data: invited, error: createError } = await admin.auth.admin.inviteUserByEmail(email);
 
   if (createError) return json({ error: createError.message }, 400);
 
-  const newUserId = createdUser.user.id;
+  const newUserId = invited.user.id;
 
   const { error: profileError } = await admin.from('user_profiles').insert({
     id: newUserId,
@@ -117,9 +112,6 @@ Deno.serve(async (req) => {
     await admin.auth.admin.deleteUser(newUserId);
     return json({ error: membershipError.message }, 500);
   }
-
-  // Kirim email invite supaya staff bisa set password sendiri
-  await admin.auth.admin.inviteUserByEmail(email).catch(() => null);
 
   return json({ user_id: newUserId, email, full_name });
 });
