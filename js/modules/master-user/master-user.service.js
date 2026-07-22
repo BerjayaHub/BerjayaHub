@@ -72,11 +72,23 @@ export async function removeMembershipScope(scopeId) {
  * Sesi admin yang sedang login otomatis disertakan sebagai Bearer token oleh
  * supabase.functions.invoke, jadi Edge Function bisa validasi siapa yang manggil.
  */
+async function extractFunctionErrorMessage(error) {
+  try {
+    if (error?.context && typeof error.context.json === 'function') {
+      const body = await error.context.json();
+      if (body?.error) return body.error;
+    }
+  } catch {
+    // body bukan JSON atau gagal dibaca, fallback ke pesan default di bawah
+  }
+  return error?.message ?? 'Terjadi kesalahan.';
+}
+
 export async function createStaffUser(payload) {
   const { data, error } = await supabase.functions.invoke('create-staff-user', {
     body: payload
   });
-  if (error) throw error;
+  if (error) throw new Error(await extractFunctionErrorMessage(error));
   return data;
 }
 
@@ -84,6 +96,6 @@ export async function resetStaffPassword(targetUserId, newPassword) {
   const { data, error } = await supabase.functions.invoke('reset-staff-password', {
     body: { target_user_id: targetUserId, new_password: newPassword }
   });
-  if (error) throw error;
+  if (error) throw new Error(await extractFunctionErrorMessage(error));
   return data;
 }

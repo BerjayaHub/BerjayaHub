@@ -2,7 +2,13 @@ import {
   listAttendanceForAdmin,
   correctAttendanceRecord,
   listOutletsWithGeofence,
-  setOutletLocation
+  setOutletLocation,
+  getExitTaskMode,
+  setExitTaskMode,
+  generateExitOtp,
+  listRecentExitOtp,
+  getSignedPhotoUrl,
+  reverseGeocode
 } from './attendance.service.js';
 import { renderNbmSettingsTab } from './nbm-settings.admin.page.js';
 import { renderNbmReportTab } from './nbm-report.admin.page.js';
@@ -42,17 +48,40 @@ async function renderPresensiTab(container, businessUnitId) {
   container.innerHTML = `<p>Memuat presensi...</p>`;
 
   const outlets = await listOutletsWithGeofence(businessUnitId);
+  const exitMode = await getExitTaskMode(businessUnitId);
   const filters = { businessUnitId, outletId: '', dateFrom: '', dateTo: '' };
 
   async function refresh() {
     const records = await listAttendanceForAdmin(filters);
     container.querySelector('#attendance-table-body').innerHTML =
-      records.map((r) => rowHtml(r)).join('') || '<tr><td colspan="6">Tidak ada data.</td></tr>';
+      records.map((r) => rowHtml(r)).join('') || '<tr><td colspan="7">Tidak ada data.</td></tr>';
     wireEditButtons(container);
+    wirePhotoButtons(container);
+    wireAddressButtons(container);
   }
 
   container.innerHTML = `
-    <details class="inline-card" style="max-width:640px">
+    <div class="inline-card" style="max-width:640px">
+      <h3 style="margin-top:0">Mode Tugas Keluar (BU ini)</h3>
+      <div class="field" style="max-width:220px">
+        <select id="exit-mode-select">
+          <option value="storing" ${exitMode === 'storing' ? 'selected' : ''}>Storing (tanpa OTP)</option>
+          <option value="otp" ${exitMode === 'otp' ? 'selected' : ''}>OTP (kode dari admin)</option>
+        </select>
+      </div>
+      <button class="primary" id="btn-save-exit-mode" style="max-width:140px;margin-top:8px">Simpan Mode</button>
+
+      <div id="otp-generator-wrap" style="margin-top:16px;${exitMode === 'otp' ? '' : 'display:none'}">
+        <button class="primary" id="btn-generate-otp" style="max-width:200px">+ Generate Kode OTP</button>
+        <div id="otp-result" style="margin-top:8px"></div>
+        <table class="data-table" style="margin-top:12px">
+          <thead><tr><th>Kode</th><th>Kedaluwarsa</th><th>Dipakai oleh</th></tr></thead>
+          <tbody id="otp-recent-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <details class="inline-card" style="max-width:640px;margin-top:16px">
       <summary style="cursor:pointer;font-weight:600">Pengaturan Lokasi Outlet (Geofencing)</summary>
       <table class="data-table" style="margin-top:12px">
         <thead><tr><th>Outlet</th><th>Koordinat</th><th>Radius</th><th>Aksi</th></tr></thead>
@@ -62,7 +91,7 @@ async function renderPresensiTab(container, businessUnitId) {
       </table>
       <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:8px">
         Kalau koordinat belum diisi, staff bisa clock in dari mana saja (geofence belum aktif untuk outlet itu).
-        Staff yang centang "Tugas storing" juga otomatis lewati geofence.
+        Staff yang mengisi tugas keluar juga otomatis lewati geofence.
       </p>
     </details>
 
@@ -81,13 +110,56 @@ async function renderPresensiTab(container, businessUnitId) {
 
     <table class="data-table">
       <thead>
-        <tr><th>Staff</th><th>Outlet</th><th>Clock In</th><th>Koordinat In</th><th>Clock Out</th><th>Aksi</th></tr>
+        <tr><th>Staff</th><th>Outlet</th><th>Clock In</th><th>Foto</th><th>Alamat</th><th>Clock Out</th><th>Aksi</th></tr>
       </thead>
       <tbody id="attendance-table-body"></tbody>
     </table>
   `;
 
   wireOutletGeofenceButtons(container, businessUnitId);
+
+  document.getElementById('exit-mode-select').addEventListener('change', (e) => {
+    document.getElementById('otp-generator-wrap').style.display = e.target.value === 'otp' ? 'block' : 'none';
+  });
+
+  document.getElementById('btn-save-exit-mode').addEventListener('click', async () => {
+    try {
+      await setExitTaskMode(businessUnitId, document.getElementById('exit-mode-select').value);
+      alert('Mode tugas keluar disimpan.');
+    } catch (error) {
+      alert(error.message ?? 'Gagal menyimpan mode.');
+    }
+  });
+
+  document.getElementById('btn-generate-otp').addEventListener('click', async () => {
+    try {
+      const otp = await generateExitOtp(businessUnitId);
+      document.getElementById('otp-result').innerHTML = `
+        <div class="scope-badge" style="font-size:1rem;padding:6px 12px">
+          Kode: <strong>${otp.code}</strong> — berlaku sampai ${formatTime(otp.expires_at)}
+        </div>
+      `;
+      await refreshOtpList();
+    } catch (error) {
+      alert(error.message ?? 'Gagal generate kode OTP.');
+    }
+  });
+
+  async function refreshOtpList() {
+    const codes = await listRecentExitOtp(businessUnitId);
+    document.getElementById('otp-recent-body').innerHTML =
+      codes
+        .map(
+          (c) => `
+        <tr>
+          <td>${c.code}</td>
+          <td>${formatTime(c.expires_at)}</td>
+          <td>${c.used_at ? (c.user_profiles?.full_name ?? 'Ya') : '-'}</td>
+        </tr>`
+        )
+        .join('') || '<tr><td colspan="3">Belum ada kode.</td></tr>';
+  }
+  if (exitMode === 'otp') await refreshOtpList();
 
   document.getElementById('btn-filter').addEventListener('click', () => {
     filters.outletId = document.getElementById('filter-outlet').value || '';
@@ -102,14 +174,23 @@ async function renderPresensiTab(container, businessUnitId) {
 }
 
 function rowHtml(r) {
-  const coord = r.clock_in_lat != null ? `${r.clock_in_lat.toFixed(5)}, ${r.clock_in_lng.toFixed(5)}` : '-';
-  const storingTag = r.is_storing ? ' <span class="scope-badge">storing</span>' : '';
+  const storingTag = r.is_storing ? ` <span class="scope-badge">${r.exit_method ?? 'tugas keluar'}</span>` : '';
+  const fotoButtons = [
+    r.clock_in_photo_path ? `<button class="btn-view-photo" data-path="${r.clock_in_photo_path}">In</button>` : '',
+    r.clock_out_photo_path ? `<button class="btn-view-photo" data-path="${r.clock_out_photo_path}">Out</button>` : ''
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return `
-    <tr data-record-id="${r.id}">
+    <tr data-record-id="${r.id}" data-lat="${r.clock_in_lat ?? ''}" data-lng="${r.clock_in_lng ?? ''}">
       <td>${r.user_profiles?.full_name ?? '-'}</td>
       <td>${r.outlets?.name ?? '-'}${storingTag}</td>
       <td>${formatTime(r.clock_in_at)}</td>
-      <td style="font-size:0.78rem">${coord}</td>
+      <td>${fotoButtons || '-'}</td>
+      <td style="font-size:0.78rem;max-width:180px" class="address-cell">
+        ${r.clock_in_lat != null ? '<button class="btn-view-address">Lihat Alamat</button>' : '-'}
+      </td>
       <td>${r.clock_out_at ? formatTime(r.clock_out_at) : '—'}</td>
       <td><button class="btn-edit" data-record-id="${r.id}">Koreksi</button></td>
     </tr>
@@ -153,12 +234,45 @@ function wireOutletGeofenceButtons(container, businessUnitId) {
   });
 }
 
+function wirePhotoButtons(container) {
+  container.querySelectorAll('.btn-view-photo').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        const url = await getSignedPhotoUrl(btn.dataset.path);
+        if (url) window.open(url, '_blank');
+        else alert('Foto tidak ditemukan.');
+      } catch (error) {
+        alert(error.message ?? 'Gagal membuka foto.');
+      }
+    });
+  });
+}
+
+function wireAddressButtons(container) {
+  container.querySelectorAll('.btn-view-address').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const lat = parseFloat(row.dataset.lat);
+      const lng = parseFloat(row.dataset.lng);
+      btn.textContent = 'Memuat...';
+      btn.disabled = true;
+      try {
+        const address = await reverseGeocode(lat, lng);
+        row.querySelector('.address-cell').textContent = address;
+      } catch (error) {
+        btn.textContent = 'Gagal, coba lagi';
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
 function wireEditButtons(container) {
   container.querySelectorAll('.btn-edit').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const row = container.querySelector(`tr[data-record-id="${btn.dataset.recordId}"]`);
       const currentIn = row.children[2].textContent;
-      const currentOut = row.children[4].textContent === '—' ? '' : row.children[4].textContent;
+      const currentOut = row.children[5].textContent === '—' ? '' : row.children[5].textContent;
 
       const newInRaw = prompt('Clock In (format: YYYY-MM-DD HH:MM):', toInputFormat(currentIn));
       if (newInRaw === null) return;
