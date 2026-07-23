@@ -1,4 +1,5 @@
 import { getBusinessUnit, updateBuTheme, uploadBuLogo } from './organization.service.js';
+import { toast } from '../../core/ui.js';
 
 export async function renderBuAppearancePage(container, { businessUnitId }) {
   container.innerHTML = `<p>Memuat...</p>`;
@@ -31,22 +32,29 @@ export async function renderBuAppearancePage(container, { businessUnitId }) {
   `;
 
   document.getElementById('btn-save-theme').addEventListener('click', async () => {
+    document.getElementById('theme-error').textContent = '';
     try {
       await updateBuTheme(businessUnitId, { theme_color: document.getElementById('theme-color-input').value });
-      alert('Warna tema disimpan. Staff akan lihat perubahan setelah login ulang.');
+      toast('Warna tema disimpan. Staff lihat perubahannya setelah login ulang.', 'success');
     } catch (error) {
-      document.getElementById('theme-error').textContent = error.message ?? 'Gagal menyimpan warna.';
+      const msg = error.message ?? 'Gagal menyimpan warna.';
+      document.getElementById('theme-error').textContent = msg;
+      toast(msg, 'error');
     }
   });
 
   document.getElementById('btn-save-logo').addEventListener('click', async () => {
+    document.getElementById('logo-error').textContent = '';
     const file = document.getElementById('logo-input').files[0];
-    if (!file) return alert('Pilih file logo dulu.');
+    if (!file) return toast('Pilih file logo dulu.', 'warning');
     try {
       await uploadBuLogo(businessUnitId, file);
+      toast('Logo berhasil diperbarui.', 'success');
       await renderBuAppearancePage(container, { businessUnitId });
     } catch (error) {
-      document.getElementById('logo-error').textContent = error.message ?? 'Gagal upload logo.';
+      const msg = error.message ?? 'Gagal upload logo.';
+      document.getElementById('logo-error').textContent = msg;
+      toast(msg, 'error');
     }
   });
 }

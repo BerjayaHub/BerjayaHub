@@ -1,6 +1,7 @@
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
 import { getActiveModules, getModuleRenderer, registerModule } from './core/module-loader.js';
 import { getModuleIcon } from './core/module-icons.js';
+import { toast, confirmDialog, formDialog } from './core/ui.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
 
 registerModule('attendance', renderAttendancePage);
@@ -99,79 +100,63 @@ async function renderShell() {
 
   const logoSrc = activeScope.business_units?.logo_url || 'images/logo.svg';
 
+  // Tampilan tanpa menu samping: header atas + konten kartu.
   app.innerHTML = `
-    <div class="app-shell">
-      <button class="nav-toggle" id="btn-nav-toggle" aria-label="Buka menu">☰</button>
-      <nav class="app-nav" id="app-nav">
-        <div class="nav-brand">
-          <img src="${logoSrc}" alt="" class="nav-logo" onerror="this.style.display='none'" />
-          <div>
-            <div style="font-weight:600">${context.profile.full_name}</div>
-            <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0">${activeScope.business_units?.name ?? ''}</p>
-          </div>
-        </div>
-        <ul>
-          <li><a href="#" id="nav-home">🏠 Beranda</a></li>
-        </ul>
-        <button id="btn-change-password" style="margin-top:16px;width:100%">Ubah Password</button>
-        <div id="change-password-wrap"></div>
-        <button class="primary" id="btn-logout" style="margin-top:8px">Keluar</button>
-      </nav>
-      <main class="app-content" id="module-content"></main>
-    </div>
+    <header class="staff-topbar">
+      <img src="${logoSrc}" alt="" class="topbar-logo" onerror="this.style.display='none'" />
+      <div class="topbar-info">
+        <div class="topbar-name">${context.profile.full_name}</div>
+        <div class="topbar-bu">${activeScope.business_units?.name ?? ''}</div>
+      </div>
+      <button class="topbar-btn" id="btn-home-top" title="Beranda" aria-label="Beranda">🏠</button>
+      <button class="topbar-btn" id="btn-change-password" title="Ubah Password" aria-label="Ubah Password">🔑</button>
+      <button class="topbar-btn" id="btn-logout" title="Keluar" aria-label="Keluar">⎋</button>
+    </header>
+    <main class="staff-main" id="module-content"></main>
   `;
 
-  document.getElementById('btn-nav-toggle').addEventListener('click', () => {
-    document.getElementById('app-nav').classList.toggle('open');
-  });
+  document.getElementById('btn-home-top').addEventListener('click', () => renderHome(context, modules, moduleCtx));
 
-  document.getElementById('btn-logout').addEventListener('click', signOut);
-
-  document.getElementById('nav-home').addEventListener('click', (e) => {
-    e.preventDefault();
-    document.getElementById('app-nav')?.classList.remove('open');
-    renderHome(modules, moduleCtx);
-  });
-
-  document.getElementById('btn-change-password').addEventListener('click', () => {
-    const wrap = document.getElementById('change-password-wrap');
-    if (wrap.innerHTML) {
-      wrap.innerHTML = '';
-      return;
-    }
-    wrap.innerHTML = `
-      <form id="change-password-form" style="margin-top:8px">
-        <div class="field" style="margin-bottom:6px">
-          <input type="password" name="new_password" placeholder="Password baru (min 6 karakter)" minlength="6" required />
-        </div>
-        <button class="primary" type="submit" style="min-height:36px">Simpan</button>
-        <p class="error-text" id="change-password-error" style="margin:4px 0 0"></p>
-        <p id="change-password-success" style="color:var(--color-primary);font-size:0.85rem;margin:4px 0 0"></p>
-      </form>
-    `;
-    document.getElementById('change-password-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const newPassword = e.target.new_password.value;
-      try {
-        await changeOwnPassword(newPassword);
-        document.getElementById('change-password-error').textContent = '';
-        document.getElementById('change-password-success').textContent = 'Password berhasil diubah.';
-        e.target.reset();
-      } catch (error) {
-        document.getElementById('change-password-success').textContent = '';
-        document.getElementById('change-password-error').textContent = error.message ?? 'Gagal ubah password.';
-      }
+  document.getElementById('btn-logout').addEventListener('click', async () => {
+    const ok = await confirmDialog({
+      title: 'Keluar dari akun?',
+      message: 'Kamu perlu login lagi untuk masuk berikutnya.',
+      confirmText: 'Keluar',
+      danger: true
     });
+    if (ok) signOut();
+  });
+
+  document.getElementById('btn-change-password').addEventListener('click', async () => {
+    const values = await formDialog({
+      title: 'Ubah Password',
+      description: 'Masukkan password baru untuk akun kamu.',
+      fields: [
+        { name: 'new_password', label: 'Password baru', type: 'password', required: true, minlength: 6, placeholder: 'Minimal 6 karakter' }
+      ],
+      submitText: 'Simpan'
+    });
+    if (!values) return;
+    try {
+      await changeOwnPassword(values.new_password);
+      toast('Password berhasil diubah.', 'success');
+    } catch (error) {
+      toast(error.message ?? 'Gagal ubah password.', 'error');
+    }
   });
 
   // Beranda card-based sebagai tampilan awal
-  renderHome(modules, moduleCtx);
+  renderHome(context, modules, moduleCtx);
 }
 
-function renderHome(modules, moduleCtx) {
+function renderHome(context, modules, moduleCtx) {
   const content = document.getElementById('module-content');
+  const firstName = (context.profile.full_name || '').split(' ')[0] || 'Halo';
   content.innerHTML = `
-    <h1>Beranda</h1>
+    <div class="staff-greeting">
+      <h1>Halo, ${firstName} 👋</h1>
+      <p>Pilih menu di bawah untuk mulai.</p>
+    </div>
     <div class="card-grid">
       ${
         modules
@@ -188,11 +173,11 @@ function renderHome(modules, moduleCtx) {
   `;
 
   content.querySelectorAll('[data-module]').forEach((card) => {
-    card.addEventListener('click', () => openModule(card.dataset.module, modules, moduleCtx));
+    card.addEventListener('click', () => openModule(card.dataset.module, context, modules, moduleCtx));
   });
 }
 
-function openModule(code, modules, moduleCtx) {
+function openModule(code, context, modules, moduleCtx) {
   const content = document.getElementById('module-content');
   const mod = modules.find((m) => m.code === code);
   content.innerHTML = `
@@ -202,7 +187,7 @@ function openModule(code, modules, moduleCtx) {
     </div>
     <div id="module-body"></div>
   `;
-  document.getElementById('btn-back-home').addEventListener('click', () => renderHome(modules, moduleCtx));
+  document.getElementById('btn-back-home').addEventListener('click', () => renderHome(context, modules, moduleCtx));
 
   const renderer = getModuleRenderer(code);
   const body = document.getElementById('module-body');

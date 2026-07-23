@@ -9,6 +9,7 @@ import {
   resetStaffPassword
 } from './master-user.service.js';
 import { listRegisteredFaceUserIds, resetFaceDescriptor } from '../attendance/attendance.service.js';
+import { toast, confirmDialog, formDialog } from '../../core/ui.js';
 
 const ROLE_LABEL = {
   super_admin: 'Super Admin',
@@ -16,6 +17,12 @@ const ROLE_LABEL = {
   outlet_admin: 'Admin Outlet',
   staff: 'Staff'
 };
+
+const ROLE_OPTIONS = [
+  { value: 'staff', label: 'Staff' },
+  { value: 'outlet_admin', label: 'Admin Outlet' },
+  { value: 'bu_admin', label: 'Admin BU' }
+];
 
 export async function renderMasterUserPage(container) {
   container.innerHTML = `<p>Memuat data staff...</p>`;
@@ -151,6 +158,7 @@ function renderNewStaffForm(container, businessUnits) {
     try {
       await createStaffUser(payload);
       wrap.innerHTML = '';
+      toast('Staff baru berhasil ditambahkan.', 'success');
       await renderMasterUserPage(container);
     } catch (error) {
       document.getElementById('new-staff-error').textContent = error.message ?? 'Gagal menyimpan staff.';
@@ -163,74 +171,162 @@ function wireRowActions(container, businessUnits) {
     btn.addEventListener('click', async () => {
       const userId = btn.dataset.userId;
       const isActive = btn.dataset.active === 'true';
-      await updateProfile(userId, { is_active: !isActive });
-      await renderMasterUserPage(container);
+      const ok = await confirmDialog({
+        title: isActive ? 'Nonaktifkan staff?' : 'Aktifkan staff?',
+        message: isActive
+          ? 'Staff yang dinonaktifkan tidak bisa login sampai diaktifkan lagi.'
+          : 'Staff akan bisa login kembali.',
+        confirmText: isActive ? 'Nonaktifkan' : 'Aktifkan',
+        danger: isActive
+      });
+      if (!ok) return;
+      try {
+        await updateProfile(userId, { is_active: !isActive });
+        toast(isActive ? 'Staff dinonaktifkan.' : 'Staff diaktifkan.', 'success');
+        await renderMasterUserPage(container);
+      } catch (error) {
+        toast(error.message ?? 'Gagal memperbarui status.', 'error');
+      }
     });
   });
 
   container.querySelectorAll('.btn-reset-face').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Hapus data wajah terdaftar staff ini? Staff akan diminta daftar ulang saat clock in berikutnya.')) return;
+      const ok = await confirmDialog({
+        title: 'Reset data wajah?',
+        message: 'Staff akan diminta mendaftarkan wajah ulang saat clock in berikutnya.',
+        confirmText: 'Reset',
+        danger: true
+      });
+      if (!ok) return;
       try {
         await resetFaceDescriptor(btn.dataset.userId);
+        toast('Data wajah direset.', 'success');
         await renderMasterUserPage(container);
       } catch (error) {
-        alert(error.message ?? 'Gagal reset data wajah.');
+        toast(error.message ?? 'Gagal reset data wajah.', 'error');
       }
     });
   });
 
   container.querySelectorAll('.btn-reset-password').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const newPassword = prompt('Password baru untuk staff ini (minimal 6 karakter):');
-      if (!newPassword) return;
-      if (newPassword.length < 6) return alert('Password minimal 6 karakter.');
+      const values = await formDialog({
+        title: 'Reset Password Staff',
+        description: 'Isi password baru. Beritahu staff password barunya setelah ini.',
+        fields: [
+          { name: 'password', label: 'Password baru', type: 'text', required: true, minlength: 6, placeholder: 'Minimal 6 karakter' }
+        ],
+        submitText: 'Reset Password'
+      });
+      if (!values) return;
       try {
-        await resetStaffPassword(btn.dataset.userId, newPassword);
-        alert('Password berhasil direset. Kasih tau staff-nya password barunya.');
+        await resetStaffPassword(btn.dataset.userId, values.password);
+        toast('Password berhasil direset.', 'success');
       } catch (error) {
-        alert(error.message ?? 'Gagal reset password.');
+        toast(error.message ?? 'Gagal reset password.', 'error');
       }
     });
   });
 
   container.querySelectorAll('.btn-edit').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const row = container.querySelector(`tr[data-user-id="${btn.dataset.userId}"]`);
       const currentName = row.children[0].textContent;
       const currentPhone = row.children[1].textContent === '-' ? '' : row.children[1].textContent;
-      const newName = prompt('Nama lengkap:', currentName);
-      if (newName === null) return;
-      const newPhone = prompt('No. Telp:', currentPhone);
-      updateProfile(btn.dataset.userId, { full_name: newName, phone: newPhone || null }).then(() =>
-        renderMasterUserPage(container)
-      );
+      const values = await formDialog({
+        title: 'Edit Staff',
+        fields: [
+          { name: 'full_name', label: 'Nama Lengkap', type: 'text', required: true, value: currentName },
+          { name: 'phone', label: 'No. Telp', type: 'tel', value: currentPhone, placeholder: 'Opsional' }
+        ],
+        submitText: 'Simpan'
+      });
+      if (!values) return;
+      try {
+        await updateProfile(btn.dataset.userId, { full_name: values.full_name, phone: values.phone || null });
+        toast('Data staff diperbarui.', 'success');
+        await renderMasterUserPage(container);
+      } catch (error) {
+        toast(error.message ?? 'Gagal memperbarui staff.', 'error');
+      }
     });
   });
 
   container.querySelectorAll('.scope-remove').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      if (!confirm('Hapus scope ini dari staff?')) return;
-      await removeMembershipScope(btn.dataset.scopeId);
-      await renderMasterUserPage(container);
+      const ok = await confirmDialog({
+        title: 'Hapus scope?',
+        message: 'Akses staff ke BU/outlet ini akan dicabut.',
+        confirmText: 'Hapus',
+        danger: true
+      });
+      if (!ok) return;
+      try {
+        await removeMembershipScope(btn.dataset.scopeId);
+        toast('Scope dihapus.', 'success');
+        await renderMasterUserPage(container);
+      } catch (error) {
+        toast(error.message ?? 'Gagal menghapus scope.', 'error');
+      }
     });
   });
 
   container.querySelectorAll('.btn-add-scope').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const userId = btn.dataset.userId;
-      const buId = prompt(
-        'ID Business Unit tujuan:\n' + businessUnits.map((bu) => `${bu.id} = ${bu.name}`).join('\n')
-      );
-      if (!buId) return;
-      const role = prompt('Role (staff / outlet_admin / bu_admin):', 'staff');
-      if (!role) return;
-      try {
-        await addMembershipScope({ user_id: userId, business_unit_id: buId, role });
-        await renderMasterUserPage(container);
-      } catch (error) {
-        alert(error.message ?? 'Gagal menambah scope.');
-      }
-    });
+    btn.addEventListener('click', () => openAddScopeDialog(container, businessUnits, btn.dataset.userId));
   });
+}
+
+/** Tambah scope pakai dropdown (tanpa ketik UUID). Outlet ikut BU yang dipilih. */
+async function openAddScopeDialog(container, businessUnits, userId) {
+  const values = await formDialog({
+    title: 'Tambah Scope',
+    description: 'Pilih BU, outlet (opsional), dan role. Tidak perlu isi UUID.',
+    fields: [
+      {
+        name: 'business_unit_id',
+        label: 'Business Unit',
+        type: 'select',
+        required: true,
+        options: [{ value: '', label: '-- pilih BU --' }, ...businessUnits.map((bu) => ({ value: bu.id, label: bu.name }))]
+      },
+      {
+        name: 'outlet_id',
+        label: 'Outlet (opsional)',
+        type: 'select',
+        options: [{ value: '', label: '-- semua outlet / level BU --' }]
+      },
+      { name: 'role', label: 'Role', type: 'select', required: true, options: ROLE_OPTIONS }
+    ],
+    submitText: 'Tambah',
+    onReady: (form) => {
+      const buSelect = form.elements['business_unit_id'];
+      const outletSelect = form.elements['outlet_id'];
+      buSelect.addEventListener('change', async () => {
+        outletSelect.innerHTML = '<option value="">-- semua outlet / level BU --</option>';
+        if (!buSelect.value) return;
+        try {
+          const outlets = await listOutlets(buSelect.value);
+          outletSelect.innerHTML =
+            '<option value="">-- semua outlet / level BU --</option>' +
+            outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('');
+        } catch {
+          // biarkan default kalau gagal ambil outlet
+        }
+      });
+    }
+  });
+  if (!values) return;
+  try {
+    await addMembershipScope({
+      user_id: userId,
+      business_unit_id: values.business_unit_id,
+      outlet_id: values.outlet_id || null,
+      role: values.role
+    });
+    toast('Scope ditambahkan.', 'success');
+    await renderMasterUserPage(container);
+  } catch (error) {
+    toast(error.message ?? 'Gagal menambah scope.', 'error');
+  }
 }

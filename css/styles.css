@@ -479,3 +479,208 @@ button.primary:hover { background: var(--color-primary-hover); }
   color: var(--color-text-muted);
   margin-top: 2px;
 }
+
+/* =========================================================
+   Toast (pop up notifikasi) + Modal
+   ========================================================= */
+.toast-root {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: min(360px, 92vw);
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-text-muted);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  font-size: 0.9rem;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateX(24px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.toast-msg { line-height: 1.35; padding-top: 1px; }
+
+.toast-success { border-left-color: var(--color-primary); }
+.toast-success .toast-icon { background: var(--color-primary); }
+.toast-error { border-left-color: var(--color-danger); }
+.toast-error .toast-icon { background: var(--color-danger); }
+.toast-warning { border-left-color: #d98a00; }
+.toast-warning .toast-icon { background: #d98a00; }
+.toast-info { border-left-color: #2f6fd0; }
+.toast-info .toast-icon { background: #2f6fd0; }
+
+@media (max-width: 768px) {
+  .toast-root { top: 12px; left: 12px; right: 12px; max-width: none; }
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-md);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.modal-overlay.show { opacity: 1; }
+
+.modal-card {
+  background: var(--color-surface);
+  border-radius: 14px;
+  padding: var(--spacing-lg);
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  transform: translateY(12px) scale(0.98);
+  transition: transform 0.2s ease;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-overlay.show .modal-card { transform: translateY(0) scale(1); }
+
+.modal-title { margin: 0 0 10px; font-size: 1.1rem; }
+.modal-text { margin: 0 0 16px; color: var(--color-text-muted); font-size: 0.92rem; line-height: 1.45; }
+.modal-body { margin-bottom: 4px; }
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.btn-inline { width: auto !important; min-width: 110px; }
+
+.btn-ghost {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  min-height: 44px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  color: var(--color-text);
+}
+.btn-ghost:hover { background: var(--color-bg); }
+
+.btn-danger {
+  border: none;
+  background: var(--color-danger);
+  color: #fff;
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  min-height: 44px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.field-help { display: block; font-size: 0.76rem; color: var(--color-text-muted); margin-top: 4px; }
+.field-check { display: flex; align-items: center; gap: 8px; }
+.field-check input { width: auto; }
+
+@media (max-width: 768px) {
+  .modal-actions { flex-direction: column-reverse; }
+  .btn-inline, .btn-ghost, .btn-danger { width: 100% !important; }
+}
+
+/* =========================================================
+   Staff App header bar (pengganti sidebar)
+   ========================================================= */
+.staff-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--color-primary);
+  color: #fff;
+  padding: 12px 16px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+
+.staff-topbar .topbar-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: #fff;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.staff-topbar .topbar-info { flex: 1; min-width: 0; }
+.staff-topbar .topbar-name { font-weight: 600; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.staff-topbar .topbar-bu { font-size: 0.76rem; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.staff-topbar .topbar-btn {
+  border: none;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border-radius: 8px;
+  width: 40px;
+  height: 40px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.staff-topbar .topbar-btn:hover { background: rgba(255, 255, 255, 0.28); }
+
+.staff-main { padding: var(--spacing-lg); max-width: 760px; margin: 0 auto; }
+
+@media (max-width: 768px) {
+  .staff-main { padding: var(--spacing-md); }
+}
+
+/* Kartu beranda staff — sedikit lebih hidup */
+.staff-main .card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+}
+
+.staff-main .module-card {
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.staff-main .module-card:hover,
+.staff-main .module-card:active {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+.staff-greeting { margin: 4px 0 0; }
+.staff-greeting h1 { font-size: 1.25rem; margin: 0 0 2px; }
+.staff-greeting p { margin: 0; color: var(--color-text-muted); font-size: 0.9rem; }

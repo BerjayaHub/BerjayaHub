@@ -5,6 +5,7 @@ import { renderMasterUserPage } from './modules/master-user/master-user.page.js'
 import { renderAttendanceAdminPage } from './modules/attendance/attendance.admin.page.js';
 import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
 import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
+import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
 
 const app = document.getElementById('app');
 const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
@@ -12,11 +13,13 @@ const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
 // Modul "core" admin: selalu tampil untuk admin, tidak tergantung toggle bu_modules
 // (beda dengan modul operasional seperti presensi/inventory yang di-toggle per BU)
 registerModule('dashboard', renderAdminDashboard);
+registerModule('organization', renderOrganizationAdminPage);
 registerModule('master_user', renderMasterUserPage);
 registerModule('bu_appearance', renderBuAppearancePage);
 registerModule('attendance', renderAttendanceAdminPage);
 const CORE_ADMIN_MENU = [
   { code: 'dashboard', name: 'Dashboard' },
+  { code: 'organization', name: 'Master BU & Outlet' },
   { code: 'master_user', name: 'Master User' },
   { code: 'bu_appearance', name: 'Tampilan BU' }
 ];

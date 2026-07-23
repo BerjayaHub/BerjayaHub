@@ -8,7 +8,8 @@ const ICONS = {
   fleet: '🚗',
   master_user: '👤',
   dashboard: '🏠',
-  bu_appearance: '🎨'
+  bu_appearance: '🎨',
+  organization: '🏢'
 };
 
 export function getModuleIcon(code) {

@@ -1,6 +1,7 @@
 import { supabase } from '../../config/supabase-client.js';
+import { toast } from '../../core/ui.js';
 import {
-  getMyOpenSession,
+  getMyTodaySession,
   getMyRecentAttendance,
   clockIn,
   clockOut,
@@ -29,12 +30,17 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
   container.innerHTML = `<p>Memuat presensi...</p>`;
   loadFaceModels().catch(() => {}); // mulai load di background, tidak perlu ditunggu
 
-  const [openSession, recent, exitMode, myFaceDescriptor] = await Promise.all([
-    getMyOpenSession(),
+  const [todaySession, recent, exitMode, myFaceDescriptor] = await Promise.all([
+    getMyTodaySession(),
     getMyRecentAttendance(),
     getExitTaskMode(businessUnitId),
     getMyFaceDescriptor()
   ]);
+
+  // Sesi terbuka hari ini (belum clock out) -> boleh clock out.
+  const openSession = todaySession && !todaySession.clock_out_at ? todaySession : null;
+  // Sudah clock in DAN clock out hari ini -> presensi hari ini selesai, tidak boleh clock-in lagi.
+  const doneToday = todaySession && todaySession.clock_out_at ? todaySession : null;
 
   // Staff wajib daftar wajah dulu sebelum bisa clock in/out sama sekali.
   if (!myFaceDescriptor) {
@@ -56,7 +62,16 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
     <h1>Presensi</h1>
     <div class="inline-card">
       ${
-        openSession
+        doneToday
+          ? `
+            <p style="font-size:1.05rem"><strong>✅ Presensi hari ini sudah lengkap.</strong></p>
+            <p style="color:var(--color-text-muted);font-size:0.9rem">
+              Clock In <strong>${formatTime(doneToday.clock_in_at)}</strong> &middot;
+              Clock Out <strong>${formatTime(doneToday.clock_out_at)}</strong>.<br>
+              Clock in &amp; clock out hanya bisa sekali sehari. Sampai jumpa besok!
+            </p>
+          `
+          : openSession
           ? `
             <p>Kamu sedang bekerja sejak <strong>${formatTime(openSession.clock_in_at)}</strong>.</p>
             <div class="field">
@@ -201,9 +216,12 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
       });
       await setClockInPhoto(record.id, photoPath);
 
-      if (faceMatch === false) {
-        alert('Clock in berhasil. Catatan: wajah di foto tidak sepenuhnya cocok dengan data terdaftar, jadi ditandai untuk direview admin.');
-      }
+      toast(
+        faceMatch === false
+          ? 'Clock in berhasil, tapi wajah kurang cocok — ditandai untuk review admin.'
+          : 'Clock in berhasil. Selamat bekerja! 👋',
+        faceMatch === false ? 'warning' : 'success'
+      );
 
       await renderAttendancePage(container, { userId, businessUnitId, outletId });
     } catch (error) {
@@ -244,9 +262,12 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
       const faceMatch = capturedOut.descriptor ? isSameFace(capturedOut.descriptor, myFaceDescriptor) : null;
       await clockOut(openSession.id, { photoPath, faceMatch });
 
-      if (faceMatch === false) {
-        alert('Clock out berhasil. Catatan: wajah di foto tidak sepenuhnya cocok dengan data terdaftar, jadi ditandai untuk direview admin.');
-      }
+      toast(
+        faceMatch === false
+          ? 'Clock out berhasil, tapi wajah kurang cocok — ditandai untuk review admin.'
+          : 'Clock out berhasil. Terima kasih atas kerja kerasnya hari ini! 🙌',
+        faceMatch === false ? 'warning' : 'success'
+      );
 
       await renderAttendancePage(container, { userId, businessUnitId, outletId });
     } catch (error) {

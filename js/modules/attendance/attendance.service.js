@@ -73,6 +73,27 @@ export async function getMyOpenSession() {
   return data;
 }
 
+/**
+ * Sesi presensi milik user HARI INI (WIB), terbuka maupun sudah clock out.
+ * Dipakai untuk memastikan clock-in cuma sekali sehari: kalau hari ini sudah
+ * ada baris (walau sudah clock out), staff tidak boleh clock-in lagi.
+ */
+export async function getMyTodaySession() {
+  // Awal hari waktu Jakarta (WIB, UTC+7), dihitung tanpa bergantung timezone device.
+  const now = new Date();
+  const wib = new Date(now.getTime() + 7 * 3600 * 1000);
+  const startWibUtc = new Date(Date.UTC(wib.getUTCFullYear(), wib.getUTCMonth(), wib.getUTCDate(), 0, 0, 0) - 7 * 3600 * 1000);
+  const { data, error } = await supabase
+    .from('attendance_records')
+    .select('*')
+    .gte('clock_in_at', startWibUtc.toISOString())
+    .order('clock_in_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 export async function getMyRecentAttendance(limit = 10) {
   const { data, error } = await supabase
     .from('attendance_records')
