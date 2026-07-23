@@ -3,6 +3,7 @@ import {
   correctAttendanceRecord,
   listOutletsWithGeofence,
   setOutletLocation,
+  setOutletWorkHours,
   getExitTaskMode,
   setExitTaskMode,
   generateExitOtp,
@@ -95,6 +96,21 @@ async function renderPresensiTab(container, businessUnitId) {
       </p>
     </details>
 
+    <details class="inline-card" style="max-width:640px;margin-top:16px">
+      <summary style="cursor:pointer;font-weight:600">Jam Kerja & Reminder Clock In</summary>
+      <table class="data-table" style="margin-top:12px">
+        <thead><tr><th>Outlet</th><th>Jam Masuk</th><th>Jam Pulang</th><th>Reminder</th><th>Aksi</th></tr></thead>
+        <tbody id="outlet-workhours-body">
+          ${(outlets ?? []).map((o) => outletWorkHoursRowHtml(o)).join('')}
+        </tbody>
+      </table>
+      <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:8px">
+        Kalau "Jam Masuk" belum diisi, reminder tidak aktif untuk outlet itu. Staff yang belum
+        clock in 10 menit setelah jam masuk akan dapat notifikasi pengingat otomatis (sekali per hari).
+        Staff perlu aktifkan sendiri notifikasi lewat halaman Presensi mereka.
+      </p>
+    </details>
+
     <div class="inline-card" style="max-width:640px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:16px">
       <div class="field" style="margin:0">
         <label>Outlet</label>
@@ -110,13 +126,14 @@ async function renderPresensiTab(container, businessUnitId) {
 
     <table class="data-table">
       <thead>
-        <tr><th>Staff</th><th>Outlet</th><th>Clock In</th><th>Foto</th><th>Alamat</th><th>Clock Out</th><th>Aksi</th></tr>
+        <tr><th>Staff</th><th>Outlet</th><th>Clock In</th><th>Wajah</th><th>Foto</th><th>Alamat</th><th>Clock Out</th><th>Aksi</th></tr>
       </thead>
       <tbody id="attendance-table-body"></tbody>
     </table>
   `;
 
   wireOutletGeofenceButtons(container, businessUnitId);
+  wireOutletWorkHoursButtons(container, businessUnitId);
 
   document.getElementById('exit-mode-select').addEventListener('change', (e) => {
     document.getElementById('otp-generator-wrap').style.display = e.target.value === 'otp' ? 'block' : 'none';
@@ -187,6 +204,7 @@ function rowHtml(r) {
       <td>${r.user_profiles?.full_name ?? '-'}</td>
       <td>${r.outlets?.name ?? '-'}${storingTag}</td>
       <td>${formatTime(r.clock_in_at)}</td>
+      <td>${faceMatchBadgeHtml(r.clock_in_face_match)}${r.clock_out_at ? '<br>' + faceMatchBadgeHtml(r.clock_out_face_match) : ''}</td>
       <td>${fotoButtons || '-'}</td>
       <td style="font-size:0.78rem;max-width:180px" class="address-cell">
         ${r.clock_in_lat != null ? '<button class="btn-view-address">Lihat Alamat</button>' : '-'}
@@ -195,6 +213,12 @@ function rowHtml(r) {
       <td><button class="btn-edit" data-record-id="${r.id}">Koreksi</button></td>
     </tr>
   `;
+}
+
+function faceMatchBadgeHtml(match) {
+  if (match === true) return '<span class="scope-badge" style="color:var(--color-primary)">✅ Cocok</span>';
+  if (match === false) return '<span class="scope-badge" style="color:var(--color-danger)">⚠️ Perlu Review</span>';
+  return '<span class="scope-badge">– Tidak dicek</span>';
 }
 
 function outletGeofenceRowHtml(o) {
@@ -229,6 +253,41 @@ function wireOutletGeofenceButtons(container, businessUnitId) {
         wireOutletGeofenceButtons(container, businessUnitId);
       } catch (error) {
         alert(error.message ?? 'Gagal menyimpan lokasi outlet.');
+      }
+    });
+  });
+}
+
+function outletWorkHoursRowHtml(o) {
+  return `
+    <tr data-outlet-id="${o.id}">
+      <td>${o.name}</td>
+      <td>${o.clock_in_time ? o.clock_in_time.slice(0, 5) : 'Belum diset'}</td>
+      <td>${o.clock_out_time ? o.clock_out_time.slice(0, 5) : '-'}</td>
+      <td>${o.clock_in_time ? (o.reminder_enabled ? 'Aktif' : 'Nonaktif') : '-'}</td>
+      <td><button class="btn-set-workhours" data-outlet-id="${o.id}">Atur Jam Kerja</button></td>
+    </tr>
+  `;
+}
+
+function wireOutletWorkHoursButtons(container, businessUnitId) {
+  container.querySelectorAll('.btn-set-workhours').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const clockIn = prompt('Jam masuk (format 24 jam, contoh: 08:00). Kosongkan untuk matikan reminder:');
+      if (clockIn === null) return;
+      const clockOutTime = clockIn.trim() ? prompt('Jam pulang (opsional, contoh: 17:00):', '') : '';
+      if (clockOutTime === null) return;
+      try {
+        await setOutletWorkHours(btn.dataset.outletId, {
+          clock_in_time: clockIn.trim() || null,
+          clock_out_time: clockOutTime.trim() || null,
+          reminder_enabled: !!clockIn.trim()
+        });
+        const outlets = await listOutletsWithGeofence(businessUnitId);
+        container.querySelector('#outlet-workhours-body').innerHTML = outlets.map((o) => outletWorkHoursRowHtml(o)).join('');
+        wireOutletWorkHoursButtons(container, businessUnitId);
+      } catch (error) {
+        alert(error.message ?? 'Gagal menyimpan jam kerja outlet.');
       }
     });
   });

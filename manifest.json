@@ -1,0 +1,17 @@
+{
+  "name": "Berjaya Hub — Staff App",
+  "short_name": "Berjaya Hub",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f7f8",
+  "theme_color": "#1f7a5c",
+  "icons": [
+    {
+      "src": "images/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

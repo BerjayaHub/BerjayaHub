@@ -10,18 +10,37 @@ import {
   uploadAttendanceSelfie,
   setClockInPhoto,
   getExitTaskMode,
-  redeemExitOtp
+  redeemExitOtp,
+  getMyFaceDescriptor,
+  saveMyFaceDescriptor
 } from './attendance.service.js';
 import { openCameraCapture, formatWatermarkText } from './camera-capture.js';
+import { openFaceRegistration } from './face-registration.js';
+import { loadFaceModels, isSameFace } from './face-recognition.js';
+import {
+  isPushSupported,
+  isPushConfigured,
+  isSubscribedOnThisDevice,
+  getPermissionStatus,
+  enableReminderNotifications
+} from './push-notifications.js';
 
 export async function renderAttendancePage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = `<p>Memuat presensi...</p>`;
+  loadFaceModels().catch(() => {}); // mulai load di background, tidak perlu ditunggu
 
-  const [openSession, recent, exitMode] = await Promise.all([
+  const [openSession, recent, exitMode, myFaceDescriptor] = await Promise.all([
     getMyOpenSession(),
     getMyRecentAttendance(),
-    getExitTaskMode(businessUnitId)
+    getExitTaskMode(businessUnitId),
+    getMyFaceDescriptor()
   ]);
+
+  // Staff wajib daftar wajah dulu sebelum bisa clock in/out sama sekali.
+  if (!myFaceDescriptor) {
+    renderFaceRegistrationGate(container, { userId, businessUnitId, outletId });
+    return;
+  }
 
   let outletOptions = '';
   if (!outletId) {
@@ -66,6 +85,8 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
       <p class="error-text" id="attendance-error"></p>
     </div>
 
+    ${notificationCardHtml()}
+
     <h2 style="font-size:1rem;margin-top:24px">Riwayat Terakhir</h2>
     <table class="data-table">
       <thead><tr><th>Outlet</th><th>Clock In</th><th>Clock Out</th></tr></thead>
@@ -87,8 +108,10 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
   `;
 
   const errorEl = document.getElementById('attendance-error');
-  let capturedInBlob = null;
-  let capturedOutBlob = null;
+  let capturedIn = null; // { blob, descriptor }
+  let capturedOut = null;
+
+  wireNotificationCard(container, userId);
 
   // ---- Clock In ----
   document.getElementById('btn-shoot-in')?.addEventListener('click', async () => {
@@ -98,12 +121,11 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
       if (!chosenOutletId) throw new Error('Pilih outlet dulu sebelum ambil foto.');
       const outlet = await getOutletGeofence(chosenOutletId);
 
-      const blob = await openCameraCapture({
+      capturedIn = await openCameraCapture({
         getWatermarkText: () => formatWatermarkText(outlet.name, 'Clock In')
       });
-      capturedInBlob = blob;
       const preview = document.getElementById('preview-in');
-      preview.src = URL.createObjectURL(blob);
+      preview.src = URL.createObjectURL(capturedIn.blob);
       preview.style.display = 'block';
       document.getElementById('btn-clock-in').disabled = false;
     } catch (error) {
@@ -116,7 +138,7 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
     try {
       const chosenOutletId = outletId ?? document.getElementById('clock-in-outlet')?.value;
       if (!chosenOutletId) throw new Error('Pilih outlet dulu.');
-      if (!capturedInBlob) throw new Error('Ambil foto selfie dulu.');
+      if (!capturedIn) throw new Error('Ambil foto selfie dulu.');
 
       let isStoring = false;
       let exitMethod = null;
@@ -156,6 +178,9 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
         }
       }
 
+      // Wajah tidak cocok TIDAK memblokir clock in -- cuma ditandai untuk direview admin.
+      const faceMatch = capturedIn.descriptor ? isSameFace(capturedIn.descriptor, myFaceDescriptor) : null;
+
       const record = await clockIn({
         userId,
         businessUnitId,
@@ -164,16 +189,21 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
         isStoring,
         exitMethod,
         exitReason,
-        exitOtpCodeId
+        exitOtpCodeId,
+        faceMatch
       });
 
       const photoPath = await uploadAttendanceSelfie({
         outletId: chosenOutletId,
         recordId: record.id,
         kind: 'in',
-        file: capturedInBlob
+        file: capturedIn.blob
       });
       await setClockInPhoto(record.id, photoPath);
+
+      if (faceMatch === false) {
+        alert('Clock in berhasil. Catatan: wajah di foto tidak sepenuhnya cocok dengan data terdaftar, jadi ditandai untuk direview admin.');
+      }
 
       await renderAttendancePage(container, { userId, businessUnitId, outletId });
     } catch (error) {
@@ -187,12 +217,11 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
     errorEl.textContent = '';
     try {
       const outlet = await getOutletGeofence(openSession.outlet_id);
-      const blob = await openCameraCapture({
+      capturedOut = await openCameraCapture({
         getWatermarkText: () => formatWatermarkText(outlet.name, 'Clock Out')
       });
-      capturedOutBlob = blob;
       const preview = document.getElementById('preview-out');
-      preview.src = URL.createObjectURL(blob);
+      preview.src = URL.createObjectURL(capturedOut.blob);
       preview.style.display = 'block';
       document.getElementById('btn-clock-out').disabled = false;
     } catch (error) {
@@ -203,16 +232,22 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
   document.getElementById('btn-clock-out')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
     try {
-      if (!capturedOutBlob) throw new Error('Ambil foto selfie dulu.');
+      if (!capturedOut) throw new Error('Ambil foto selfie dulu.');
 
       const photoPath = await uploadAttendanceSelfie({
         outletId: openSession.outlet_id,
         recordId: openSession.id,
         kind: 'out',
-        file: capturedOutBlob
+        file: capturedOut.blob
       });
 
-      await clockOut(openSession.id, { photoPath });
+      const faceMatch = capturedOut.descriptor ? isSameFace(capturedOut.descriptor, myFaceDescriptor) : null;
+      await clockOut(openSession.id, { photoPath, faceMatch });
+
+      if (faceMatch === false) {
+        alert('Clock out berhasil. Catatan: wajah di foto tidak sepenuhnya cocok dengan data terdaftar, jadi ditandai untuk direview admin.');
+      }
+
       await renderAttendancePage(container, { userId, businessUnitId, outletId });
     } catch (error) {
       errorEl.textContent = error.message ?? 'Gagal clock out.';
@@ -224,6 +259,88 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
     const reasonField = document.getElementById('clock-in-exit-reason-wrap');
     if (reasonField) reasonField.style.display = e.target.checked ? 'block' : 'none';
   });
+}
+
+// ---- Gerbang registrasi wajah (wajib sebelum bisa presensi sama sekali) ----
+
+function renderFaceRegistrationGate(container, { userId, businessUnitId, outletId }) {
+  container.innerHTML = `
+    <h1>Presensi</h1>
+    <div class="inline-card">
+      <h3 style="margin-top:0">Daftarkan Wajah Dulu</h3>
+      <p style="font-size:0.9rem;color:var(--color-text-muted)">
+        Sebelum bisa clock in/out, kamu perlu daftarkan wajah sekali di sini. Foto ini
+        dipakai untuk mencocokkan wajah kamu setiap presensi -- bukan disimpan sebagai
+        foto, hanya pola wajah (angka) yang tersimpan.
+      </p>
+      <button class="primary" id="btn-register-face" style="max-width:240px">📷 Daftarkan Wajah Sekarang</button>
+      <p class="error-text" id="face-register-error"></p>
+    </div>
+  `;
+
+  document.getElementById('btn-register-face').addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    const errorEl = document.getElementById('face-register-error');
+    errorEl.textContent = '';
+    try {
+      const descriptor = await openFaceRegistration();
+      await saveMyFaceDescriptor(descriptor);
+      await renderAttendancePage(container, { userId, businessUnitId, outletId });
+    } catch (error) {
+      errorEl.textContent = error.message ?? 'Gagal mendaftarkan wajah.';
+      e.target.disabled = false;
+    }
+  });
+}
+
+// ---- Kartu notifikasi pengingat clock in ----
+
+function notificationCardHtml() {
+  if (!isPushSupported()) return '';
+  return `
+    <div class="inline-card" id="notif-card" style="margin-top:16px">
+      <h3 style="margin-top:0;font-size:0.95rem">Notifikasi Pengingat Clock In</h3>
+      <p style="font-size:0.85rem;color:var(--color-text-muted)" id="notif-status">Memeriksa status...</p>
+      <button id="btn-enable-notif" style="max-width:260px">🔔 Aktifkan Notifikasi Pengingat</button>
+    </div>
+  `;
+}
+
+async function wireNotificationCard(container, userId) {
+  const card = document.getElementById('notif-card');
+  if (!card) return;
+  const statusEl = document.getElementById('notif-status');
+  const btn = document.getElementById('btn-enable-notif');
+
+  async function refreshStatus() {
+    const subscribed = await isSubscribedOnThisDevice();
+    if (subscribed) {
+      statusEl.textContent = 'Aktif ✓ — kamu akan diingatkan kalau lupa clock in.';
+      btn.style.display = 'none';
+    } else if (getPermissionStatus() === 'denied') {
+      statusEl.textContent = 'Izin notifikasi diblokir di browser/HP kamu. Aktifkan lewat pengaturan browser kalau ingin dapat pengingat.';
+      btn.style.display = 'none';
+    } else if (!isPushConfigured()) {
+      statusEl.textContent = 'Fitur ini belum diaktifkan admin sistem.';
+      btn.style.display = 'none';
+    } else {
+      statusEl.textContent = 'Belum aktif. Nyalakan supaya kamu dapat pengingat kalau lupa clock in.';
+      btn.style.display = 'inline-block';
+    }
+  }
+
+  btn?.addEventListener('click', async () => {
+    btn.disabled = true;
+    try {
+      await enableReminderNotifications(userId);
+      await refreshStatus();
+    } catch (error) {
+      statusEl.textContent = error.message ?? 'Gagal mengaktifkan notifikasi.';
+      btn.disabled = false;
+    }
+  });
+
+  await refreshStatus();
 }
 
 function exitTaskFieldHtml(exitMode) {

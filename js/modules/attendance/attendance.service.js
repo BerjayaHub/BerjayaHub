@@ -44,11 +44,20 @@ export async function setOutletLocation(outletId, { latitude, longitude, geofenc
 export async function listOutletsWithGeofence(businessUnitId) {
   const { data, error } = await supabase
     .from('outlets')
-    .select('id, name, latitude, longitude, geofence_radius_m')
+    .select('id, name, latitude, longitude, geofence_radius_m, clock_in_time, clock_out_time, reminder_enabled')
     .eq('business_unit_id', businessUnitId)
     .order('name');
   if (error) throw error;
   return data ?? [];
+}
+
+/** Atur jam kerja outlet (dipakai buat reminder clock in) + on/off reminder-nya. */
+export async function setOutletWorkHours(outletId, { clock_in_time, clock_out_time, reminder_enabled }) {
+  const { error } = await supabase
+    .from('outlets')
+    .update({ clock_in_time: clock_in_time || null, clock_out_time: clock_out_time || null, reminder_enabled })
+    .eq('id', outletId);
+  if (error) throw error;
 }
 
 /** Sesi presensi yang masih terbuka (belum clock out) milik user yang login, kalau ada. */
@@ -74,7 +83,7 @@ export async function getMyRecentAttendance(limit = 10) {
   return data ?? [];
 }
 
-export async function clockIn({ userId, businessUnitId, outletId, location, isStoring, exitMethod, exitReason, exitOtpCodeId }) {
+export async function clockIn({ userId, businessUnitId, outletId, location, isStoring, exitMethod, exitReason, exitOtpCodeId, faceMatch }) {
   const loc = location !== undefined ? location : await getGeolocation();
   const { data, error } = await supabase
     .from('attendance_records')
@@ -87,7 +96,8 @@ export async function clockIn({ userId, businessUnitId, outletId, location, isSt
       is_storing: !!isStoring,
       exit_method: isStoring ? exitMethod ?? null : null,
       exit_reason: isStoring ? exitReason ?? null : null,
-      exit_otp_code_id: isStoring ? exitOtpCodeId ?? null : null
+      exit_otp_code_id: isStoring ? exitOtpCodeId ?? null : null,
+      clock_in_face_match: faceMatch === undefined ? null : faceMatch
     })
     .select()
     .single();
@@ -95,7 +105,7 @@ export async function clockIn({ userId, businessUnitId, outletId, location, isSt
   return data;
 }
 
-export async function clockOut(recordId, { photoPath } = {}) {
+export async function clockOut(recordId, { photoPath, faceMatch } = {}) {
   const loc = await getGeolocation();
   const { error } = await supabase
     .from('attendance_records')
@@ -103,9 +113,52 @@ export async function clockOut(recordId, { photoPath } = {}) {
       clock_out_at: new Date().toISOString(),
       clock_out_lat: loc?.lat ?? null,
       clock_out_lng: loc?.lng ?? null,
-      ...(photoPath ? { clock_out_photo_path: photoPath } : {})
+      ...(photoPath ? { clock_out_photo_path: photoPath } : {}),
+      clock_out_face_match: faceMatch === undefined ? null : faceMatch
     })
     .eq('id', recordId);
+  if (error) throw error;
+}
+
+// ---- Face recognition ----
+
+/** Descriptor wajah acuan milik staff yang login, null kalau belum daftar. */
+export async function getMyFaceDescriptor() {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data, error } = await supabase
+    .from('user_face_descriptors')
+    .select('descriptor')
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.descriptor ?? null;
+}
+
+/** Simpan/perbarui descriptor wajah acuan milik staff yang login. */
+export async function saveMyFaceDescriptor(descriptor) {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('Sesi tidak ditemukan, silakan login ulang.');
+  const { error } = await supabase
+    .from('user_face_descriptors')
+    .upsert({ user_id: user.id, descriptor, updated_at: new Date().toISOString() });
+  if (error) throw error;
+}
+
+/** Admin: cek apakah staff tertentu sudah daftar wajah (dipakai di Master User). */
+export async function listRegisteredFaceUserIds() {
+  const { data, error } = await supabase.from('user_face_descriptors').select('user_id');
+  if (error) throw error;
+  return new Set((data ?? []).map((r) => r.user_id));
+}
+
+/** Admin: reset (hapus) descriptor wajah staff, supaya staff daftar ulang. */
+export async function resetFaceDescriptor(userId) {
+  const { error } = await supabase.from('user_face_descriptors').delete().eq('user_id', userId);
   if (error) throw error;
 }
 
@@ -205,7 +258,7 @@ export async function reverseGeocode(lat, lng) {
 export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFrom, dateTo }) {
   let query = supabase
     .from('attendance_records')
-    .select('id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, user_profiles(full_name), outlets(id, name)')
+    .select('id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, user_profiles(full_name), outlets(id, name)')
     .eq('business_unit_id', businessUnitId)
     .order('clock_in_at', { ascending: false })
     .limit(200);
@@ -224,5 +277,36 @@ export async function correctAttendanceRecord(id, { clock_in_at, clock_out_at, n
     .from('attendance_records')
     .update({ clock_in_at, clock_out_at, notes })
     .eq('id', id);
+  if (error) throw error;
+}
+
+// ---- Push notification subscriptions (reminder clock in) ----
+
+export async function getMyPushSubscriptionEndpoints() {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+  const { data, error } = await supabase.from('push_subscriptions').select('endpoint').eq('user_id', user.id);
+  if (error) throw error;
+  return (data ?? []).map((r) => r.endpoint);
+}
+
+export async function savePushSubscription(userId, subscription) {
+  const json = subscription.toJSON();
+  const { error } = await supabase.from('push_subscriptions').upsert(
+    {
+      user_id: userId,
+      endpoint: json.endpoint,
+      p256dh: json.keys.p256dh,
+      auth_key: json.keys.auth
+    },
+    { onConflict: 'endpoint' }
+  );
+  if (error) throw error;
+}
+
+export async function deletePushSubscription(endpoint) {
+  const { error } = await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint);
   if (error) throw error;
 }

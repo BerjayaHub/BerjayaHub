@@ -6,6 +6,12 @@ registerModule('attendance', renderAttendancePage);
 
 const app = document.getElementById('app');
 
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {
+    // Diam-diam gagal (misal dibuka lewat http:// biasa) -- app tetap jalan normal tanpa push.
+  });
+}
+
 async function bootstrap() {
   const session = await getSession();
   if (session?.user) {

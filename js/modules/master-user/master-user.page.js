@@ -8,6 +8,7 @@ import {
   createStaffUser,
   resetStaffPassword
 } from './master-user.service.js';
+import { listRegisteredFaceUserIds, resetFaceDescriptor } from '../attendance/attendance.service.js';
 
 const ROLE_LABEL = {
   super_admin: 'Super Admin',
@@ -19,9 +20,10 @@ const ROLE_LABEL = {
 export async function renderMasterUserPage(container) {
   container.innerHTML = `<p>Memuat data staff...</p>`;
 
-  const [staffList, businessUnits] = await Promise.all([
+  const [staffList, businessUnits, registeredFaceIds] = await Promise.all([
     listStaffWithScopes(),
-    listBusinessUnits()
+    listBusinessUnits(),
+    listRegisteredFaceUserIds()
   ]);
 
   container.innerHTML = `
@@ -37,11 +39,12 @@ export async function renderMasterUserPage(container) {
           <th>Telp</th>
           <th>Scope (BU / Outlet / Role)</th>
           <th>Status</th>
+          <th>Wajah</th>
           <th>Aksi</th>
         </tr>
       </thead>
       <tbody>
-        ${staffList.map((s) => staffRowHtml(s)).join('') || '<tr><td colspan="5">Belum ada staff.</td></tr>'}
+        ${staffList.map((s) => staffRowHtml(s, registeredFaceIds)).join('') || '<tr><td colspan="6">Belum ada staff.</td></tr>'}
       </tbody>
     </table>
   `;
@@ -53,7 +56,7 @@ export async function renderMasterUserPage(container) {
   wireRowActions(container, businessUnits);
 }
 
-function staffRowHtml(s) {
+function staffRowHtml(s, registeredFaceIds) {
   const scopeBadges = s.scopes
     .map(
       (sc) => `
@@ -64,12 +67,18 @@ function staffRowHtml(s) {
     )
     .join(' ');
 
+  const hasFace = registeredFaceIds.has(s.profile.id);
+
   return `
     <tr data-user-id="${s.profile.id}">
       <td>${s.profile.full_name}</td>
       <td>${s.profile.phone ?? '-'}</td>
       <td>${scopeBadges} <button class="btn-add-scope" data-user-id="${s.profile.id}">+ scope</button></td>
       <td>${s.profile.is_active ? 'Aktif' : 'Nonaktif'}</td>
+      <td>
+        ${hasFace ? 'Terdaftar ✅' : 'Belum daftar'}
+        ${hasFace ? `<button class="btn-reset-face" data-user-id="${s.profile.id}">Reset</button>` : ''}
+      </td>
       <td>
         <button class="btn-edit" data-user-id="${s.profile.id}">Edit</button>
         <button class="btn-reset-password" data-user-id="${s.profile.id}">Reset Password</button>
@@ -156,6 +165,18 @@ function wireRowActions(container, businessUnits) {
       const isActive = btn.dataset.active === 'true';
       await updateProfile(userId, { is_active: !isActive });
       await renderMasterUserPage(container);
+    });
+  });
+
+  container.querySelectorAll('.btn-reset-face').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Hapus data wajah terdaftar staff ini? Staff akan diminta daftar ulang saat clock in berikutnya.')) return;
+      try {
+        await resetFaceDescriptor(btn.dataset.userId);
+        await renderMasterUserPage(container);
+      } catch (error) {
+        alert(error.message ?? 'Gagal reset data wajah.');
+      }
     });
   });
 
