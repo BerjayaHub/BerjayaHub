@@ -12,6 +12,7 @@ import {
   getExitTaskMode,
   redeemExitOtp
 } from './attendance.service.js';
+import { openCameraCapture, formatWatermarkText } from './camera-capture.js';
 
 export async function renderAttendancePage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = `<p>Memuat presensi...</p>`;
@@ -41,9 +42,10 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
             <p>Kamu sedang bekerja sejak <strong>${formatTime(openSession.clock_in_at)}</strong>.</p>
             <div class="field">
               <label>Foto Selfie (wajib untuk clock out)</label>
-              <input type="file" accept="image/*" capture="user" id="clock-out-photo" required />
+              <button type="button" id="btn-shoot-out" style="max-width:220px">📷 Ambil Foto Selfie</button>
+              <img id="preview-out" class="selfie-preview" style="display:none" />
             </div>
-            <button class="primary" id="btn-clock-out">Clock Out</button>
+            <button class="primary" id="btn-clock-out" disabled>Clock Out</button>
           `
           : `
             <p>Kamu belum absen hari ini.</p>
@@ -52,12 +54,13 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
                 ? ''
                 : `<div class="field"><label>Outlet</label><select id="clock-in-outlet">${outletOptions}</select></div>`
             }
+            ${exitTaskFieldHtml(exitMode)}
             <div class="field">
               <label>Foto Selfie (wajib untuk clock in)</label>
-              <input type="file" accept="image/*" capture="user" id="clock-in-photo" required />
+              <button type="button" id="btn-shoot-in" style="max-width:220px">📷 Ambil Foto Selfie</button>
+              <img id="preview-in" class="selfie-preview" style="display:none" />
             </div>
-            ${exitTaskFieldHtml(exitMode)}
-            <button class="primary" id="btn-clock-in">Clock In</button>
+            <button class="primary" id="btn-clock-in" disabled>Clock In</button>
           `
       }
       <p class="error-text" id="attendance-error"></p>
@@ -84,15 +87,36 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
   `;
 
   const errorEl = document.getElementById('attendance-error');
+  let capturedInBlob = null;
+  let capturedOutBlob = null;
+
+  // ---- Clock In ----
+  document.getElementById('btn-shoot-in')?.addEventListener('click', async () => {
+    errorEl.textContent = '';
+    try {
+      const chosenOutletId = outletId ?? document.getElementById('clock-in-outlet')?.value;
+      if (!chosenOutletId) throw new Error('Pilih outlet dulu sebelum ambil foto.');
+      const outlet = await getOutletGeofence(chosenOutletId);
+
+      const blob = await openCameraCapture({
+        getWatermarkText: () => formatWatermarkText(outlet.name, 'Clock In')
+      });
+      capturedInBlob = blob;
+      const preview = document.getElementById('preview-in');
+      preview.src = URL.createObjectURL(blob);
+      preview.style.display = 'block';
+      document.getElementById('btn-clock-in').disabled = false;
+    } catch (error) {
+      errorEl.textContent = error.message ?? 'Gagal mengambil foto.';
+    }
+  });
 
   document.getElementById('btn-clock-in')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
     try {
       const chosenOutletId = outletId ?? document.getElementById('clock-in-outlet')?.value;
       if (!chosenOutletId) throw new Error('Pilih outlet dulu.');
-
-      const photoFile = document.getElementById('clock-in-photo').files[0];
-      if (!photoFile) throw new Error('Foto selfie wajib diisi untuk clock in.');
+      if (!capturedInBlob) throw new Error('Ambil foto selfie dulu.');
 
       let isStoring = false;
       let exitMethod = null;
@@ -147,7 +171,7 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
         outletId: chosenOutletId,
         recordId: record.id,
         kind: 'in',
-        file: photoFile
+        file: capturedInBlob
       });
       await setClockInPhoto(record.id, photoPath);
 
@@ -158,17 +182,34 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
     }
   });
 
+  // ---- Clock Out ----
+  document.getElementById('btn-shoot-out')?.addEventListener('click', async () => {
+    errorEl.textContent = '';
+    try {
+      const outlet = await getOutletGeofence(openSession.outlet_id);
+      const blob = await openCameraCapture({
+        getWatermarkText: () => formatWatermarkText(outlet.name, 'Clock Out')
+      });
+      capturedOutBlob = blob;
+      const preview = document.getElementById('preview-out');
+      preview.src = URL.createObjectURL(blob);
+      preview.style.display = 'block';
+      document.getElementById('btn-clock-out').disabled = false;
+    } catch (error) {
+      errorEl.textContent = error.message ?? 'Gagal mengambil foto.';
+    }
+  });
+
   document.getElementById('btn-clock-out')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
     try {
-      const photoFile = document.getElementById('clock-out-photo').files[0];
-      if (!photoFile) throw new Error('Foto selfie wajib diisi untuk clock out.');
+      if (!capturedOutBlob) throw new Error('Ambil foto selfie dulu.');
 
       const photoPath = await uploadAttendanceSelfie({
         outletId: openSession.outlet_id,
         recordId: openSession.id,
         kind: 'out',
-        file: photoFile
+        file: capturedOutBlob
       });
 
       await clockOut(openSession.id, { photoPath });
@@ -179,7 +220,6 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
     }
   });
 
-  // Toggle input reason muncul cuma kalau storing dicentang (mode storing)
   document.getElementById('clock-in-storing')?.addEventListener('change', (e) => {
     const reasonField = document.getElementById('clock-in-exit-reason-wrap');
     if (reasonField) reasonField.style.display = e.target.checked ? 'block' : 'none';
