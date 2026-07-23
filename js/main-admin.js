@@ -1,16 +1,25 @@
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
 import { getActiveModules, getModuleRenderer, registerModule } from './core/module-loader.js';
+import { getModuleIcon } from './core/module-icons.js';
 import { renderMasterUserPage } from './modules/master-user/master-user.page.js';
 import { renderAttendanceAdminPage } from './modules/attendance/attendance.admin.page.js';
+import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
+import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
 
 const app = document.getElementById('app');
 const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
 
 // Modul "core" admin: selalu tampil untuk admin, tidak tergantung toggle bu_modules
 // (beda dengan modul operasional seperti presensi/inventory yang di-toggle per BU)
+registerModule('dashboard', renderAdminDashboard);
 registerModule('master_user', renderMasterUserPage);
+registerModule('bu_appearance', renderBuAppearancePage);
 registerModule('attendance', renderAttendanceAdminPage);
-const CORE_ADMIN_MENU = [{ code: 'master_user', name: 'Master User' }];
+const CORE_ADMIN_MENU = [
+  { code: 'dashboard', name: 'Dashboard' },
+  { code: 'master_user', name: 'Master User' },
+  { code: 'bu_appearance', name: 'Tampilan BU' }
+];
 
 async function bootstrap() {
   const session = await getSession();
@@ -92,17 +101,21 @@ async function renderShell() {
     ? []
     : await getActiveModules(activeScope.business_unit_id);
 
+  applyBuTheme(activeScope.business_units);
+
   const allMenu = [...CORE_ADMIN_MENU, ...modules];
   const menuItems = allMenu
-    .map((mod) => `<li><a href="#" data-module="${mod.code}">${mod.name}</a></li>`)
+    .map((mod) => `<li><a href="#" data-module="${mod.code}">${getModuleIcon(mod.code)} ${mod.name}</a></li>`)
     .join('');
+
+  const logoSrc = activeScope.business_units?.logo_url || 'images/logo.svg';
 
   app.innerHTML = `
     <div class="app-shell">
       <button class="nav-toggle" id="btn-nav-toggle" aria-label="Buka menu">☰</button>
       <nav class="app-nav" id="app-nav">
         <div class="nav-brand">
-          <img src="images/logo.svg" alt="" class="nav-logo" onerror="this.style.display='none'" />
+          <img src="${logoSrc}" alt="" class="nav-logo" onerror="this.style.display='none'" />
           <div>
             <div style="font-weight:600">${context.profile.full_name}</div>
             <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0">
@@ -116,7 +129,7 @@ async function renderShell() {
         <button class="primary" id="btn-logout" style="margin-top:8px">Keluar</button>
       </nav>
       <main class="app-content" id="module-content">
-        <p>Pilih modul di sebelah kiri.</p>
+        <p>Memuat dashboard...</p>
       </main>
     </div>
   `;
@@ -162,16 +175,31 @@ async function renderShell() {
     link.addEventListener('click', (event) => {
       event.preventDefault();
       document.getElementById('app-nav')?.classList.remove('open');
-      const code = event.target.dataset.module;
-      const renderer = getModuleRenderer(code);
-      const content = document.getElementById('module-content');
-      if (renderer) {
-        renderer(content, { businessUnitId: activeScope.business_unit_id, isAdmin: true });
-      } else {
-        content.innerHTML = `<p>Modul admin "${code}" belum dibangun.</p>`;
-      }
+      const code = event.target.closest('[data-module]').dataset.module;
+      openModule(code, activeScope);
     });
   });
+
+  // Dashboard sebagai tampilan awal begitu login
+  openModule('dashboard', activeScope);
+}
+
+function openModule(code, activeScope) {
+  const renderer = getModuleRenderer(code);
+  const content = document.getElementById('module-content');
+  if (renderer) {
+    renderer(content, { businessUnitId: activeScope.business_unit_id, isAdmin: true });
+  } else {
+    content.innerHTML = `<p>Modul admin "${code}" belum dibangun.</p>`;
+  }
+}
+
+function applyBuTheme(businessUnit) {
+  const color = businessUnit?.theme_color;
+  if (color) {
+    document.documentElement.style.setProperty('--color-primary', color);
+    document.documentElement.style.setProperty('--color-primary-hover', color);
+  }
 }
 
 bootstrap();

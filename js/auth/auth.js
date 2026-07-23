@@ -61,7 +61,7 @@ export async function getCurrentUserContext() {
 
   const { data: scopes, error: scopeError } = await supabase
     .from('membership_scopes')
-    .select('id, role, business_unit_id, outlet_id, business_units(name, type), outlets(name, outlet_role)')
+    .select('id, role, business_unit_id, outlet_id, business_units(name, type, theme_color, logo_url), outlets(name, outlet_role)')
     .eq('user_id', session.user.id);
   if (scopeError) throw scopeError;
 

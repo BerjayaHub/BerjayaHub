@@ -389,3 +389,93 @@ button.primary:hover { background: var(--color-primary-hover); }
   display: block;
   margin-top: 8px;
 }
+
+/* ---- Beranda card-based (Staff App) ---- */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.module-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px 12px;
+  min-height: 100px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.module-card:hover,
+.module-card:active {
+  border-color: var(--color-primary);
+  background: var(--color-bg);
+}
+
+.module-card-icon {
+  font-size: 1.8rem;
+}
+
+.module-card-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  color: var(--color-text);
+}
+
+.module-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: var(--spacing-md);
+}
+
+.btn-home {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  padding: 8px 14px;
+  min-height: 40px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.module-header-title {
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+/* ---- Activity feed (Admin dashboard) ---- */
+.activity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.activity-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 0.88rem;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 8px;
+}
+
+.activity-icon {
+  font-size: 1.1rem;
+}
+
+.activity-time {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}

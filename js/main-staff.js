@@ -1,5 +1,6 @@
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
 import { getActiveModules, getModuleRenderer, registerModule } from './core/module-loader.js';
+import { getModuleIcon } from './core/module-icons.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
 
 registerModule('attendance', renderAttendancePage);
@@ -88,30 +89,35 @@ async function renderShell() {
   // lebih dari 1 BU, di sini akan ditambahkan selector BU.
   const activeScope = context.scopes[0];
   const modules = await getActiveModules(activeScope.business_unit_id);
+  const moduleCtx = {
+    userId: context.profile.id,
+    businessUnitId: activeScope.business_unit_id,
+    outletId: activeScope.outlet_id
+  };
 
-  const menuItems = modules
-    .map((mod) => `<li><a href="#" data-module="${mod.code}">${mod.name}</a></li>`)
-    .join('');
+  applyBuTheme(activeScope.business_units);
+
+  const logoSrc = activeScope.business_units?.logo_url || 'images/logo.svg';
 
   app.innerHTML = `
     <div class="app-shell">
       <button class="nav-toggle" id="btn-nav-toggle" aria-label="Buka menu">☰</button>
       <nav class="app-nav" id="app-nav">
         <div class="nav-brand">
-          <img src="images/logo.svg" alt="" class="nav-logo" onerror="this.style.display='none'" />
+          <img src="${logoSrc}" alt="" class="nav-logo" onerror="this.style.display='none'" />
           <div>
             <div style="font-weight:600">${context.profile.full_name}</div>
             <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0">${activeScope.business_units?.name ?? ''}</p>
           </div>
         </div>
-        <ul>${menuItems || '<li>Belum ada modul aktif</li>'}</ul>
+        <ul>
+          <li><a href="#" id="nav-home">🏠 Beranda</a></li>
+        </ul>
         <button id="btn-change-password" style="margin-top:16px;width:100%">Ubah Password</button>
         <div id="change-password-wrap"></div>
         <button class="primary" id="btn-logout" style="margin-top:8px">Keluar</button>
       </nav>
-      <main class="app-content" id="module-content">
-        <p>Pilih modul di sebelah kiri.</p>
-      </main>
+      <main class="app-content" id="module-content"></main>
     </div>
   `;
 
@@ -120,6 +126,12 @@ async function renderShell() {
   });
 
   document.getElementById('btn-logout').addEventListener('click', signOut);
+
+  document.getElementById('nav-home').addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById('app-nav')?.classList.remove('open');
+    renderHome(modules, moduleCtx);
+  });
 
   document.getElementById('btn-change-password').addEventListener('click', () => {
     const wrap = document.getElementById('change-password-wrap');
@@ -152,20 +164,61 @@ async function renderShell() {
     });
   });
 
-  document.querySelectorAll('[data-module]').forEach((link) => {
-    link.addEventListener('click', (event) => {
-      event.preventDefault();
-      document.getElementById('app-nav')?.classList.remove('open');
-      const code = event.target.dataset.module;
-      const renderer = getModuleRenderer(code);
-      const content = document.getElementById('module-content');
-      if (renderer) {
-        renderer(content, { userId: context.profile.id, businessUnitId: activeScope.business_unit_id, outletId: activeScope.outlet_id });
-      } else {
-        content.innerHTML = `<p>Modul "${code}" belum dibangun.</p>`;
+  // Beranda card-based sebagai tampilan awal
+  renderHome(modules, moduleCtx);
+}
+
+function renderHome(modules, moduleCtx) {
+  const content = document.getElementById('module-content');
+  content.innerHTML = `
+    <h1>Beranda</h1>
+    <div class="card-grid">
+      ${
+        modules
+          .map(
+            (mod) => `
+          <button class="module-card" data-module="${mod.code}">
+            <span class="module-card-icon">${getModuleIcon(mod.code)}</span>
+            <span class="module-card-label">${mod.name}</span>
+          </button>`
+          )
+          .join('') || '<p>Belum ada modul aktif untuk BU kamu. Hubungi admin.</p>'
       }
-    });
+    </div>
+  `;
+
+  content.querySelectorAll('[data-module]').forEach((card) => {
+    card.addEventListener('click', () => openModule(card.dataset.module, modules, moduleCtx));
   });
+}
+
+function openModule(code, modules, moduleCtx) {
+  const content = document.getElementById('module-content');
+  const mod = modules.find((m) => m.code === code);
+  content.innerHTML = `
+    <div class="module-header">
+      <button class="btn-home" id="btn-back-home">🏠 Beranda</button>
+      <span class="module-header-title">${mod?.name ?? ''}</span>
+    </div>
+    <div id="module-body"></div>
+  `;
+  document.getElementById('btn-back-home').addEventListener('click', () => renderHome(modules, moduleCtx));
+
+  const renderer = getModuleRenderer(code);
+  const body = document.getElementById('module-body');
+  if (renderer) {
+    renderer(body, moduleCtx);
+  } else {
+    body.innerHTML = `<p>Modul "${code}" belum dibangun.</p>`;
+  }
+}
+
+function applyBuTheme(businessUnit) {
+  const color = businessUnit?.theme_color;
+  if (color) {
+    document.documentElement.style.setProperty('--color-primary', color);
+    document.documentElement.style.setProperty('--color-primary-hover', color);
+  }
 }
 
 bootstrap();
