@@ -6,6 +6,7 @@ import { renderAttendanceAdminPage } from './modules/attendance/attendance.admin
 import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
 import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
 import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
+import { listBusinessUnitsBasic } from './modules/organization/organization.service.js';
 
 const app = document.getElementById('app');
 const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
@@ -97,21 +98,72 @@ async function renderShell() {
     return;
   }
 
-  // Fase 0: ambil BU admin pertama. Nanti ditambahkan BU switcher
-  // supaya bu_admin yang pegang lebih dari 1 BU bisa pindah konteks.
-  const activeScope = adminScopes[0];
-  const modules = activeScope.role === 'super_admin' && !activeScope.business_unit_id
-    ? []
-    : await getActiveModules(activeScope.business_unit_id);
+  // Daftar BU yang bisa dikelola: super_admin -> semua BU; lainnya -> BU dari scope adminnya.
+  const isSuperAdmin = context.scopes.some((s) => s.role === 'super_admin');
+  let availableBUs = [];
+  if (isSuperAdmin) {
+    try {
+      availableBUs = await listBusinessUnitsBasic();
+    } catch {
+      availableBUs = [];
+    }
+  }
+  if (availableBUs.length === 0) {
+    const seen = new Map();
+    for (const s of adminScopes) {
+      if (s.business_unit_id && !seen.has(s.business_unit_id)) {
+        seen.set(s.business_unit_id, {
+          id: s.business_unit_id,
+          name: s.business_units?.name ?? 'BU',
+          theme_color: s.business_units?.theme_color,
+          logo_url: s.business_units?.logo_url
+        });
+      }
+    }
+    availableBUs = [...seen.values()];
+  }
 
-  applyBuTheme(activeScope.business_units);
+  let activeBuId = null;
+  try {
+    activeBuId = localStorage.getItem('admin_active_bu');
+  } catch {
+    // localStorage bisa saja diblokir -> pakai default
+  }
+  if (!availableBUs.some((b) => b.id === activeBuId)) {
+    activeBuId = availableBUs[0]?.id ?? adminScopes[0].business_unit_id;
+  }
+
+  renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin, activeBuId);
+}
+
+async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin, activeBuId) {
+  const activeBu = availableBUs.find((b) => b.id === activeBuId) || null;
+  const role = isSuperAdmin
+    ? 'super_admin'
+    : adminScopes.find((s) => s.business_unit_id === activeBuId)?.role ?? adminScopes[0].role;
+
+  app.innerHTML = `<p style="padding:24px">Memuat modul...</p>`;
+  const modules = activeBuId ? await getActiveModules(activeBuId) : [];
+
+  applyBuTheme(activeBu);
 
   const allMenu = [...CORE_ADMIN_MENU, ...modules];
   const menuItems = allMenu
     .map((mod) => `<li><a href="#" data-module="${mod.code}">${getModuleIcon(mod.code)} ${mod.name}</a></li>`)
     .join('');
 
-  const logoSrc = activeScope.business_units?.logo_url || 'images/logo.svg';
+  const logoSrc = activeBu?.logo_url || 'images/logo.svg';
+
+  const buSwitcherHtml =
+    availableBUs.length > 1
+      ? `
+        <div class="field" style="margin:0 0 12px">
+          <label style="font-size:0.72rem">Business Unit aktif</label>
+          <select id="bu-switcher">
+            ${availableBUs.map((b) => `<option value="${b.id}"${b.id === activeBuId ? ' selected' : ''}>${b.name}</option>`).join('')}
+          </select>
+        </div>`
+      : '';
 
   app.innerHTML = `
     <div class="app-shell">
@@ -122,10 +174,11 @@ async function renderShell() {
           <div>
             <div style="font-weight:600">${context.profile.full_name}</div>
             <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0">
-              ${activeScope.role} — ${activeScope.business_units?.name ?? 'Semua BU'}
+              ${role} — ${activeBu?.name ?? 'Semua BU'}
             </p>
           </div>
         </div>
+        ${buSwitcherHtml}
         <ul>${menuItems || '<li>Belum ada modul aktif</li>'}</ul>
         <button id="btn-change-password" style="margin-top:16px;width:100%">Ubah Password</button>
         <div id="change-password-wrap"></div>
@@ -142,6 +195,16 @@ async function renderShell() {
   });
 
   document.getElementById('btn-logout').addEventListener('click', signOut);
+
+  document.getElementById('bu-switcher')?.addEventListener('change', (e) => {
+    const newBu = e.target.value;
+    try {
+      localStorage.setItem('admin_active_bu', newBu);
+    } catch {
+      // abaikan kalau localStorage diblokir
+    }
+    renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin, newBu);
+  });
 
   document.getElementById('btn-change-password').addEventListener('click', () => {
     const wrap = document.getElementById('change-password-wrap');
@@ -179,19 +242,19 @@ async function renderShell() {
       event.preventDefault();
       document.getElementById('app-nav')?.classList.remove('open');
       const code = event.target.closest('[data-module]').dataset.module;
-      openModule(code, activeScope);
+      openModule(code, activeBuId);
     });
   });
 
   // Dashboard sebagai tampilan awal begitu login
-  openModule('dashboard', activeScope);
+  openModule('dashboard', activeBuId);
 }
 
-function openModule(code, activeScope) {
+function openModule(code, businessUnitId) {
   const renderer = getModuleRenderer(code);
   const content = document.getElementById('module-content');
   if (renderer) {
-    renderer(content, { businessUnitId: activeScope.business_unit_id, isAdmin: true });
+    renderer(content, { businessUnitId, isAdmin: true });
   } else {
     content.innerHTML = `<p>Modul admin "${code}" belum dibangun.</p>`;
   }

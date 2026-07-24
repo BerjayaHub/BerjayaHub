@@ -29,6 +29,16 @@ export async function createOrganization({ name }) {
   return data;
 }
 
+/** BU ringkas (id, nama, tema, logo) untuk switcher BU di Admin Portal. */
+export async function listBusinessUnitsBasic() {
+  const { data, error } = await supabase
+    .from('business_units')
+    .select('id, name, theme_color, logo_url')
+    .order('name');
+  if (error) throw error;
+  return data ?? [];
+}
+
 /** Semua BU yang bisa dilihat admin (RLS otomatis batasi), lengkap dengan nama organisasi. */
 export async function listBusinessUnitsFull() {
   const { data, error } = await supabase

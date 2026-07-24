@@ -60,7 +60,57 @@ Deno.serve(async (req) => {
   }
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+  // Body opsional (buat mode tes). Kalau tidak ada body / bukan JSON, abaikan.
+  let body: Record<string, unknown> = {};
+  try {
+    body = await req.json();
+  } catch {
+    // tidak ada body -> jalankan alur reminder normal
+  }
+
+  // ---- MODE TES ----
+  // Panggil dengan body {"test_user_id":"<uuid>"} untuk kirim push UJI langsung
+  // ke user itu, MELEWATI semua pengecekan (jam, dedupe, sudah clock in).
+  // Response memuat statusCode tiap subscription -> gampang tahu kalau VAPID
+  // tidak cocok (biasanya 403/401) atau subscription kedaluwarsa (404/410).
+  if (typeof body.test_user_id === 'string' && body.test_user_id) {
+    const { data: subs, error: subErr } = await admin
+      .from('push_subscriptions')
+      .select('id, endpoint, p256dh, auth_key')
+      .eq('user_id', body.test_user_id);
+    if (subErr) return json({ test: true, error: subErr.message }, 500);
+    if (!subs || subs.length === 0) {
+      return json({
+        test: true,
+        subscriptions: 0,
+        note: 'User ini belum punya langganan push. Pastikan dia sudah klik "Aktifkan Notifikasi" sampai "Aktif ✓" DI DEVICE INI, dan user_id-nya benar.'
+      });
+    }
+    const payload = JSON.stringify({
+      title: 'Tes Notifikasi Berjaya Hub',
+      body: 'Kalau kamu lihat ini, push notification sudah jalan ✅',
+      url: './index.html',
+      tag: 'berjaya-test'
+    });
+    const results: Array<Record<string, unknown>> = [];
+    for (const sub of subs) {
+      try {
+        await webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } },
+          payload
+        );
+        results.push({ endpoint: sub.endpoint.slice(0, 48) + '…', ok: true });
+      } catch (err) {
+        const e = err as { statusCode?: number; body?: string; message?: string };
+        results.push({ endpoint: sub.endpoint.slice(0, 48) + '…', ok: false, statusCode: e?.statusCode, detail: e?.body ?? e?.message });
+      }
+    }
+    return json({ test: true, subscriptions: subs.length, results });
+  }
+
   const { date: today, time: nowTime } = nowInTimezone();
+  const sendErrors: Array<Record<string, unknown>> = [];
 
   const { data: outlets, error: outletError } = await admin
     .from('outlets')
@@ -132,8 +182,9 @@ Deno.serve(async (req) => {
           );
           sentToAny = true;
         } catch (err) {
-          const statusCode = (err as { statusCode?: number })?.statusCode;
-          if (statusCode === 404 || statusCode === 410) {
+          const e = err as { statusCode?: number; body?: string; message?: string };
+          sendErrors.push({ user_id: scope.user_id, statusCode: e?.statusCode, detail: e?.body ?? e?.message });
+          if (e?.statusCode === 404 || e?.statusCode === 410) {
             // Subscription sudah tidak valid (misal browser data dihapus) -> bersihkan
             await admin.from('push_subscriptions').delete().eq('id', sub.id);
           }
@@ -151,5 +202,12 @@ Deno.serve(async (req) => {
     }
   }
 
-  return json({ ok: true, checked: checkedStaffCount, sent: sentCount, at: `${today} ${nowTime} ${TIMEZONE}` });
+  return json({
+    ok: true,
+    checked: checkedStaffCount,
+    sent: sentCount,
+    outletsConsidered: (outlets ?? []).length,
+    errors: sendErrors,
+    at: `${today} ${nowTime} ${TIMEZONE}`
+  });
 });
