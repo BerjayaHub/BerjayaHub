@@ -9,7 +9,7 @@ export async function listStaffWithScopes() {
   const { data, error } = await supabase
     .from('membership_scopes')
     .select(`
-      id, role, business_unit_id, outlet_id,
+      id, role, business_unit_id, outlet_id, is_primary,
       business_units(name),
       outlets(name),
       user_profiles(id, full_name, phone, is_active)
@@ -62,8 +62,33 @@ export async function addMembershipScope({ user_id, business_unit_id, outlet_id,
   if (error) throw error;
 }
 
+export async function updateMembershipScope(scopeId, { business_unit_id, outlet_id, role }) {
+  const { error } = await supabase
+    .from('membership_scopes')
+    .update({ business_unit_id, outlet_id: outlet_id || null, role })
+    .eq('id', scopeId);
+  if (error) throw error;
+}
+
 export async function removeMembershipScope(scopeId) {
   const { error } = await supabase.from('membership_scopes').delete().eq('id', scopeId);
+  if (error) throw error;
+}
+
+/**
+ * Tetapkan satu scope sebagai "tempat kerja utama" (basis NBM) staff.
+ * Scope lain milik user yang sama otomatis di-nonaktifkan primary-nya dulu,
+ * supaya cuma ada satu primary per user.
+ */
+export async function setPrimaryScope(userId, scopeId) {
+  const { error: clearError } = await supabase
+    .from('membership_scopes')
+    .update({ is_primary: false })
+    .eq('user_id', userId)
+    .eq('is_primary', true);
+  if (clearError) throw clearError;
+
+  const { error } = await supabase.from('membership_scopes').update({ is_primary: true }).eq('id', scopeId);
   if (error) throw error;
 }
 

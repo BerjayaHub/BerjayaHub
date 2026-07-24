@@ -4,7 +4,9 @@ import {
   listOutlets,
   updateProfile,
   addMembershipScope,
+  updateMembershipScope,
   removeMembershipScope,
+  setPrimaryScope,
   createStaffUser,
   resetStaffPassword
 } from './master-user.service.js';
@@ -39,6 +41,9 @@ export async function renderMasterUserPage(container) {
       <button class="primary" id="btn-new-staff" style="max-width:180px">+ Tambah Staff</button>
     </div>
     <div id="new-staff-form-wrap"></div>
+    <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 10px">
+      Tanda ★ = tempat kerja utama (basis perhitungan NBM). Klik ☆ pada salah satu scope untuk menetapkannya.
+    </p>
     <table class="data-table" id="staff-table">
       <thead>
         <tr>
@@ -67,8 +72,13 @@ function staffRowHtml(s, registeredFaceIds) {
   const scopeBadges = s.scopes
     .map(
       (sc) => `
-      <span class="scope-badge" data-scope-id="${sc.id}">
+      <span class="scope-badge${sc.is_primary ? ' scope-badge-primary' : ''}" data-scope-id="${sc.id}">
+        <button class="scope-primary${sc.is_primary ? ' is-primary' : ''}" data-scope-id="${sc.id}" data-user-id="${s.profile.id}"
+          title="${sc.is_primary ? 'Tempat kerja utama (basis NBM)' : 'Jadikan tempat kerja utama (basis NBM)'}">${sc.is_primary ? '★' : '☆'}</button>
         ${sc.business_units?.name ?? '-'} ${sc.outlets?.name ? '/ ' + sc.outlets.name : ''} — ${ROLE_LABEL[sc.role] ?? sc.role}
+        <button class="scope-edit" data-scope-id="${sc.id}" data-user-id="${s.profile.id}"
+          data-bu="${sc.business_unit_id ?? ''}" data-outlet="${sc.outlet_id ?? ''}" data-role="${sc.role}"
+          title="Ubah scope ini">✎</button>
         <button class="scope-remove" data-scope-id="${sc.id}" title="Hapus scope ini">✕</button>
       </span>`
     )
@@ -273,14 +283,40 @@ function wireRowActions(container, businessUnits) {
   });
 
   container.querySelectorAll('.btn-add-scope').forEach((btn) => {
-    btn.addEventListener('click', () => openAddScopeDialog(container, businessUnits, btn.dataset.userId));
+    btn.addEventListener('click', () => openScopeDialog(container, businessUnits, { userId: btn.dataset.userId }));
+  });
+
+  container.querySelectorAll('.scope-edit').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      openScopeDialog(container, businessUnits, {
+        userId: btn.dataset.userId,
+        scope: { id: btn.dataset.scopeId, bu: btn.dataset.bu, outlet: btn.dataset.outlet, role: btn.dataset.role }
+      })
+    );
+  });
+
+  container.querySelectorAll('.scope-primary').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (btn.classList.contains('is-primary')) return; // sudah jadi basis, tak perlu apa-apa
+      try {
+        await setPrimaryScope(btn.dataset.userId, btn.dataset.scopeId);
+        toast('Tempat kerja utama (basis NBM) diperbarui.', 'success');
+        await renderMasterUserPage(container);
+      } catch (error) {
+        toast(error.message ?? 'Gagal menetapkan tempat kerja utama.', 'error');
+      }
+    });
   });
 }
 
-/** Tambah scope pakai dropdown (tanpa ketik UUID). Outlet ikut BU yang dipilih. */
-async function openAddScopeDialog(container, businessUnits, userId) {
+/**
+ * Dialog scope pakai dropdown (tanpa ketik UUID). Outlet ikut BU yang dipilih.
+ * `scope` diisi = mode edit (prefill + update); kosong = mode tambah.
+ */
+async function openScopeDialog(container, businessUnits, { userId, scope = null }) {
+  const isEdit = !!scope;
   const values = await formDialog({
-    title: 'Tambah Scope',
+    title: isEdit ? 'Ubah Scope' : 'Tambah Scope',
     description: 'Pilih BU, outlet (opsional), dan role. Tidak perlu isi UUID.',
     fields: [
       {
@@ -288,6 +324,7 @@ async function openAddScopeDialog(container, businessUnits, userId) {
         label: 'Business Unit',
         type: 'select',
         required: true,
+        value: scope?.bu ?? '',
         options: [{ value: '', label: '-- pilih BU --' }, ...businessUnits.map((bu) => ({ value: bu.id, label: bu.name }))]
       },
       {
@@ -296,37 +333,50 @@ async function openAddScopeDialog(container, businessUnits, userId) {
         type: 'select',
         options: [{ value: '', label: '-- semua outlet / level BU --' }]
       },
-      { name: 'role', label: 'Role', type: 'select', required: true, options: ROLE_OPTIONS }
+      { name: 'role', label: 'Role', type: 'select', required: true, value: scope?.role ?? 'staff', options: ROLE_OPTIONS }
     ],
-    submitText: 'Tambah',
+    submitText: isEdit ? 'Simpan' : 'Tambah',
     onReady: (form) => {
       const buSelect = form.elements['business_unit_id'];
       const outletSelect = form.elements['outlet_id'];
-      buSelect.addEventListener('change', async () => {
+      const loadOutlets = async (selectedOutletId) => {
         outletSelect.innerHTML = '<option value="">-- semua outlet / level BU --</option>';
         if (!buSelect.value) return;
         try {
           const outlets = await listOutlets(buSelect.value);
           outletSelect.innerHTML =
             '<option value="">-- semua outlet / level BU --</option>' +
-            outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('');
+            outlets
+              .map((o) => `<option value="${o.id}"${o.id === selectedOutletId ? ' selected' : ''}>${o.name}</option>`)
+              .join('');
         } catch {
           // biarkan default kalau gagal ambil outlet
         }
-      });
+      };
+      buSelect.addEventListener('change', () => loadOutlets(null));
+      if (scope?.bu) loadOutlets(scope.outlet || null); // prefill outlet saat edit
     }
   });
   if (!values) return;
   try {
-    await addMembershipScope({
-      user_id: userId,
-      business_unit_id: values.business_unit_id,
-      outlet_id: values.outlet_id || null,
-      role: values.role
-    });
-    toast('Scope ditambahkan.', 'success');
+    if (isEdit) {
+      await updateMembershipScope(scope.id, {
+        business_unit_id: values.business_unit_id,
+        outlet_id: values.outlet_id || null,
+        role: values.role
+      });
+      toast('Scope diperbarui.', 'success');
+    } else {
+      await addMembershipScope({
+        user_id: userId,
+        business_unit_id: values.business_unit_id,
+        outlet_id: values.outlet_id || null,
+        role: values.role
+      });
+      toast('Scope ditambahkan.', 'success');
+    }
     await renderMasterUserPage(container);
   } catch (error) {
-    toast(error.message ?? 'Gagal menambah scope.', 'error');
+    toast(error.message ?? 'Gagal menyimpan scope.', 'error');
   }
 }
