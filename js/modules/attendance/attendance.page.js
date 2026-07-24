@@ -1,4 +1,3 @@
-import { supabase } from '../../config/supabase-client.js';
 import { toast } from '../../core/ui.js';
 import {
   getMyTodaySession,
@@ -6,8 +5,9 @@ import {
   clockIn,
   clockOut,
   getGeolocation,
-  getOutletGeofence,
   distanceMeters,
+  listAttendanceOutlets,
+  getMyNbmBase,
   uploadAttendanceSelfie,
   setClockInPhoto,
   getExitTaskMode,
@@ -30,17 +30,15 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
   container.innerHTML = `<p>Memuat presensi...</p>`;
   loadFaceModels().catch(() => {}); // mulai load di background, tidak perlu ditunggu
 
-  const [todaySession, recent, exitMode, myFaceDescriptor] = await Promise.all([
+  const fallbackBase = { business_unit_id: businessUnitId, outlet_id: outletId };
+  const [todaySession, recent, myFaceDescriptor, allOutlets, nbmBase] = await Promise.all([
     getMyTodaySession(),
     getMyRecentAttendance(),
-    getExitTaskMode(businessUnitId),
-    getMyFaceDescriptor()
+    getMyFaceDescriptor(),
+    listAttendanceOutlets().catch(() => []),
+    getMyNbmBase(fallbackBase).catch(() => fallbackBase)
   ]);
-
-  // Sesi terbuka hari ini (belum clock out) -> boleh clock out.
-  const openSession = todaySession && !todaySession.clock_out_at ? todaySession : null;
-  // Sudah clock in DAN clock out hari ini -> presensi hari ini selesai, tidak boleh clock-in lagi.
-  const doneToday = todaySession && todaySession.clock_out_at ? todaySession : null;
+  const exitMode = await getExitTaskMode(nbmBase.business_unit_id).catch(() => 'storing');
 
   // Staff wajib daftar wajah dulu sebelum bisa clock in/out sama sekali.
   if (!myFaceDescriptor) {
@@ -48,15 +46,11 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
     return;
   }
 
-  let outletOptions = '';
-  if (!outletId) {
-    const { data: outlets } = await supabase
-      .from('outlets')
-      .select('id, name')
-      .eq('business_unit_id', businessUnitId)
-      .order('name');
-    outletOptions = (outlets ?? []).map((o) => `<option value="${o.id}">${o.name}</option>`).join('');
-  }
+  const openSession = todaySession && !todaySession.clock_out_at ? todaySession : null;
+  const doneToday = todaySession && todaySession.clock_out_at ? todaySession : null;
+
+  const outletName = (id) => allOutlets.find((o) => o.id === id)?.name ?? 'Outlet';
+  const baseOutlet = allOutlets.find((o) => o.id === nbmBase.outlet_id) || null;
 
   container.innerHTML = `
     <h1>Presensi</h1>
@@ -73,7 +67,7 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
           `
           : openSession
           ? `
-            <p>Kamu sedang bekerja sejak <strong>${formatTime(openSession.clock_in_at)}</strong>.</p>
+            <p>Kamu sedang bekerja sejak <strong>${formatTime(openSession.clock_in_at)}</strong> di <strong>${outletName(openSession.outlet_id)}</strong>.</p>
             <div class="field">
               <label>Foto Selfie (wajib untuk clock out)</label>
               <button type="button" id="btn-shoot-out" style="max-width:220px">📷 Ambil Foto Selfie</button>
@@ -83,15 +77,11 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
           `
           : `
             <p>Kamu belum absen hari ini.</p>
-            ${
-              outletId
-                ? ''
-                : `<div class="field"><label>Outlet</label><select id="clock-in-outlet">${outletOptions}</select></div>`
-            }
-            ${exitTaskFieldHtml(exitMode)}
+            <div class="detect-banner" id="detect-banner">📍 Mendeteksi lokasi kamu...</div>
+            <div id="outside-options" style="display:none">${outsideOptionsHtml(exitMode)}</div>
             <div class="field">
               <label>Foto Selfie (wajib untuk clock in)</label>
-              <button type="button" id="btn-shoot-in" style="max-width:220px">📷 Ambil Foto Selfie</button>
+              <button type="button" id="btn-shoot-in" style="max-width:220px" disabled>📷 Ambil Foto Selfie</button>
               <img id="preview-in" class="selfie-preview" style="display:none" />
             </div>
             <button class="primary" id="btn-clock-in" disabled>Clock In</button>
@@ -128,16 +118,61 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
 
   wireNotificationCard(container, userId);
 
+  // ---- Auto-deteksi lokasi (hanya di state clock in) ----
+  let detected = null; // outlet terdeteksi (punya koordinat), atau null kalau di luar
+  let mode = 'outside';
+
+  async function runDetection() {
+    const banner = document.getElementById('detect-banner');
+    if (!banner) return;
+    const loc = await getGeolocation();
+    const withCoords = allOutlets.filter((o) => o.latitude != null && o.longitude != null);
+    let best = null;
+    let bestDist = Infinity;
+    if (loc) {
+      for (const o of withCoords) {
+        const d = distanceMeters(loc.lat, loc.lng, o.latitude, o.longitude);
+        if (d <= (o.geofence_radius_m ?? 100) && d < bestDist) {
+          best = o;
+          bestDist = d;
+        }
+      }
+    }
+
+    if (best) {
+      detected = best;
+      mode = 'inside';
+      banner.className = 'detect-banner detect-in';
+      banner.innerHTML = `✅ Terdeteksi di <strong>${best.business_unit_name}</strong> / <strong>${best.name}</strong>`;
+      document.getElementById('outside-options').style.display = 'none';
+      toast(`Terdeteksi di ${best.business_unit_name} / ${best.name}`, 'success');
+    } else {
+      detected = null;
+      mode = 'outside';
+      banner.className = 'detect-banner detect-out';
+      banner.innerHTML = loc
+        ? `⚠️ Kamu di luar outlet Berjaya manapun.`
+        : `⚠️ Lokasi tidak terdeteksi (GPS mati/ditolak).`;
+      document.getElementById('outside-options').style.display = 'block';
+      toast(
+        exitMode === 'otp'
+          ? 'Di luar outlet Berjaya — isi kode OTP dari admin untuk lanjut.'
+          : 'Di luar outlet Berjaya — tandai sebagai tugas luar untuk lanjut.',
+        'warning'
+      );
+    }
+    document.getElementById('btn-shoot-in').disabled = false;
+  }
+  if (!doneToday && !openSession) runDetection();
+
   // ---- Clock In ----
   document.getElementById('btn-shoot-in')?.addEventListener('click', async () => {
     errorEl.textContent = '';
     try {
-      const chosenOutletId = outletId ?? document.getElementById('clock-in-outlet')?.value;
-      if (!chosenOutletId) throw new Error('Pilih outlet dulu sebelum ambil foto.');
-      const outlet = await getOutletGeofence(chosenOutletId);
-
+      const wmOutlet = mode === 'inside' ? detected.name : baseOutlet?.name ?? 'Tugas Luar';
       capturedIn = await openCameraCapture({
-        getWatermarkText: () => formatWatermarkText(outlet.name, 'Clock In')
+        getWatermarkText: () => formatWatermarkText(wmOutlet, 'Clock In'),
+        requireFace: true
       });
       const preview = document.getElementById('preview-in');
       preview.src = URL.createObjectURL(capturedIn.blob);
@@ -151,78 +186,71 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
   document.getElementById('btn-clock-in')?.addEventListener('click', async (e) => {
     e.target.disabled = true;
     try {
-      const chosenOutletId = outletId ?? document.getElementById('clock-in-outlet')?.value;
-      if (!chosenOutletId) throw new Error('Pilih outlet dulu.');
       if (!capturedIn) throw new Error('Ambil foto selfie dulu.');
 
+      // Face recognition memblokir: wajah tidak cocok -> presensi DITOLAK.
+      if (!capturedIn.descriptor) {
+        throw new Error('Wajah tidak terdeteksi di foto. Ulangi foto dengan pencahayaan cukup & wajah menghadap kamera.');
+      }
+      if (!isSameFace(capturedIn.descriptor, myFaceDescriptor)) {
+        throw new Error('Wajah tidak cocok dengan yang terdaftar. Presensi ditolak.');
+      }
+
+      let recordOutletId;
+      let recordBuId;
       let isStoring = false;
       let exitMethod = null;
       let exitReason = null;
       let exitOtpCodeId = null;
 
-      if (exitMode === 'storing') {
-        isStoring = document.getElementById('clock-in-storing')?.checked ?? false;
-        exitMethod = isStoring ? 'storing' : null;
-        exitReason = isStoring ? document.getElementById('clock-in-exit-reason')?.value || null : null;
-      } else if (exitMode === 'otp') {
-        const otpInput = document.getElementById('clock-in-otp')?.value?.trim();
-        if (otpInput) {
-          const codeId = await redeemExitOtp(otpInput, businessUnitId);
+      if (mode === 'inside') {
+        recordOutletId = detected.id;
+        recordBuId = detected.business_unit_id;
+      } else {
+        // Di luar outlet -> catat di outlet basis (tempat kerja utama), tandai tugas luar.
+        if (!nbmBase.outlet_id) {
+          throw new Error('Kamu di luar outlet & belum punya "tempat kerja utama" (outlet). Minta admin menetapkannya di Master User.');
+        }
+        recordOutletId = nbmBase.outlet_id;
+        recordBuId = nbmBase.business_unit_id;
+        isStoring = true;
+        exitReason = document.getElementById('clock-in-exit-reason')?.value || null;
+        if (exitMode === 'otp') {
+          const otp = document.getElementById('clock-in-otp')?.value?.trim();
+          if (!otp) throw new Error('Kamu di luar outlet. Isi kode OTP dari admin dulu.');
+          const codeId = await redeemExitOtp(otp, nbmBase.business_unit_id);
           if (!codeId) throw new Error('Kode OTP salah, sudah dipakai, atau kedaluwarsa.');
-          isStoring = true;
           exitMethod = 'otp';
           exitOtpCodeId = codeId;
-          exitReason = document.getElementById('clock-in-exit-reason')?.value || null;
+        } else {
+          exitMethod = 'storing';
         }
       }
 
       const location = await getGeolocation();
-
-      if (!isStoring) {
-        const outlet = await getOutletGeofence(chosenOutletId);
-        if (outlet.latitude != null && outlet.longitude != null) {
-          if (!location) {
-            throw new Error(`Outlet ini butuh validasi lokasi. Aktifkan izin lokasi di browser/HP kamu, lalu coba lagi.`);
-          }
-          const dist = distanceMeters(location.lat, location.lng, outlet.latitude, outlet.longitude);
-          if (dist > outlet.geofence_radius_m) {
-            throw new Error(
-              `Kamu berada ${Math.round(dist)}m dari outlet (maks ${outlet.geofence_radius_m}m). Mendekatlah ke outlet, atau isi tugas keluar kalau memang sedang bertugas di luar.`
-            );
-          }
-        }
-      }
-
-      // Wajah tidak cocok TIDAK memblokir clock in -- cuma ditandai untuk direview admin.
-      const faceMatch = capturedIn.descriptor ? isSameFace(capturedIn.descriptor, myFaceDescriptor) : null;
-
       const record = await clockIn({
         userId,
-        businessUnitId,
-        outletId: chosenOutletId,
+        businessUnitId: recordBuId,
+        outletId: recordOutletId,
+        nbmBusinessUnitId: nbmBase.business_unit_id,
+        nbmOutletId: nbmBase.outlet_id,
         location,
         isStoring,
         exitMethod,
         exitReason,
         exitOtpCodeId,
-        faceMatch
+        faceMatch: true
       });
 
       const photoPath = await uploadAttendanceSelfie({
-        outletId: chosenOutletId,
+        outletId: recordOutletId,
         recordId: record.id,
         kind: 'in',
         file: capturedIn.blob
       });
       await setClockInPhoto(record.id, photoPath);
 
-      toast(
-        faceMatch === false
-          ? 'Clock in berhasil, tapi wajah kurang cocok — ditandai untuk review admin.'
-          : 'Clock in berhasil. Selamat bekerja! 👋',
-        faceMatch === false ? 'warning' : 'success'
-      );
-
+      toast('Clock in berhasil. Selamat bekerja! 👋', 'success');
       await renderAttendancePage(container, { userId, businessUnitId, outletId });
     } catch (error) {
       errorEl.textContent = error.message ?? 'Gagal clock in.';
@@ -234,9 +262,9 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
   document.getElementById('btn-shoot-out')?.addEventListener('click', async () => {
     errorEl.textContent = '';
     try {
-      const outlet = await getOutletGeofence(openSession.outlet_id);
       capturedOut = await openCameraCapture({
-        getWatermarkText: () => formatWatermarkText(outlet.name, 'Clock Out')
+        getWatermarkText: () => formatWatermarkText(outletName(openSession.outlet_id), 'Clock Out'),
+        requireFace: true
       });
       const preview = document.getElementById('preview-out');
       preview.src = URL.createObjectURL(capturedOut.blob);
@@ -252,6 +280,14 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
     try {
       if (!capturedOut) throw new Error('Ambil foto selfie dulu.');
 
+      // Face recognition memblokir clock out juga.
+      if (!capturedOut.descriptor) {
+        throw new Error('Wajah tidak terdeteksi di foto. Ulangi foto dengan pencahayaan cukup & wajah menghadap kamera.');
+      }
+      if (!isSameFace(capturedOut.descriptor, myFaceDescriptor)) {
+        throw new Error('Wajah tidak cocok dengan yang terdaftar. Clock out ditolak.');
+      }
+
       const photoPath = await uploadAttendanceSelfie({
         outletId: openSession.outlet_id,
         recordId: openSession.id,
@@ -259,26 +295,14 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
         file: capturedOut.blob
       });
 
-      const faceMatch = capturedOut.descriptor ? isSameFace(capturedOut.descriptor, myFaceDescriptor) : null;
-      await clockOut(openSession.id, { photoPath, faceMatch });
+      await clockOut(openSession.id, { photoPath, faceMatch: true });
 
-      toast(
-        faceMatch === false
-          ? 'Clock out berhasil, tapi wajah kurang cocok — ditandai untuk review admin.'
-          : 'Clock out berhasil. Terima kasih atas kerja kerasnya hari ini! 🙌',
-        faceMatch === false ? 'warning' : 'success'
-      );
-
+      toast('Clock out berhasil. Terima kasih atas kerja kerasnya hari ini! 🙌', 'success');
       await renderAttendancePage(container, { userId, businessUnitId, outletId });
     } catch (error) {
       errorEl.textContent = error.message ?? 'Gagal clock out.';
       e.target.disabled = false;
     }
-  });
-
-  document.getElementById('clock-in-storing')?.addEventListener('change', (e) => {
-    const reasonField = document.getElementById('clock-in-exit-reason-wrap');
-    if (reasonField) reasonField.style.display = e.target.checked ? 'block' : 'none';
   });
 }
 
@@ -292,7 +316,8 @@ function renderFaceRegistrationGate(container, { userId, businessUnitId, outletI
       <p style="font-size:0.9rem;color:var(--color-text-muted)">
         Sebelum bisa clock in/out, kamu perlu daftarkan wajah sekali di sini. Foto ini
         dipakai untuk mencocokkan wajah kamu setiap presensi -- bukan disimpan sebagai
-        foto, hanya pola wajah (angka) yang tersimpan.
+        foto, hanya pola wajah (angka) yang tersimpan. Kalau wajah tidak cocok saat absen,
+        presensi akan ditolak.
       </p>
       <button class="primary" id="btn-register-face" style="max-width:240px">📷 Daftarkan Wajah Sekarang</button>
       <p class="error-text" id="face-register-error"></p>
@@ -364,12 +389,13 @@ async function wireNotificationCard(container, userId) {
   await refreshStatus();
 }
 
-function exitTaskFieldHtml(exitMode) {
+/** Field yang muncul saat staff terdeteksi DI LUAR semua outlet (tugas luar / OTP). */
+function outsideOptionsHtml(exitMode) {
   if (exitMode === 'otp') {
     return `
       <div class="field">
-        <label>Kode OTP Tugas Keluar (isi kalau sedang bertugas di luar outlet)</label>
-        <input type="text" id="clock-in-otp" placeholder="Kosongkan kalau tidak ada tugas keluar" />
+        <label>Kode OTP Tugas Keluar (wajib, minta ke admin)</label>
+        <input type="text" id="clock-in-otp" placeholder="6 digit dari admin" />
       </div>
       <div class="field">
         <label>Keterangan tujuan (opsional)</label>
@@ -378,12 +404,8 @@ function exitTaskFieldHtml(exitMode) {
     `;
   }
   return `
-    <div class="field" style="display:flex;align-items:center;gap:8px">
-      <input type="checkbox" id="clock-in-storing" style="width:auto" />
-      <label for="clock-in-storing" style="margin:0">Tugas storing (di luar outlet)</label>
-    </div>
-    <div class="field" id="clock-in-exit-reason-wrap" style="display:none">
-      <label>Keterangan tujuan (opsional)</label>
+    <div class="field">
+      <label>Keterangan tugas luar (opsional)</label>
       <input type="text" id="clock-in-exit-reason" placeholder="misal: antar barang ke customer" />
     </div>
   `;

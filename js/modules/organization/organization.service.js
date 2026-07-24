@@ -98,6 +98,37 @@ export async function deleteOutlet(id) {
   if (error) throw error;
 }
 
+// ---- Toggle modul aktif per BU (bu_modules) ----
+
+/** Semua modul operasional yang tersedia di sistem (tabel referensi). */
+export async function listModules() {
+  const { data, error } = await supabase.from('modules').select('id, code, name, description').order('name');
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Status aktif tiap modul untuk satu BU. */
+export async function listBuModules(businessUnitId) {
+  const { data, error } = await supabase
+    .from('bu_modules')
+    .select('module_id, is_active')
+    .eq('business_unit_id', businessUnitId);
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Simpan set modul aktif untuk satu BU (upsert semua modul sekaligus). */
+export async function setBuModules(businessUnitId, modules, activeModuleIds) {
+  const activeSet = new Set(activeModuleIds);
+  const rows = modules.map((m) => ({
+    business_unit_id: businessUnitId,
+    module_id: m.id,
+    is_active: activeSet.has(m.id)
+  }));
+  const { error } = await supabase.from('bu_modules').upsert(rows, { onConflict: 'business_unit_id,module_id' });
+  if (error) throw error;
+}
+
 /** Upload logo BU ke bucket publik 'bu-logos', simpan public URL-nya ke business_units.logo_url. */
 export async function uploadBuLogo(businessUnitId, file) {
   const ext = file.type === 'image/png' ? 'png' : 'jpg';

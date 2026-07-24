@@ -97,14 +97,52 @@ export async function getMyTodaySession() {
 export async function getMyRecentAttendance(limit = 10) {
   const { data, error } = await supabase
     .from('attendance_records')
-    .select('id, clock_in_at, clock_out_at, outlets(name)')
+    .select('id, clock_in_at, clock_out_at, outlets!outlet_id(name)')
     .order('clock_in_at', { ascending: false })
     .limit(limit);
   if (error) throw error;
   return data ?? [];
 }
 
-export async function clockIn({ userId, businessUnitId, outletId, location, isStoring, exitMethod, exitReason, exitOtpCodeId, faceMatch }) {
+/** Daftar semua outlet aktif (lintas BU) beserta koordinat geofence, untuk auto-deteksi lokasi. */
+export async function listAttendanceOutlets() {
+  const { data, error } = await supabase.rpc('list_attendance_outlets');
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Basis NBM staff = scope yang ditandai "tempat kerja utama" di Master User.
+ * Kalau belum ada yang ditandai, pakai fallback (BU/outlet aktif dari shell).
+ */
+export async function getMyNbmBase(fallback = {}) {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user) return fallback;
+  const { data, error } = await supabase
+    .from('membership_scopes')
+    .select('business_unit_id, outlet_id, is_primary')
+    .eq('user_id', user.id);
+  if (error) throw error;
+  const primary = (data ?? []).find((s) => s.is_primary);
+  if (primary) return { business_unit_id: primary.business_unit_id, outlet_id: primary.outlet_id };
+  return fallback;
+}
+
+export async function clockIn({
+  userId,
+  businessUnitId,
+  outletId,
+  nbmBusinessUnitId,
+  nbmOutletId,
+  location,
+  isStoring,
+  exitMethod,
+  exitReason,
+  exitOtpCodeId,
+  faceMatch
+}) {
   const loc = location !== undefined ? location : await getGeolocation();
   const { data, error } = await supabase
     .from('attendance_records')
@@ -112,6 +150,8 @@ export async function clockIn({ userId, businessUnitId, outletId, location, isSt
       user_id: userId,
       business_unit_id: businessUnitId,
       outlet_id: outletId,
+      nbm_business_unit_id: nbmBusinessUnitId ?? businessUnitId,
+      nbm_outlet_id: nbmOutletId ?? null,
       clock_in_lat: loc?.lat ?? null,
       clock_in_lng: loc?.lng ?? null,
       is_storing: !!isStoring,
@@ -279,12 +319,36 @@ export async function reverseGeocode(lat, lng) {
 export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFrom, dateTo }) {
   let query = supabase
     .from('attendance_records')
-    .select('id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, user_profiles(full_name), outlets(id, name)')
+    .select('id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, user_profiles(full_name), outlets!outlet_id(id, name)')
     .eq('business_unit_id', businessUnitId)
     .order('clock_in_at', { ascending: false })
     .limit(200);
 
   if (outletId) query = query.eq('outlet_id', outletId);
+  if (dateFrom) query = query.gte('clock_in_at', dateFrom);
+  if (dateTo) query = query.lte('clock_in_at', dateTo);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Data presensi untuk perhitungan NBM — difilter & dikelompokkan berdasarkan
+ * BU/outlet BASIS (tempat kerja utama), bukan lokasi absen fisik. Membawa
+ * kedua info outlet: nbm_outlet (basis, untuk config NBM) & outlets (lokasi absen).
+ */
+export async function listAttendanceForNbm({ businessUnitId, outletId, dateFrom, dateTo }) {
+  let query = supabase
+    .from('attendance_records')
+    .select(
+      'id, clock_in_at, clock_out_at, is_storing, nbm_business_unit_id, nbm_outlet_id, user_profiles(full_name), outlets!outlet_id(id, name), nbm_outlet:outlets!nbm_outlet_id(id, name)'
+    )
+    .eq('nbm_business_unit_id', businessUnitId)
+    .order('clock_in_at', { ascending: false })
+    .limit(500);
+
+  if (outletId) query = query.eq('nbm_outlet_id', outletId);
   if (dateFrom) query = query.gte('clock_in_at', dateFrom);
   if (dateTo) query = query.lte('clock_in_at', dateTo);
 

@@ -8,7 +8,10 @@ import {
   listOutletsForBu,
   createOutlet,
   updateOutlet,
-  deleteOutlet
+  deleteOutlet,
+  listModules,
+  listBuModules,
+  setBuModules
 } from './organization.service.js';
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
 
@@ -107,7 +110,8 @@ function buCardHtml(bu, outlets) {
             ${typeLabel} &middot; ${escapeHtml(bu.organizations?.name ?? '-')}
           </p>
         </div>
-        <div style="display:flex;gap:6px;flex-shrink:0">
+        <div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap">
+          <button class="btn-modules-bu" data-bu="${bu.id}">Modul</button>
           <button class="btn-edit-bu" data-bu="${bu.id}">Edit</button>
           <button class="btn-del-bu" data-bu="${bu.id}">Hapus</button>
         </div>
@@ -126,6 +130,10 @@ function wireActions(container, businessUnits, organizations, outletsByBu) {
 
   container.querySelectorAll('.btn-edit-bu').forEach((btn) => {
     btn.addEventListener('click', () => openBuDialog(container, organizations, buById[btn.dataset.bu]));
+  });
+
+  container.querySelectorAll('.btn-modules-bu').forEach((btn) => {
+    btn.addEventListener('click', () => openModulesDialog(container, buById[btn.dataset.bu]));
   });
 
   container.querySelectorAll('.btn-del-bu').forEach((btn) => {
@@ -177,6 +185,43 @@ function wireActions(container, businessUnits, organizations, outletsByBu) {
       }
     });
   });
+}
+
+async function openModulesDialog(container, bu) {
+  let modules, states;
+  try {
+    [modules, states] = await Promise.all([listModules(), listBuModules(bu.id)]);
+  } catch (error) {
+    toast(error.message ?? 'Gagal memuat daftar modul.', 'error');
+    return;
+  }
+  if (modules.length === 0) {
+    toast('Belum ada modul terdaftar di sistem.', 'warning');
+    return;
+  }
+  const activeMap = new Map(states.map((s) => [s.module_id, s.is_active]));
+
+  const values = await formDialog({
+    title: `Modul Aktif — ${bu.name}`,
+    description: 'Centang modul yang tampil di Staff App untuk BU ini. Menu admin (Dashboard, Master User, dll) selalu tersedia dan tidak diatur di sini.',
+    fields: modules.map((m) => ({
+      name: `m_${m.id}`,
+      label: m.name,
+      type: 'checkbox',
+      value: activeMap.get(m.id) ?? false
+    })),
+    submitText: 'Simpan'
+  });
+  if (!values) return;
+
+  const activeIds = modules.filter((m) => values[`m_${m.id}`]).map((m) => m.id);
+  try {
+    await setBuModules(bu.id, modules, activeIds);
+    toast('Modul BU diperbarui.', 'success');
+    await renderOrganizationAdminPage(container);
+  } catch (error) {
+    toast(error.message ?? 'Gagal menyimpan modul.', 'error');
+  }
 }
 
 async function openOrgDialog(container) {

@@ -400,6 +400,25 @@ button.primary:hover { background: var(--color-primary-hover); }
   border: none;
 }
 
+.detect-banner {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  font-size: 0.92rem;
+  margin-bottom: var(--spacing-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+.detect-banner.detect-in {
+  border-color: var(--color-primary);
+  background: #eaf5f0;
+  color: #145c43;
+}
+.detect-banner.detect-out {
+  border-color: #d98a00;
+  background: #fff6e6;
+  color: #8a5800;
+}
+
 .selfie-preview {
   width: 88px;
   height: 88px;

@@ -1,4 +1,4 @@
-import { listAttendanceForAdmin, listOutletsWithGeofence } from './attendance.service.js';
+import { listAttendanceForNbm, listOutletsWithGeofence } from './attendance.service.js';
 import { getNbmConfig, listOvertimeTiers, listHolidays, calculateNbm, toDateKey } from './nbm.service.js';
 
 export async function renderNbmReportTab(container, businessUnitId) {
@@ -8,7 +8,7 @@ export async function renderNbmReportTab(container, businessUnitId) {
   container.innerHTML = `
     <div class="inline-card" style="max-width:640px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
       <div class="field" style="margin:0">
-        <label>Outlet</label>
+        <label>Outlet basis (tempat kerja utama)</label>
         <select id="nbm-report-outlet">
           <option value="">Semua outlet</option>
           ${outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('')}
@@ -31,15 +31,19 @@ async function runReport(businessUnitId, outlets) {
   const resultEl = document.getElementById('nbm-report-result');
   resultEl.innerHTML = `<p>Menghitung...</p>`;
 
-  const records = await listAttendanceForAdmin({
+  const records = await listAttendanceForNbm({
     businessUnitId,
     outletId,
     dateFrom: from ? new Date(from).toISOString() : '',
     dateTo: to ? new Date(to + 'T23:59:59').toISOString() : ''
   });
 
-  // Preload config/tier/holiday per outlet yang muncul di hasil, biar gak query berulang
-  const outletIds = [...new Set(records.map((r) => r.outlets?.id).filter(Boolean))];
+  // NBM dihitung berdasarkan outlet BASIS (nbm_outlet), bukan lokasi absen.
+  // Fallback ke lokasi absen untuk record lama yang belum punya basis.
+  const baseOutletId = (r) => r.nbm_outlet?.id ?? r.outlets?.id;
+
+  // Preload config/tier/holiday per outlet basis yang muncul, biar gak query berulang
+  const outletIds = [...new Set(records.map(baseOutletId).filter(Boolean))];
   const configByOutlet = {};
   const tiersByOutlet = {};
   const holidaysByOutlet = {};
@@ -52,7 +56,7 @@ async function runReport(businessUnitId, outlets) {
   }
 
   const rows = records.map((r) => {
-    const oid = r.outlets?.id;
+    const oid = baseOutletId(r);
     const nbm = calculateNbm(r, configByOutlet[oid], tiersByOutlet[oid], holidaysByOutlet[oid] ?? []);
     return { record: r, nbm };
   });
@@ -67,19 +71,23 @@ async function runReport(businessUnitId, outlets) {
   resultEl.innerHTML = `
     <table class="data-table" style="margin-top:16px">
       <thead>
-        <tr><th>Staff</th><th>Outlet</th><th>Tanggal</th><th>Storing</th><th>Libur</th><th>Base</th><th>Lembur</th><th>Storing+</th><th>Total</th></tr>
+        <tr><th>Staff</th><th>Outlet Basis</th><th>Lokasi Absen</th><th>Tanggal</th><th>Storing</th><th>Libur</th><th>Base</th><th>Lembur</th><th>Storing+</th><th>Total</th></tr>
       </thead>
       <tbody>
         ${
           rows
             .map(({ record, nbm }) => {
+              const baseName = record.nbm_outlet?.name ?? record.outlets?.name ?? '-';
+              const physName = record.outlets?.name ?? '-';
+              const physCell = physName === baseName ? '<span style="color:var(--color-text-muted)">(sama)</span>' : physName;
               if (!nbm) {
-                return `<tr><td>${record.user_profiles?.full_name ?? '-'}</td><td>${record.outlets?.name ?? '-'}</td><td>${toDateKey(new Date(record.clock_in_at))}</td><td colspan="6">Belum bisa dihitung (belum clock out / NBM outlet belum diset)</td></tr>`;
+                return `<tr><td>${record.user_profiles?.full_name ?? '-'}</td><td>${baseName}</td><td>${physCell}</td><td>${toDateKey(new Date(record.clock_in_at))}</td><td colspan="6">Belum bisa dihitung (belum clock out / NBM outlet basis belum diset)</td></tr>`;
               }
               return `
                 <tr>
                   <td>${record.user_profiles?.full_name ?? '-'}</td>
-                  <td>${record.outlets?.name ?? '-'}</td>
+                  <td>${baseName}</td>
+                  <td>${physCell}</td>
                   <td>${toDateKey(new Date(record.clock_in_at))}</td>
                   <td>${record.is_storing ? 'Ya' : '-'}</td>
                   <td>${nbm.isHoliday ? 'Ya' : '-'}</td>
@@ -90,7 +98,7 @@ async function runReport(businessUnitId, outlets) {
                 </tr>
               `;
             })
-            .join('') || '<tr><td colspan="9">Tidak ada data.</td></tr>'
+            .join('') || '<tr><td colspan="10">Tidak ada data.</td></tr>'
         }
       </tbody>
     </table>
