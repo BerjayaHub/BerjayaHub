@@ -150,6 +150,18 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (existingRecord) continue;
 
+      // Sedang cuti yang sudah disetujui hari ini? -> lewati reminder (izin sah).
+      const { data: onLeave } = await admin
+        .from('leave_requests')
+        .select('id')
+        .eq('user_id', scope.user_id)
+        .eq('status', 'approved')
+        .lte('start_date', today)
+        .gte('end_date', today)
+        .limit(1)
+        .maybeSingle();
+      if (onLeave) continue;
+
       // Sudah dikirimi reminder hari ini untuk outlet ini?
       const { data: alreadySent } = await admin
         .from('attendance_reminders_sent')

@@ -3,8 +3,10 @@ import { getActiveModules, getModuleRenderer, registerModule } from './core/modu
 import { getModuleIcon } from './core/module-icons.js';
 import { toast, confirmDialog, formDialog } from './core/ui.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
+import { renderLeavePage } from './modules/leave/leave.page.js';
 
 registerModule('attendance', renderAttendancePage);
+registerModule('leave', renderLeavePage);
 
 const app = document.getElementById('app');
 

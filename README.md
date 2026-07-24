@@ -212,6 +212,19 @@ Jalankan migration `0011_nbm_base_and_roaming_attendance.sql` **dan** `0012_atte
 - `attendance_records` dapat FK kedua ke `outlets` (`nbm_outlet_id`) & ke `business_units` — query embed `outlets(...)` diberi hint `!outlet_id`/`!nbm_outlet_id` agar tidak ambigu.
 - RPC `list_attendance_outlets()` (security definer) memberi staff koordinat semua outlet aktif untuk deteksi lokasi.
 
+## Fase 3 — Pengajuan Cuti
+
+Jalankan migration `0013_leave.sql`, lalu aktifkan modul **Cuti** untuk BU lewat Admin Portal → Master BU & Outlet → tombol **Modul** (centang "Pengajuan Cuti").
+
+- **Staff App** (menu Cuti): lihat **sisa jatah cuti tahunan**, **ajukan cuti** (jenis, tanggal, alasan, lampiran opsional), lihat riwayat & status, dan **batalkan** pengajuan yang masih menunggu.
+- **Admin Portal** (menu Cuti), 3 tab:
+  - **Pengajuan** — approve/tolak dengan catatan, lihat lampiran, filter per status.
+  - **Jenis Cuti** — kelola jenis (default global: Cuti Tahunan [potong jatah], Sakit, Izin). Admin BU bisa tambah jenis khusus BU; jenis global hanya Super Admin.
+  - **Jatah Cuti** — atur jatah tahunan per staff; sisa dihitung otomatis dari cuti disetujui yang memotong jatah.
+- **Approver**: admin mana pun di scope staff (outlet_admin/bu_admin/super_admin), lewat RLS `is_admin_of_outlet` / `is_bu_admin`.
+- **Lampiran** disimpan di bucket privat `leave-attachments` (RLS: pemilik + admin scope).
+- **Integrasi presensi**: staff yang punya cuti disetujui mencakup hari ini **tidak** dikirimi reminder "belum clock in" (perlu deploy ulang `send-attendance-reminders`).
+
 ## Arsitektur modular per Business Unit
 
 Setiap Business Unit punya daftar modul aktif sendiri (tabel `bu_modules`), jadi menu & fitur yang muncul di Staff App/Admin Portal beda-beda tergantung BU tempat staff login. Modul baru didaftarkan lewat `registerModule(code, renderFn)` di `module-loader.js` — tidak perlu ubah kode shell.
@@ -225,7 +238,7 @@ Outlet punya `outlet_role`: `standalone`, `central_kitchen`, atau `served_by_ck`
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
 - [x] **Fase 1** — Master User/Staff (admin CRUD)
 - [x] **Fase 2** — Presensi (lintas semua BU)
-- [ ] **Fase 3** — Ceklis Kebersihan (lintas semua BU)
+- [x] **Fase 3** — Pengajuan Cuti (lintas semua BU)
 - [ ] **Fase 4** — Master Produk & Master Formula/Resep (Cafe)
 - [ ] **Fase 5** — Inventory (Cafe)
 - [ ] **Fase 6** — Production di level Outlet (Cafe)

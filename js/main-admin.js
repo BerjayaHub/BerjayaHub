@@ -3,6 +3,7 @@ import { getActiveModules, getModuleRenderer, registerModule } from './core/modu
 import { getModuleIcon } from './core/module-icons.js';
 import { renderMasterUserPage } from './modules/master-user/master-user.page.js';
 import { renderAttendanceAdminPage } from './modules/attendance/attendance.admin.page.js';
+import { renderLeaveAdminPage } from './modules/leave/leave.admin.page.js';
 import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
 import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
 import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
@@ -18,6 +19,7 @@ registerModule('organization', renderOrganizationAdminPage);
 registerModule('master_user', renderMasterUserPage);
 registerModule('bu_appearance', renderBuAppearancePage);
 registerModule('attendance', renderAttendanceAdminPage);
+registerModule('leave', renderLeaveAdminPage);
 const CORE_ADMIN_MENU = [
   { code: 'dashboard', name: 'Dashboard' },
   { code: 'organization', name: 'Master BU & Outlet' },
