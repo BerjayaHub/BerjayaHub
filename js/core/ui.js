@@ -4,6 +4,8 @@
 // supaya gaya notifikasi/pop up konsisten di seluruh aplikasi.
 // =========================================================
 
+import { formatThousands, parseNumber, attachThousandsInput } from './format.js';
+
 // ---- Toast / pop up notifikasi ----
 
 function ensureToastRoot() {
@@ -124,6 +126,9 @@ export function formDialog({
     document.body.appendChild(overlay);
     requestAnimationFrame(() => overlay.classList.add('show'));
 
+    // Auto-format ribuan untuk field 'money'.
+    fields.filter((f) => f.type === 'money').forEach((f) => attachThousandsInput(form.elements[f.name]));
+
     const errorEl = overlay.querySelector('.modal-error');
     const close = (result) => {
       overlay.classList.remove('show');
@@ -136,14 +141,20 @@ export function formDialog({
       for (const f of fields) {
         const input = form.elements[f.name];
         if (!input) continue;
+        let rawEmpty = false;
         if (f.type === 'file') {
           values[f.name] = input.files[0] ?? null;
+          rawEmpty = !values[f.name];
         } else if (f.type === 'checkbox') {
           values[f.name] = input.checked;
+        } else if (f.type === 'money') {
+          rawEmpty = String(input.value).trim() === '';
+          values[f.name] = parseNumber(input.value);
         } else {
           values[f.name] = typeof input.value === 'string' ? input.value.trim() : input.value;
+          rawEmpty = values[f.name] === '' || values[f.name] == null;
         }
-        if (f.required && (values[f.name] === '' || values[f.name] == null)) {
+        if (f.required && rawEmpty) {
           errorEl.textContent = `"${f.label}" wajib diisi.`;
           input.focus();
           return;
@@ -176,6 +187,67 @@ export function formDialog({
   });
 }
 
+/**
+ * Dialog "Bagikan" tanpa API: teks bisa diedit, lalu dibagikan lewat share
+ * sheet native (navigator.share), WhatsApp (wa.me), atau disalin. Untuk kirim
+ * manual ke staff/PIC via chat.
+ */
+export function shareDialog({ title = 'Bagikan', helper = '', defaultMessage = '' } = {}) {
+  return new Promise((resolve) => {
+    const overlay = buildOverlay();
+    const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+    overlay.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true">
+        <h3 class="modal-title">${escapeHtml(title)}</h3>
+        ${helper ? `<p class="modal-text">${escapeHtml(helper)}</p>` : ''}
+        <div class="field">
+          <label for="share-text">Pesan (bisa diedit)</label>
+          <textarea id="share-text" rows="4" class="share-textarea"></textarea>
+        </div>
+        <div class="modal-actions" style="flex-wrap:wrap">
+          <button type="button" class="btn-ghost" data-act="close">Tutup</button>
+          <button type="button" class="btn-ghost" data-act="copy">Salin</button>
+          <button type="button" class="btn-inline btn-whatsapp" data-act="wa">WhatsApp</button>
+          ${canShare ? `<button type="button" class="primary btn-inline" data-act="share">Bagikan…</button>` : ''}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const ta = overlay.querySelector('#share-text');
+    ta.value = defaultMessage;
+    requestAnimationFrame(() => overlay.classList.add('show'));
+
+    const close = () => {
+      overlay.classList.remove('show');
+      setTimeout(() => overlay.remove(), 200);
+      resolve();
+    };
+    overlay.querySelector('[data-act="close"]').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close();
+    });
+    overlay.querySelector('[data-act="copy"]').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(ta.value);
+        toast('Teks disalin.', 'success');
+      } catch {
+        toast('Gagal menyalin teks.', 'error');
+      }
+    });
+    overlay.querySelector('[data-act="wa"]').addEventListener('click', () => {
+      window.open('https://wa.me/?text=' + encodeURIComponent(ta.value), '_blank');
+    });
+    overlay.querySelector('[data-act="share"]')?.addEventListener('click', async () => {
+      try {
+        await navigator.share({ text: ta.value });
+        close();
+      } catch {
+        // user membatalkan share sheet -> biarkan dialog tetap terbuka
+      }
+    });
+  });
+}
+
 function fieldHtml(f) {
   const id = `f-${f.name}`;
   const req = f.required ? 'required' : '';
@@ -198,6 +270,20 @@ function fieldHtml(f) {
       <div class="field field-check">
         <input type="checkbox" id="${id}" name="${escapeAttr(f.name)}" ${f.value ? 'checked' : ''} />
         <label for="${id}" style="margin:0">${escapeHtml(f.label)}</label>
+        ${help}
+      </div>`;
+  }
+
+  if (f.type === 'money') {
+    return `
+      <div class="field">
+        <label for="${id}">${escapeHtml(f.label)}</label>
+        <div class="money-wrap">
+          <span class="money-prefix">Rp</span>
+          <input type="text" inputmode="numeric" id="${id}" name="${escapeAttr(f.name)}"
+            value="${escapeAttr(formatThousands(f.value ?? ''))}" ${f.required ? 'required' : ''}
+            ${f.placeholder ? `placeholder="${escapeAttr(f.placeholder)}"` : ''} />
+        </div>
         ${help}
       </div>`;
   }

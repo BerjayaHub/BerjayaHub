@@ -13,6 +13,7 @@ import {
 } from './attendance.service.js';
 import { renderNbmSettingsTab } from './nbm-settings.admin.page.js';
 import { renderNbmReportTab } from './nbm-report.admin.page.js';
+import { toast, formDialog } from '../../core/ui.js';
 
 const TABS = [
   { key: 'presensi', label: 'Presensi' },
@@ -142,9 +143,9 @@ async function renderPresensiTab(container, businessUnitId) {
   document.getElementById('btn-save-exit-mode').addEventListener('click', async () => {
     try {
       await setExitTaskMode(businessUnitId, document.getElementById('exit-mode-select').value);
-      alert('Mode tugas keluar disimpan.');
+      toast('Mode tugas keluar disimpan.', 'success');
     } catch (error) {
-      alert(error.message ?? 'Gagal menyimpan mode.');
+      toast(error.message ?? 'Gagal menyimpan mode.', 'error');
     }
   });
 
@@ -158,7 +159,7 @@ async function renderPresensiTab(container, businessUnitId) {
       `;
       await refreshOtpList();
     } catch (error) {
-      alert(error.message ?? 'Gagal generate kode OTP.');
+      toast(error.message ?? 'Gagal generate kode OTP.', 'error');
     }
   });
 
@@ -236,23 +237,29 @@ function outletGeofenceRowHtml(o) {
 function wireOutletGeofenceButtons(container, businessUnitId) {
   container.querySelectorAll('.btn-set-geofence').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const lat = prompt('Latitude outlet (contoh: -6.301944):');
-      if (lat === null || lat.trim() === '') return;
-      const lng = prompt('Longitude outlet (contoh: 106.652778):');
-      if (lng === null || lng.trim() === '') return;
-      const radius = prompt('Radius toleransi (meter):', '100');
-      if (radius === null) return;
+      const values = await formDialog({
+        title: 'Atur Lokasi Outlet',
+        description: 'Isi koordinat GPS outlet & radius toleransi geofence.',
+        fields: [
+          { name: 'latitude', label: 'Latitude', type: 'text', required: true, placeholder: 'contoh: -6.301944' },
+          { name: 'longitude', label: 'Longitude', type: 'text', required: true, placeholder: 'contoh: 106.652778' },
+          { name: 'radius', label: 'Radius toleransi (meter)', type: 'number', required: true, min: 1, value: '100' }
+        ],
+        submitText: 'Simpan Lokasi'
+      });
+      if (!values) return;
       try {
         await setOutletLocation(btn.dataset.outletId, {
-          latitude: parseFloat(lat),
-          longitude: parseFloat(lng),
-          geofence_radius_m: parseInt(radius, 10) || 100
+          latitude: parseFloat(values.latitude),
+          longitude: parseFloat(values.longitude),
+          geofence_radius_m: parseInt(values.radius, 10) || 100
         });
+        toast('Lokasi outlet disimpan.', 'success');
         const outlets = await listOutletsWithGeofence(businessUnitId);
         container.querySelector('#outlet-geofence-body').innerHTML = outlets.map((o) => outletGeofenceRowHtml(o)).join('');
         wireOutletGeofenceButtons(container, businessUnitId);
       } catch (error) {
-        alert(error.message ?? 'Gagal menyimpan lokasi outlet.');
+        toast(error.message ?? 'Gagal menyimpan lokasi outlet.', 'error');
       }
     });
   });
@@ -273,21 +280,28 @@ function outletWorkHoursRowHtml(o) {
 function wireOutletWorkHoursButtons(container, businessUnitId) {
   container.querySelectorAll('.btn-set-workhours').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const clockIn = prompt('Jam masuk (format 24 jam, contoh: 08:00). Kosongkan untuk matikan reminder:');
-      if (clockIn === null) return;
-      const clockOutTime = clockIn.trim() ? prompt('Jam pulang (opsional, contoh: 17:00):', '') : '';
-      if (clockOutTime === null) return;
+      const values = await formDialog({
+        title: 'Atur Jam Kerja Outlet',
+        description: 'Jam masuk dipakai untuk reminder clock in. Kosongkan jam masuk untuk mematikan reminder.',
+        fields: [
+          { name: 'clock_in_time', label: 'Jam masuk', type: 'time' },
+          { name: 'clock_out_time', label: 'Jam pulang (opsional)', type: 'time' }
+        ],
+        submitText: 'Simpan Jam Kerja'
+      });
+      if (!values) return;
       try {
         await setOutletWorkHours(btn.dataset.outletId, {
-          clock_in_time: clockIn.trim() || null,
-          clock_out_time: clockOutTime.trim() || null,
-          reminder_enabled: !!clockIn.trim()
+          clock_in_time: values.clock_in_time || null,
+          clock_out_time: values.clock_out_time || null,
+          reminder_enabled: !!values.clock_in_time
         });
+        toast('Jam kerja outlet disimpan.', 'success');
         const outlets = await listOutletsWithGeofence(businessUnitId);
         container.querySelector('#outlet-workhours-body').innerHTML = outlets.map((o) => outletWorkHoursRowHtml(o)).join('');
         wireOutletWorkHoursButtons(container, businessUnitId);
       } catch (error) {
-        alert(error.message ?? 'Gagal menyimpan jam kerja outlet.');
+        toast(error.message ?? 'Gagal menyimpan jam kerja outlet.', 'error');
       }
     });
   });
@@ -299,9 +313,9 @@ function wirePhotoButtons(container) {
       try {
         const url = await getSignedPhotoUrl(btn.dataset.path);
         if (url) window.open(url, '_blank');
-        else alert('Foto tidak ditemukan.');
+        else toast('Foto tidak ditemukan.', 'warning');
       } catch (error) {
-        alert(error.message ?? 'Gagal membuka foto.');
+        toast(error.message ?? 'Gagal membuka foto.', 'error');
       }
     });
   });
@@ -331,21 +345,27 @@ function wireEditButtons(container) {
     btn.addEventListener('click', async () => {
       const row = container.querySelector(`tr[data-record-id="${btn.dataset.recordId}"]`);
       const currentIn = row.children[2].textContent;
-      const currentOut = row.children[5].textContent === '—' ? '' : row.children[5].textContent;
+      const currentOut = row.children[6].textContent === '—' ? '' : row.children[6].textContent;
 
-      const newInRaw = prompt('Clock In (format: YYYY-MM-DD HH:MM):', toInputFormat(currentIn));
-      if (newInRaw === null) return;
-      const newOutRaw = prompt('Clock Out (kosongkan kalau belum clock out):', toInputFormat(currentOut));
-      if (newOutRaw === null) return;
+      const values = await formDialog({
+        title: 'Koreksi Presensi',
+        fields: [
+          { name: 'clock_in_at', label: 'Clock In', type: 'datetime-local', required: true, value: toInputFormat(currentIn) },
+          { name: 'clock_out_at', label: 'Clock Out (kosongkan kalau belum)', type: 'datetime-local', value: toInputFormat(currentOut) }
+        ],
+        submitText: 'Simpan Koreksi'
+      });
+      if (!values) return;
 
       try {
         await correctAttendanceRecord(btn.dataset.recordId, {
-          clock_in_at: new Date(newInRaw).toISOString(),
-          clock_out_at: newOutRaw ? new Date(newOutRaw).toISOString() : null
+          clock_in_at: new Date(values.clock_in_at).toISOString(),
+          clock_out_at: values.clock_out_at ? new Date(values.clock_out_at).toISOString() : null
         });
+        toast('Presensi dikoreksi.', 'success');
         document.getElementById('btn-filter').click();
       } catch (error) {
-        alert(error.message ?? 'Gagal koreksi presensi.');
+        toast(error.message ?? 'Gagal koreksi presensi.', 'error');
       }
     });
   });
@@ -364,5 +384,5 @@ function toInputFormat(displayText) {
   const d = new Date(displayText);
   if (isNaN(d)) return '';
   const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

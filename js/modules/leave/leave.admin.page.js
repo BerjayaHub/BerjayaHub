@@ -1,4 +1,4 @@
-import { toast, confirmDialog, formDialog } from '../../core/ui.js';
+import { toast, confirmDialog, formDialog, shareDialog } from '../../core/ui.js';
 import {
   listLeaveRequestsForAdmin,
   reviewLeaveRequest,
@@ -82,7 +82,7 @@ async function renderRequestsTab(content, businessUnitId) {
         </tbody>
       </table>
     `;
-    wireReqActions(result, businessUnitId, refresh);
+    wireReqActions(result, requests, refresh);
   }
 
   filter.addEventListener('change', refresh);
@@ -104,12 +104,25 @@ function reqRowHtml(r) {
       <td>
         ${r.attachment_path ? `<button class="btn-view-attach" data-path="${r.attachment_path}">Lampiran</button>` : ''}
         ${isPending ? `<button class="btn-approve" data-id="${r.id}">Setujui</button> <button class="btn-reject" data-id="${r.id}">Tolak</button>` : ''}
+        ${r.status === 'approved' || r.status === 'rejected' ? `<button class="btn-share" data-msg="${escapeAttr(decisionMsg(r))}">Bagikan</button>` : ''}
       </td>
     </tr>
   `;
 }
 
-function wireReqActions(root, businessUnitId, refresh) {
+function decisionMsg(r, statusOverride, noteOverride) {
+  const status = statusOverride ?? r.status;
+  const note = noteOverride ?? r.review_note;
+  const range = r.start_date === r.end_date ? fmt(r.start_date) : `${fmt(r.start_date)} s/d ${fmt(r.end_date)}`;
+  const verdict = status === 'approved' ? 'DISETUJUI' : 'DITOLAK';
+  let m = `Pengajuan cuti Anda (${r.leave_types?.name ?? 'cuti'}) tanggal ${range} telah ${verdict}.`;
+  if (note) m += ` Catatan: ${note}.`;
+  return m;
+}
+
+function wireReqActions(root, requests, refresh) {
+  const byId = new Map(requests.map((r) => [r.id, r]));
+
   root.querySelectorAll('.btn-view-attach').forEach((btn) => {
     btn.addEventListener('click', async () => {
       try {
@@ -122,14 +135,20 @@ function wireReqActions(root, businessUnitId, refresh) {
   });
 
   root.querySelectorAll('.btn-approve').forEach((btn) => {
-    btn.addEventListener('click', () => reviewDialog(btn.dataset.id, 'approved', refresh));
+    btn.addEventListener('click', () => reviewDialog(byId.get(btn.dataset.id), 'approved', refresh));
   });
   root.querySelectorAll('.btn-reject').forEach((btn) => {
-    btn.addEventListener('click', () => reviewDialog(btn.dataset.id, 'rejected', refresh));
+    btn.addEventListener('click', () => reviewDialog(byId.get(btn.dataset.id), 'rejected', refresh));
+  });
+  root.querySelectorAll('.btn-share').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      shareDialog({ title: 'Bagikan keputusan ke staff', helper: 'Kirim ke staff bersangkutan lewat WhatsApp/chat.', defaultMessage: btn.dataset.msg })
+    );
   });
 }
 
-async function reviewDialog(id, status, refresh) {
+async function reviewDialog(record, status, refresh) {
+  if (!record) return;
   const isApprove = status === 'approved';
   const values = await formDialog({
     title: isApprove ? 'Setujui Cuti' : 'Tolak Cuti',
@@ -138,9 +157,14 @@ async function reviewDialog(id, status, refresh) {
   });
   if (!values) return;
   try {
-    await reviewLeaveRequest(id, { status, reviewNote: values.note });
+    await reviewLeaveRequest(record.id, { status, reviewNote: values.note });
     toast(isApprove ? 'Cuti disetujui.' : 'Cuti ditolak.', 'success');
     await refresh();
+    await shareDialog({
+      title: 'Bagikan keputusan ke staff',
+      helper: 'Kirim ke staff bersangkutan lewat WhatsApp/chat.',
+      defaultMessage: decisionMsg(record, status, values.note)
+    });
   } catch (error) {
     toast(error.message ?? 'Gagal memproses.', 'error');
   }

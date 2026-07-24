@@ -1,4 +1,4 @@
-import { toast, confirmDialog, formDialog } from '../../core/ui.js';
+import { toast, confirmDialog, formDialog, shareDialog } from '../../core/ui.js';
 import {
   getMyLeaveBalance,
   listLeaveTypes,
@@ -72,10 +72,18 @@ function rowHtml(r) {
       </td>
       <td>
         ${r.attachment_path ? `<button class="btn-view-attach" data-path="${r.attachment_path}">Lampiran</button>` : ''}
+        ${r.status !== 'cancelled' ? `<button class="btn-share" data-msg="${escapeHtml(staffShareMsg(r, range))}">Bagikan</button>` : ''}
         ${canCancel ? `<button class="btn-cancel-leave" data-id="${r.id}">Batalkan</button>` : ''}
       </td>
     </tr>
   `;
+}
+
+function staffShareMsg(r, range) {
+  const type = r.leave_types?.name ?? 'cuti';
+  if (r.status === 'approved') return `Info: cuti saya (${type}) tanggal ${range} sudah disetujui.`;
+  if (r.status === 'rejected') return `Info: pengajuan cuti saya (${type}) tanggal ${range} ditolak.`;
+  return `Halo, saya mengajukan ${type} tanggal ${range}${r.reason ? ` (${r.reason})` : ''}. Mohon persetujuannya. Terima kasih.`;
 }
 
 function wireRows(container) {
@@ -107,6 +115,12 @@ function wireRows(container) {
         toast(error.message ?? 'Gagal membuka lampiran.', 'error');
       }
     });
+  });
+
+  container.querySelectorAll('.btn-share').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      shareDialog({ title: 'Bagikan ke PIC', helper: 'Kirim lewat WhatsApp/chat ke atasan/PIC.', defaultMessage: btn.dataset.msg })
+    );
   });
 }
 

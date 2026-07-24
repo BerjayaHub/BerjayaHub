@@ -357,6 +357,21 @@ export async function listAttendanceForNbm({ businessUnitId, outletId, dateFrom,
   return data ?? [];
 }
 
+/**
+ * Aktivitas presensi terbaru LINTAS-BU untuk dashboard admin. Tidak difilter
+ * per BU — RLS otomatis membatasi ke yang boleh dilihat admin (super_admin: semua).
+ * Paginasi lewat offset/limit.
+ */
+export async function listRecentAttendanceActivity({ limit = 25, offset = 0 } = {}) {
+  const { data, error } = await supabase
+    .from('attendance_records')
+    .select('clock_in_at, clock_out_at, is_storing, user_profiles(full_name), outlets!outlet_id(name), business_units!business_unit_id(name)')
+    .order('clock_in_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function correctAttendanceRecord(id, { clock_in_at, clock_out_at, notes }) {
   const { error } = await supabase
     .from('attendance_records')
