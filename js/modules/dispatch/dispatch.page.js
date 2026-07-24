@@ -2,15 +2,15 @@ import { toast, renderSearchSelect, wireSearchSelect, shareDialog } from '../../
 import { formatNum } from '../../core/format.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProducts } from '../product/product.service.js';
-import { createDispatch, receiveDispatch, listIncomingDispatches, getDispatchItems, getDispatchForPdf } from './dispatch.service.js';
+import { createDispatch, receiveDispatch, listIncomingDispatches, getDispatchItems, getDispatchForPdf, getMyScopedOutlets } from './dispatch.service.js';
 import { buildSuratJalanPDF, suratJalanWaText } from './dispatch-pdf.js';
 
 export async function renderDispatchPage(container, { businessUnitId, outletId }) {
   container.innerHTML = `<p>Memuat pengiriman...</p>`;
 
-  let outlets, products;
+  let allOutlets, products;
   try {
-    [outlets, products] = await Promise.all([
+    [allOutlets, products] = await Promise.all([
       listAttendanceOutlets().then((all) => all.filter((o) => o.business_unit_id === businessUnitId)),
       listProducts(businessUnitId)
     ]);
@@ -18,21 +18,24 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     container.innerHTML = `<p class="error-text">Gagal memuat: ${error.message ?? error}</p>`;
     return;
   }
-  if (!outlets.length) {
+  if (!allOutlets.length) {
     container.innerHTML = `<h1>Pengiriman</h1><p>Belum ada outlet di BU ini.</p>`;
     return;
   }
+  // Outlet milik akun ini (untuk pemilih & kiriman masuk). Tujuan kirim boleh outlet mana pun.
+  const myOutlets = await getMyScopedOutlets(businessUnitId, allOutlets);
   const active = products.filter((p) => p.is_active !== false);
   const productOptions = active.map((p) => ({ value: p.id, label: `${p.name} (${p.base_unit})` }));
-  const outletsById = new Map(outlets.map((o) => [o.id, o]));
-  const ckOutlets = outlets.filter((o) => o.outlet_role === 'central_kitchen');
+  const outletsById = new Map(allOutlets.map((o) => [o.id, o]));
+  const ckOutlets = allOutlets.filter((o) => o.outlet_role === 'central_kitchen');
 
-  const state = { outletId: outletsById.has(outletId) ? outletId : outlets[0].id };
+  const myHasBase = myOutlets.some((o) => o.id === outletId);
+  const state = { outletId: myHasBase ? outletId : myOutlets[0].id };
 
   container.innerHTML = `
     <h1>Pengiriman</h1>
-    <div class="field" style="max-width:280px"><label>Outlet</label>
-      <select id="disp-outlet">${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${esc(o.name)}${o.outlet_role === 'central_kitchen' ? ' (CK)' : ''}</option>`).join('')}</select>
+    <div class="field" style="max-width:280px"><label>Outlet saya</label>
+      <select id="disp-outlet">${myOutlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${esc(o.name)}${o.outlet_role === 'central_kitchen' ? ' (CK)' : ''}</option>`).join('')}</select>
     </div>
     <div id="disp-send"></div>
     <div style="display:flex;justify-content:space-between;align-items:center;max-width:560px;margin-top:20px;gap:8px">
@@ -78,9 +81,9 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     const showJenis = !isCK;
 
     const destOptions = (jenis) => {
-      if (isCK) return outlets.filter((o) => o.id !== fromOutlet.id);
+      if (isCK) return allOutlets.filter((o) => o.id !== fromOutlet.id);
       if (jenis === 'retur') return ckOutlets.filter((o) => o.id !== fromOutlet.id);
-      return outlets.filter((o) => o.id !== fromOutlet.id && o.outlet_role !== 'central_kitchen');
+      return allOutlets.filter((o) => o.id !== fromOutlet.id && o.outlet_role !== 'central_kitchen');
     };
 
     box.innerHTML = `

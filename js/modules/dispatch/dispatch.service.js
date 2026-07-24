@@ -2,6 +2,31 @@ import { supabase } from '../../config/supabase-client.js';
 
 export const DISPATCH_STATUS = { sent: 'Dikirim (belum diterima)', received: 'Diterima', cancelled: 'Dibatalkan' };
 
+/**
+ * Outlet milik AKUN yang login di sebuah BU (dari membership scope-nya).
+ * - Punya scope level-BU (outlet_id null) / super_admin / tak ada scope di BU ini
+ *   -> anggap manajer, kembalikan SEMUA outlet BU (allOutlets).
+ * - Selain itu -> hanya outlet yang di-assign ke akun ini.
+ */
+export async function getMyScopedOutlets(businessUnitId, allOutlets) {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user) return allOutlets;
+  const { data, error } = await supabase
+    .from('membership_scopes')
+    .select('outlet_id')
+    .eq('user_id', user.id)
+    .eq('business_unit_id', businessUnitId);
+  if (error) return allOutlets;
+  const scopes = data ?? [];
+  if (!scopes.length) return allOutlets;
+  if (scopes.some((s) => s.outlet_id == null)) return allOutlets;
+  const ids = new Set(scopes.map((s) => s.outlet_id));
+  const mine = allOutlets.filter((o) => ids.has(o.id));
+  return mine.length ? mine : allOutlets;
+}
+
 export async function createDispatch({ fromOutlet, toOutlet, items, notes }) {
   const { data, error } = await supabase.rpc('create_dispatch', {
     p_from: fromOutlet,
