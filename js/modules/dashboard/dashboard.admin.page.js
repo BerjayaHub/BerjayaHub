@@ -1,5 +1,6 @@
 import { listRecentAttendanceActivity } from '../attendance/attendance.service.js';
 import { listRecentLeaveActivity } from '../leave/leave.service.js';
+import { listRecentChecklistActivity } from '../cleaning/cleaning.service.js';
 
 const PAGE_SIZE = 20;
 
@@ -49,7 +50,19 @@ async function leaveProvider({ before, limit }) {
   return events;
 }
 
-const ACTIVITY_PROVIDERS = [attendanceProvider, leaveProvider];
+async function cleaningProvider({ before, limit }) {
+  const rows = await listRecentChecklistActivity({ before, limit });
+  return rows.map((r) => {
+    const bu = r.business_units?.name ? ` · ${r.business_units.name}` : '';
+    return {
+      time: r.created_at,
+      icon: '🧹',
+      text: `${r.user_profiles?.full_name ?? 'Staff'} selesai ceklis ${r.checklist_sessions?.name ?? ''} di ${r.outlets?.name ?? '-'}${bu}`
+    };
+  });
+}
+
+const ACTIVITY_PROVIDERS = [attendanceProvider, leaveProvider, cleaningProvider];
 
 export async function renderAdminDashboard(container) {
   container.innerHTML = `
@@ -61,7 +74,7 @@ export async function renderAdminDashboard(container) {
       <div class="activity-feed" id="activity-feed"><p style="font-size:0.85rem;color:var(--color-text-muted)">Memuat...</p></div>
       <button id="btn-load-more" style="margin-top:12px;display:none">Muat lebih banyak</button>
       <p style="font-size:0.78rem;color:var(--color-text-muted);margin-top:12px">
-        Menggabungkan Presensi & Pengajuan Cuti. Modul lain (Inventory, Ceklis Kebersihan, dll) otomatis ikut tampil di sini begitu dibangun.
+        Menggabungkan Presensi, Pengajuan Cuti & Ceklis Kebersihan. Modul lain (Inventory, dll) otomatis ikut tampil di sini begitu dibangun.
       </p>
     </div>
   `;

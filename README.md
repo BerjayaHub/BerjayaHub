@@ -233,12 +233,24 @@ Setiap Business Unit punya daftar modul aktif sendiri (tabel `bu_modules`), jadi
 
 Outlet punya `outlet_role`: `standalone`, `central_kitchen`, atau `served_by_ck`. Outlet ber-role `served_by_ck` menunjuk ke outlet CK lewat kolom `served_by_outlet_id`. Satu CK bisa melayani banyak outlet. Owner bisa ubah role ini kapan saja lewat Admin Portal (modul Organization — belum dibangun di Fase 0 ini).
 
+## Ceklis Kebersihan
+
+Jalankan migration `0016_cleaning_checklist.sql`, lalu aktifkan modul **Ceklis Kebersihan** untuk BU lewat Admin Portal → Master BU & Outlet → tombol **Modul**.
+
+- **Admin Portal** (menu Ceklis Kebersihan), 3 tab:
+  - **Item Ceklis** — daftar item (rata/flat), berlaku semua outlet di BU. Atur urutan & aktif/nonaktif.
+  - **Sesi** — sesi per hari (mis. Buka, Tutup, atau shift), per BU.
+  - **Rekap** — lihat sesi yang sudah dikerjakan per outlet/tanggal: siapa, catatan, **foto bukti**, dan detail centang item.
+- **Staff App** (menu Ceklis Kebersihan): pilih outlet & sesi, centang item, **wajib 1 foto bukti**, kirim. Sesi yang sudah selesai hari itu ditandai ✅ (1 run per outlet/sesi/hari).
+- Foto disimpan di bucket privat `checklist-photos` (RLS: pemilik + admin outlet). Aktivitas otomatis muncul di **Dashboard**.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
 - [x] **Fase 1** — Master User/Staff (admin CRUD)
 - [x] **Fase 2** — Presensi (lintas semua BU)
 - [x] **Fase 3** — Pengajuan Cuti (lintas semua BU)
+- [x] **Fase 3b** — Ceklis Kebersihan (lintas semua BU)
 - [ ] **Fase 4** — Master Produk & Master Formula/Resep (Cafe)
 - [ ] **Fase 5** — Inventory (Cafe)
 - [ ] **Fase 6** — Production di level Outlet (Cafe)

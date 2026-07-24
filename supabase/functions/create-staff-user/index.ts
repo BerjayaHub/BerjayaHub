@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
   if (password.length < 6) {
     return json({ error: 'Password minimal 6 karakter' }, 400);
   }
-  if (!['bu_admin', 'outlet_admin', 'staff'].includes(role)) {
+  if (!['super_admin', 'bu_admin', 'outlet_admin', 'staff'].includes(role)) {
     return json({ error: 'role tidak valid' }, 400);
   }
 
@@ -79,8 +79,8 @@ Deno.serve(async (req) => {
   }
   // bu_admin/outlet_admin hanya boleh membuat staff dengan role 'staff' atau 'outlet_admin',
   // tidak boleh membuat sesama bu_admin/super_admin
-  if (!isSuperAdmin && (role === 'bu_admin')) {
-    return json({ error: 'Hanya Super Admin yang bisa menambahkan bu_admin' }, 403);
+  if (!isSuperAdmin && (role === 'bu_admin' || role === 'super_admin')) {
+    return json({ error: 'Hanya Super Admin yang bisa menambahkan bu_admin / super_admin' }, 403);
   }
 
   // Admin yang tentukan password awal secara langsung (bukan invite email) —

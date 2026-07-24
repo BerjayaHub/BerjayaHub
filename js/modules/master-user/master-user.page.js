@@ -23,7 +23,8 @@ const ROLE_LABEL = {
 const ROLE_OPTIONS = [
   { value: 'staff', label: 'Staff' },
   { value: 'outlet_admin', label: 'Admin Outlet' },
-  { value: 'bu_admin', label: 'Admin BU' }
+  { value: 'bu_admin', label: 'Admin BU' },
+  { value: 'super_admin', label: 'Super Admin' }
 ];
 
 export async function renderMasterUserPage(container) {
@@ -133,6 +134,7 @@ function renderNewStaffForm(container, businessUnits) {
           <option value="staff">Staff</option>
           <option value="outlet_admin">Admin Outlet</option>
           <option value="bu_admin">Admin BU</option>
+          <option value="super_admin">Super Admin</option>
         </select>
       </div>
       <button class="primary" type="submit">Simpan</button>

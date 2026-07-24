@@ -187,6 +187,33 @@ export function formDialog({
   });
 }
 
+/** Modal info sederhana (judul + isi HTML tepercaya + tombol Tutup). */
+export function infoDialog({ title = 'Detail', bodyHtml = '' } = {}) {
+  return new Promise((resolve) => {
+    const overlay = buildOverlay();
+    overlay.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true">
+        <h3 class="modal-title">${escapeHtml(title)}</h3>
+        <div class="modal-info-body">${bodyHtml}</div>
+        <div class="modal-actions">
+          <button type="button" class="primary btn-inline" data-act="close">Tutup</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('show'));
+    const close = () => {
+      overlay.classList.remove('show');
+      setTimeout(() => overlay.remove(), 200);
+      resolve();
+    };
+    overlay.querySelector('[data-act="close"]').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close();
+    });
+  });
+}
+
 /**
  * Dialog "Bagikan" tanpa API: teks bisa diedit, lalu dibagikan lewat share
  * sheet native (navigator.share), WhatsApp (wa.me), atau disalin. Untuk kirim
