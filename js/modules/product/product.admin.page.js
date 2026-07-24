@@ -147,6 +147,7 @@ async function openProductDialog(content, businessUnitId, existing) {
     fields: [
       { name: 'name', label: 'Nama Produk', type: 'text', required: true, value: existing?.name ?? '' },
       { name: 'product_type', label: 'Tipe', type: 'select', required: true, value: existing?.product_type ?? 'raw', options: PRODUCT_TYPES },
+      { name: 'category', label: 'Kategori (opsional)', type: 'text', value: existing?.category ?? '', placeholder: 'mis. Kopi / Non-Kopi / Makanan' },
       { name: 'base_unit', label: 'Satuan pakai (di resep/stok)', type: 'select', required: true, value: existing?.base_unit ?? '', options: [{ value: '', label: '-- pilih satuan --' }, ...unitOptions] },
       { name: 'purchase_unit', label: 'Satuan beli', type: 'select', value: existing?.purchase_unit ?? '', options: [{ value: '', label: '-- pilih satuan --' }, ...unitOptions] },
       { name: 'purchase_qty', label: 'Isi per satuan beli (dalam satuan pakai)', type: 'number', min: 0, value: existing?.purchase_qty ?? '', placeholder: 'mis. 25000' },
@@ -180,6 +181,7 @@ async function openProductDialog(content, businessUnitId, existing) {
     businessUnitId,
     name: values.name,
     product_type: values.product_type,
+    category: values.category || null,
     base_unit: values.base_unit,
     purchase_unit: isRaw ? values.purchase_unit : null,
     purchase_qty: isRaw && values.purchase_qty !== '' ? Number(values.purchase_qty) : null,
@@ -307,9 +309,7 @@ async function openRecipeEditor(content, businessUnitId, product, products, mode
         <input type="number" id="recipe-yield" min="0" value="${current.recipe?.yield_qty ?? 1}" />
       </div>
       <h4 style="margin:12px 0 6px;font-size:0.9rem">Bahan</h4>
-      <table class="data-table"><thead><tr><th>Bahan</th><th>Jumlah</th><th>Satuan</th><th></th></tr></thead>
-        <tbody id="recipe-rows">${rowsHtml}</tbody>
-      </table>
+      <div class="line-rows" id="recipe-rows">${rowsHtml}</div>
       <button id="btn-add-ingredient" style="margin-top:10px">+ Tambah Bahan</button>
       <div class="field" style="margin-top:12px"><label>Catatan (opsional)</label><input type="text" id="recipe-notes" value="${escapeAttr(current.recipe?.notes ?? '')}" /></div>
       <button class="primary" id="btn-save-recipe" style="max-width:200px">Simpan Resep</button>
@@ -318,25 +318,25 @@ async function openRecipeEditor(content, businessUnitId, product, products, mode
   `;
 
   const rowsBody = editor.querySelector('#recipe-rows');
-  const wireRow = (tr) => {
-    const widget = tr.querySelector('.search-select');
-    const unitCell = tr.querySelector('.ing-unit');
+  const wireRow = (row) => {
+    const widget = row.querySelector('.search-select');
+    const unitCell = row.querySelector('.ln-unit');
     const updateUnit = (val) => {
       const p = ingredientOptions.find((o) => o.id === val);
       unitCell.textContent = p ? p.base_unit : '-';
     };
     wireSearchSelect(widget, ingOpts, updateUnit);
     updateUnit(widget.querySelector('input[type="hidden"]').value);
-    tr.querySelector('.ing-remove').addEventListener('click', () => tr.remove());
+    row.querySelector('.ln-remove').addEventListener('click', () => row.remove());
   };
-  rowsBody.querySelectorAll('tr').forEach(wireRow);
+  rowsBody.querySelectorAll('.line-row').forEach(wireRow);
 
   editor.querySelector('#btn-add-ingredient').addEventListener('click', () => {
-    const wrap = document.createElement('tbody');
+    const wrap = document.createElement('div');
     wrap.innerHTML = ingredientRowHtml({ ingredient_product_id: '', qty: '' }, ingOpts);
-    const tr = wrap.firstElementChild;
-    rowsBody.appendChild(tr);
-    wireRow(tr);
+    const row = wrap.firstElementChild;
+    rowsBody.appendChild(row);
+    wireRow(row);
   });
 
   editor.querySelector('#btn-save-recipe').addEventListener('click', async () => {
@@ -347,8 +347,8 @@ async function openRecipeEditor(content, businessUnitId, product, products, mode
       errorEl.textContent = 'Hasil/yield harus lebih dari 0.';
       return;
     }
-    const items = [...rowsBody.querySelectorAll('tr')]
-      .map((tr) => ({ ingredient_product_id: tr.querySelector('.search-select input[type="hidden"]').value, qty: Number(tr.querySelector('.ing-qty').value) }))
+    const items = [...rowsBody.querySelectorAll('.line-row')]
+      .map((row) => ({ ingredient_product_id: row.querySelector('.search-select input[type="hidden"]').value, qty: Number(row.querySelector('.ln-qty').value) }))
       .filter((i) => i.ingredient_product_id && i.qty > 0);
     if (!items.length) {
       errorEl.textContent = 'Tambahkan minimal satu bahan.';
@@ -366,12 +366,12 @@ async function openRecipeEditor(content, businessUnitId, product, products, mode
 
 function ingredientRowHtml(it, ingOpts) {
   return `
-    <tr>
-      <td>${renderSearchSelect({ name: 'ing', options: ingOpts, value: it.ingredient_product_id ?? '', placeholder: 'cari bahan…' })}</td>
-      <td><input type="number" class="ing-qty" min="0" value="${it.qty ?? ''}" style="max-width:100px" /></td>
-      <td class="ing-unit" style="font-size:0.82rem;color:var(--color-text-muted)">-</td>
-      <td><button class="ing-remove" title="Hapus bahan">✕</button></td>
-    </tr>`;
+    <div class="line-row">
+      ${renderSearchSelect({ name: 'ing', options: ingOpts, value: it.ingredient_product_id ?? '', placeholder: 'cari bahan…' })}
+      <input type="number" class="ln-qty" min="0" placeholder="jumlah" value="${it.qty ?? ''}" />
+      <span class="ln-unit">-</span>
+      <button class="ln-remove" title="Hapus bahan">✕</button>
+    </div>`;
 }
 
 // ---- Tab: Satuan (global) ----

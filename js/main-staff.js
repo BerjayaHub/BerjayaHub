@@ -9,6 +9,7 @@ import { renderInventoryPage } from './modules/inventory/inventory.page.js';
 import { renderProductStaffPage } from './modules/product/product.staff.page.js';
 import { renderProductionPage } from './modules/production/production.page.js';
 import { renderDispatchPage } from './modules/dispatch/dispatch.page.js';
+import { renderMenuPage } from './modules/menu/menu.page.js';
 
 registerModule('attendance', renderAttendancePage);
 registerModule('leave', renderLeavePage);
@@ -17,6 +18,7 @@ registerModule('inventory', renderInventoryPage);
 registerModule('master_product', renderProductStaffPage);
 registerModule('production', renderProductionPage);
 registerModule('dispatch', renderDispatchPage);
+registerModule('menu', renderMenuPage);
 
 const app = document.getElementById('app');
 
@@ -136,7 +138,8 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
   const moduleCtx = {
     userId: context.profile.id,
     businessUnitId: activeBuId,
-    outletId: activeScope?.outlet_id ?? null
+    outletId: activeScope?.outlet_id ?? null,
+    outletRole: activeScope?.outlets?.outlet_role ?? null
   };
 
   applyBuTheme(activeBu);
@@ -210,9 +213,15 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
 function renderHome(context, modules, moduleCtx) {
   const content = document.getElementById('module-content');
   const firstName = (context.profile.full_name || '').split(' ')[0] || 'Halo';
-  // Hanya tampilkan modul yang memang punya halaman Staff App (mis. Master Produk
-  // itu admin-only, jadi tidak muncul sebagai kartu di sini walau aktif untuk BU).
-  const staffModules = modules.filter((mod) => getModuleRenderer(mod.code));
+  // Hanya tampilkan modul yang punya halaman Staff App + sesuai peran outlet:
+  // Produksi hanya di Central Kitchen; Menu hanya di outlet non-CK (yang menjual).
+  const role = moduleCtx.outletRole;
+  const staffModules = modules.filter((mod) => {
+    if (!getModuleRenderer(mod.code)) return false;
+    if (mod.code === 'production') return !role || role === 'central_kitchen';
+    if (mod.code === 'menu') return !role || role !== 'central_kitchen';
+    return true;
+  });
   content.innerHTML = `
     <div class="staff-greeting">
       <h1>Halo, ${firstName} 👋</h1>

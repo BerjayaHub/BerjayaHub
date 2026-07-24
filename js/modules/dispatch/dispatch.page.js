@@ -35,7 +35,7 @@ export async function renderDispatchPage(container, { businessUnitId }) {
         <div class="field"><label>Ke outlet</label>
           <select id="disp-to">${outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('')}</select>
         </div>
-        <table class="data-table"><thead><tr><th>Produk</th><th>Jumlah</th><th></th></tr></thead><tbody id="disp-items"></tbody></table>
+        <div class="line-rows" id="disp-items"></div>
         <button id="disp-add" style="margin-top:8px">+ Tambah Produk</button>
         <div class="field" style="margin-top:12px"><label>Catatan (opsional)</label><input type="text" id="disp-notes" /></div>
         <button class="primary" id="disp-send">Kirim</button>
@@ -51,16 +51,16 @@ export async function renderDispatchPage(container, { businessUnitId }) {
   const itemsBody = container.querySelector('#disp-items');
   if (itemsBody) {
     const addRow = () => {
-      const wrap = document.createElement('tbody');
-      wrap.innerHTML = `<tr>
-        <td>${renderSearchSelect({ name: 'dp', options: productOptions, placeholder: 'cari produk…' })}</td>
-        <td><input type="number" class="dp-qty" min="0" style="max-width:100px" /></td>
-        <td><button class="dp-remove" title="Hapus">✕</button></td>
-      </tr>`;
-      const tr = wrap.firstElementChild;
-      itemsBody.appendChild(tr);
-      wireSearchSelect(tr.querySelector('.search-select'), productOptions);
-      tr.querySelector('.dp-remove').addEventListener('click', () => tr.remove());
+      const wrap = document.createElement('div');
+      wrap.innerHTML = `<div class="line-row">
+        ${renderSearchSelect({ name: 'dp', options: productOptions, placeholder: 'cari produk…' })}
+        <input type="number" class="ln-qty" min="0" placeholder="jumlah" />
+        <button class="ln-remove" title="Hapus">✕</button>
+      </div>`;
+      const row = wrap.firstElementChild;
+      itemsBody.appendChild(row);
+      wireSearchSelect(row.querySelector('.search-select'), productOptions);
+      row.querySelector('.ln-remove').addEventListener('click', () => row.remove());
     };
     addRow();
     container.querySelector('#disp-add').addEventListener('click', addRow);
@@ -74,8 +74,8 @@ export async function renderDispatchPage(container, { businessUnitId }) {
         errorEl.textContent = 'Outlet asal & tujuan tidak boleh sama.';
         return;
       }
-      const items = [...itemsBody.querySelectorAll('tr')]
-        .map((tr) => ({ product_id: tr.querySelector('.search-select input[type="hidden"]').value, qty: Number(tr.querySelector('.dp-qty').value) }))
+      const items = [...itemsBody.querySelectorAll('.line-row')]
+        .map((row) => ({ product_id: row.querySelector('.search-select input[type="hidden"]').value, qty: Number(row.querySelector('.ln-qty').value) }))
         .filter((i) => i.product_id && i.qty > 0);
       if (!items.length) {
         errorEl.textContent = 'Tambahkan minimal satu produk dengan jumlah.';

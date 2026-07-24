@@ -714,6 +714,13 @@ button.primary:active { transform: translateY(1px); }
 }
 .btn-whatsapp:hover { background: #1eb857; }
 
+.line-rows { display: flex; flex-direction: column; gap: 8px; }
+.line-row { display: flex; gap: 8px; align-items: center; }
+.line-row .search-select { flex: 1; min-width: 0; }
+.line-row .ln-qty { width: 96px; flex-shrink: 0; }
+.line-row .ln-unit { width: 56px; flex-shrink: 0; font-size: 0.82rem; color: var(--color-text-muted); }
+.line-row .ln-remove { flex-shrink: 0; }
+
 .search-select { position: relative; }
 .search-select .ss-input {
   width: 100%;

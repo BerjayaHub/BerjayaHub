@@ -283,6 +283,15 @@ Jalankan migration `0020_production.sql`, lalu aktifkan modul **Production** unt
 - **Produksi khusus Central Kitchen**: fitur Produksi di Staff App hanya bisa dipakai di outlet ber-peran **Central Kitchen** (outlet standalone/dilayani-CK tidak produksi — stok bahannya berkurang saat penjualan, Fase 8).
 - **Toggle penjualan per outlet** (`allow_sales`): ada di Master BU & Outlet saat tambah/edit outlet. Default nyala untuk outlet biasa; Central Kitchen bisa diaktifkan bila suatu saat ikut menjual. (Dipakai penuh di Fase 8.)
 
+## Revisi Fase 6 — Fitur Menu (outlet) & perbaikan
+
+Jalankan migration `0023_menu_plan.sql`, lalu aktifkan modul **Menu** untuk BU Cafe.
+
+- **Outlet tidak produksi** — kartu **Produksi** kini hanya tampil di outlet **Central Kitchen**; outlet penjualan melihat kartu **Menu**. (Digating otomatis berdasarkan peran outlet.)
+- **Fitur Menu (Staff App)** — tabel menu (Produk Jadi) dengan **filter kategori**; kolom **Jumlah tersedia** bisa **diedit langsung** (tersimpan otomatis). Ketuk nama menu untuk melihat **resep** (sesuai mode outlet: Standalone/Dilayani CK) + **stok bahan di outlet** + perkiraan "bisa dibuat berapa menu". Mengisi jumlah **tidak** mengurangi stok — hanya panduan POS agar tidak salah sold-out. Stok berkurang saat penjualan (Fase 8). Jumlah bersifat per hari.
+- **Kategori produk** — ditambahkan di Master Produk (field opsional) untuk pengelompokan/ filter menu.
+- **Perbaikan dropdown pencarian** — daftar hasil pencarian di "Tambah Bahan" (Resep) & "Tambah Produk" (Pengiriman) tidak lagi terpotong.
+
 ## Fase 7 — Pengiriman/Dispatch CK → Outlet (Cafe)
 
 Jalankan migration `0022_dispatch.sql`, lalu aktifkan modul **Pengiriman** untuk BU Cafe lewat Master BU & Outlet → tombol **Modul**.

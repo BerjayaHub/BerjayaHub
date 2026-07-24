@@ -28,7 +28,7 @@ export async function deleteUnit(id) {
 export async function listProducts(businessUnitId) {
   const { data, error } = await supabase
     .from('products')
-    .select('id, name, product_type, base_unit, purchase_unit, purchase_qty, purchase_price, sale_price, is_active')
+    .select('id, name, product_type, category, base_unit, purchase_unit, purchase_qty, purchase_price, sale_price, is_active')
     .eq('business_unit_id', businessUnitId)
     .order('product_type')
     .order('name');
@@ -41,6 +41,7 @@ export async function createProduct(p) {
     business_unit_id: p.businessUnitId,
     name: p.name,
     product_type: p.product_type,
+    category: p.category || null,
     base_unit: p.base_unit,
     purchase_unit: p.purchase_unit || null,
     purchase_qty: p.purchase_qty ?? null,
@@ -56,6 +57,7 @@ export async function updateProduct(id, p) {
     .update({
       name: p.name,
       product_type: p.product_type,
+      category: p.category || null,
       base_unit: p.base_unit,
       purchase_unit: p.purchase_unit || null,
       purchase_qty: p.purchase_qty ?? null,

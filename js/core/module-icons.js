@@ -11,7 +11,8 @@ const ICONS = {
   bu_appearance: '🎨',
   organization: '🏢',
   master_product: '📒',
-  dispatch: '🚚'
+  dispatch: '🚚',
+  menu: '🍽️'
 };
 
 export function getModuleIcon(code) {
