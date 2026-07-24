@@ -283,6 +283,14 @@ Jalankan migration `0020_production.sql`, lalu aktifkan modul **Production** unt
 - **Produksi khusus Central Kitchen**: fitur Produksi di Staff App hanya bisa dipakai di outlet ber-peran **Central Kitchen** (outlet standalone/dilayani-CK tidak produksi — stok bahannya berkurang saat penjualan, Fase 8).
 - **Toggle penjualan per outlet** (`allow_sales`): ada di Master BU & Outlet saat tambah/edit outlet. Default nyala untuk outlet biasa; Central Kitchen bisa diaktifkan bila suatu saat ikut menjual. (Dipakai penuh di Fase 8.)
 
+## Fase 7 — Pengiriman/Dispatch CK → Outlet (Cafe)
+
+Jalankan migration `0022_dispatch.sql`, lalu aktifkan modul **Pengiriman** untuk BU Cafe lewat Master BU & Outlet → tombol **Modul**.
+
+- Alur **dua langkah**: **Central Kitchen mengirim** (surat jalan multi-produk; stok CK langsung berkurang) → **outlet tujuan konfirmasi terima** (isi jumlah aktual diterima; stok outlet bertambah sebesar yang diterima). Selisih dikirim vs diterima = susut di perjalanan.
+- **Staff App** (menu Pengiriman): bagian **Kirim ke Outlet** hanya muncul di outlet Central Kitchen; bagian **Kiriman Masuk** untuk konfirmasi penerimaan. Atomik lewat RPC `create_dispatch` & `receive_dispatch`.
+- **Admin Portal** (menu Pengiriman): daftar semua pengiriman (filter status/tanggal) + detail item (dikirim vs diterima). Aktivitas muncul di **Dashboard** (🚚 kirim / 📥 terima).
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
@@ -293,7 +301,7 @@ Jalankan migration `0020_production.sql`, lalu aktifkan modul **Production** unt
 - [x] **Fase 4** — Master Produk & Master Formula/Resep (Cafe)
 - [x] **Fase 5** — Inventory (Cafe)
 - [x] **Fase 6** — Production di level Outlet (Cafe)
-- [ ] **Fase 7** — Production di Central Kitchen + Transfer/Dispatch ke outlet (Cafe)
+- [x] **Fase 7** — Production di Central Kitchen + Transfer/Dispatch ke outlet (Cafe)
 - [ ] **Fase 8** — Sales (Cafe)
 - [ ] **Fase 9** — Cash Ledger (Cafe)
 - [ ] **Fase 10** — Pengajuan Cuti, Dashboard/Reports

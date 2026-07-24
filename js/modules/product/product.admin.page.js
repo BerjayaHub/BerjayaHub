@@ -214,7 +214,7 @@ async function renderRecipesTab(content, businessUnitId) {
 
   content.innerHTML = `
     <div class="page-header">
-      <p style="color:var(--color-text-muted);font-size:0.9rem;margin:0;max-width:420px">Setengah Jadi punya 1 resep <strong>Produksi</strong> (dibuat di CK). Produk Jadi bisa 2 varian: <strong>Standalone</strong> (dari bahan baku) &amp; <strong>Dilayani CK</strong> (dari setengah jadi). HPP otomatis.</p>
+      <p style="color:var(--color-text-muted);font-size:0.9rem;margin:0;max-width:420px">Setengah Jadi punya 1 resep <strong>Produksi</strong> (dibuat di CK). <strong>Menu</strong> bisa 2 varian resep: <strong>Standalone</strong> (dari bahan baku) &amp; <strong>Dilayani CK</strong> (dari setengah jadi). HPP otomatis.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button id="btn-tpl-recipe">Template</button>
         <button id="btn-import-recipe">Import Excel</button>

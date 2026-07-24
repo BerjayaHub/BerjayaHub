@@ -41,6 +41,7 @@ const TYPE_MAP = {
   'setengah jadi': 'semi',
   semi: 'semi',
   'produk jadi': 'finished',
+  menu: 'finished',
   jadi: 'finished',
   finished: 'finished'
 };
@@ -173,7 +174,7 @@ export function downloadProductTemplate() {
     'Nama,Tipe,Satuan Pakai,Satuan Beli,Isi per Satuan Beli,Harga Beli,Harga Jual\n' +
       'Gula,Bahan Baku,gram,karung,25000,150000,\n' +
       'Sirup Gula,Setengah Jadi,ml,,,,\n' +
-      'Es Kopi Susu,Produk Jadi,gelas,,,,18000\n'
+      'Es Kopi Susu,Menu,gelas,,,,18000\n'
   );
 }
 

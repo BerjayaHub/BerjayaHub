@@ -8,6 +8,7 @@ import { renderCleaningAdminPage } from './modules/cleaning/cleaning.admin.page.
 import { renderMasterProductPage } from './modules/product/product.admin.page.js';
 import { renderInventoryAdminPage } from './modules/inventory/inventory.admin.page.js';
 import { renderProductionAdminPage } from './modules/production/production.admin.page.js';
+import { renderDispatchAdminPage } from './modules/dispatch/dispatch.admin.page.js';
 import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
 import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
 import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
@@ -28,6 +29,7 @@ registerModule('cleaning_checklist', renderCleaningAdminPage);
 registerModule('master_product', renderMasterProductPage);
 registerModule('inventory', renderInventoryAdminPage);
 registerModule('production', renderProductionAdminPage);
+registerModule('dispatch', renderDispatchAdminPage);
 const CORE_ADMIN_MENU = [
   { code: 'dashboard', name: 'Dashboard' },
   { code: 'organization', name: 'Master BU & Outlet' },

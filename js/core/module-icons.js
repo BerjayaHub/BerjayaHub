@@ -10,7 +10,8 @@ const ICONS = {
   dashboard: '🏠',
   bu_appearance: '🎨',
   organization: '🏢',
-  master_product: '📒'
+  master_product: '📒',
+  dispatch: '🚚'
 };
 
 export function getModuleIcon(code) {

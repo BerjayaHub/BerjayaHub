@@ -3,9 +3,9 @@ import { supabase } from '../../config/supabase-client.js';
 export const PRODUCT_TYPES = [
   { value: 'raw', label: 'Bahan Baku' },
   { value: 'semi', label: 'Setengah Jadi' },
-  { value: 'finished', label: 'Produk Jadi' }
+  { value: 'finished', label: 'Menu' }
 ];
-export const TYPE_LABEL = { raw: 'Bahan Baku', semi: 'Setengah Jadi', finished: 'Produk Jadi' };
+export const TYPE_LABEL = { raw: 'Bahan Baku', semi: 'Setengah Jadi', finished: 'Menu' };
 
 // ---- Master Satuan (global) ----
 

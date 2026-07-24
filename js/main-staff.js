@@ -8,6 +8,7 @@ import { renderCleaningPage } from './modules/cleaning/cleaning.page.js';
 import { renderInventoryPage } from './modules/inventory/inventory.page.js';
 import { renderProductStaffPage } from './modules/product/product.staff.page.js';
 import { renderProductionPage } from './modules/production/production.page.js';
+import { renderDispatchPage } from './modules/dispatch/dispatch.page.js';
 
 registerModule('attendance', renderAttendancePage);
 registerModule('leave', renderLeavePage);
@@ -15,6 +16,7 @@ registerModule('cleaning_checklist', renderCleaningPage);
 registerModule('inventory', renderInventoryPage);
 registerModule('master_product', renderProductStaffPage);
 registerModule('production', renderProductionPage);
+registerModule('dispatch', renderDispatchPage);
 
 const app = document.getElementById('app');
 

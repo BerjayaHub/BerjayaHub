@@ -3,6 +3,7 @@ import { listRecentLeaveActivity } from '../leave/leave.service.js';
 import { listRecentChecklistActivity } from '../cleaning/cleaning.service.js';
 import { listRecentInventoryActivity, MOVEMENT_LABEL } from '../inventory/inventory.service.js';
 import { listRecentProductionActivity } from '../production/production.service.js';
+import { listRecentDispatchActivity } from '../dispatch/dispatch.service.js';
 
 const PAGE_SIZE = 20;
 
@@ -91,7 +92,21 @@ async function productionProvider({ before, limit }) {
   });
 }
 
-const ACTIVITY_PROVIDERS = [attendanceProvider, leaveProvider, cleaningProvider, inventoryProvider, productionProvider];
+async function dispatchProvider({ before, limit }) {
+  const rows = await listRecentDispatchActivity({ before, limit });
+  const events = [];
+  for (const d of rows) {
+    const bu = d.business_units?.name ? ` · ${d.business_units.name}` : '';
+    const route = `${d.from_outlet?.name ?? '-'} → ${d.to_outlet?.name ?? '-'}`;
+    events.push({ time: d.created_at, icon: '🚚', text: `${d.sender?.full_name ?? 'Staff'} kirim stok ${route}${bu}` });
+    if (d.status === 'received' && d.received_at) {
+      events.push({ time: d.received_at, icon: '📥', text: `Kiriman ${route} diterima${bu}` });
+    }
+  }
+  return events;
+}
+
+const ACTIVITY_PROVIDERS = [attendanceProvider, leaveProvider, cleaningProvider, inventoryProvider, productionProvider, dispatchProvider];
 
 export async function renderAdminDashboard(container) {
   container.innerHTML = `
