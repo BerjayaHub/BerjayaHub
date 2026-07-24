@@ -26,7 +26,7 @@ export async function listIncomingDispatches(outletIds) {
   if (!outletIds?.length) return [];
   const { data, error } = await supabase
     .from('dispatches')
-    .select('id, notes, created_at, from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name), to_outlet_id, user_profiles!created_by(full_name)')
+    .select('id, code, notes, created_at, from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name), to_outlet_id, user_profiles!created_by(full_name)')
     .eq('status', 'sent')
     .in('to_outlet_id', outletIds)
     .order('created_at', { ascending: false });

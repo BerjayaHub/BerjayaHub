@@ -18,64 +18,75 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     container.innerHTML = `<p class="error-text">Gagal memuat: ${error.message ?? error}</p>`;
     return;
   }
+  if (!outlets.length) {
+    container.innerHTML = `<h1>Pengiriman</h1><p>Belum ada outlet di BU ini.</p>`;
+    return;
+  }
   const active = products.filter((p) => p.is_active !== false);
   const productOptions = active.map((p) => ({ value: p.id, label: `${p.name} (${p.base_unit})` }));
   const outletsById = new Map(outlets.map((o) => [o.id, o]));
   const ckOutlets = outlets.filter((o) => o.outlet_role === 'central_kitchen');
 
-  const fromOutlet = outletsById.get(outletId) || null;
-  const fromRole = fromOutlet?.outlet_role ?? null;
-  const myOutletIds = fromOutlet ? [fromOutlet.id] : outlets.map((o) => o.id);
+  const state = { outletId: outletsById.has(outletId) ? outletId : outlets[0].id };
 
   container.innerHTML = `
     <h1>Pengiriman</h1>
+    <div class="field" style="max-width:280px"><label>Outlet</label>
+      <select id="disp-outlet">${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${esc(o.name)}${o.outlet_role === 'central_kitchen' ? ' (CK)' : ''}</option>`).join('')}</select>
+    </div>
     <div id="disp-send"></div>
-    <h2 style="font-size:1rem;margin-top:20px">Kiriman Masuk (belum diterima)</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;max-width:560px;margin-top:20px;gap:8px">
+      <h2 style="font-size:1rem;margin:0">Kiriman Masuk (belum diterima)</h2>
+      <button id="disp-refresh" title="Muat ulang">⟳ Refresh</button>
+    </div>
     <div id="disp-incoming"></div>
   `;
+
+  const outletSel = container.querySelector('#disp-outlet');
+  outletSel.addEventListener('change', () => {
+    state.outletId = outletSel.value;
+    renderSend();
+    renderIncoming();
+  });
+
+  container.querySelector('#disp-refresh').addEventListener('click', () => renderIncoming());
+
+  // Auto-refresh kiriman masuk tiap 15 detik (berhenti sendiri saat halaman diganti,
+  // dan dilewati kalau ada tabel penerimaan yang sedang dibuka/diisi).
+  const pollTimer = setInterval(() => {
+    if (!document.body.contains(container) || !container.querySelector('#disp-incoming')) {
+      clearInterval(pollTimer);
+      return;
+    }
+    if (container.querySelector('.recv-body:not([hidden])')) return;
+    renderIncoming();
+  }, 15000);
 
   renderSend();
   renderIncoming();
 
-  // ---- Bagian Kirim (adaptif per peran outlet) ----
+  // ---- Bagian Kirim (adaptif per peran outlet terpilih) ----
   function renderSend() {
     const box = container.querySelector('#disp-send');
-    if (!active.length) {
+    const fromOutlet = outletsById.get(state.outletId);
+    if (!active.length || !fromOutlet) {
       box.innerHTML = '';
       return;
     }
-    // Konfigurasi berdasar peran outlet basis.
-    let title = 'Kirim Stok';
-    let showJenis = false;
-    if (fromOutlet && fromRole === 'central_kitchen') {
-      title = 'Kirim ke Outlet';
-    } else if (fromOutlet) {
-      title = 'Transfer / Retur Stok';
-      showJenis = true;
-    }
+    const isCK = fromOutlet.outlet_role === 'central_kitchen';
+    const title = isCK ? 'Kirim ke Outlet' : 'Transfer / Retur Stok';
+    const showJenis = !isCK;
 
     const destOptions = (jenis) => {
-      let list;
-      if (!fromOutlet) list = outlets; // generic
-      else if (fromRole === 'central_kitchen') list = outlets.filter((o) => o.id !== fromOutlet.id);
-      else if (jenis === 'retur') list = ckOutlets;
-      else list = outlets.filter((o) => o.id !== fromOutlet.id && o.outlet_role !== 'central_kitchen');
-      return list;
+      if (isCK) return outlets.filter((o) => o.id !== fromOutlet.id);
+      if (jenis === 'retur') return ckOutlets.filter((o) => o.id !== fromOutlet.id);
+      return outlets.filter((o) => o.id !== fromOutlet.id && o.outlet_role !== 'central_kitchen');
     };
 
     box.innerHTML = `
       <div class="inline-card" style="max-width:600px">
-        <h3 style="margin-top:0">${title}</h3>
-        ${
-          fromOutlet
-            ? `<p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">Dari: <strong>${esc(fromOutlet.name)}</strong></p>`
-            : `<div class="field"><label>Dari outlet</label><select id="disp-from">${outlets.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}</select></div>`
-        }
-        ${
-          showJenis
-            ? `<div class="field"><label>Jenis</label><select id="disp-jenis"><option value="transfer">Transfer antar Outlet</option><option value="retur">Retur ke Central Kitchen</option></select></div>`
-            : ''
-        }
+        <h3 style="margin-top:0">${title} <span style="font-size:0.8rem;color:var(--color-text-muted)">dari ${esc(fromOutlet.name)}</span></h3>
+        ${showJenis ? `<div class="field"><label>Jenis</label><select id="disp-jenis"><option value="transfer">Transfer antar Outlet</option><option value="retur">Retur ke Central Kitchen</option></select></div>` : ''}
         <div class="field"><label>Ke outlet</label><select id="disp-to"></select></div>
         <div class="line-rows" id="disp-items"></div>
         <button id="disp-add" style="margin-top:8px">+ Tambah Produk</button>
@@ -87,15 +98,12 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
 
     const toSel = box.querySelector('#disp-to');
     const jenisSel = box.querySelector('#disp-jenis');
-    const fromSel = box.querySelector('#disp-from');
     const fillDest = () => {
       const list = destOptions(jenisSel?.value);
-      const exclude = fromSel?.value;
-      toSel.innerHTML = list.filter((o) => o.id !== exclude).map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join('') || '<option value="">-- tidak ada tujuan --</option>';
+      toSel.innerHTML = list.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join('') || '<option value="">-- tidak ada tujuan --</option>';
     };
     fillDest();
     jenisSel?.addEventListener('change', fillDest);
-    fromSel?.addEventListener('change', fillDest);
 
     const itemsBody = box.querySelector('#disp-items');
     const addRow = () => {
@@ -116,14 +124,9 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     box.querySelector('#disp-send-btn').addEventListener('click', async (e) => {
       const errorEl = box.querySelector('#disp-error');
       errorEl.textContent = '';
-      const from = fromOutlet ? fromOutlet.id : fromSel.value;
       const to = toSel.value;
       if (!to) {
         errorEl.textContent = 'Pilih outlet tujuan.';
-        return;
-      }
-      if (from === to) {
-        errorEl.textContent = 'Outlet asal & tujuan tidak boleh sama.';
         return;
       }
       const items = [...itemsBody.querySelectorAll('.line-row')]
@@ -135,11 +138,10 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       }
       e.target.disabled = true;
       try {
-        const id = await createDispatch({ fromOutlet: from, toOutlet: to, items, notes: box.querySelector('#disp-notes').value });
+        const id = await createDispatch({ fromOutlet: fromOutlet.id, toOutlet: to, items, notes: box.querySelector('#disp-notes').value });
         const { code, waText } = await emitSuratJalan(id, { showReceived: false, title: 'SURAT JALAN' });
         toast(`Surat jalan ${code ?? ''} dibuat. Menunggu konfirmasi tujuan.`, 'success');
         renderSend();
-        renderIncoming();
         await shareDialog({ title: `Surat Jalan ${code ?? ''}`, helper: 'PDF sudah terunduh. Kirim info via WhatsApp (lampirkan file PDF-nya manual).', defaultMessage: waText });
       } catch (error) {
         errorEl.textContent = error.message ?? 'Gagal membuat pengiriman.';
@@ -149,19 +151,19 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     });
   }
 
-  // ---- Kiriman masuk: tabel inline + Simpan ----
+  // ---- Kiriman masuk untuk outlet terpilih: daftar No. Surat Jalan, tap untuk buka tabel ----
   async function renderIncoming() {
     const box = container.querySelector('#disp-incoming');
     box.innerHTML = `<p>Memuat...</p>`;
     let incoming;
     try {
-      incoming = await listIncomingDispatches(myOutletIds);
+      incoming = await listIncomingDispatches([state.outletId]);
     } catch (error) {
       box.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
       return;
     }
     if (!incoming.length) {
-      box.innerHTML = '<p style="color:var(--color-text-muted)">Tidak ada kiriman yang menunggu diterima.</p>';
+      box.innerHTML = '<p style="color:var(--color-text-muted)">Tidak ada kiriman yang menunggu diterima untuk outlet ini.</p>';
       return;
     }
     const itemsByDispatch = await Promise.all(incoming.map((d) => getDispatchItems(d.id).catch(() => [])));
@@ -171,26 +173,37 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         const items = itemsByDispatch[idx];
         return `
         <div class="inline-card" style="max-width:560px" data-dispatch="${d.id}">
-          <div style="font-size:0.85rem"><strong>${esc(d.from_outlet?.name ?? '-')}</strong> → <strong>${esc(d.to_outlet?.name ?? '-')}</strong>
-            <span style="color:var(--color-text-muted)">· ${fmtDateTime(d.created_at)} · oleh ${esc(d.user_profiles?.full_name ?? '-')}</span></div>
-          <table class="data-table" style="margin-top:8px">
-            <thead><tr><th>Produk</th><th>Dikirim</th><th>Diterima</th></tr></thead>
-            <tbody>
-              ${items
-                .map(
-                  (it) => `<tr>
-                    <td>${esc(it.products?.name ?? '-')}</td>
-                    <td>${formatNum(it.sent_qty)} ${esc(it.products?.base_unit ?? '')}</td>
-                    <td><input type="number" class="recv-input" min="0" data-item="${it.id}" value="${round(it.sent_qty)}" style="max-width:100px" /></td>
-                  </tr>`
-                )
-                .join('')}
-            </tbody>
-          </table>
-          <button class="primary btn-save-receive" data-id="${d.id}" style="margin-top:10px;max-width:220px">Simpan (Terima)</button>
+          <button class="disp-expand" data-id="${d.id}" style="border:none;background:none;cursor:pointer;text-align:left;width:100%;padding:0;font-size:0.92rem;color:var(--color-text)">
+            <strong>No. ${esc(d.code ?? d.id.slice(0, 6))}</strong> — dari ${esc(d.from_outlet?.name ?? '-')}
+            <div style="font-size:0.78rem;color:var(--color-text-muted)">${fmtDateTime(d.created_at)} · oleh ${esc(d.user_profiles?.full_name ?? '-')} · ketuk untuk terima ▾</div>
+          </button>
+          <div class="recv-body" hidden style="margin-top:10px">
+            <table class="data-table">
+              <thead><tr><th>Produk</th><th>Dikirim</th><th>Diterima</th></tr></thead>
+              <tbody>
+                ${items
+                  .map(
+                    (it) => `<tr>
+                      <td>${esc(it.products?.name ?? '-')}</td>
+                      <td>${formatNum(it.sent_qty)} ${esc(it.products?.base_unit ?? '')}</td>
+                      <td><input type="number" class="recv-input" min="0" data-item="${it.id}" value="${round(it.sent_qty)}" style="max-width:100px" /></td>
+                    </tr>`
+                  )
+                  .join('')}
+              </tbody>
+            </table>
+            <button class="primary btn-save-receive" data-id="${d.id}" style="margin-top:10px;max-width:220px">Simpan (Terima)</button>
+          </div>
         </div>`;
       })
       .join('');
+
+    box.querySelectorAll('.disp-expand').forEach((btn) =>
+      btn.addEventListener('click', () => {
+        const body = btn.parentElement.querySelector('.recv-body');
+        body.hidden = !body.hidden;
+      })
+    );
 
     box.querySelectorAll('.btn-save-receive').forEach((btn) =>
       btn.addEventListener('click', async () => {
