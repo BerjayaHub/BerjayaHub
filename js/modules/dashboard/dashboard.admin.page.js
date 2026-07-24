@@ -2,6 +2,7 @@ import { listRecentAttendanceActivity } from '../attendance/attendance.service.j
 import { listRecentLeaveActivity } from '../leave/leave.service.js';
 import { listRecentChecklistActivity } from '../cleaning/cleaning.service.js';
 import { listRecentInventoryActivity, MOVEMENT_LABEL } from '../inventory/inventory.service.js';
+import { listRecentProductionActivity } from '../production/production.service.js';
 
 const PAGE_SIZE = 20;
 
@@ -77,7 +78,20 @@ async function inventoryProvider({ before, limit }) {
   });
 }
 
-const ACTIVITY_PROVIDERS = [attendanceProvider, leaveProvider, cleaningProvider, inventoryProvider];
+async function productionProvider({ before, limit }) {
+  const rows = await listRecentProductionActivity({ before, limit });
+  return rows.map((r) => {
+    const bu = r.business_units?.name ? ` · ${r.business_units.name}` : '';
+    const qty = Math.round(Number(r.output_qty) * 100) / 100;
+    return {
+      time: r.created_at,
+      icon: '🏭',
+      text: `${r.user_profiles?.full_name ?? 'Staff'} produksi ${qty} ${r.products?.base_unit ?? ''} ${r.products?.name ?? ''} di ${r.outlets?.name ?? '-'}${bu}`
+    };
+  });
+}
+
+const ACTIVITY_PROVIDERS = [attendanceProvider, leaveProvider, cleaningProvider, inventoryProvider, productionProvider];
 
 export async function renderAdminDashboard(container) {
   container.innerHTML = `

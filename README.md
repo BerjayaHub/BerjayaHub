@@ -269,6 +269,14 @@ Jalankan migration `0018_inventory.sql`, lalu aktifkan modul **Inventory** untuk
 - **Toggle opname staff** (per BU) — hanya **Super Admin** yang bisa mengaktifkan (kontrol di Admin Portal → Inventory). Kalau mati, tombol Opname di Staff App disembunyikan. Dijaga RPC `set_allow_staff_opname`.
 - **Import Excel** — di Master Produk, tombol **Template** + **Import Excel** untuk Produk & Resep (.xlsx/.csv, pakai SheetJS dari CDN, mode tambah-baru-saja).
 
+## Fase 6 — Produksi di Outlet (Cafe)
+
+Jalankan migration `0020_production.sql`, lalu aktifkan modul **Production** untuk BU Cafe lewat Master BU & Outlet → tombol **Modul**.
+
+- **Staff App** (menu Produksi): pilih outlet & produk (yang punya resep), isi **jumlah hasil (output)**. Sistem menampilkan **kebutuhan bahan** (proporsional dari resep) + stok saat ini. Saat dicatat: stok bahan **berkurang** & stok produk hasil **bertambah** otomatis (atomik lewat RPC `record_production`). Stok bahan **boleh minus** (produksi tidak diblokir).
+- **Admin Portal** (menu Produksi): riwayat produksi (filter outlet/tanggal). Pergerakan **Pemakaian**/**Produksi** juga muncul di Inventory → Riwayat dan di **Dashboard** (🏭).
+- Selain "Produk" (lihat-saja: nama + stok) kini juga tersedia di Staff App bila modul Master Produk aktif.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
@@ -278,7 +286,7 @@ Jalankan migration `0018_inventory.sql`, lalu aktifkan modul **Inventory** untuk
 - [x] **Fase 3b** — Ceklis Kebersihan (lintas semua BU)
 - [x] **Fase 4** — Master Produk & Master Formula/Resep (Cafe)
 - [x] **Fase 5** — Inventory (Cafe)
-- [ ] **Fase 6** — Production di level Outlet (Cafe)
+- [x] **Fase 6** — Production di level Outlet (Cafe)
 - [ ] **Fase 7** — Production di Central Kitchen + Transfer/Dispatch ke outlet (Cafe)
 - [ ] **Fase 8** — Sales (Cafe)
 - [ ] **Fase 9** — Cash Ledger (Cafe)

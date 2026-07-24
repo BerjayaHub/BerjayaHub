@@ -6,11 +6,15 @@ import { renderAttendancePage } from './modules/attendance/attendance.page.js';
 import { renderLeavePage } from './modules/leave/leave.page.js';
 import { renderCleaningPage } from './modules/cleaning/cleaning.page.js';
 import { renderInventoryPage } from './modules/inventory/inventory.page.js';
+import { renderProductStaffPage } from './modules/product/product.staff.page.js';
+import { renderProductionPage } from './modules/production/production.page.js';
 
 registerModule('attendance', renderAttendancePage);
 registerModule('leave', renderLeavePage);
 registerModule('cleaning_checklist', renderCleaningPage);
 registerModule('inventory', renderInventoryPage);
+registerModule('master_product', renderProductStaffPage);
+registerModule('production', renderProductionPage);
 
 const app = document.getElementById('app');
 
@@ -204,6 +208,9 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
 function renderHome(context, modules, moduleCtx) {
   const content = document.getElementById('module-content');
   const firstName = (context.profile.full_name || '').split(' ')[0] || 'Halo';
+  // Hanya tampilkan modul yang memang punya halaman Staff App (mis. Master Produk
+  // itu admin-only, jadi tidak muncul sebagai kartu di sini walau aktif untuk BU).
+  const staffModules = modules.filter((mod) => getModuleRenderer(mod.code));
   content.innerHTML = `
     <div class="staff-greeting">
       <h1>Halo, ${firstName} 👋</h1>
@@ -211,7 +218,7 @@ function renderHome(context, modules, moduleCtx) {
     </div>
     <div class="card-grid">
       ${
-        modules
+        staffModules
           .map(
             (mod) => `
           <button class="module-card" data-module="${mod.code}">
