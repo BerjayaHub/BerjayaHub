@@ -161,7 +161,7 @@ export async function listLeaveRequestsForAdmin({ businessUnitId, status }) {
   let query = supabase
     .from('leave_requests')
     .select(
-      'id, start_date, end_date, day_count, reason, status, review_note, attachment_path, created_at, user_id, user_profiles(full_name), leave_types(name, deducts_quota), outlets(name)'
+      'id, start_date, end_date, day_count, reason, status, review_note, attachment_path, created_at, user_id, user_profiles!user_id(full_name), leave_types(name, deducts_quota), outlets(name)'
     )
     .eq('business_unit_id', businessUnitId)
     .order('created_at', { ascending: false })
