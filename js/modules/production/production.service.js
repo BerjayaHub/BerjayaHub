@@ -8,9 +8,10 @@ import { listProducts, listRecipesFull } from '../product/product.service.js';
 export async function listManufacturable(businessUnitId) {
   const [products, recipes] = await Promise.all([listProducts(businessUnitId), listRecipesFull(businessUnitId)]);
   const productById = new Map(products.map((p) => [p.id, p]));
-  const recipeByProduct = new Map(recipes.map((r) => [r.product_id, r]));
+  // Produksi (di CK) hanya untuk produk SETENGAH JADI dengan resep 'production'.
+  const recipeByProduct = new Map(recipes.filter((r) => r.mode === 'production').map((r) => [r.product_id, r]));
   return products
-    .filter((p) => (p.product_type === 'semi' || p.product_type === 'finished') && recipeByProduct.get(p.id)?.items.length)
+    .filter((p) => p.product_type === 'semi' && recipeByProduct.get(p.id)?.items.length)
     .map((p) => {
       const r = recipeByProduct.get(p.id);
       return {

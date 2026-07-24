@@ -74,11 +74,12 @@ export async function deleteProduct(id) {
 
 // ---- Resep ----
 
-export async function getRecipeForProduct(productId) {
+export async function getRecipeForProduct(productId, mode) {
   const { data: recipe, error } = await supabase
     .from('recipes')
-    .select('id, yield_qty, notes')
+    .select('id, yield_qty, notes, mode')
     .eq('product_id', productId)
+    .eq('mode', mode)
     .maybeSingle();
   if (error) throw error;
   if (!recipe) return { recipe: null, items: [] };
@@ -90,9 +91,14 @@ export async function getRecipeForProduct(productId) {
   return { recipe, items: items ?? [] };
 }
 
-export async function saveRecipe({ productId, businessUnitId, yield_qty, notes, items }) {
+export async function saveRecipe({ productId, businessUnitId, mode, yield_qty, notes, items }) {
   let recipeId;
-  const { data: existing, error: exErr } = await supabase.from('recipes').select('id').eq('product_id', productId).maybeSingle();
+  const { data: existing, error: exErr } = await supabase
+    .from('recipes')
+    .select('id')
+    .eq('product_id', productId)
+    .eq('mode', mode)
+    .maybeSingle();
   if (exErr) throw exErr;
   if (existing) {
     recipeId = existing.id;
@@ -101,7 +107,7 @@ export async function saveRecipe({ productId, businessUnitId, yield_qty, notes, 
   } else {
     const { data, error } = await supabase
       .from('recipes')
-      .insert({ product_id: productId, business_unit_id: businessUnitId, yield_qty, notes: notes || null })
+      .insert({ product_id: productId, business_unit_id: businessUnitId, mode, yield_qty, notes: notes || null })
       .select('id')
       .single();
     if (error) throw error;
@@ -116,11 +122,11 @@ export async function saveRecipe({ productId, businessUnitId, yield_qty, notes, 
   return recipeId;
 }
 
-/** Semua resep + itemnya di sebuah BU, untuk hitung HPP berjenjang. */
+/** Semua resep (semua mode) + itemnya di sebuah BU, untuk hitung HPP berjenjang. */
 export async function listRecipesFull(businessUnitId) {
   const { data: recipes, error } = await supabase
     .from('recipes')
-    .select('id, product_id, yield_qty')
+    .select('id, product_id, yield_qty, mode')
     .eq('business_unit_id', businessUnitId);
   if (error) throw error;
   const ids = (recipes ?? []).map((r) => r.id);
@@ -134,7 +140,7 @@ export async function listRecipesFull(businessUnitId) {
     items = it ?? [];
   }
   const byRecipe = new Map();
-  for (const r of recipes ?? []) byRecipe.set(r.id, { product_id: r.product_id, yield_qty: Number(r.yield_qty), items: [] });
+  for (const r of recipes ?? []) byRecipe.set(r.id, { product_id: r.product_id, mode: r.mode, yield_qty: Number(r.yield_qty), items: [] });
   for (const i of items) byRecipe.get(i.recipe_id)?.items.push({ ingredient_product_id: i.ingredient_product_id, qty: Number(i.qty) });
   return [...byRecipe.values()];
 }
@@ -146,44 +152,67 @@ export async function listRecipesFull(businessUnitId) {
  * Rekursif dengan memo + penjaga siklus (siklus dianggap biaya 0).
  * Return Map<productId, number|null> (null = belum bisa dihitung / belum ada resep).
  */
-export function computeCosts(products, recipes) {
+function buildCostFn(products, recipes) {
   const productById = new Map(products.map((p) => [p.id, p]));
-  const recipeByProduct = new Map(recipes.map((r) => [r.product_id, r]));
+  const recipeByKey = new Map(recipes.map((r) => [`${r.product_id}|${r.mode}`, r]));
   const memo = new Map();
   const visiting = new Set();
 
-  function costOf(pid) {
-    if (memo.has(pid)) return memo.get(pid);
+  // mode hanya relevan untuk produk 'finished'. semi -> 'production'; raw -> abaikan.
+  function effMode(p, mode) {
+    if (p.product_type === 'semi') return 'production';
+    if (p.product_type === 'finished') return mode || 'standalone';
+    return null;
+  }
+
+  function costOf(pid, mode) {
     const p = productById.get(pid);
     if (!p) return null;
-
     if (p.product_type === 'raw') {
-      const c = p.purchase_price != null && Number(p.purchase_qty) > 0 ? Number(p.purchase_price) / Number(p.purchase_qty) : null;
-      memo.set(pid, c);
-      return c;
+      return p.purchase_price != null && Number(p.purchase_qty) > 0 ? Number(p.purchase_price) / Number(p.purchase_qty) : null;
     }
-
-    const r = recipeByProduct.get(pid);
+    const em = effMode(p, mode);
+    const key = `${pid}|${em}`;
+    if (memo.has(key)) return memo.get(key);
+    const r = recipeByKey.get(key);
     if (!r || !r.items.length || !(Number(r.yield_qty) > 0)) {
-      memo.set(pid, null);
+      memo.set(key, null);
       return null;
     }
-    if (visiting.has(pid)) return null; // siklus
-    visiting.add(pid);
+    if (visiting.has(key)) return null; // siklus
+    visiting.add(key);
     let total = 0;
     let known = true;
     for (const it of r.items) {
-      const c = costOf(it.ingredient_product_id);
+      const c = costOf(it.ingredient_product_id, null); // bahan = raw/semi, mode tak relevan
       if (c == null) known = false;
       else total += Number(it.qty) * c;
     }
-    visiting.delete(pid);
+    visiting.delete(key);
     const result = known ? total / Number(r.yield_qty) : null;
-    memo.set(pid, result);
+    memo.set(key, result);
     return result;
   }
+  return { costOf, productById };
+}
 
+/**
+ * HPP per satuan tiap produk (Map productId -> number|null).
+ *   raw -> harga beli; semi -> resep produksi; finished -> resep Standalone
+ *   (kalau tak ada, pakai Dilayani CK). Untuk HPP per-varian pakai costForMode().
+ */
+export function computeCosts(products, recipes) {
+  const { costOf } = buildCostFn(products, recipes);
   const out = new Map();
-  for (const p of products) out.set(p.id, costOf(p.id));
+  for (const p of products) {
+    if (p.product_type === 'finished') out.set(p.id, costOf(p.id, 'standalone') ?? costOf(p.id, 'served_by_ck'));
+    else out.set(p.id, costOf(p.id, null));
+  }
   return out;
+}
+
+/** HPP satu produk untuk mode tertentu (buat tampilan HPP per varian resep). */
+export function costForMode(products, recipes, productId, mode) {
+  const { costOf } = buildCostFn(products, recipes);
+  return costOf(productId, mode);
 }

@@ -277,6 +277,12 @@ Jalankan migration `0020_production.sql`, lalu aktifkan modul **Production** unt
 - **Admin Portal** (menu Produksi): riwayat produksi (filter outlet/tanggal). Pergerakan **Pemakaian**/**Produksi** juga muncul di Inventory → Riwayat dan di **Dashboard** (🏭).
 - Selain "Produk" (lihat-saja: nama + stok) kini juga tersedia di Staff App bila modul Master Produk aktif.
 
+### Revisi Fase 5 & 6 (migration `0021_recipe_modes.sql`)
+
+- **Resep ber-mode**: produk **Setengah Jadi** = 1 resep **Produksi** (dibuat di CK); produk **Jadi** bisa 2 varian resep — **Standalone** (dari bahan baku) & **Dilayani CK** (dari setengah jadi). HPP dihitung per varian. Diatur di Master Produk → tab Resep (tombol per varian).
+- **Produksi khusus Central Kitchen**: fitur Produksi di Staff App hanya bisa dipakai di outlet ber-peran **Central Kitchen** (outlet standalone/dilayani-CK tidak produksi — stok bahannya berkurang saat penjualan, Fase 8).
+- **Toggle penjualan per outlet** (`allow_sales`): ada di Master BU & Outlet saat tambah/edit outlet. Default nyala untuk outlet biasa; Central Kitchen bisa diaktifkan bila suatu saat ikut menjual. (Dipakai penuh di Fase 8.)
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

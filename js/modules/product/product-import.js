@@ -96,7 +96,7 @@ export async function importRecipes(businessUnitId, file) {
   const products = await listProducts(businessUnitId);
   const byName = new Map(products.map((p) => [p.name.trim().toLowerCase(), p]));
   const recipesFull = await listRecipesFull(businessUnitId);
-  const hasRecipe = new Set(recipesFull.map((r) => r.product_id));
+  const hasRecipe = new Set(recipesFull.map((r) => `${r.product_id}|${r.mode}`));
 
   const groups = new Map();
   for (const raw of rows) {
@@ -125,7 +125,8 @@ export async function importRecipes(businessUnitId, file) {
       errors.push(`${prodName}: bahan baku tidak punya resep`);
       continue;
     }
-    if (hasRecipe.has(p.id)) {
+    const mode = p.product_type === 'semi' ? 'production' : 'standalone';
+    if (hasRecipe.has(`${p.id}|${mode}`)) {
       skipped++;
       continue;
     }
@@ -146,8 +147,8 @@ export async function importRecipes(businessUnitId, file) {
       continue;
     }
     try {
-      await saveRecipe({ productId: p.id, businessUnitId, yield_qty: g.yield || 1, notes: null, items });
-      hasRecipe.add(p.id);
+      await saveRecipe({ productId: p.id, businessUnitId, mode, yield_qty: g.yield || 1, notes: null, items });
+      hasRecipe.add(`${p.id}|${mode}`);
       added++;
     } catch (e) {
       errors.push(`${prodName}: ${e.message ?? e}`);

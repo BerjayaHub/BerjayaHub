@@ -315,6 +315,7 @@ async function openOutletDialog(container, businessUnitId, siblingOutlets, exist
         value: existing?.served_by_outlet_id ?? '',
         options: [{ value: '', label: '-- pilih Central Kitchen --' }, ...ckOptions]
       },
+      { name: 'allow_sales', label: 'Bisa melakukan penjualan (sales)', type: 'checkbox', value: existing ? existing.allow_sales !== false : true },
       { name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing ? existing.is_active : true }
     ],
     submitText: 'Simpan',

@@ -12,6 +12,7 @@ import {
   saveRecipe,
   listRecipesFull,
   computeCosts,
+  costForMode,
   listUnits,
   createUnit,
   deleteUnit
@@ -22,6 +23,9 @@ const TABS = [
   { key: 'recipes', label: 'Resep' },
   { key: 'units', label: 'Satuan' }
 ];
+
+const MODE_LABEL = { production: 'Produksi (CK)', standalone: 'Standalone', served_by_ck: 'Dilayani CK' };
+const modesForType = (t) => (t === 'semi' ? ['production'] : t === 'finished' ? ['standalone', 'served_by_ck'] : []);
 
 export async function renderMasterProductPage(container, { businessUnitId }) {
   container.innerHTML = `
@@ -204,36 +208,37 @@ async function renderRecipesTab(content, businessUnitId) {
     content.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
     return;
   }
-  const { products, recipes, costs } = data;
+  const { products, recipes } = data;
   const manufactured = products.filter((p) => p.product_type === 'semi' || p.product_type === 'finished');
-  const recipeByProduct = new Map(recipes.map((r) => [r.product_id, r]));
+  const recipeSet = new Set(recipes.map((r) => `${r.product_id}|${r.mode}`));
 
   content.innerHTML = `
     <div class="page-header">
-      <p style="color:var(--color-text-muted);font-size:0.9rem;margin:0;max-width:420px">Resep hanya untuk produk Setengah Jadi & Produk Jadi. Bahan bisa dari Bahan Baku atau Setengah Jadi (berjenjang). HPP dihitung otomatis.</p>
+      <p style="color:var(--color-text-muted);font-size:0.9rem;margin:0;max-width:420px">Setengah Jadi punya 1 resep <strong>Produksi</strong> (dibuat di CK). Produk Jadi bisa 2 varian: <strong>Standalone</strong> (dari bahan baku) &amp; <strong>Dilayani CK</strong> (dari setengah jadi). HPP otomatis.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button id="btn-tpl-recipe">Template</button>
         <button id="btn-import-recipe">Import Excel</button>
       </div>
     </div>
     <table class="data-table">
-      <thead><tr><th>Produk</th><th>Tipe</th><th>Resep</th><th>HPP</th><th>Aksi</th></tr></thead>
+      <thead><tr><th>Produk</th><th>Tipe</th><th>Varian resep &amp; HPP</th><th>Aksi</th></tr></thead>
       <tbody>
         ${
           manufactured
             .map((p) => {
-              const r = recipeByProduct.get(p.id);
-              const cost = costs.get(p.id);
-              return `
-              <tr>
-                <td>${escapeHtml(p.name)}</td>
-                <td>${TYPE_LABEL[p.product_type]}</td>
-                <td>${r && r.items.length ? `Ada (${r.items.length} bahan)` : '<span class="badge badge-pending">Belum</span>'}</td>
-                <td>${cost != null ? formatRupiah(cost) + ` /${escapeHtml(p.base_unit)}` : '<span style="color:var(--color-text-muted)">belum lengkap</span>'}</td>
-                <td><button class="btn-edit-recipe" data-id="${p.id}">Atur Resep</button></td>
-              </tr>`;
+              const modes = modesForType(p.product_type);
+              const variants = modes
+                .map((m) => {
+                  const has = recipeSet.has(`${p.id}|${m}`);
+                  const cost = costForMode(products, recipes, p.id, m);
+                  const val = has ? (cost != null ? formatRupiah(cost) + `/${escapeHtml(p.base_unit)}` : 'resep belum lengkap') : '<span class="badge badge-pending">Belum</span>';
+                  return `<div style="margin:2px 0"><strong>${MODE_LABEL[m]}:</strong> ${val}</div>`;
+                })
+                .join('');
+              const actions = modes.map((m) => `<button class="btn-edit-recipe" data-id="${p.id}" data-mode="${m}">${MODE_LABEL[m]}</button>`).join(' ');
+              return `<tr><td>${escapeHtml(p.name)}</td><td>${TYPE_LABEL[p.product_type]}</td><td style="font-size:0.85rem">${variants}</td><td>${actions}</td></tr>`;
             })
-            .join('') || '<tr><td colspan="5">Belum ada produk setengah jadi / jadi.</td></tr>'
+            .join('') || '<tr><td colspan="4">Belum ada produk setengah jadi / jadi.</td></tr>'
         }
       </tbody>
     </table>
@@ -241,7 +246,7 @@ async function renderRecipesTab(content, businessUnitId) {
   `;
 
   content.querySelectorAll('.btn-edit-recipe').forEach((btn) =>
-    btn.addEventListener('click', () => openRecipeEditor(content, businessUnitId, products.find((p) => p.id === btn.dataset.id), products))
+    btn.addEventListener('click', () => openRecipeEditor(content, businessUnitId, products.find((p) => p.id === btn.dataset.id), products, btn.dataset.mode))
   );
   document.getElementById('btn-tpl-recipe').addEventListener('click', downloadRecipeTemplate);
   document.getElementById('btn-import-recipe').addEventListener('click', () =>
@@ -276,12 +281,12 @@ async function openImport(content, businessUnitId, kind, refresh) {
   }
 }
 
-async function openRecipeEditor(content, businessUnitId, product, products) {
+async function openRecipeEditor(content, businessUnitId, product, products, mode) {
   const editor = content.querySelector('#recipe-editor');
   editor.innerHTML = `<p>Memuat resep...</p>`;
   let current;
   try {
-    current = await getRecipeForProduct(product.id);
+    current = await getRecipeForProduct(product.id, mode);
   } catch (error) {
     editor.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
     return;
@@ -296,7 +301,7 @@ async function openRecipeEditor(content, businessUnitId, product, products) {
 
   editor.innerHTML = `
     <div class="inline-card" style="max-width:640px">
-      <h3 style="margin-top:0">Resep: ${escapeHtml(product.name)} <span style="font-size:0.8rem;color:var(--color-text-muted)">(${TYPE_LABEL[product.product_type]})</span></h3>
+      <h3 style="margin-top:0">Resep: ${escapeHtml(product.name)} <span style="font-size:0.8rem;color:var(--color-text-muted)">(${TYPE_LABEL[product.product_type]} · ${MODE_LABEL[mode] ?? mode})</span></h3>
       <div class="field" style="max-width:280px">
         <label>Hasil / yield (dalam ${escapeHtml(product.base_unit)})</label>
         <input type="number" id="recipe-yield" min="0" value="${current.recipe?.yield_qty ?? 1}" />
@@ -350,7 +355,7 @@ async function openRecipeEditor(content, businessUnitId, product, products) {
       return;
     }
     try {
-      await saveRecipe({ productId: product.id, businessUnitId, yield_qty: yieldQty, notes: editor.querySelector('#recipe-notes').value, items });
+      await saveRecipe({ productId: product.id, businessUnitId, mode, yield_qty: yieldQty, notes: editor.querySelector('#recipe-notes').value, items });
       toast('Resep disimpan.', 'success');
       await renderRecipesTab(content, businessUnitId);
     } catch (error) {

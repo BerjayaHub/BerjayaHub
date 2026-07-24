@@ -10,7 +10,10 @@ export async function renderProductionPage(container, { businessUnitId, outletId
   let outlets, products;
   try {
     [outlets, products] = await Promise.all([
-      listAttendanceOutlets().then((all) => all.filter((o) => o.business_unit_id === businessUnitId).map((o) => ({ id: o.id, name: o.name }))),
+      // Produksi hanya di outlet Central Kitchen.
+      listAttendanceOutlets().then((all) =>
+        all.filter((o) => o.business_unit_id === businessUnitId && o.outlet_role === 'central_kitchen').map((o) => ({ id: o.id, name: o.name }))
+      ),
       listManufacturable(businessUnitId)
     ]);
   } catch (error) {
@@ -18,7 +21,7 @@ export async function renderProductionPage(container, { businessUnitId, outletId
     return;
   }
   if (!outlets.length) {
-    container.innerHTML = `<h1>Produksi</h1><p>Belum ada outlet untukmu di BU ini.</p>`;
+    container.innerHTML = `<h1>Produksi</h1><p style="color:var(--color-text-muted)">Produksi hanya untuk outlet <strong>Central Kitchen</strong>. Belum ada outlet CK yang bisa kamu akses di BU ini.</p>`;
     return;
   }
   if (!products.length) {
