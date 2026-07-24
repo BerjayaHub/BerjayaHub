@@ -53,11 +53,11 @@ async function renderRequestsTab(content, businessUnitId) {
     <div class="field" style="max-width:220px">
       <label>Status</label>
       <select id="leave-status-filter">
+        <option value="">Semua</option>
         <option value="pending">Menunggu</option>
         <option value="approved">Disetujui</option>
         <option value="rejected">Ditolak</option>
         <option value="cancelled">Dibatalkan</option>
-        <option value="">Semua</option>
       </select>
     </div>
     <div id="leave-req-result"><p>Memuat...</p></div>
@@ -76,9 +76,9 @@ async function renderRequestsTab(content, businessUnitId) {
     }
     result.innerHTML = `
       <table class="data-table" style="margin-top:12px">
-        <thead><tr><th>Staff</th><th>Jenis</th><th>Tanggal</th><th>Hari</th><th>Alasan</th><th>Status</th><th>Aksi</th></tr></thead>
+        <thead><tr><th>Staff</th><th>Diajukan</th><th>Jenis</th><th>Tanggal Cuti</th><th>Hari</th><th>Alasan</th><th>Status</th><th>Aksi</th></tr></thead>
         <tbody>
-          ${requests.map(reqRowHtml).join('') || '<tr><td colspan="7">Tidak ada pengajuan.</td></tr>'}
+          ${requests.map(reqRowHtml).join('') || '<tr><td colspan="8">Tidak ada pengajuan.</td></tr>'}
         </tbody>
       </table>
     `;
@@ -96,6 +96,7 @@ function reqRowHtml(r) {
   return `
     <tr>
       <td>${escapeHtml(r.user_profiles?.full_name ?? '-')}</td>
+      <td style="font-size:0.82rem;color:var(--color-text-muted)">${r.created_at ? fmtDateTime(r.created_at) : '-'}</td>
       <td>${escapeHtml(r.leave_types?.name ?? '-')}${r.leave_types?.deducts_quota ? ' <span style="font-size:0.7rem;color:var(--color-text-muted)">(potong jatah)</span>' : ''}</td>
       <td>${range}</td>
       <td>${r.day_count}</td>
@@ -296,28 +297,48 @@ async function renderEntitlementsTab(content, businessUnitId) {
   }
   const activeTypes = types.filter((t) => t.is_active);
 
+  // Hitung berapa jenis yang sudah diberikan tiap staff (untuk kolom status).
+  const withCounts = await Promise.all(
+    staff.map(async (s) => {
+      let count = 0;
+      try {
+        count = (await listStaffEntitlements(s.user_id)).length;
+      } catch {
+        count = 0;
+      }
+      return { ...s, count };
+    })
+  );
+
   content.innerHTML = `
-    <p style="color:var(--color-text-muted);font-size:0.9rem">Pilih staff, lalu centang jenis cuti yang boleh dia ajukan &amp; isi jatahnya. Jenis "punya jatah" akan memotong sisa; jenis tanpa jatah tidak dibatasi.</p>
-    <div class="field" style="max-width:280px">
-      <label>Staff</label>
-      <select id="ent-staff-select">
-        <option value="">-- pilih staff --</option>
-        ${staff.map((s) => `<option value="${s.user_id}">${escapeHtml(s.full_name)}${s.is_active === false ? ' (nonaktif)' : ''}</option>`).join('')}
-      </select>
-    </div>
-    <div id="ent-detail"></div>
+    <p style="color:var(--color-text-muted);font-size:0.9rem">Semua staff terdaftar di BU ini. Kolom status menandai siapa yang <strong>belum diatur</strong> hak/jatah cutinya. Klik "Atur" untuk mengatur jenis cuti yang boleh diajukan &amp; jatahnya.</p>
+    <table class="data-table">
+      <thead><tr><th>Staff</th><th>Status Jatah</th><th>Aksi</th></tr></thead>
+      <tbody>
+        ${
+          withCounts
+            .map(
+              (s) => `
+          <tr>
+            <td>${escapeHtml(s.full_name)}${s.is_active === false ? ' <span style="font-size:0.7rem;color:var(--color-danger)">(nonaktif)</span>' : ''}</td>
+            <td>${s.count > 0 ? `${s.count} jenis diberikan` : '<span class="badge badge-pending">Belum diatur</span>'}</td>
+            <td><button class="btn-set-ent" data-user="${s.user_id}" data-name="${escapeAttr(s.full_name)}">Atur</button></td>
+          </tr>`
+            )
+            .join('') || '<tr><td colspan="3">Belum ada staff di BU ini.</td></tr>'
+        }
+      </tbody>
+    </table>
+    <div id="ent-detail" style="margin-top:16px"></div>
   `;
 
-  const select = document.getElementById('ent-staff-select');
-  select.addEventListener('change', () => renderStaffEntitlements(select.value, activeTypes));
+  content.querySelectorAll('.btn-set-ent').forEach((btn) =>
+    btn.addEventListener('click', () => renderStaffEntitlements(content, businessUnitId, btn.dataset.user, btn.dataset.name, activeTypes))
+  );
 }
 
-async function renderStaffEntitlements(userId, activeTypes) {
-  const detail = document.getElementById('ent-detail');
-  if (!userId) {
-    detail.innerHTML = '';
-    return;
-  }
+async function renderStaffEntitlements(content, businessUnitId, userId, staffName, activeTypes) {
+  const detail = content.querySelector('#ent-detail');
   detail.innerHTML = `<p>Memuat hak & jatah...</p>`;
   let current;
   try {
@@ -329,25 +350,28 @@ async function renderStaffEntitlements(userId, activeTypes) {
   const byType = new Map(current.map((e) => [e.leave_type_id, e.quota_days]));
 
   detail.innerHTML = `
-    <table class="data-table" style="margin-top:12px">
-      <thead><tr><th>Boleh</th><th>Jenis</th><th>Jatah (hari/tahun)</th></tr></thead>
-      <tbody>
-        ${activeTypes
-          .map((t) => {
-            const allowed = byType.has(t.leave_type_id ?? t.id);
-            const quota = byType.get(t.id);
-            const quotaVal = quota != null ? quota : t.deducts_quota ? t.default_quota ?? '' : '';
-            return `
-            <tr data-type="${t.id}" data-hasquota="${t.deducts_quota ? '1' : '0'}">
-              <td><input type="checkbox" class="ent-allow" ${allowed ? 'checked' : ''} /></td>
-              <td>${escapeHtml(t.name)}${t.deducts_quota ? '' : ' <span style="font-size:0.7rem;color:var(--color-text-muted)">(tanpa jatah)</span>'}</td>
-              <td>${t.deducts_quota ? `<input type="number" class="ent-quota" min="0" value="${quotaVal}" style="max-width:120px" />` : '—'}</td>
-            </tr>`;
-          })
-          .join('') || '<tr><td colspan="3">Belum ada jenis cuti.</td></tr>'}
-      </tbody>
-    </table>
-    <button class="primary" id="btn-save-ent" style="max-width:200px;margin-top:12px">Simpan Hak & Jatah</button>
+    <div class="inline-card" style="max-width:560px">
+      <h3 style="margin-top:0">Hak & Jatah — ${escapeHtml(staffName)}</h3>
+      <table class="data-table">
+        <thead><tr><th>Boleh</th><th>Jenis</th><th>Jatah (hari/tahun)</th></tr></thead>
+        <tbody>
+          ${activeTypes
+            .map((t) => {
+              const allowed = byType.has(t.id);
+              const quota = byType.get(t.id);
+              const quotaVal = quota != null ? quota : t.deducts_quota ? t.default_quota ?? '' : '';
+              return `
+              <tr data-type="${t.id}" data-hasquota="${t.deducts_quota ? '1' : '0'}">
+                <td><input type="checkbox" class="ent-allow" ${allowed ? 'checked' : ''} /></td>
+                <td>${escapeHtml(t.name)}${t.deducts_quota ? '' : ' <span style="font-size:0.7rem;color:var(--color-text-muted)">(tanpa jatah)</span>'}</td>
+                <td>${t.deducts_quota ? `<input type="number" class="ent-quota" min="0" value="${quotaVal}" style="max-width:120px" />` : '—'}</td>
+              </tr>`;
+            })
+            .join('') || '<tr><td colspan="3">Belum ada jenis cuti.</td></tr>'}
+        </tbody>
+      </table>
+      <button class="primary" id="btn-save-ent" style="max-width:200px;margin-top:12px">Simpan Hak & Jatah</button>
+    </div>
   `;
 
   document.getElementById('btn-save-ent').addEventListener('click', async () => {
@@ -365,7 +389,7 @@ async function renderStaffEntitlements(userId, activeTypes) {
         }
       }
       toast('Hak & jatah cuti disimpan.', 'success');
-      await renderStaffEntitlements(userId, activeTypes);
+      await renderEntitlementsTab(content, businessUnitId);
     } catch (error) {
       toast(error.message ?? 'Gagal menyimpan.', 'error');
     }
@@ -374,6 +398,9 @@ async function renderStaffEntitlements(userId, activeTypes) {
 
 function fmt(dateStr) {
   return new Date(dateStr + 'T00:00:00').toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+function fmtDateTime(iso) {
+  return new Date(iso).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
