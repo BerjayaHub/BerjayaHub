@@ -9,7 +9,8 @@ const ICONS = {
   master_user: '👤',
   dashboard: '🏠',
   bu_appearance: '🎨',
-  organization: '🏢'
+  organization: '🏢',
+  master_product: '📒'
 };
 
 export function getModuleIcon(code) {

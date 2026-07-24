@@ -5,6 +5,7 @@ import { renderMasterUserPage } from './modules/master-user/master-user.page.js'
 import { renderAttendanceAdminPage } from './modules/attendance/attendance.admin.page.js';
 import { renderLeaveAdminPage } from './modules/leave/leave.admin.page.js';
 import { renderCleaningAdminPage } from './modules/cleaning/cleaning.admin.page.js';
+import { renderMasterProductPage } from './modules/product/product.admin.page.js';
 import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
 import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
 import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
@@ -22,6 +23,7 @@ registerModule('bu_appearance', renderBuAppearancePage);
 registerModule('attendance', renderAttendanceAdminPage);
 registerModule('leave', renderLeaveAdminPage);
 registerModule('cleaning_checklist', renderCleaningAdminPage);
+registerModule('master_product', renderMasterProductPage);
 const CORE_ADMIN_MENU = [
   { code: 'dashboard', name: 'Dashboard' },
   { code: 'organization', name: 'Master BU & Outlet' },

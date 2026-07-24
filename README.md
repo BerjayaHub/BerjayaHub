@@ -244,6 +244,15 @@ Jalankan migration `0016_cleaning_checklist.sql`, lalu aktifkan modul **Ceklis K
 - **Staff App** (menu Ceklis Kebersihan): pilih outlet & sesi, centang item, **wajib 1 foto bukti**, kirim. Sesi yang sudah selesai hari itu ditandai ✅ (1 run per outlet/sesi/hari).
 - Foto disimpan di bucket privat `checklist-photos` (RLS: pemilik + admin outlet). Aktivitas otomatis muncul di **Dashboard**.
 
+## Fase 4 — Master Produk & Resep (Cafe)
+
+Jalankan migration `0017_master_product.sql`, lalu aktifkan modul **Master Produk** untuk BU Cafe lewat Master BU & Outlet → tombol **Modul**. Admin-only (data master).
+
+- **3 tipe produk**: Bahan Baku, Setengah Jadi, Produk Jadi.
+- **Satuan pakai** (di resep/stok) + **konversi beli**: satuan beli, isi per satuan beli, harga beli. Contoh: gula — satuan pakai `gram`, beli `karung`, isi `25000`, harga `Rp150.000/karung` → biaya per gram dihitung otomatis.
+- **Resep berjenjang (BOM)**: produk Setengah Jadi & Jadi punya resep dari bahan lain (baku/setengah jadi) + **yield/hasil**. **HPP** tiap produk dihitung otomatis & bertingkat; untuk Produk Jadi ditampilkan juga **margin** terhadap harga jual.
+- Tab **Produk** (kelola produk + lihat HPP/margin) & **Resep** (editor bahan + yield).
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
@@ -251,7 +260,7 @@ Jalankan migration `0016_cleaning_checklist.sql`, lalu aktifkan modul **Ceklis K
 - [x] **Fase 2** — Presensi (lintas semua BU)
 - [x] **Fase 3** — Pengajuan Cuti (lintas semua BU)
 - [x] **Fase 3b** — Ceklis Kebersihan (lintas semua BU)
-- [ ] **Fase 4** — Master Produk & Master Formula/Resep (Cafe)
+- [x] **Fase 4** — Master Produk & Master Formula/Resep (Cafe)
 - [ ] **Fase 5** — Inventory (Cafe)
 - [ ] **Fase 6** — Production di level Outlet (Cafe)
 - [ ] **Fase 7** — Production di Central Kitchen + Transfer/Dispatch ke outlet (Cafe)
