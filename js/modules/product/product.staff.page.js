@@ -1,7 +1,7 @@
 import { listProducts, TYPE_LABEL } from './product.service.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
-import { formatThousands } from '../../core/format.js';
+import { formatNum } from '../../core/format.js';
 
 // Halaman "Produk" di Staff App — LIHAT SAJA: nama produk & jumlah stok.
 // Tidak ada edit (master produk dikelola admin di Admin Portal).
@@ -57,7 +57,7 @@ export async function renderProductStaffPage(container, { businessUnitId, outlet
         <thead><tr><th>Produk</th><th>Tipe</th><th>Stok</th><th>Satuan</th></tr></thead>
         <tbody>
           ${active
-            .map((p) => `<tr><td>${esc(p.name)}</td><td>${TYPE_LABEL[p.product_type] ?? p.product_type}</td><td>${formatThousands(round(map.get(p.id) ?? 0))}</td><td>${esc(p.base_unit)}</td></tr>`)
+            .map((p) => `<tr><td>${esc(p.name)}</td><td>${TYPE_LABEL[p.product_type] ?? p.product_type}</td><td>${formatNum(map.get(p.id) ?? 0)}</td><td>${esc(p.base_unit)}</td></tr>`)
             .join('')}
         </tbody>
       </table>

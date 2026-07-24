@@ -126,8 +126,8 @@ export function formDialog({
     document.body.appendChild(overlay);
     requestAnimationFrame(() => overlay.classList.add('show'));
 
-    // Auto-format ribuan untuk field 'money'.
-    fields.filter((f) => f.type === 'money').forEach((f) => attachThousandsInput(form.elements[f.name]));
+    // Auto-format ribuan untuk field 'money' & 'qty'.
+    fields.filter((f) => f.type === 'money' || f.type === 'qty').forEach((f) => attachThousandsInput(form.elements[f.name]));
 
     // Aktifkan search-select fuzzy.
     fields
@@ -152,7 +152,7 @@ export function formDialog({
           rawEmpty = !values[f.name];
         } else if (f.type === 'checkbox') {
           values[f.name] = input.checked;
-        } else if (f.type === 'money') {
+        } else if (f.type === 'money' || f.type === 'qty') {
           rawEmpty = String(input.value).trim() === '';
           values[f.name] = parseNumber(input.value);
         } else {
@@ -393,6 +393,17 @@ function fieldHtml(f) {
             value="${escapeAttr(formatThousands(f.value ?? ''))}" ${f.required ? 'required' : ''}
             ${f.placeholder ? `placeholder="${escapeAttr(f.placeholder)}"` : ''} />
         </div>
+        ${help}
+      </div>`;
+  }
+
+  if (f.type === 'qty') {
+    return `
+      <div class="field">
+        <label for="${id}">${escapeHtml(f.label)}</label>
+        <input type="text" inputmode="numeric" id="${id}" name="${escapeAttr(f.name)}" class="qty-input"
+          value="${escapeAttr(formatThousands(f.value ?? ''))}" ${f.required ? 'required' : ''}
+          ${f.placeholder ? `placeholder="${escapeAttr(f.placeholder)}"` : ''} />
         ${help}
       </div>`;
   }

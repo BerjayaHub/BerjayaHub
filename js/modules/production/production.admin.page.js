@@ -1,4 +1,4 @@
-import { formatThousands } from '../../core/format.js';
+import { formatNum } from '../../core/format.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProductionRuns } from './production.service.js';
 
@@ -49,7 +49,7 @@ async function loadRuns(container, businessUnitId) {
               <td style="font-size:0.8rem">${fmtDateTime(r.created_at)}</td>
               <td>${esc(r.outlets?.name ?? '-')}</td>
               <td>${esc(r.products?.name ?? '-')}</td>
-              <td>${formatThousands(round(r.output_qty))} ${esc(r.products?.base_unit ?? '')}</td>
+              <td>${formatNum(r.output_qty)} ${esc(r.products?.base_unit ?? '')}</td>
               <td>${esc(r.user_profiles?.full_name ?? '-')}</td>
               <td style="font-size:0.8rem">${esc(r.notes ?? '-')}</td>
             </tr>`

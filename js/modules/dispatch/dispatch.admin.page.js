@@ -1,5 +1,5 @@
 import { toast, infoDialog } from '../../core/ui.js';
-import { formatThousands } from '../../core/format.js';
+import { formatNum } from '../../core/format.js';
 import { listDispatchesAdmin, getDispatchItems, DISPATCH_STATUS } from './dispatch.service.js';
 
 const STATUS_BADGE = { sent: 'badge-pending', received: 'badge-approved', cancelled: 'badge-cancelled' };
@@ -68,7 +68,7 @@ async function load(container, businessUnitId) {
           <table class="data-table"><thead><tr><th>Produk</th><th>Dikirim</th><th>Diterima</th></tr></thead>
           <tbody>${items
             .map(
-              (it) => `<tr><td>${esc(it.products?.name ?? '-')}</td><td>${formatThousands(round(it.sent_qty))} ${esc(it.products?.base_unit ?? '')}</td><td>${it.received_qty == null ? '-' : formatThousands(round(it.received_qty)) + ' ' + esc(it.products?.base_unit ?? '')}</td></tr>`
+              (it) => `<tr><td>${esc(it.products?.name ?? '-')}</td><td>${formatNum(it.sent_qty)} ${esc(it.products?.base_unit ?? '')}</td><td>${it.received_qty == null ? '-' : formatNum(it.received_qty) + ' ' + esc(it.products?.base_unit ?? '')}</td></tr>`
             )
             .join('')}</tbody></table>`;
         await infoDialog({ title: 'Detail Pengiriman', bodyHtml: body });

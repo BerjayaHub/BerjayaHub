@@ -1,5 +1,5 @@
 import { toast, formDialog } from '../../core/ui.js';
-import { formatThousands } from '../../core/format.js';
+import { formatNum } from '../../core/format.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
 import { getOutletStockMap, recordMovement, transferStock, getAllowStaffOpname } from './inventory.service.js';
@@ -72,7 +72,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
           ${activeProducts
             .map((p) => {
               const qty = map.get(p.id) ?? 0;
-              return `<tr><td>${escapeHtml(p.name)}</td><td>${formatThousands(round(qty))}</td><td>${escapeHtml(p.base_unit)}</td></tr>`;
+              return `<tr><td>${escapeHtml(p.name)}</td><td>${formatNum(qty)}</td><td>${escapeHtml(p.base_unit)}</td></tr>`;
             })
             .join('')}
         </tbody>

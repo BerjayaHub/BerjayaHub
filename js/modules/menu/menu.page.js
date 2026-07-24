@@ -1,5 +1,5 @@
 import { toast } from '../../core/ui.js';
-import { formatThousands } from '../../core/format.js';
+import { formatNum } from '../../core/format.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProducts, getRecipeForProduct } from '../product/product.service.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
@@ -140,7 +140,7 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
       const need = Number(it.qty) / yieldQty; // per 1 menu
       const stock = state.stock.get(it.ingredient_product_id) ?? 0;
       if (need > 0) maxMake = Math.min(maxMake, Math.floor(stock / need));
-      return `<tr><td>${esc(it.products?.name ?? '-')}</td><td>${formatThousands(round(need))} ${esc(it.products?.base_unit ?? '')}</td><td>${formatThousands(round(stock))} ${esc(it.products?.base_unit ?? '')}</td></tr>`;
+      return `<tr><td>${esc(it.products?.name ?? '-')}</td><td>${formatNum(need)} ${esc(it.products?.base_unit ?? '')}</td><td>${formatNum(stock)} ${esc(it.products?.base_unit ?? '')}</td></tr>`;
     });
     body.innerHTML = `
       <div style="font-size:0.82rem;color:var(--color-text-muted);margin-bottom:4px">Resep ${mode === 'served_by_ck' ? 'Dilayani CK' : 'Standalone'} · perkiraan bisa dibuat: <strong>${Number.isFinite(maxMake) ? maxMake : '—'}</strong> menu</div>

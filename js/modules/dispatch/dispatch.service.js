@@ -43,6 +43,18 @@ export async function getDispatchItems(dispatchId) {
   return data ?? [];
 }
 
+/** Header + item sebuah pengiriman untuk membuat PDF surat jalan. */
+export async function getDispatchForPdf(dispatchId) {
+  const { data: header, error } = await supabase
+    .from('dispatches')
+    .select('code, notes, status, created_at, from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name)')
+    .eq('id', dispatchId)
+    .single();
+  if (error) throw error;
+  const items = await getDispatchItems(dispatchId);
+  return { header, items };
+}
+
 export async function listDispatchesAdmin({ businessUnitId, status, dateFrom, dateTo }) {
   let query = supabase
     .from('dispatches')

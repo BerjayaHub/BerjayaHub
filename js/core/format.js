@@ -11,9 +11,16 @@ export function formatThousands(value) {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
+/** Angka gaya Indonesia untuk TAMPILAN (ribuan titik, desimal koma): 1.500,5 */
+export function formatNum(n, maxDecimals = 2) {
+  const num = Number(n);
+  if (!Number.isFinite(num)) return '0';
+  return new Intl.NumberFormat('id-ID', { maximumFractionDigits: maxDecimals }).format(num);
+}
+
 /** "Rp1.000.000" */
 export function formatRupiah(n) {
-  return 'Rp' + formatThousands(Math.round(Number(n) || 0));
+  return 'Rp' + new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(Math.round(Number(n) || 0));
 }
 
 /** "1.000.000" atau teks apa pun -> 1000000 (integer). */

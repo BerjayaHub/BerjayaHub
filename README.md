@@ -300,6 +300,15 @@ Jalankan migration `0022_dispatch.sql`, lalu aktifkan modul **Pengiriman** untuk
 - **Staff App** (menu Pengiriman): bagian **Kirim ke Outlet** hanya muncul di outlet Central Kitchen; bagian **Kiriman Masuk** untuk konfirmasi penerimaan. Atomik lewat RPC `create_dispatch` & `receive_dispatch`.
 - **Admin Portal** (menu Pengiriman): daftar semua pengiriman (filter status/tanggal) + detail item (dikirim vs diterima). Aktivitas muncul di **Dashboard** (🚚 kirim / 📥 terima).
 
+## Revisi Fase 7 — Transfer/Retur, surat jalan PDF, format angka
+
+Jalankan migration `0024_dispatch_code.sql` (nomor surat jalan). Perubahan aplikasi:
+
+- **Sisi outlet (non-CK)**: form "Kirim dari CK" diganti jadi **Transfer antar Outlet** & **Retur ke Central Kitchen** (pilih jenis) — tetap alur dua langkah + surat jalan. **CK** tetap "Kirim ke Outlet". Menu adaptif per peran outlet basis.
+- **Kirim & Kiriman Masuk kini tabel yang langsung diedit** (bukan pop up form). Saat **Simpan/Kirim** → muncul info **"Surat jalan XXX"**, PDF surat jalan **terunduh otomatis**, lalu dialog **Bagikan via WhatsApp** (teks ringkas; lampirkan PDF-nya manual). PDF dibuat client-side (jsPDF dari CDN, butuh internet).
+- **Nomor surat jalan** otomatis: `SJ-YYMMDD-XXXX`.
+- **Separator ribuan** dirapikan menyeluruh: tampilan angka pakai format Indonesia (`1.500,5` — ribuan titik, desimal koma) via `formatNum`; input uang tetap berpemisah ribuan; input jumlah (bisa desimal) tetap angka biasa agar pecahan tidak rusak.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

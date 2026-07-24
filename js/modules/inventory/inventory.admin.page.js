@@ -1,5 +1,5 @@
 import { toast } from '../../core/ui.js';
-import { formatThousands, formatRupiah } from '../../core/format.js';
+import { formatNum, formatRupiah } from '../../core/format.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProducts, listRecipesFull, computeCosts, TYPE_LABEL } from '../product/product.service.js';
 import { listStockBalances, listMovements, MOVEMENT_LABEL, amISuperAdmin, getAllowStaffOpname, setAllowStaffOpname } from './inventory.service.js';
@@ -106,7 +106,7 @@ async function loadStock(content, businessUnitId, outletId) {
       return `<tr>
         <td>${escapeHtml(r.p.name)}</td>
         <td>${TYPE_LABEL[r.p.product_type] ?? r.p.product_type}</td>
-        <td>${formatThousands(round(r.qty))}</td>
+        <td>${formatNum(r.qty)}</td>
         <td>${escapeHtml(r.p.base_unit)}</td>
         <td>${value != null ? formatRupiah(value) : '-'}</td>
       </tr>`;
@@ -177,7 +177,7 @@ async function loadHistory(content, businessUnitId) {
               <td>${escapeHtml(r.outlets?.name ?? '-')}</td>
               <td>${escapeHtml(r.products?.name ?? '-')}</td>
               <td>${MOVEMENT_LABEL[r.movement_type] ?? r.movement_type}${ref}</td>
-              <td>${sign}${formatThousands(round(r.qty_delta))} ${escapeHtml(r.products?.base_unit ?? '')}</td>
+              <td>${sign}${formatNum(r.qty_delta)} ${escapeHtml(r.products?.base_unit ?? '')}</td>
               <td>${escapeHtml(r.user_profiles?.full_name ?? '-')}</td>
               <td style="font-size:0.8rem">${escapeHtml(r.notes ?? '-')}</td>
             </tr>`;

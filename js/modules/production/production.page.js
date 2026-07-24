@@ -1,5 +1,5 @@
 import { toast, renderSearchSelect, wireSearchSelect } from '../../core/ui.js';
-import { formatThousands } from '../../core/format.js';
+import { formatNum } from '../../core/format.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { listManufacturable, computeNeeds, recordProduction } from './production.service.js';
@@ -69,7 +69,7 @@ export async function renderProductionPage(container, { businessUnitId, outletId
 
   function updatePreview() {
     const product = productById.get(state.productId);
-    unitHelp.textContent = product ? `dalam ${product.base_unit} (1 resep menghasilkan ${formatThousands(product.yield_qty)} ${product.base_unit})` : '';
+    unitHelp.textContent = product ? `dalam ${product.base_unit} (1 resep menghasilkan ${formatNum(product.yield_qty)} ${product.base_unit})` : '';
     const qty = Number(qtyInput.value);
     if (!product || !(qty > 0)) {
       preview.innerHTML = '';
@@ -87,8 +87,8 @@ export async function renderProductionPage(container, { businessUnitId, outletId
               const cukup = stok >= n.need;
               return `<tr>
                 <td>${esc(n.name)}</td>
-                <td>${formatThousands(round(n.need))} ${esc(n.base_unit)}</td>
-                <td>${formatThousands(round(stok))} ${esc(n.base_unit)}</td>
+                <td>${formatNum(n.need)} ${esc(n.base_unit)}</td>
+                <td>${formatNum(stok)} ${esc(n.base_unit)}</td>
                 <td>${cukup ? '✅' : '<span style="color:var(--color-danger)">kurang</span>'}</td>
               </tr>`;
             })
