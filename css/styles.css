@@ -746,6 +746,19 @@ button.primary:active { transform: translateY(1px); }
 .staff-topbar .topbar-name { font-weight: 600; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .staff-topbar .topbar-bu { font-size: 0.76rem; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+.topbar-bu-select {
+  margin-top: 3px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  padding: 4px 8px;
+  max-width: 190px;
+  cursor: pointer;
+}
+.topbar-bu-select option { color: #1c1c1f; }
+
 .staff-topbar .topbar-btn {
   border: none;
   background: rgba(255, 255, 255, 0.18);

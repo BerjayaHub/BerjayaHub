@@ -88,19 +88,56 @@ async function renderShell() {
     return;
   }
 
-  // Fase 0: ambil BU pertama dari scope staff. Nanti kalau staff punya
-  // lebih dari 1 BU, di sini akan ditambahkan selector BU.
-  const activeScope = context.scopes[0];
-  const modules = await getActiveModules(activeScope.business_unit_id);
+  // BU unik dari seluruh scope staff (untuk switcher kalau lebih dari satu BU).
+  const seen = new Map();
+  for (const s of context.scopes) {
+    if (s.business_unit_id && !seen.has(s.business_unit_id)) {
+      seen.set(s.business_unit_id, {
+        id: s.business_unit_id,
+        name: s.business_units?.name ?? 'BU',
+        theme_color: s.business_units?.theme_color,
+        logo_url: s.business_units?.logo_url
+      });
+    }
+  }
+  const availableBUs = [...seen.values()];
+
+  let activeBuId = null;
+  try {
+    activeBuId = localStorage.getItem('staff_active_bu');
+  } catch {
+    // localStorage bisa diblokir -> pakai default
+  }
+  if (!availableBUs.some((b) => b.id === activeBuId)) {
+    activeBuId = availableBUs[0]?.id ?? context.scopes[0].business_unit_id;
+  }
+
+  renderShellForBu(context, availableBUs, activeBuId);
+}
+
+async function renderShellForBu(context, availableBUs, activeBuId) {
+  const activeBu = availableBUs.find((b) => b.id === activeBuId) || null;
+  // Scope untuk BU aktif: utamakan yang ditandai "tempat kerja utama".
+  const scopesInBu = context.scopes.filter((s) => s.business_unit_id === activeBuId);
+  const activeScope = scopesInBu.find((s) => s.is_primary) ?? scopesInBu[0] ?? context.scopes[0];
+
+  app.innerHTML = `<p style="padding:24px">Memuat modul...</p>`;
+  const modules = await getActiveModules(activeBuId);
   const moduleCtx = {
     userId: context.profile.id,
-    businessUnitId: activeScope.business_unit_id,
-    outletId: activeScope.outlet_id
+    businessUnitId: activeBuId,
+    outletId: activeScope?.outlet_id ?? null
   };
 
-  applyBuTheme(activeScope.business_units);
+  applyBuTheme(activeBu);
 
-  const logoSrc = activeScope.business_units?.logo_url || 'images/logo.svg';
+  const logoSrc = activeBu?.logo_url || 'images/logo.svg';
+  const buLine =
+    availableBUs.length > 1
+      ? `<select class="topbar-bu-select" id="bu-switcher-staff">
+           ${availableBUs.map((b) => `<option value="${b.id}"${b.id === activeBuId ? ' selected' : ''}>${b.name}</option>`).join('')}
+         </select>`
+      : `<div class="topbar-bu">${activeBu?.name ?? ''}</div>`;
 
   // Tampilan tanpa menu samping: header atas + konten kartu.
   app.innerHTML = `
@@ -108,7 +145,7 @@ async function renderShell() {
       <img src="${logoSrc}" alt="" class="topbar-logo" onerror="this.style.display='none'" />
       <div class="topbar-info">
         <div class="topbar-name">${context.profile.full_name}</div>
-        <div class="topbar-bu">${activeScope.business_units?.name ?? ''}</div>
+        ${buLine}
       </div>
       <button class="topbar-btn" id="btn-home-top" title="Beranda" aria-label="Beranda">🏠</button>
       <button class="topbar-btn" id="btn-change-password" title="Ubah Password" aria-label="Ubah Password">🔑</button>
@@ -116,6 +153,15 @@ async function renderShell() {
     </header>
     <main class="staff-main" id="module-content"></main>
   `;
+
+  document.getElementById('bu-switcher-staff')?.addEventListener('change', (e) => {
+    try {
+      localStorage.setItem('staff_active_bu', e.target.value);
+    } catch {
+      // abaikan kalau localStorage diblokir
+    }
+    renderShellForBu(context, availableBUs, e.target.value);
+  });
 
   document.getElementById('btn-home-top').addEventListener('click', () => renderHome(context, modules, moduleCtx));
 
