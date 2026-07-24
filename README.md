@@ -262,6 +262,13 @@ Jalankan migration `0018_inventory.sql`, lalu aktifkan modul **Inventory** untuk
 - **Admin Portal** (menu Inventory), 2 tab: **Stok** (saldo per produk + nilai HPP + total; bisa per outlet atau gabungan) & **Riwayat** (semua pergerakan, filter outlet/jenis/tanggal).
 - Nilai stok memakai **HPP dari Master Produk**. Aktivitas otomatis muncul di **Dashboard** (📦). Konsumsi produksi & penjualan akan mengurangi stok otomatis di fase berikutnya.
 
+### Revisi Fase 5 (migration `0019_units_and_opname_toggle.sql`)
+
+- **Master Satuan (global)** — tab **Satuan** di Master Produk (hanya Super Admin yang ubah). Field satuan di produk kini **dropdown** dari daftar ini, biar konsisten.
+- **Dropdown pencarian fuzzy** — pemilih produk (resep & inventory, staff + admin) kini bisa diketik untuk mencari.
+- **Toggle opname staff** (per BU) — hanya **Super Admin** yang bisa mengaktifkan (kontrol di Admin Portal → Inventory). Kalau mati, tombol Opname di Staff App disembunyikan. Dijaga RPC `set_allow_staff_opname`.
+- **Import Excel** — di Master Produk, tombol **Template** + **Import Excel** untuk Produk & Resep (.xlsx/.csv, pakai SheetJS dari CDN, mode tambah-baru-saja).
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

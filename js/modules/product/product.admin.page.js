@@ -1,5 +1,6 @@
-import { toast, confirmDialog, formDialog } from '../../core/ui.js';
+import { toast, confirmDialog, formDialog, renderSearchSelect, wireSearchSelect, infoDialog } from '../../core/ui.js';
 import { formatRupiah } from '../../core/format.js';
+import { importProducts, importRecipes, downloadProductTemplate, downloadRecipeTemplate } from './product-import.js';
 import {
   PRODUCT_TYPES,
   TYPE_LABEL,
@@ -10,12 +11,16 @@ import {
   getRecipeForProduct,
   saveRecipe,
   listRecipesFull,
-  computeCosts
+  computeCosts,
+  listUnits,
+  createUnit,
+  deleteUnit
 } from './product.service.js';
 
 const TABS = [
   { key: 'products', label: 'Produk' },
-  { key: 'recipes', label: 'Resep' }
+  { key: 'recipes', label: 'Resep' },
+  { key: 'units', label: 'Satuan' }
 ];
 
 export async function renderMasterProductPage(container, { businessUnitId }) {
@@ -31,6 +36,7 @@ export async function renderMasterProductPage(container, { businessUnitId }) {
     container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));
     if (key === 'products') await renderProductsTab(content, businessUnitId);
     if (key === 'recipes') await renderRecipesTab(content, businessUnitId);
+    if (key === 'units') await renderUnitsTab(content);
   }
   container.querySelectorAll('.tab-btn').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
   await showTab('products');
@@ -58,7 +64,11 @@ async function renderProductsTab(content, businessUnitId) {
   content.innerHTML = `
     <div class="page-header">
       <h2 style="font-size:1.05rem;margin:0">Produk</h2>
-      <button class="primary" id="btn-new-product" style="max-width:180px">+ Tambah Produk</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="btn-tpl-product">Template</button>
+        <button id="btn-import-product">Import Excel</button>
+        <button class="primary" id="btn-new-product" style="max-width:180px">+ Tambah Produk</button>
+      </div>
     </div>
     <table class="data-table">
       <thead><tr><th>Nama</th><th>Tipe</th><th>Satuan</th><th>Harga Beli</th><th>HPP / Satuan</th><th>Harga Jual</th><th>Margin</th><th>Aksi</th></tr></thead>
@@ -68,6 +78,10 @@ async function renderProductsTab(content, businessUnitId) {
     </table>
   `;
   document.getElementById('btn-new-product').addEventListener('click', () => openProductDialog(content, businessUnitId, null));
+  document.getElementById('btn-tpl-product').addEventListener('click', downloadProductTemplate);
+  document.getElementById('btn-import-product').addEventListener('click', () =>
+    openImport(content, businessUnitId, 'products', () => renderProductsTab(content, businessUnitId))
+  );
   content.querySelectorAll('.btn-edit-product').forEach((btn) =>
     btn.addEventListener('click', () => openProductDialog(content, businessUnitId, JSON.parse(btn.dataset.json)))
   );
@@ -117,13 +131,20 @@ function productRowHtml(p, cost) {
 
 async function openProductDialog(content, businessUnitId, existing) {
   const isEdit = !!existing;
+  let units = [];
+  try {
+    units = await listUnits();
+  } catch {
+    units = [];
+  }
+  const unitOptions = units.map((u) => ({ value: u.name, label: u.name }));
   const values = await formDialog({
     title: isEdit ? 'Edit Produk' : 'Tambah Produk',
     fields: [
       { name: 'name', label: 'Nama Produk', type: 'text', required: true, value: existing?.name ?? '' },
       { name: 'product_type', label: 'Tipe', type: 'select', required: true, value: existing?.product_type ?? 'raw', options: PRODUCT_TYPES },
-      { name: 'base_unit', label: 'Satuan pakai (di resep/stok)', type: 'text', required: true, value: existing?.base_unit ?? '', placeholder: 'gram / ml / pcs' },
-      { name: 'purchase_unit', label: 'Satuan beli', type: 'text', value: existing?.purchase_unit ?? '', placeholder: 'karung / botol / pack' },
+      { name: 'base_unit', label: 'Satuan pakai (di resep/stok)', type: 'select', required: true, value: existing?.base_unit ?? '', options: [{ value: '', label: '-- pilih satuan --' }, ...unitOptions] },
+      { name: 'purchase_unit', label: 'Satuan beli', type: 'select', value: existing?.purchase_unit ?? '', options: [{ value: '', label: '-- pilih satuan --' }, ...unitOptions] },
       { name: 'purchase_qty', label: 'Isi per satuan beli (dalam satuan pakai)', type: 'number', min: 0, value: existing?.purchase_qty ?? '', placeholder: 'mis. 25000' },
       { name: 'purchase_price', label: 'Harga beli / satuan beli', type: 'money', value: existing?.purchase_price ?? '' },
       { name: 'sale_price', label: 'Harga jual', type: 'money', value: existing?.sale_price ?? '' },
@@ -188,7 +209,13 @@ async function renderRecipesTab(content, businessUnitId) {
   const recipeByProduct = new Map(recipes.map((r) => [r.product_id, r]));
 
   content.innerHTML = `
-    <p style="color:var(--color-text-muted);font-size:0.9rem">Resep hanya untuk produk Setengah Jadi & Produk Jadi. Bahan bisa dari Bahan Baku atau Setengah Jadi (berjenjang). HPP dihitung otomatis.</p>
+    <div class="page-header">
+      <p style="color:var(--color-text-muted);font-size:0.9rem;margin:0;max-width:420px">Resep hanya untuk produk Setengah Jadi & Produk Jadi. Bahan bisa dari Bahan Baku atau Setengah Jadi (berjenjang). HPP dihitung otomatis.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="btn-tpl-recipe">Template</button>
+        <button id="btn-import-recipe">Import Excel</button>
+      </div>
+    </div>
     <table class="data-table">
       <thead><tr><th>Produk</th><th>Tipe</th><th>Resep</th><th>HPP</th><th>Aksi</th></tr></thead>
       <tbody>
@@ -216,6 +243,37 @@ async function renderRecipesTab(content, businessUnitId) {
   content.querySelectorAll('.btn-edit-recipe').forEach((btn) =>
     btn.addEventListener('click', () => openRecipeEditor(content, businessUnitId, products.find((p) => p.id === btn.dataset.id), products))
   );
+  document.getElementById('btn-tpl-recipe').addEventListener('click', downloadRecipeTemplate);
+  document.getElementById('btn-import-recipe').addEventListener('click', () =>
+    openImport(content, businessUnitId, 'recipes', () => renderRecipesTab(content, businessUnitId))
+  );
+}
+
+async function openImport(content, businessUnitId, kind, refresh) {
+  const isProducts = kind === 'products';
+  const v = await formDialog({
+    title: isProducts ? 'Import Produk (Excel/CSV)' : 'Import Resep (Excel/CSV)',
+    description: isProducts
+      ? 'Kolom: Nama, Tipe, Satuan Pakai, Satuan Beli, Isi per Satuan Beli, Harga Beli, Harga Jual. Yang namanya sudah ada dilewati.'
+      : 'Kolom: Produk, Yield, Bahan, Jumlah (satu baris per bahan). Produk & bahan harus sudah ada di Master Produk. Produk yang sudah punya resep dilewati.',
+    fields: [{ name: 'file', label: 'File .xlsx / .csv', type: 'file', required: true, accept: '.xlsx,.xls,.csv' }],
+    submitText: 'Import'
+  });
+  if (!v || !v.file) return;
+  toast('Memproses file...', 'info');
+  try {
+    const res = isProducts ? await importProducts(businessUnitId, v.file) : await importRecipes(businessUnitId, v.file);
+    const errHtml = res.errors.length
+      ? `<p style="color:var(--color-danger);margin-top:8px">Gagal/terlewat (${res.errors.length}):</p><ul style="margin:0;padding-left:18px;max-height:200px;overflow:auto">${res.errors.map((e) => `<li>${escapeHtml(e)}</li>`).join('')}</ul>`
+      : '';
+    await infoDialog({
+      title: 'Hasil Import',
+      bodyHtml: `<p><strong>${res.added}</strong> ditambahkan, <strong>${res.skipped}</strong> dilewati (sudah ada).</p>${errHtml}`
+    });
+    await refresh();
+  } catch (error) {
+    toast(error.message ?? 'Gagal import.', 'error');
+  }
 }
 
 async function openRecipeEditor(content, businessUnitId, product, products) {
@@ -230,9 +288,10 @@ async function openRecipeEditor(content, businessUnitId, product, products) {
   }
   // Bahan yang boleh: bahan baku & setengah jadi, kecuali produk ini sendiri.
   const ingredientOptions = products.filter((p) => (p.product_type === 'raw' || p.product_type === 'semi') && p.id !== product.id);
+  const ingOpts = ingredientOptions.map((o) => ({ value: o.id, label: `${o.name} (${TYPE_LABEL[o.product_type]})` }));
 
   const rowsHtml = (current.items.length ? current.items : [{ ingredient_product_id: '', qty: '' }])
-    .map((it) => ingredientRowHtml(it, ingredientOptions))
+    .map((it) => ingredientRowHtml(it, ingOpts))
     .join('');
 
   editor.innerHTML = `
@@ -255,21 +314,21 @@ async function openRecipeEditor(content, businessUnitId, product, products) {
 
   const rowsBody = editor.querySelector('#recipe-rows');
   const wireRow = (tr) => {
-    const sel = tr.querySelector('.ing-select');
+    const widget = tr.querySelector('.search-select');
     const unitCell = tr.querySelector('.ing-unit');
-    const updateUnit = () => {
-      const p = ingredientOptions.find((o) => o.id === sel.value);
+    const updateUnit = (val) => {
+      const p = ingredientOptions.find((o) => o.id === val);
       unitCell.textContent = p ? p.base_unit : '-';
     };
-    sel.addEventListener('change', updateUnit);
-    updateUnit();
+    wireSearchSelect(widget, ingOpts, updateUnit);
+    updateUnit(widget.querySelector('input[type="hidden"]').value);
     tr.querySelector('.ing-remove').addEventListener('click', () => tr.remove());
   };
   rowsBody.querySelectorAll('tr').forEach(wireRow);
 
   editor.querySelector('#btn-add-ingredient').addEventListener('click', () => {
     const wrap = document.createElement('tbody');
-    wrap.innerHTML = ingredientRowHtml({ ingredient_product_id: '', qty: '' }, ingredientOptions);
+    wrap.innerHTML = ingredientRowHtml({ ingredient_product_id: '', qty: '' }, ingOpts);
     const tr = wrap.firstElementChild;
     rowsBody.appendChild(tr);
     wireRow(tr);
@@ -284,7 +343,7 @@ async function openRecipeEditor(content, businessUnitId, product, products) {
       return;
     }
     const items = [...rowsBody.querySelectorAll('tr')]
-      .map((tr) => ({ ingredient_product_id: tr.querySelector('.ing-select').value, qty: Number(tr.querySelector('.ing-qty').value) }))
+      .map((tr) => ({ ingredient_product_id: tr.querySelector('.search-select input[type="hidden"]').value, qty: Number(tr.querySelector('.ing-qty').value) }))
       .filter((i) => i.ingredient_product_id && i.qty > 0);
     if (!items.length) {
       errorEl.textContent = 'Tambahkan minimal satu bahan.';
@@ -300,19 +359,64 @@ async function openRecipeEditor(content, businessUnitId, product, products) {
   });
 }
 
-function ingredientRowHtml(it, options) {
+function ingredientRowHtml(it, ingOpts) {
   return `
     <tr>
-      <td>
-        <select class="ing-select">
-          <option value="">-- pilih bahan --</option>
-          ${options.map((o) => `<option value="${o.id}"${o.id === it.ingredient_product_id ? ' selected' : ''}>${escapeHtml(o.name)} (${TYPE_LABEL[o.product_type]})</option>`).join('')}
-        </select>
-      </td>
+      <td>${renderSearchSelect({ name: 'ing', options: ingOpts, value: it.ingredient_product_id ?? '', placeholder: 'cari bahan…' })}</td>
       <td><input type="number" class="ing-qty" min="0" value="${it.qty ?? ''}" style="max-width:100px" /></td>
       <td class="ing-unit" style="font-size:0.82rem;color:var(--color-text-muted)">-</td>
       <td><button class="ing-remove" title="Hapus bahan">✕</button></td>
     </tr>`;
+}
+
+// ---- Tab: Satuan (global) ----
+
+async function renderUnitsTab(content) {
+  content.innerHTML = `<p>Memuat satuan...</p>`;
+  let units;
+  try {
+    units = await listUnits();
+  } catch (error) {
+    content.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
+    return;
+  }
+  content.innerHTML = `
+    <div class="page-header">
+      <h2 style="font-size:1.05rem;margin:0">Satuan (dipakai semua BU)</h2>
+      <button class="primary" id="btn-new-unit" style="max-width:180px">+ Tambah Satuan</button>
+    </div>
+    <p style="color:var(--color-text-muted);font-size:0.85rem">Satuan dipilih lewat dropdown saat menambah produk, biar konsisten. Hanya Super Admin yang bisa ubah daftar ini.</p>
+    <table class="data-table" style="max-width:360px">
+      <thead><tr><th>Satuan</th><th>Aksi</th></tr></thead>
+      <tbody>
+        ${units.map((u) => `<tr><td>${escapeHtml(u.name)}</td><td><button class="btn-del-unit" data-id="${u.id}">Hapus</button></td></tr>`).join('') || '<tr><td colspan="2">Belum ada satuan.</td></tr>'}
+      </tbody>
+    </table>
+  `;
+  document.getElementById('btn-new-unit').addEventListener('click', async () => {
+    const v = await formDialog({ title: 'Tambah Satuan', fields: [{ name: 'name', label: 'Nama Satuan', type: 'text', required: true, placeholder: 'mis. gram' }], submitText: 'Simpan' });
+    if (!v) return;
+    try {
+      await createUnit(v.name.trim());
+      toast('Satuan ditambahkan.', 'success');
+      await renderUnitsTab(content);
+    } catch (error) {
+      toast(error.message ?? 'Gagal menambah (hanya Super Admin).', 'error');
+    }
+  });
+  content.querySelectorAll('.btn-del-unit').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      const ok = await confirmDialog({ title: 'Hapus satuan?', confirmText: 'Hapus', danger: true });
+      if (!ok) return;
+      try {
+        await deleteUnit(btn.dataset.id);
+        toast('Satuan dihapus.', 'success');
+        await renderUnitsTab(content);
+      } catch (error) {
+        toast(error.message ?? 'Gagal menghapus.', 'error');
+      }
+    })
+  );
 }
 
 function escapeHtml(s) {

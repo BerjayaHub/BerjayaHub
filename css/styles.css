@@ -714,6 +714,38 @@ button.primary:active { transform: translateY(1px); }
 }
 .btn-whatsapp:hover { background: #1eb857; }
 
+.search-select { position: relative; }
+.search-select .ss-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 16px;
+}
+.search-select .ss-list {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  max-height: 240px;
+  overflow-y: auto;
+}
+.search-select .ss-list li {
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+.search-select .ss-list li:hover { background: var(--color-bg); }
+.search-select .ss-list li.ss-empty { color: var(--color-text-muted); cursor: default; }
+
 .money-wrap { position: relative; display: flex; align-items: center; }
 .money-wrap .money-prefix {
   position: absolute;

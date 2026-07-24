@@ -2,7 +2,7 @@ import { toast } from '../../core/ui.js';
 import { formatThousands, formatRupiah } from '../../core/format.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProducts, listRecipesFull, computeCosts, TYPE_LABEL } from '../product/product.service.js';
-import { listStockBalances, listMovements, MOVEMENT_LABEL } from './inventory.service.js';
+import { listStockBalances, listMovements, MOVEMENT_LABEL, amISuperAdmin, getAllowStaffOpname, setAllowStaffOpname } from './inventory.service.js';
 
 const TABS = [
   { key: 'stock', label: 'Stok' },
@@ -12,12 +12,14 @@ const TABS = [
 export async function renderInventoryAdminPage(container, { businessUnitId }) {
   container.innerHTML = `
     <h1>Inventory</h1>
+    <div id="inv-opname-setting"></div>
     <div class="tab-bar">
       ${TABS.map((t, i) => `<button class="tab-btn ${i === 0 ? 'active' : ''}" data-tab="${t.key}">${t.label}</button>`).join('')}
     </div>
     <div id="inv-admin-content"></div>
   `;
   const content = document.getElementById('inv-admin-content');
+  renderOpnameSetting(container.querySelector('#inv-opname-setting'), businessUnitId);
   const outlets = (await listAttendanceOutlets().catch(() => [])).filter((o) => o.business_unit_id === businessUnitId).map((o) => ({ id: o.id, name: o.name }));
 
   async function showTab(key) {
@@ -27,6 +29,32 @@ export async function renderInventoryAdminPage(container, { businessUnitId }) {
   }
   container.querySelectorAll('.tab-btn').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
   await showTab('stock');
+}
+
+async function renderOpnameSetting(el, businessUnitId) {
+  let isSuper = false;
+  let allow = false;
+  try {
+    [isSuper, allow] = await Promise.all([amISuperAdmin(), getAllowStaffOpname(businessUnitId)]);
+  } catch {
+    return;
+  }
+  if (!isSuper) return; // hanya Super Admin yang lihat & ubah
+  el.innerHTML = `
+    <div class="inline-card field-check" style="max-width:520px">
+      <input type="checkbox" id="chk-opname" ${allow ? 'checked' : ''} />
+      <label for="chk-opname" style="margin:0">Izinkan staff melakukan <strong>stok opname</strong> di Staff App (BU ini)</label>
+    </div>
+  `;
+  el.querySelector('#chk-opname').addEventListener('change', async (e) => {
+    try {
+      await setAllowStaffOpname(businessUnitId, e.target.checked);
+      toast(e.target.checked ? 'Opname staff diaktifkan.' : 'Opname staff dimatikan.', 'success');
+    } catch (error) {
+      e.target.checked = !e.target.checked;
+      toast(error.message ?? 'Gagal mengubah (hanya Super Admin).', 'error');
+    }
+  });
 }
 
 // ---- Tab: Stok ----

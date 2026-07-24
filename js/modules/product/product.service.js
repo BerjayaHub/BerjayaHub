@@ -7,6 +7,22 @@ export const PRODUCT_TYPES = [
 ];
 export const TYPE_LABEL = { raw: 'Bahan Baku', semi: 'Setengah Jadi', finished: 'Produk Jadi' };
 
+// ---- Master Satuan (global) ----
+
+export async function listUnits() {
+  const { data, error } = await supabase.from('units').select('id, name').order('name');
+  if (error) throw error;
+  return data ?? [];
+}
+export async function createUnit(name) {
+  const { error } = await supabase.from('units').insert({ name });
+  if (error) throw error;
+}
+export async function deleteUnit(id) {
+  const { error } = await supabase.from('units').delete().eq('id', id);
+  if (error) throw error;
+}
+
 // ---- Produk ----
 
 export async function listProducts(businessUnitId) {

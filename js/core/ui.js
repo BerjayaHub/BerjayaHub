@@ -129,6 +129,11 @@ export function formDialog({
     // Auto-format ribuan untuk field 'money'.
     fields.filter((f) => f.type === 'money').forEach((f) => attachThousandsInput(form.elements[f.name]));
 
+    // Aktifkan search-select fuzzy.
+    fields
+      .filter((f) => f.type === 'searchselect')
+      .forEach((f) => wireSearchSelect(form.querySelector(`.search-select[data-name="${f.name}"]`), f.options ?? []));
+
     const errorEl = overlay.querySelector('.modal-error');
     const close = (result) => {
       overlay.classList.remove('show');
@@ -275,6 +280,74 @@ export function shareDialog({ title = 'Bagikan', helper = '', defaultMessage = '
   });
 }
 
+// ---- Search-select (dropdown dengan pencarian fuzzy) ----
+
+export function fuzzyMatch(query, text) {
+  const q = String(query ?? '').toLowerCase().trim();
+  const t = String(text ?? '').toLowerCase();
+  if (!q) return true;
+  if (t.includes(q)) return true;
+  let i = 0;
+  for (const ch of t) {
+    if (ch === q[i]) i++;
+    if (i >= q.length) return true;
+  }
+  return false;
+}
+
+export function renderSearchSelect({ name, options, value = '', placeholder = 'Ketik untuk cari…' }) {
+  const selected = options.find((o) => String(o.value) === String(value ?? ''));
+  return `
+    <div class="search-select" data-name="${escapeAttr(name)}">
+      <input type="hidden" name="${escapeAttr(name)}" value="${escapeAttr(value ?? '')}" />
+      <input type="text" class="ss-input" autocomplete="off" placeholder="${escapeAttr(placeholder)}" value="${escapeAttr(selected?.label ?? '')}" />
+      <ul class="ss-list" hidden></ul>
+    </div>`;
+}
+
+export function wireSearchSelect(widget, options, onChange) {
+  if (!widget) return;
+  const hidden = widget.querySelector('input[type="hidden"]');
+  const input = widget.querySelector('.ss-input');
+  const list = widget.querySelector('.ss-list');
+  const labelFor = (val) => options.find((o) => String(o.value) === String(val))?.label ?? '';
+  let filtered = options;
+  const draw = () => {
+    list.innerHTML =
+      filtered.slice(0, 60).map((o) => `<li data-val="${escapeAttr(o.value)}">${escapeHtml(o.label)}</li>`).join('') ||
+      '<li class="ss-empty">Tidak ada hasil</li>';
+    list.hidden = false;
+  };
+  input.addEventListener('focus', () => {
+    filtered = options;
+    draw();
+  });
+  input.addEventListener('input', () => {
+    hidden.value = '';
+    filtered = options.filter((o) => fuzzyMatch(input.value, o.label));
+    draw();
+  });
+  list.addEventListener('mousedown', (e) => {
+    const li = e.target.closest('li[data-val]');
+    if (!li) return;
+    hidden.value = li.dataset.val;
+    input.value = labelFor(li.dataset.val);
+    list.hidden = true;
+    onChange?.(hidden.value);
+  });
+  input.addEventListener('blur', () => {
+    setTimeout(() => {
+      list.hidden = true;
+      input.value = hidden.value ? labelFor(hidden.value) : '';
+    }, 150);
+  });
+}
+
+/** Aktifkan semua .search-select di dalam container dengan satu set opsi yang sama. */
+export function activateSearchSelects(container, options, onChange) {
+  container.querySelectorAll('.search-select').forEach((w) => wireSearchSelect(w, options, onChange));
+}
+
 function fieldHtml(f) {
   const id = `f-${f.name}`;
   const req = f.required ? 'required' : '';
@@ -297,6 +370,15 @@ function fieldHtml(f) {
       <div class="field field-check">
         <input type="checkbox" id="${id}" name="${escapeAttr(f.name)}" ${f.value ? 'checked' : ''} />
         <label for="${id}" style="margin:0">${escapeHtml(f.label)}</label>
+        ${help}
+      </div>`;
+  }
+
+  if (f.type === 'searchselect') {
+    return `
+      <div class="field">
+        <label for="${id}">${escapeHtml(f.label)}</label>
+        ${renderSearchSelect({ name: f.name, options: f.options ?? [], value: f.value, placeholder: f.placeholder })}
         ${help}
       </div>`;
   }

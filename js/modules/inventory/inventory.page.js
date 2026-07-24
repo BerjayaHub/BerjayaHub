@@ -2,17 +2,18 @@ import { toast, formDialog } from '../../core/ui.js';
 import { formatThousands } from '../../core/format.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
-import { getOutletStockMap, recordMovement, transferStock } from './inventory.service.js';
+import { getOutletStockMap, recordMovement, transferStock, getAllowStaffOpname } from './inventory.service.js';
 
 export async function renderInventoryPage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = `<p>Memuat inventory...</p>`;
 
-  let outlets, products, recipes;
+  let outlets, products, recipes, allowOpname;
   try {
-    [outlets, products, recipes] = await Promise.all([
+    [outlets, products, recipes, allowOpname] = await Promise.all([
       listAttendanceOutlets().then((all) => all.filter((o) => o.business_unit_id === businessUnitId).map((o) => ({ id: o.id, name: o.name }))),
       listProducts(businessUnitId),
-      listRecipesFull(businessUnitId)
+      listRecipesFull(businessUnitId),
+      getAllowStaffOpname(businessUnitId).catch(() => false)
     ]);
   } catch (error) {
     container.innerHTML = `<p class="error-text">Gagal memuat: ${error.message ?? error}</p>`;
@@ -40,7 +41,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
       <button class="primary" id="inv-receive" style="max-width:160px">+ Penerimaan</button>
       <button id="inv-waste">Waste</button>
-      <button id="inv-opname">Opname</button>
+      ${allowOpname ? '<button id="inv-opname">Opname</button>' : ''}
       <button id="inv-transfer">Transfer</button>
     </div>
     <div id="inv-stock"></div>
@@ -86,7 +87,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     const v = await formDialog({
       title: 'Penerimaan Stok',
       fields: [
-        { name: 'product_id', label: 'Produk', type: 'select', required: true, options: productOptions },
+        { name: 'product_id', label: 'Produk', type: 'searchselect', required: true, options: productOptions },
         { name: 'qty', label: 'Jumlah masuk', type: 'number', required: true, min: 0 },
         { name: 'notes', label: 'Catatan (opsional)', type: 'text' }
       ],
@@ -100,7 +101,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     const v = await formDialog({
       title: 'Catat Waste / Rusak',
       fields: [
-        { name: 'product_id', label: 'Produk', type: 'select', required: true, options: productOptions },
+        { name: 'product_id', label: 'Produk', type: 'searchselect', required: true, options: productOptions },
         { name: 'qty', label: 'Jumlah dibuang', type: 'number', required: true, min: 0 },
         { name: 'notes', label: 'Alasan (opsional)', type: 'text', placeholder: 'mis. kedaluwarsa' }
       ],
@@ -115,7 +116,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       title: 'Stok Opname',
       description: 'Isi jumlah fisik hasil hitung. Sistem menghitung selisihnya otomatis.',
       fields: [
-        { name: 'product_id', label: 'Produk', type: 'select', required: true, options: productOptions },
+        { name: 'product_id', label: 'Produk', type: 'searchselect', required: true, options: productOptions },
         { name: 'actual', label: 'Jumlah fisik (hasil hitung)', type: 'number', required: true, min: 0 }
       ],
       submitText: 'Simpan Koreksi'
@@ -139,7 +140,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     const v = await formDialog({
       title: 'Transfer Stok ke Outlet Lain',
       fields: [
-        { name: 'product_id', label: 'Produk', type: 'select', required: true, options: productOptions },
+        { name: 'product_id', label: 'Produk', type: 'searchselect', required: true, options: productOptions },
         { name: 'qty', label: 'Jumlah dikirim', type: 'number', required: true, min: 0 },
         { name: 'to_outlet', label: 'Outlet tujuan', type: 'select', required: true, options: dests.map((o) => ({ value: o.id, label: o.name })) },
         { name: 'notes', label: 'Catatan (opsional)', type: 'text' }

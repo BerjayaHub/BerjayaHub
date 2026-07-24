@@ -15,6 +15,29 @@ async function currentUserId() {
   return user?.id ?? null;
 }
 
+/** Apakah staff boleh stok opname di BU ini (diatur super_admin). */
+export async function getAllowStaffOpname(businessUnitId) {
+  const { data, error } = await supabase.from('business_units').select('allow_staff_opname').eq('id', businessUnitId).single();
+  if (error) throw error;
+  return !!data?.allow_staff_opname;
+}
+
+export async function setAllowStaffOpname(businessUnitId, allow) {
+  const { error } = await supabase.rpc('set_allow_staff_opname', { p_bu: businessUnitId, p_allow: allow });
+  if (error) throw error;
+}
+
+/** Cek apakah user yang login punya scope super_admin (untuk gating kontrol). */
+export async function amISuperAdmin() {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user) return false;
+  const { data, error } = await supabase.from('membership_scopes').select('role').eq('user_id', user.id).eq('role', 'super_admin').limit(1);
+  if (error) return false;
+  return (data?.length ?? 0) > 0;
+}
+
 /** Saldo stok per (outlet, produk). Optional filter outlet. */
 export async function listStockBalances(businessUnitId, outletId) {
   let query = supabase.from('stock_balances').select('outlet_id, product_id, qty').eq('business_unit_id', businessUnitId);
