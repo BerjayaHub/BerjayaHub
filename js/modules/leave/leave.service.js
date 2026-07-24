@@ -22,7 +22,7 @@ async function currentUserId() {
 export async function listLeaveTypes(businessUnitId) {
   const { data, error } = await supabase
     .from('leave_types')
-    .select('id, name, deducts_quota, requires_attachment, business_unit_id, is_active')
+    .select('id, name, deducts_quota, requires_attachment, default_quota, business_unit_id, is_active')
     .or(`business_unit_id.is.null,business_unit_id.eq.${businessUnitId}`)
     .eq('is_active', true)
     .order('name');
@@ -30,20 +30,21 @@ export async function listLeaveTypes(businessUnitId) {
   return data ?? [];
 }
 
-export async function createLeaveType({ businessUnitId, name, deducts_quota, requires_attachment }) {
+export async function createLeaveType({ businessUnitId, name, deducts_quota, requires_attachment, default_quota }) {
   const { error } = await supabase.from('leave_types').insert({
     business_unit_id: businessUnitId,
     name,
     deducts_quota: !!deducts_quota,
-    requires_attachment: !!requires_attachment
+    requires_attachment: !!requires_attachment,
+    default_quota: deducts_quota ? default_quota ?? null : null
   });
   if (error) throw error;
 }
 
-export async function updateLeaveType(id, { name, deducts_quota, requires_attachment, is_active }) {
+export async function updateLeaveType(id, { name, deducts_quota, requires_attachment, is_active, default_quota }) {
   const { error } = await supabase
     .from('leave_types')
-    .update({ name, deducts_quota, requires_attachment, is_active })
+    .update({ name, deducts_quota, requires_attachment, is_active, default_quota: deducts_quota ? default_quota ?? null : null })
     .eq('id', id);
   if (error) throw error;
 }
@@ -53,48 +54,77 @@ export async function deleteLeaveType(id) {
   if (error) throw error;
 }
 
-// ---- Jatah cuti ----
+// ---- Hak & jatah cuti per jenis (entitlements) ----
 
-export async function getLeaveQuota(userId, year) {
-  const { data, error } = await supabase
-    .from('leave_quotas')
-    .select('total_days')
-    .eq('user_id', userId)
-    .eq('year', year)
-    .maybeSingle();
-  if (error) throw error;
-  return data ? Number(data.total_days) : null;
-}
-
-export async function upsertLeaveQuota(userId, year, totalDays) {
-  const { error } = await supabase
-    .from('leave_quotas')
-    .upsert({ user_id: userId, year, total_days: totalDays }, { onConflict: 'user_id,year' });
-  if (error) throw error;
-}
-
-/** Jumlah hari cuti TERPAKAI (approved, jenis yang memotong jatah) di satu tahun. */
-export async function getLeaveUsedDays(userId, year) {
+/** Hari terpakai (approved) per jenis cuti untuk satu user, di satu tahun. */
+async function usedDaysByType(userId, year) {
   const { data, error } = await supabase
     .from('leave_requests')
-    .select('day_count, leave_types(deducts_quota)')
+    .select('leave_type_id, day_count')
     .eq('user_id', userId)
     .eq('status', 'approved')
     .gte('start_date', `${year}-01-01`)
     .lte('start_date', `${year}-12-31`);
   if (error) throw error;
-  return (data ?? [])
-    .filter((r) => r.leave_types?.deducts_quota)
-    .reduce((sum, r) => sum + (r.day_count ?? 0), 0);
+  const map = {};
+  for (const r of data ?? []) map[r.leave_type_id] = (map[r.leave_type_id] ?? 0) + (r.day_count ?? 0);
+  return map;
 }
 
-/** Ringkasan jatah cuti staff yang login untuk satu tahun. */
-export async function getMyLeaveBalance(year) {
+/** Ringkasan hak & sisa jatah per jenis untuk staff yang login (tahun berjalan). */
+export async function getMyEntitlementSummary() {
   const uid = await currentUserId();
-  if (!uid) return { total: 0, used: 0, remaining: 0, hasQuota: false };
-  const [total, used] = await Promise.all([getLeaveQuota(uid, year), getLeaveUsedDays(uid, year)]);
-  const t = total ?? 0;
-  return { total: t, used, remaining: t - used, hasQuota: total != null };
+  if (!uid) return [];
+  const year = new Date().getFullYear();
+  const [{ data, error }, used] = await Promise.all([
+    supabase.from('leave_entitlements').select('leave_type_id, quota_days, leave_types(name, deducts_quota)').eq('user_id', uid),
+    usedDaysByType(uid, year)
+  ]);
+  if (error) throw error;
+  return (data ?? [])
+    .map((e) => ({
+      leave_type_id: e.leave_type_id,
+      name: e.leave_types?.name ?? '-',
+      has_quota: !!e.leave_types?.deducts_quota,
+      quota_days: e.quota_days == null ? null : Number(e.quota_days),
+      used: used[e.leave_type_id] ?? 0
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Jenis cuti yang BOLEH diajukan staff yang login (dari entitlements). */
+export async function listAllowedLeaveTypes() {
+  const uid = await currentUserId();
+  if (!uid) return [];
+  const { data, error } = await supabase
+    .from('leave_entitlements')
+    .select('leave_types(id, name, requires_attachment, is_active)')
+    .eq('user_id', uid);
+  if (error) throw error;
+  return (data ?? [])
+    .map((e) => e.leave_types)
+    .filter((t) => t && t.is_active)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// ---- Admin: kelola hak & jatah per staff ----
+
+export async function listStaffEntitlements(userId) {
+  const { data, error } = await supabase.from('leave_entitlements').select('leave_type_id, quota_days').eq('user_id', userId);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function setStaffEntitlement(userId, leaveTypeId, quotaDays) {
+  const { error } = await supabase
+    .from('leave_entitlements')
+    .upsert({ user_id: userId, leave_type_id: leaveTypeId, quota_days: quotaDays }, { onConflict: 'user_id,leave_type_id' });
+  if (error) throw error;
+}
+
+export async function removeStaffEntitlement(userId, leaveTypeId) {
+  const { error } = await supabase.from('leave_entitlements').delete().eq('user_id', userId).eq('leave_type_id', leaveTypeId);
+  if (error) throw error;
 }
 
 // ---- Pengajuan (staff) ----
@@ -172,6 +202,22 @@ export async function listLeaveRequestsForAdmin({ businessUnitId, status }) {
   return data ?? [];
 }
 
+/**
+ * Aktivitas cuti terbaru LINTAS-BU untuk dashboard admin (RLS yang membatasi).
+ * Cursor waktu lewat `before` (created_at).
+ */
+export async function listRecentLeaveActivity({ limit = 25, before = null } = {}) {
+  let query = supabase
+    .from('leave_requests')
+    .select('created_at, reviewed_at, status, start_date, end_date, user_profiles!user_id(full_name), leave_types(name), business_units!business_unit_id(name)')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (before) query = query.lt('created_at', before);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function reviewLeaveRequest(id, { status, reviewNote }) {
   const uid = await currentUserId();
   const { error } = await supabase
@@ -190,7 +236,7 @@ export async function reviewLeaveRequest(id, { status, reviewNote }) {
 export async function listLeaveTypesForAdmin(businessUnitId) {
   const { data, error } = await supabase
     .from('leave_types')
-    .select('id, name, deducts_quota, requires_attachment, business_unit_id, is_active')
+    .select('id, name, deducts_quota, requires_attachment, default_quota, business_unit_id, is_active')
     .or(`business_unit_id.is.null,business_unit_id.eq.${businessUnitId}`)
     .order('business_unit_id', { nullsFirst: true })
     .order('name');

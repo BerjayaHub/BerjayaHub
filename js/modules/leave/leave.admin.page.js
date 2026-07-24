@@ -8,9 +8,9 @@ import {
   updateLeaveType,
   deleteLeaveType,
   listBuStaff,
-  getLeaveQuota,
-  getLeaveUsedDays,
-  upsertLeaveQuota
+  listStaffEntitlements,
+  setStaffEntitlement,
+  removeStaffEntitlement
 } from './leave.service.js';
 
 const STATUS_BADGE = {
@@ -23,7 +23,7 @@ const STATUS_BADGE = {
 const TABS = [
   { key: 'requests', label: 'Pengajuan' },
   { key: 'types', label: 'Jenis Cuti' },
-  { key: 'quotas', label: 'Jatah Cuti' }
+  { key: 'quotas', label: 'Hak & Jatah' }
 ];
 
 export async function renderLeaveAdminPage(container, { businessUnitId }) {
@@ -40,7 +40,7 @@ export async function renderLeaveAdminPage(container, { businessUnitId }) {
     container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));
     if (key === 'requests') await renderRequestsTab(content, businessUnitId);
     if (key === 'types') await renderTypesTab(content, businessUnitId);
-    if (key === 'quotas') await renderQuotasTab(content, businessUnitId);
+    if (key === 'quotas') await renderEntitlementsTab(content, businessUnitId);
   }
   container.querySelectorAll('.tab-btn').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
   await showTab('requests');
@@ -187,12 +187,12 @@ async function renderTypesTab(content, businessUnitId) {
       <button class="primary" id="btn-new-type" style="max-width:200px">+ Tambah Jenis (BU ini)</button>
     </div>
     <table class="data-table">
-      <thead><tr><th>Nama</th><th>Potong Jatah</th><th>Wajib Lampiran</th><th>Lingkup</th><th>Status</th><th>Aksi</th></tr></thead>
+      <thead><tr><th>Nama</th><th>Punya Jatah</th><th>Jatah Default</th><th>Wajib Lampiran</th><th>Lingkup</th><th>Status</th><th>Aksi</th></tr></thead>
       <tbody>
-        ${types.map(typeRowHtml).join('') || '<tr><td colspan="6">Belum ada jenis cuti.</td></tr>'}
+        ${types.map(typeRowHtml).join('') || '<tr><td colspan="7">Belum ada jenis cuti.</td></tr>'}
       </tbody>
     </table>
-    <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:8px">Jenis "Global" berlaku semua BU dan hanya bisa diubah Super Admin.</p>
+    <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:8px">Jenis "Global" berlaku semua BU dan hanya bisa diubah Super Admin. "Jatah default" dipakai saat jenis diberikan ke staff (bisa diubah per staff di tab Hak &amp; Jatah).</p>
   `;
 
   document.getElementById('btn-new-type').addEventListener('click', () => openTypeDialog(content, businessUnitId, null));
@@ -220,6 +220,7 @@ function typeRowHtml(t) {
     <tr>
       <td>${escapeHtml(t.name)}</td>
       <td>${t.deducts_quota ? 'Ya' : '-'}</td>
+      <td>${t.deducts_quota ? (t.default_quota != null ? `${t.default_quota} hari` : '-') : '—'}</td>
       <td>${t.requires_attachment ? 'Ya' : '-'}</td>
       <td>${scope}</td>
       <td>${t.is_active ? 'Aktif' : 'Nonaktif'}</td>
@@ -237,20 +238,32 @@ async function openTypeDialog(content, businessUnitId, existing) {
     title: isEdit ? 'Edit Jenis Cuti' : 'Tambah Jenis Cuti',
     fields: [
       { name: 'name', label: 'Nama Jenis', type: 'text', required: true, value: existing?.name ?? '' },
-      { name: 'deducts_quota', label: 'Memotong jatah cuti tahunan', type: 'checkbox', value: existing ? existing.deducts_quota : false },
+      { name: 'deducts_quota', label: 'Punya jatah tersendiri', type: 'checkbox', value: existing ? existing.deducts_quota : false },
+      { name: 'default_quota', label: 'Jatah default (hari/tahun)', type: 'number', min: 0, value: existing?.default_quota ?? '' },
       { name: 'requires_attachment', label: 'Wajib lampiran', type: 'checkbox', value: existing ? existing.requires_attachment : false },
       ...(isEdit ? [{ name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing.is_active }] : [])
     ],
-    submitText: 'Simpan'
+    submitText: 'Simpan',
+    onReady: (form) => {
+      const chk = form.elements['deducts_quota'];
+      const qField = form.elements['default_quota']?.closest('.field');
+      const sync = () => {
+        if (qField) qField.style.display = chk.checked ? 'block' : 'none';
+      };
+      chk.addEventListener('change', sync);
+      sync();
+    }
   });
   if (!values) return;
+  const defaultQuota = values.default_quota === '' || values.default_quota == null ? null : Number(values.default_quota);
   try {
     if (isEdit) {
       await updateLeaveType(existing.id, {
         name: values.name,
         deducts_quota: values.deducts_quota,
         requires_attachment: values.requires_attachment,
-        is_active: values.is_active
+        is_active: values.is_active,
+        default_quota: defaultQuota
       });
       toast('Jenis cuti diperbarui.', 'success');
     } else {
@@ -258,7 +271,8 @@ async function openTypeDialog(content, businessUnitId, existing) {
         businessUnitId,
         name: values.name,
         deducts_quota: values.deducts_quota,
-        requires_attachment: values.requires_attachment
+        requires_attachment: values.requires_attachment,
+        default_quota: defaultQuota
       });
       toast('Jenis cuti ditambahkan.', 'success');
     }
@@ -268,66 +282,93 @@ async function openTypeDialog(content, businessUnitId, existing) {
   }
 }
 
-// ---- Tab: Jatah Cuti ----
+// ---- Tab: Hak & Jatah (entitlements per staff) ----
 
-async function renderQuotasTab(content, businessUnitId) {
-  const year = new Date().getFullYear();
-  content.innerHTML = `<p>Memuat jatah cuti...</p>`;
+async function renderEntitlementsTab(content, businessUnitId) {
+  content.innerHTML = `<p>Memuat...</p>`;
   let staff;
+  let types;
   try {
-    staff = await listBuStaff(businessUnitId);
+    [staff, types] = await Promise.all([listBuStaff(businessUnitId), listLeaveTypesForAdmin(businessUnitId)]);
   } catch (error) {
     content.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
     return;
   }
-
-  const summary = await Promise.all(
-    staff.map(async (s) => {
-      const [total, used] = await Promise.all([getLeaveQuota(s.user_id, year), getLeaveUsedDays(s.user_id, year)]);
-      return { ...s, total, used };
-    })
-  );
+  const activeTypes = types.filter((t) => t.is_active);
 
   content.innerHTML = `
-    <h2 style="font-size:1.05rem">Jatah Cuti ${year}</h2>
-    <table class="data-table">
-      <thead><tr><th>Staff</th><th>Jatah</th><th>Terpakai</th><th>Sisa</th><th>Aksi</th></tr></thead>
-      <tbody>
-        ${
-          summary
-            .map(
-              (s) => `
-          <tr>
-            <td>${escapeHtml(s.full_name)}${s.is_active === false ? ' <span style="font-size:0.7rem;color:var(--color-danger)">(nonaktif)</span>' : ''}</td>
-            <td>${s.total == null ? '<span style="color:var(--color-text-muted)">belum diatur</span>' : s.total}</td>
-            <td>${s.used}</td>
-            <td>${s.total == null ? '-' : s.total - s.used}</td>
-            <td><button class="btn-set-quota" data-user="${s.user_id}" data-name="${escapeAttr(s.full_name)}" data-total="${s.total ?? ''}">Set Jatah</button></td>
-          </tr>`
-            )
-            .join('') || '<tr><td colspan="5">Belum ada staff di BU ini.</td></tr>'
-        }
-      </tbody>
-    </table>
+    <p style="color:var(--color-text-muted);font-size:0.9rem">Pilih staff, lalu centang jenis cuti yang boleh dia ajukan &amp; isi jatahnya. Jenis "punya jatah" akan memotong sisa; jenis tanpa jatah tidak dibatasi.</p>
+    <div class="field" style="max-width:280px">
+      <label>Staff</label>
+      <select id="ent-staff-select">
+        <option value="">-- pilih staff --</option>
+        ${staff.map((s) => `<option value="${s.user_id}">${escapeHtml(s.full_name)}${s.is_active === false ? ' (nonaktif)' : ''}</option>`).join('')}
+      </select>
+    </div>
+    <div id="ent-detail"></div>
   `;
 
-  content.querySelectorAll('.btn-set-quota').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const values = await formDialog({
-        title: `Set Jatah Cuti ${year}`,
-        description: `Untuk ${btn.dataset.name}.`,
-        fields: [{ name: 'total_days', label: 'Jatah hari per tahun', type: 'number', required: true, min: 0, value: btn.dataset.total }],
-        submitText: 'Simpan'
-      });
-      if (!values) return;
-      try {
-        await upsertLeaveQuota(btn.dataset.user, year, Number(values.total_days));
-        toast('Jatah cuti disimpan.', 'success');
-        await renderQuotasTab(content, businessUnitId);
-      } catch (error) {
-        toast(error.message ?? 'Gagal menyimpan jatah.', 'error');
+  const select = document.getElementById('ent-staff-select');
+  select.addEventListener('change', () => renderStaffEntitlements(select.value, activeTypes));
+}
+
+async function renderStaffEntitlements(userId, activeTypes) {
+  const detail = document.getElementById('ent-detail');
+  if (!userId) {
+    detail.innerHTML = '';
+    return;
+  }
+  detail.innerHTML = `<p>Memuat hak & jatah...</p>`;
+  let current;
+  try {
+    current = await listStaffEntitlements(userId);
+  } catch (error) {
+    detail.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
+    return;
+  }
+  const byType = new Map(current.map((e) => [e.leave_type_id, e.quota_days]));
+
+  detail.innerHTML = `
+    <table class="data-table" style="margin-top:12px">
+      <thead><tr><th>Boleh</th><th>Jenis</th><th>Jatah (hari/tahun)</th></tr></thead>
+      <tbody>
+        ${activeTypes
+          .map((t) => {
+            const allowed = byType.has(t.leave_type_id ?? t.id);
+            const quota = byType.get(t.id);
+            const quotaVal = quota != null ? quota : t.deducts_quota ? t.default_quota ?? '' : '';
+            return `
+            <tr data-type="${t.id}" data-hasquota="${t.deducts_quota ? '1' : '0'}">
+              <td><input type="checkbox" class="ent-allow" ${allowed ? 'checked' : ''} /></td>
+              <td>${escapeHtml(t.name)}${t.deducts_quota ? '' : ' <span style="font-size:0.7rem;color:var(--color-text-muted)">(tanpa jatah)</span>'}</td>
+              <td>${t.deducts_quota ? `<input type="number" class="ent-quota" min="0" value="${quotaVal}" style="max-width:120px" />` : '—'}</td>
+            </tr>`;
+          })
+          .join('') || '<tr><td colspan="3">Belum ada jenis cuti.</td></tr>'}
+      </tbody>
+    </table>
+    <button class="primary" id="btn-save-ent" style="max-width:200px;margin-top:12px">Simpan Hak & Jatah</button>
+  `;
+
+  document.getElementById('btn-save-ent').addEventListener('click', async () => {
+    const rows = [...detail.querySelectorAll('tr[data-type]')];
+    try {
+      for (const row of rows) {
+        const typeId = row.dataset.type;
+        const allowed = row.querySelector('.ent-allow').checked;
+        const hasQuota = row.dataset.hasquota === '1';
+        if (allowed) {
+          const q = hasQuota ? row.querySelector('.ent-quota').value : '';
+          await setStaffEntitlement(userId, typeId, q === '' ? null : Number(q));
+        } else {
+          await removeStaffEntitlement(userId, typeId);
+        }
       }
-    });
+      toast('Hak & jatah cuti disimpan.', 'success');
+      await renderStaffEntitlements(userId, activeTypes);
+    } catch (error) {
+      toast(error.message ?? 'Gagal menyimpan.', 'error');
+    }
   });
 }
 

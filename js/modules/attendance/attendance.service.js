@@ -362,12 +362,14 @@ export async function listAttendanceForNbm({ businessUnitId, outletId, dateFrom,
  * per BU — RLS otomatis membatasi ke yang boleh dilihat admin (super_admin: semua).
  * Paginasi lewat offset/limit.
  */
-export async function listRecentAttendanceActivity({ limit = 25, offset = 0 } = {}) {
-  const { data, error } = await supabase
+export async function listRecentAttendanceActivity({ limit = 25, before = null } = {}) {
+  let query = supabase
     .from('attendance_records')
     .select('clock_in_at, clock_out_at, is_storing, user_profiles(full_name), outlets!outlet_id(name), business_units!business_unit_id(name)')
     .order('clock_in_at', { ascending: false })
-    .range(offset, offset + limit - 1);
+    .limit(limit);
+  if (before) query = query.lt('clock_in_at', before);
+  const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
 }

@@ -1,7 +1,7 @@
 import { toast, confirmDialog, formDialog, shareDialog } from '../../core/ui.js';
 import {
-  getMyLeaveBalance,
-  listLeaveTypes,
+  getMyEntitlementSummary,
+  listAllowedLeaveTypes,
   listMyLeaveRequests,
   submitLeaveRequest,
   cancelLeaveRequest,
@@ -22,23 +22,33 @@ export async function renderLeavePage(container, { userId, businessUnitId, outle
   container.dataset.outletId = outletId ?? '';
   const year = new Date().getFullYear();
 
-  const [balance, types, requests] = await Promise.all([
-    getMyLeaveBalance(year),
-    listLeaveTypes(businessUnitId),
+  const [entitlements, types, requests] = await Promise.all([
+    getMyEntitlementSummary(),
+    listAllowedLeaveTypes(),
     listMyLeaveRequests()
   ]);
 
   container.innerHTML = `
     <h1>Pengajuan Cuti</h1>
     <div class="inline-card">
-      <h3 style="margin-top:0">Sisa Jatah Cuti ${year}</h3>
+      <h3 style="margin-top:0">Hak &amp; Sisa Jatah Cuti ${year}</h3>
       ${
-        balance.hasQuota
-          ? `<p style="font-size:1.4rem;margin:4px 0"><strong>${balance.remaining}</strong> <span style="font-size:0.9rem;color:var(--color-text-muted)">dari ${balance.total} hari</span></p>
-             <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0">Terpakai ${balance.used} hari (hanya jenis cuti yang memotong jatah).</p>`
-          : `<p style="color:var(--color-text-muted)">Jatah cuti tahunanmu belum diatur admin. Kamu tetap bisa mengajukan cuti.</p>`
+        entitlements.length
+          ? `<table class="data-table">
+              <thead><tr><th>Jenis</th><th>Jatah</th><th>Terpakai</th><th>Sisa</th></tr></thead>
+              <tbody>
+                ${entitlements
+                  .map((e) => {
+                    const quota = e.has_quota && e.quota_days != null ? `${e.quota_days} hari` : 'Tanpa batas';
+                    const sisa = e.has_quota && e.quota_days != null ? `${e.quota_days - e.used} hari` : '—';
+                    return `<tr><td>${escapeHtml(e.name)}</td><td>${quota}</td><td>${e.used}</td><td>${sisa}</td></tr>`;
+                  })
+                  .join('')}
+              </tbody>
+            </table>`
+          : `<p style="color:var(--color-text-muted)">Kamu belum diberi hak jenis cuti apa pun. Hubungi admin.</p>`
       }
-      <button class="primary" id="btn-new-leave" style="max-width:200px;margin-top:12px">+ Ajukan Cuti</button>
+      <button class="primary" id="btn-new-leave" style="max-width:200px;margin-top:12px" ${types.length ? '' : 'disabled'}>+ Ajukan Cuti</button>
     </div>
 
     <h2 style="font-size:1rem;margin-top:24px">Riwayat Pengajuan</h2>
