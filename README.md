@@ -253,6 +253,15 @@ Jalankan migration `0017_master_product.sql`, lalu aktifkan modul **Master Produ
 - **Resep berjenjang (BOM)**: produk Setengah Jadi & Jadi punya resep dari bahan lain (baku/setengah jadi) + **yield/hasil**. **HPP** tiap produk dihitung otomatis & bertingkat; untuk Produk Jadi ditampilkan juga **margin** terhadap harga jual.
 - Tab **Produk** (kelola produk + lihat HPP/margin) & **Resep** (editor bahan + yield).
 
+## Fase 5 — Inventory (Cafe)
+
+Jalankan migration `0018_inventory.sql`, lalu aktifkan modul **Inventory** untuk BU Cafe lewat Master BU & Outlet → tombol **Modul**.
+
+- **Ledger pergerakan stok** (append-only) + view saldo `stock_balances`. Jenis: **Penerimaan**, **Waste**, **Opname** (input jumlah fisik → sistem hitung selisih), **Transfer** antar-outlet (lewat RPC `transfer_stock`, otomatis catat keluar+masuk).
+- **Staff App** (menu Inventory): pilih outlet, lihat stok, catat Penerimaan/Waste/Opname/Transfer di outletnya.
+- **Admin Portal** (menu Inventory), 2 tab: **Stok** (saldo per produk + nilai HPP + total; bisa per outlet atau gabungan) & **Riwayat** (semua pergerakan, filter outlet/jenis/tanggal).
+- Nilai stok memakai **HPP dari Master Produk**. Aktivitas otomatis muncul di **Dashboard** (📦). Konsumsi produksi & penjualan akan mengurangi stok otomatis di fase berikutnya.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
@@ -261,7 +270,7 @@ Jalankan migration `0017_master_product.sql`, lalu aktifkan modul **Master Produ
 - [x] **Fase 3** — Pengajuan Cuti (lintas semua BU)
 - [x] **Fase 3b** — Ceklis Kebersihan (lintas semua BU)
 - [x] **Fase 4** — Master Produk & Master Formula/Resep (Cafe)
-- [ ] **Fase 5** — Inventory (Cafe)
+- [x] **Fase 5** — Inventory (Cafe)
 - [ ] **Fase 6** — Production di level Outlet (Cafe)
 - [ ] **Fase 7** — Production di Central Kitchen + Transfer/Dispatch ke outlet (Cafe)
 - [ ] **Fase 8** — Sales (Cafe)

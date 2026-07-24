@@ -5,10 +5,12 @@ import { toast, confirmDialog, formDialog } from './core/ui.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
 import { renderLeavePage } from './modules/leave/leave.page.js';
 import { renderCleaningPage } from './modules/cleaning/cleaning.page.js';
+import { renderInventoryPage } from './modules/inventory/inventory.page.js';
 
 registerModule('attendance', renderAttendancePage);
 registerModule('leave', renderLeavePage);
 registerModule('cleaning_checklist', renderCleaningPage);
+registerModule('inventory', renderInventoryPage);
 
 const app = document.getElementById('app');
 
