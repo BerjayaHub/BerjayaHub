@@ -356,6 +356,16 @@ Jalankan migration `0028_nbm_adjustments.sql`.
 - Nominal asli hasil hitungan sistem tidak ditimpa — koreksi disimpan terpisah di tabel `nbm_adjustments` (hanya admin BU yang boleh mengubah), jadi jejak audit tetap ada.
 - **Pindah mode lewat header** (Staff App ↔ Admin Portal): akun ber-peran admin mendapat **segmented switcher** di header — *📱 Staff App | 🛠️ Admin Portal* — dengan mode aktif ditandai. Di Staff App switcher menyatu dengan header bertema BU (di layar sempit turun ke baris kedua, rata tengah); di Admin Portal ada **header bar baru** berisi nama BU aktif + switcher di kanan (sticky, aman dari tombol menu ☰ di mobile). Navigasi memakai halaman yang sama sehingga **tetap di dalam PWA** yang ter-install.
 
+## Revisi Pengiriman — Order dari Outlet ke CK
+
+Jalankan migration `0031_stock_orders.sql`. Alur pengiriman kini punya langkah awal **Order**:
+
+1. **Outlet buat order** (Staff App → Pengiriman → *Order ke Central Kitchen*): pilih produk + jumlah. Tujuan **otomatis** ke CK yang melayani outlet itu (dari setelan `served_by_outlet_id`); kalau belum diatur, staff pilih manual. Nomor order otomatis: `OR-YYMMDD-XXXX`. Outlet bisa memantau status ordernya & **membatalkan** selama masih menunggu.
+2. **CK memproses**: di outlet CK muncul daftar **Order Masuk**; ketuk nomor order → tabel berisi *Diminta* vs **Dikirim** (bisa diubah) → **Kirim & Buat Surat Jalan** → otomatis jadi dispatch (stok CK berkurang) + **PDF surat jalan** + share WhatsApp. CK juga bisa **Tolak Order** dengan alasan.
+3. **Outlet terima**: surat jalan muncul di *Kiriman Masuk* → ketuk → isi jumlah diterima → simpan (alur lama, tidak berubah).
+
+Aturan yang dipakai: **sekali kirim order langsung selesai** (kekurangan dipesan ulang), dan **CK boleh menolak dengan alasan**. Order & kiriman masuk ikut auto-refresh 15 detik.
+
 ## Revisi Inventory, Kategori Produk & Modul Menu
 
 Jalankan migration `0030_product_subcategory.sql`.

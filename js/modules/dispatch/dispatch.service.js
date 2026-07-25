@@ -27,6 +27,76 @@ export async function getMyScopedOutlets(businessUnitId, allOutlets) {
   return mine.length ? mine : allOutlets;
 }
 
+export const ORDER_STATUS = { open: 'Menunggu diproses', fulfilled: 'Dikirim', rejected: 'Ditolak', cancelled: 'Dibatalkan' };
+
+// ---- Order stok (Outlet -> Central Kitchen) ----
+
+export async function createStockOrder({ fromOutlet, toOutlet, items, notes }) {
+  const { data, error } = await supabase.rpc('create_stock_order', {
+    p_from: fromOutlet,
+    p_to: toOutlet,
+    p_items: items.map((i) => ({ product_id: i.product_id, qty: i.qty })),
+    p_notes: notes || null
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function fulfillStockOrder({ orderId, items, notes }) {
+  const { data, error } = await supabase.rpc('fulfill_stock_order', {
+    p_order: orderId,
+    p_items: items.map((i) => ({ product_id: i.product_id, qty: i.qty })),
+    p_notes: notes || null
+  });
+  if (error) throw error;
+  return data; // dispatch id
+}
+
+export async function rejectStockOrder(orderId, reason) {
+  const { error } = await supabase.rpc('reject_stock_order', { p_order: orderId, p_reason: reason || null });
+  if (error) throw error;
+}
+
+export async function cancelStockOrder(orderId) {
+  const { error } = await supabase.rpc('cancel_stock_order', { p_order: orderId });
+  if (error) throw error;
+}
+
+/** Order masuk yang menunggu diproses CK (tujuan = salah satu outlet CK milikku). */
+export async function listIncomingOrders(outletIds) {
+  if (!outletIds?.length) return [];
+  const { data, error } = await supabase
+    .from('stock_orders')
+    .select('id, code, notes, created_at, from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name), user_profiles!created_by(full_name)')
+    .eq('status', 'open')
+    .in('to_outlet_id', outletIds)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Order yang dibuat outlet ini (untuk memantau statusnya). */
+export async function listMyOrders(outletIds, limit = 30) {
+  if (!outletIds?.length) return [];
+  const { data, error } = await supabase
+    .from('stock_orders')
+    .select('id, code, status, notes, reject_reason, created_at, handled_at, to_outlet:outlets!to_outlet_id(name)')
+    .in('from_outlet_id', outletIds)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getOrderItems(orderId) {
+  const { data, error } = await supabase
+    .from('stock_order_items')
+    .select('id, qty, product_id, products(name, base_unit)')
+    .eq('order_id', orderId);
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function createDispatch({ fromOutlet, toOutlet, items, notes }) {
   const { data, error } = await supabase.rpc('create_dispatch', {
     p_from: fromOutlet,
