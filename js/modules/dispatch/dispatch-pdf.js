@@ -1,19 +1,5 @@
 import { formatNum } from '../../core/format.js';
-
-let jsPdfPromise = null;
-function loadJsPDF() {
-  if (window.jspdf?.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
-  if (!jsPdfPromise) {
-    jsPdfPromise = new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
-      s.onload = () => resolve(window.jspdf.jsPDF);
-      s.onerror = () => reject(new Error('Gagal memuat pustaka PDF (cek koneksi internet).'));
-      document.head.appendChild(s);
-    });
-  }
-  return jsPdfPromise;
-}
+import { loadJsPDF } from '../../core/pdf.js';
 
 const qty = (n) => (n == null ? '-' : formatNum(n));
 

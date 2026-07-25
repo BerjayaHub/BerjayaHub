@@ -338,6 +338,16 @@ Tanpa migration (frontend saja).
   - Tab hanya muncul kalau modulnya aktif untuk BU tersebut. Modul lain (Presensi, Ceklis, Pengiriman, Menu) tetap menu tersendiri.
 - **UI dipercantik**: tab grup bergaya "pill" dengan warna BU, menu sidebar punya penanda aktif, animasi transisi halaman (fade-in), efek fokus pada input, hover baris tabel, dan tombol sekunder yang seragam. Semua animasi otomatis nonaktif bila perangkat menyetel *reduce motion*.
 
+## Revisi Presensi (migration `0027_storage_upsert_fix.sql`)
+
+- **Perbaikan foto gagal terunggah** — upload memakai `upsert:true` sehingga Storage juga memeriksa izin **UPDATE** pada `storage.objects`, padahal policy sebelumnya hanya INSERT+SELECT → muncul error RLS dan presensi sempat tersimpan **tanpa foto**. Migration ini menambah policy UPDATE untuk bucket selfie presensi, lampiran cuti, foto ceklis, dan bukti kas; policy SELECT selfie juga diperbaiki (sebelumnya tidak pernah cocok karena `storage.foldername()` tidak memuat nama file).
+- **Urutan disimpan diubah**: foto **diunggah lebih dulu**, baru record presensi dibuat — jadi tidak mungkin lagi ada presensi tanpa foto.
+- **Daftar wajah tidak lagi langsung lanjut** — setelah wajah terdaftar muncul layar konfirmasi ("Wajah Berhasil Didaftarkan") dan staff harus menekan **Lanjut ke Presensi**. Pendaftaran wajah tidak pernah mencatat presensi.
+- **Mode Tugas Luar (Storing)** — saat terdeteksi di luar area outlet, muncul ajakan **Aktifkan Mode Tugas Luar**; **keterangan wajib diisi** (plus OTP bila BU memakai mode OTP), lalu ada **dialog konfirmasi**. Setelah aktif, tampil banner menetap "🚩 Kamu dalam mode Tugas Luar" beserta keterangannya, dan bisa dibatalkan. Clock in di luar area diblokir sampai mode ini dikonfirmasi.
+- **UI presensi dipercantik** — kartu status, tombol ambil foto bergaya khusus, indikator "sedang bekerja" berdenyut, modal kamera lebih halus, dan pesan/toast yang lebih jelas.
+- **Admin → Presensi**: tabel rekap dapat kolom **Tipe** (Normal / Tugas Luar-Storing, plus penanda OTP) dan **Keterangan**, serta tombol **⇩ Export PDF**.
+- **Admin → Rekap NBM**: tombol **⇩ Export PDF**, dan filter tanggal otomatis terisi **tanggal 1 bulan berjalan s/d hari ini** (langsung tampil saat tab dibuka).
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

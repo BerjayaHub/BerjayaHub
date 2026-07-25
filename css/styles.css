@@ -463,14 +463,24 @@ button.primary:active { transform: translateY(1px); }
 }
 
 .camera-modal {
-  background: #000;
-  border-radius: var(--radius);
+  background: #0b0b0d;
+  border-radius: 16px;
   overflow: hidden;
   width: 100%;
   max-width: 480px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  animation: fadeInUp 0.24s ease both;
+}
+
+.camera-modal .error-text {
+  color: #ffd9a0;
+  padding: 0 12px;
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: 0.84rem;
 }
 
 .camera-modal video,
@@ -533,6 +543,80 @@ button.primary:active { transform: translateY(1px); }
 .badge-approved { background: #eaf5f0; color: #145c43; border-color: var(--color-primary); }
 .badge-rejected { background: #fdecec; color: #a12727; border-color: var(--color-danger); }
 .badge-cancelled { background: var(--color-bg); color: var(--color-text-muted); }
+
+/* ---- Presensi ---- */
+.att-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 20px;
+  max-width: 460px;
+  box-shadow: var(--shadow-sm);
+}
+.att-card h3 { margin: 6px 0 6px; font-size: 1.05rem; }
+.att-card .att-hint { font-size: 0.86rem; color: var(--color-text-muted); line-height: 1.5; margin: 0 0 14px; }
+.att-emoji { font-size: 2.1rem; line-height: 1; }
+.att-done { text-align: center; }
+.att-done p { margin: 4px 0; }
+
+.att-status-line { display: flex; align-items: center; gap: 8px; font-size: 0.98rem; }
+.att-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--color-primary);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 60%, transparent);
+  animation: pulseDot 1.8s ease-out infinite;
+}
+@keyframes pulseDot {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 55%, transparent); }
+  70% { box-shadow: 0 0 0 10px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.att-photo-row { display: flex; align-items: center; gap: 12px; margin: 14px 0; flex-wrap: wrap; }
+
+.att-shoot {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 13px 18px;
+  border-radius: 12px;
+  border: 1.5px dashed color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+  color: var(--color-text);
+  font-size: 0.92rem; font-weight: 600;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.1s ease;
+}
+.att-shoot span { font-size: 1.15rem; }
+.att-shoot:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
+  border-color: var(--color-primary);
+}
+.att-shoot:active:not(:disabled) { transform: scale(0.98); }
+.att-shoot:disabled { opacity: 0.5; cursor: not-allowed; border-style: solid; }
+
+.att-card .selfie-preview { margin-top: 0; width: 74px; height: 74px; }
+
+/* Mode tugas luar / storing */
+.storing-prompt {
+  background: #fff8ec;
+  border: 1px solid #f0c66b;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+.storing-prompt p { margin: 0 0 10px; font-size: 0.88rem; color: #7a5200; line-height: 1.5; }
+
+.storing-banner {
+  background: linear-gradient(180deg, #fff6e2, #fff1d6);
+  border: 1px solid #e0a800;
+  border-left: 4px solid #d98a00;
+  border-radius: 12px;
+  padding: 13px 14px;
+  margin-bottom: 14px;
+}
+.storing-title { font-size: 0.95rem; color: #6f4a00; }
+.storing-desc { font-size: 0.86rem; color: #7a5200; margin-top: 3px; font-style: italic; }
+.storing-meta { font-size: 0.76rem; color: #8a6400; margin-top: 6px; }
+.storing-banner button { margin-top: 9px; }
 
 .detect-banner {
   padding: 12px 14px;

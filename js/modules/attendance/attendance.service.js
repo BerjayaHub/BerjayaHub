@@ -141,7 +141,8 @@ export async function clockIn({
   exitMethod,
   exitReason,
   exitOtpCodeId,
-  faceMatch
+  faceMatch,
+  photoPath
 }) {
   const loc = location !== undefined ? location : await getGeolocation();
   const { data, error } = await supabase
@@ -150,6 +151,7 @@ export async function clockIn({
       user_id: userId,
       business_unit_id: businessUnitId,
       outlet_id: outletId,
+      clock_in_photo_path: photoPath ?? null,
       nbm_business_unit_id: nbmBusinessUnitId ?? businessUnitId,
       nbm_outlet_id: nbmOutletId ?? null,
       clock_in_lat: loc?.lat ?? null,
@@ -225,11 +227,16 @@ export async function resetFaceDescriptor(userId) {
 
 // ---- Selfie (Supabase Storage) ----
 
-/** Upload foto selfie, path: {outlet_id}/{record_id}_{in|out}.jpg */
-export async function uploadAttendanceSelfie({ outletId, recordId, kind, file }) {
-  const path = `${outletId}/${recordId}_${kind}.jpg`;
+/**
+ * Upload foto selfie ke bucket privat. Path: {outlet_id}/{key}_{in|out}.jpg
+ * `key` boleh berupa record id (lama) atau id acak (dipakai saat foto diunggah
+ * SEBELUM record dibuat, supaya tidak ada presensi tersimpan tanpa foto).
+ */
+export async function uploadAttendanceSelfie({ outletId, recordId, key, kind, file }) {
+  const id = key ?? recordId ?? (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
+  const path = `${outletId}/${id}_${kind}.jpg`;
   const { error } = await supabase.storage.from('attendance-selfies').upload(path, file, {
-    upsert: true,
+    upsert: false,
     contentType: file.type || 'image/jpeg'
   });
   if (error) throw error;

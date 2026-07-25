@@ -1,9 +1,25 @@
 import { listAttendanceForNbm, listOutletsWithGeofence } from './attendance.service.js';
 import { getNbmConfig, listOvertimeTiers, listHolidays, calculateNbm, toDateKey } from './nbm.service.js';
+import { exportTablePDF } from '../../core/pdf.js';
+import { toast } from '../../core/ui.js';
+import { formatRupiah } from '../../core/format.js';
+
+/** Tanggal 1 bulan ini & hari ini (WIB), untuk default filter. */
+function defaultRange() {
+  const now = new Date();
+  const wib = new Date(now.getTime() + 7 * 3600000);
+  const pad = (n) => String(n).padStart(2, '0');
+  const y = wib.getUTCFullYear();
+  const m = pad(wib.getUTCMonth() + 1);
+  return { from: `${y}-${m}-01`, to: `${y}-${m}-${pad(wib.getUTCDate())}` };
+}
+
+let lastReportRows = [];
 
 export async function renderNbmReportTab(container, businessUnitId) {
   container.innerHTML = `<p>Memuat...</p>`;
   const outlets = await listOutletsWithGeofence(businessUnitId);
+  const range = defaultRange();
 
   container.innerHTML = `
     <div class="inline-card" style="max-width:640px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
@@ -14,14 +30,47 @@ export async function renderNbmReportTab(container, businessUnitId) {
           ${outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('')}
         </select>
       </div>
-      <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="nbm-report-from" /></div>
-      <div class="field" style="margin:0"><label>Sampai tanggal</label><input type="date" id="nbm-report-to" /></div>
+      <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="nbm-report-from" value="${range.from}" /></div>
+      <div class="field" style="margin:0"><label>Sampai tanggal</label><input type="date" id="nbm-report-to" value="${range.to}" /></div>
       <button class="primary" id="btn-nbm-report" style="max-width:120px">Tampilkan</button>
+      <button id="btn-nbm-export">⇩ Export PDF</button>
     </div>
     <div id="nbm-report-result"></div>
   `;
 
   document.getElementById('btn-nbm-report').addEventListener('click', () => runReport(businessUnitId, outlets));
+  document.getElementById('btn-nbm-export').addEventListener('click', async () => {
+    if (!lastReportRows.length) return toast('Tampilkan datanya dulu sebelum export.', 'warning');
+    const outletId = document.getElementById('nbm-report-outlet').value;
+    const outletName = outletId ? outlets.find((o) => o.id === outletId)?.name ?? '-' : 'Semua outlet';
+    const from = document.getElementById('nbm-report-from').value;
+    const to = document.getElementById('nbm-report-to').value;
+    try {
+      await exportTablePDF({
+        title: 'Rekap NBM (Uang Hadir)',
+        subtitle: `Outlet basis: ${outletName} · Periode ${from || '…'} s/d ${to || '…'}`,
+        columns: [
+          { header: 'Staff', width: 1.5 },
+          { header: 'Outlet Basis', width: 1.2 },
+          { header: 'Tanggal', width: 0.9 },
+          { header: 'Storing', width: 0.7 },
+          { header: 'Libur', width: 0.6 },
+          { header: 'Base', width: 1 },
+          { header: 'Lembur', width: 1 },
+          { header: 'Storing+', width: 1 },
+          { header: 'Total', width: 1 }
+        ],
+        rows: lastReportRows,
+        filename: 'rekap-nbm'
+      });
+      toast('PDF rekap NBM terunduh.', 'success');
+    } catch (error) {
+      toast(error.message ?? 'Gagal membuat PDF.', 'error');
+    }
+  });
+
+  // Tampilkan otomatis memakai rentang default (tgl 1 bulan ini s/d hari ini).
+  runReport(businessUnitId, outlets);
 }
 
 async function runReport(businessUnitId, outlets) {
@@ -67,6 +116,21 @@ async function runReport(businessUnitId, outlets) {
     const name = record.user_profiles?.full_name ?? '-';
     totalsByStaff[name] = (totalsByStaff[name] ?? 0) + nbm.total;
   }
+
+  // Simpan bentuk siap-export (dipakai tombol Export PDF).
+  lastReportRows = rows
+    .filter(({ nbm }) => nbm)
+    .map(({ record, nbm }) => [
+      record.user_profiles?.full_name ?? '-',
+      record.nbm_outlet?.name ?? record.outlets?.name ?? '-',
+      toDateKey(new Date(record.clock_in_at)),
+      record.is_storing ? 'Ya' : '-',
+      nbm.isHoliday ? 'Ya' : '-',
+      formatRupiah(nbm.base),
+      formatRupiah(nbm.overtimeBonus),
+      formatRupiah(nbm.storingBonus),
+      formatRupiah(nbm.total)
+    ]);
 
   resultEl.innerHTML = `
     <table class="data-table" style="margin-top:16px">

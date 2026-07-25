@@ -14,6 +14,7 @@ import {
 import { renderNbmSettingsTab } from './nbm-settings.admin.page.js';
 import { renderNbmReportTab } from './nbm-report.admin.page.js';
 import { toast, formDialog } from '../../core/ui.js';
+import { exportTablePDF } from '../../core/pdf.js';
 
 const TABS = [
   { key: 'presensi', label: 'Presensi' },
@@ -52,11 +53,13 @@ async function renderPresensiTab(container, businessUnitId) {
   const outlets = await listOutletsWithGeofence(businessUnitId);
   const exitMode = await getExitTaskMode(businessUnitId);
   const filters = { businessUnitId, outletId: '', dateFrom: '', dateTo: '' };
+  let lastRecords = [];
 
   async function refresh() {
     const records = await listAttendanceForAdmin(filters);
+    lastRecords = records;
     container.querySelector('#attendance-table-body').innerHTML =
-      records.map((r) => rowHtml(r)).join('') || '<tr><td colspan="7">Tidak ada data.</td></tr>';
+      records.map((r) => rowHtml(r)).join('') || '<tr><td colspan="10">Tidak ada data.</td></tr>';
     wireEditButtons(container);
     wirePhotoButtons(container);
     wireAddressButtons(container);
@@ -123,11 +126,12 @@ async function renderPresensiTab(container, businessUnitId) {
       <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="filter-from" /></div>
       <div class="field" style="margin:0"><label>Sampai tanggal</label><input type="date" id="filter-to" /></div>
       <button class="primary" id="btn-filter" style="max-width:120px">Filter</button>
+      <button id="btn-export-att">⇩ Export PDF</button>
     </div>
 
     <table class="data-table">
       <thead>
-        <tr><th>Staff</th><th>Outlet</th><th>Clock In</th><th>Wajah</th><th>Foto</th><th>Alamat</th><th>Clock Out</th><th>Aksi</th></tr>
+        <tr><th>Staff</th><th>Outlet</th><th>Tipe</th><th>Keterangan</th><th>Clock In</th><th>Wajah</th><th>Foto</th><th>Alamat</th><th>Clock Out</th><th>Aksi</th></tr>
       </thead>
       <tbody id="attendance-table-body"></tbody>
     </table>
@@ -179,6 +183,42 @@ async function renderPresensiTab(container, businessUnitId) {
   }
   if (exitMode === 'otp') await refreshOtpList();
 
+  document.getElementById('btn-export-att').addEventListener('click', async () => {
+    if (!lastRecords.length) return toast('Tidak ada data untuk diexport.', 'warning');
+    const outletName = filters.outletId ? outlets.find((o) => o.id === filters.outletId)?.name ?? '-' : 'Semua outlet';
+    const periode = filters.dateFrom || filters.dateTo
+      ? `${filters.dateFrom ? new Date(filters.dateFrom).toLocaleDateString('id-ID') : '…'} s/d ${filters.dateTo ? new Date(filters.dateTo).toLocaleDateString('id-ID') : '…'}`
+      : 'Semua tanggal';
+    try {
+      await exportTablePDF({
+        title: 'Rekap Presensi',
+        subtitle: `${outletName} · ${periode}`,
+        columns: [
+          { header: 'Staff', width: 1.4 },
+          { header: 'Outlet', width: 1.2 },
+          { header: 'Tipe', width: 1.2 },
+          { header: 'Keterangan', width: 1.6 },
+          { header: 'Clock In', width: 1.1 },
+          { header: 'Clock Out', width: 1.1 },
+          { header: 'Wajah', width: 0.8 }
+        ],
+        rows: lastRecords.map((r) => [
+          r.user_profiles?.full_name ?? '-',
+          r.outlets?.name ?? '-',
+          tipeOf(r),
+          r.is_storing ? r.exit_reason ?? '-' : '-',
+          formatTime(r.clock_in_at),
+          r.clock_out_at ? formatTime(r.clock_out_at) : '—',
+          r.clock_in_face_match === true ? 'Cocok' : r.clock_in_face_match === false ? 'Perlu review' : '-'
+        ]),
+        filename: 'rekap-presensi'
+      });
+      toast('PDF rekap presensi terunduh.', 'success');
+    } catch (error) {
+      toast(error.message ?? 'Gagal membuat PDF.', 'error');
+    }
+  });
+
   document.getElementById('btn-filter').addEventListener('click', () => {
     filters.outletId = document.getElementById('filter-outlet').value || '';
     const from = document.getElementById('filter-from').value;
@@ -191,8 +231,13 @@ async function renderPresensiTab(container, businessUnitId) {
   await refresh();
 }
 
+/** Tipe presensi: Normal vs Tugas Luar/Storing. */
+function tipeOf(r) {
+  return r.is_storing ? `Tugas Luar/Storing${r.exit_method === 'otp' ? ' (OTP)' : ''}` : 'Normal';
+}
+
 function rowHtml(r) {
-  const storingTag = r.is_storing ? ` <span class="scope-badge">${r.exit_method ?? 'tugas keluar'}</span>` : '';
+  const storingTag = '';
   const fotoButtons = [
     r.clock_in_photo_path ? `<button class="btn-view-photo" data-path="${r.clock_in_photo_path}">In</button>` : '',
     r.clock_out_photo_path ? `<button class="btn-view-photo" data-path="${r.clock_out_photo_path}">Out</button>` : ''
@@ -204,6 +249,8 @@ function rowHtml(r) {
     <tr data-record-id="${r.id}" data-lat="${r.clock_in_lat ?? ''}" data-lng="${r.clock_in_lng ?? ''}">
       <td>${r.user_profiles?.full_name ?? '-'}</td>
       <td>${r.outlets?.name ?? '-'}${storingTag}</td>
+      <td>${r.is_storing ? `<span class="badge badge-pending">${tipeOf(r)}</span>` : '<span class="badge badge-approved">Normal</span>'}</td>
+      <td style="font-size:0.8rem;max-width:180px">${r.is_storing ? (r.exit_reason ? String(r.exit_reason) : '<span style="color:var(--color-text-muted)">tanpa keterangan</span>') : '-'}</td>
       <td>${formatTime(r.clock_in_at)}</td>
       <td>${faceMatchBadgeHtml(r.clock_in_face_match)}${r.clock_out_at ? '<br>' + faceMatchBadgeHtml(r.clock_out_face_match) : ''}</td>
       <td>${fotoButtons || '-'}</td>
@@ -344,8 +391,8 @@ function wireEditButtons(container) {
   container.querySelectorAll('.btn-edit').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const row = container.querySelector(`tr[data-record-id="${btn.dataset.recordId}"]`);
-      const currentIn = row.children[2].textContent;
-      const currentOut = row.children[6].textContent === '—' ? '' : row.children[6].textContent;
+      const currentIn = row.children[4].textContent;
+      const currentOut = row.children[8].textContent === '—' ? '' : row.children[8].textContent;
 
       const values = await formDialog({
         title: 'Koreksi Presensi',

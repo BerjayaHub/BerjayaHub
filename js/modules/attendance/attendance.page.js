@@ -1,4 +1,4 @@
-import { toast } from '../../core/ui.js';
+import { toast, formDialog, confirmDialog } from '../../core/ui.js';
 import {
   getMyTodaySession,
   getMyRecentAttendance,
@@ -9,7 +9,6 @@ import {
   listAttendanceOutlets,
   getMyNbmBase,
   uploadAttendanceSelfie,
-  setClockInPhoto,
   getExitTaskMode,
   redeemExitOtp,
   getMyFaceDescriptor,
@@ -26,9 +25,10 @@ import {
   enableReminderNotifications
 } from './push-notifications.js';
 
-export async function renderAttendancePage(container, { userId, businessUnitId, outletId }) {
-  container.innerHTML = `<p>Memuat presensi...</p>`;
-  loadFaceModels().catch(() => {}); // mulai load di background, tidak perlu ditunggu
+export async function renderAttendancePage(container, ctx) {
+  const { userId, businessUnitId, outletId } = ctx;
+  container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat presensi...</p>`;
+  loadFaceModels().catch(() => {});
 
   const fallbackBase = { business_unit_id: businessUnitId, outlet_id: outletId };
   const [todaySession, recent, myFaceDescriptor, allOutlets, nbmBase] = await Promise.all([
@@ -40,58 +40,21 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
   ]);
   const exitMode = await getExitTaskMode(nbmBase.business_unit_id).catch(() => 'storing');
 
-  // Staff wajib daftar wajah dulu sebelum bisa clock in/out sama sekali.
+  // Wajib daftar wajah dulu — TIDAK otomatis clock in setelah daftar.
   if (!myFaceDescriptor) {
-    renderFaceRegistrationGate(container, { userId, businessUnitId, outletId });
+    renderFaceRegistrationGate(container, ctx);
     return;
   }
 
   const openSession = todaySession && !todaySession.clock_out_at ? todaySession : null;
   const doneToday = todaySession && todaySession.clock_out_at ? todaySession : null;
-
   const outletName = (id) => allOutlets.find((o) => o.id === id)?.name ?? 'Outlet';
   const baseOutlet = allOutlets.find((o) => o.id === nbmBase.outlet_id) || null;
 
   container.innerHTML = `
     <h1>Presensi</h1>
-    <div class="inline-card">
-      ${
-        doneToday
-          ? `
-            <p style="font-size:1.05rem"><strong>✅ Presensi hari ini sudah lengkap.</strong></p>
-            <p style="color:var(--color-text-muted);font-size:0.9rem">
-              Clock In <strong>${formatTime(doneToday.clock_in_at)}</strong> &middot;
-              Clock Out <strong>${formatTime(doneToday.clock_out_at)}</strong>.<br>
-              Clock in &amp; clock out hanya bisa sekali sehari. Sampai jumpa besok!
-            </p>
-          `
-          : openSession
-          ? `
-            <p>Kamu sedang bekerja sejak <strong>${formatTime(openSession.clock_in_at)}</strong> di <strong>${outletName(openSession.outlet_id)}</strong>.</p>
-            <div class="field">
-              <label>Foto Selfie (wajib untuk clock out)</label>
-              <button type="button" id="btn-shoot-out" style="max-width:220px">📷 Ambil Foto Selfie</button>
-              <img id="preview-out" class="selfie-preview" style="display:none" />
-            </div>
-            <button class="primary" id="btn-clock-out" disabled>Clock Out</button>
-          `
-          : `
-            <p>Kamu belum absen hari ini.</p>
-            <div class="detect-banner" id="detect-banner">📍 Mendeteksi lokasi kamu...</div>
-            <div id="outside-options" style="display:none">${outsideOptionsHtml(exitMode)}</div>
-            <div class="field">
-              <label>Foto Selfie (wajib untuk clock in)</label>
-              <button type="button" id="btn-shoot-in" style="max-width:220px" disabled>📷 Ambil Foto Selfie</button>
-              <img id="preview-in" class="selfie-preview" style="display:none" />
-            </div>
-            <button class="primary" id="btn-clock-in" disabled>Clock In</button>
-          `
-      }
-      <p class="error-text" id="attendance-error"></p>
-    </div>
-
+    <div id="att-main"></div>
     ${notificationCardHtml()}
-
     <h2 style="font-size:1rem;margin-top:24px">Riwayat Terakhir</h2>
     <table class="data-table">
       <thead><tr><th>Outlet</th><th>Clock In</th><th>Clock Out</th></tr></thead>
@@ -99,9 +62,8 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
         ${
           recent
             .map(
-              (r) => `
-              <tr>
-                <td>${r.outlets?.name ?? '-'}</td>
+              (r) => `<tr>
+                <td>${esc(r.outlets?.name ?? '-')}</td>
                 <td>${formatTime(r.clock_in_at)}</td>
                 <td>${r.clock_out_at ? formatTime(r.clock_out_at) : '—'}</td>
               </tr>`
@@ -112,19 +74,191 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
     </table>
   `;
 
-  const errorEl = document.getElementById('attendance-error');
-  let capturedIn = null; // { blob, descriptor }
-  let capturedOut = null;
-
+  const main = container.querySelector('#att-main');
   wireNotificationCard(container, userId);
 
-  // ---- Auto-deteksi lokasi (hanya di state clock in) ----
-  let detected = null; // outlet terdeteksi (punya koordinat), atau null kalau di luar
-  let mode = 'outside';
+  // ---- Sudah selesai hari ini ----
+  if (doneToday) {
+    main.innerHTML = `
+      <div class="att-card att-done fade-in">
+        <div class="att-emoji">✅</div>
+        <h3>Presensi hari ini sudah lengkap</h3>
+        <p>Clock In <strong>${formatTime(doneToday.clock_in_at)}</strong> · Clock Out <strong>${formatTime(doneToday.clock_out_at)}</strong></p>
+        <p class="att-hint">Clock in &amp; clock out hanya sekali sehari. Sampai jumpa besok!</p>
+      </div>`;
+    return;
+  }
+
+  // ---- Sedang bekerja -> clock out ----
+  if (openSession) {
+    let capturedOut = null;
+    main.innerHTML = `
+      <div class="att-card fade-in">
+        <div class="att-status-line"><span class="att-dot"></span> Sedang bekerja sejak <strong>${formatTime(openSession.clock_in_at)}</strong></div>
+        <p class="att-hint">Lokasi: ${esc(outletName(openSession.outlet_id))}${openSession.is_storing ? ' · <strong>Tugas Luar</strong>' : ''}</p>
+        <div class="att-photo-row">
+          <button type="button" class="att-shoot" id="btn-shoot-out"><span>📷</span> Ambil Foto Selfie</button>
+          <img id="preview-out" class="selfie-preview" style="display:none" />
+        </div>
+        <button class="primary" id="btn-clock-out" disabled>Clock Out</button>
+        <p class="error-text" id="att-error"></p>
+      </div>`;
+
+    const errorEl = main.querySelector('#att-error');
+    main.querySelector('#btn-shoot-out').addEventListener('click', async () => {
+      errorEl.textContent = '';
+      try {
+        capturedOut = await openCameraCapture({
+          getWatermarkText: () => formatWatermarkText(outletName(openSession.outlet_id), 'Clock Out'),
+          requireFace: true
+        });
+        const preview = main.querySelector('#preview-out');
+        preview.src = URL.createObjectURL(capturedOut.blob);
+        preview.style.display = 'block';
+        main.querySelector('#btn-clock-out').disabled = false;
+        toast('Foto siap. Lanjut Clock Out.', 'info');
+      } catch (error) {
+        errorEl.textContent = error.message ?? 'Gagal mengambil foto.';
+      }
+    });
+
+    main.querySelector('#btn-clock-out').addEventListener('click', async (e) => {
+      errorEl.textContent = '';
+      e.target.disabled = true;
+      try {
+        if (!capturedOut) throw new Error('Ambil foto selfie dulu.');
+        if (!capturedOut.descriptor) throw new Error('Wajah tidak terdeteksi di foto. Ulangi dengan pencahayaan cukup & wajah menghadap kamera.');
+        if (!isSameFace(capturedOut.descriptor, myFaceDescriptor)) throw new Error('Wajah tidak cocok dengan yang terdaftar. Clock out ditolak.');
+
+        const photoPath = await uploadAttendanceSelfie({ outletId: openSession.outlet_id, kind: 'out', file: capturedOut.blob });
+        await clockOut(openSession.id, { photoPath, faceMatch: true });
+        toast('Clock out berhasil. Terima kasih atas kerja kerasnya hari ini! 🙌', 'success');
+        await renderAttendancePage(container, ctx);
+      } catch (error) {
+        errorEl.textContent = error.message ?? 'Gagal clock out.';
+        e.target.disabled = false;
+      }
+    });
+    return;
+  }
+
+  // ---- Belum absen -> clock in ----
+  let capturedIn = null;
+  let detected = null;
+  let mode = 'detecting'; // detecting | inside | outside
+  let storing = null; // { reason, method, otpCodeId } bila mode tugas luar dikonfirmasi
+
+  main.innerHTML = `
+    <div class="att-card fade-in">
+      <div class="detect-banner" id="detect-banner">📍 Mendeteksi lokasi kamu…</div>
+      <div id="storing-zone"></div>
+      <div class="att-photo-row">
+        <button type="button" class="att-shoot" id="btn-shoot-in" disabled><span>📷</span> Ambil Foto Selfie</button>
+        <img id="preview-in" class="selfie-preview" style="display:none" />
+      </div>
+      <button class="primary" id="btn-clock-in" disabled>Clock In</button>
+      <p class="error-text" id="att-error"></p>
+    </div>`;
+
+  const errorEl = main.querySelector('#att-error');
+  const banner = main.querySelector('#detect-banner');
+  const storingZone = main.querySelector('#storing-zone');
+  const shootBtn = main.querySelector('#btn-shoot-in');
+  const clockInBtn = main.querySelector('#btn-clock-in');
+
+  function syncButtons() {
+    const ready = mode === 'inside' || (mode === 'outside' && storing);
+    shootBtn.disabled = !ready;
+    clockInBtn.disabled = !(ready && capturedIn);
+  }
+
+  function renderStoringZone() {
+    if (mode !== 'outside') {
+      storingZone.innerHTML = '';
+      return;
+    }
+    if (storing) {
+      storingZone.innerHTML = `
+        <div class="storing-banner fade-in">
+          <div class="storing-title">🚩 Kamu dalam mode <strong>Tugas Luar (Storing)</strong></div>
+          <div class="storing-desc">${esc(storing.reason)}</div>
+          <div class="storing-meta">Presensi dicatat di outlet basis: <strong>${esc(baseOutlet?.name ?? '-')}</strong>${storing.method === 'otp' ? ' · OTP terverifikasi' : ''}</div>
+          <button type="button" id="btn-cancel-storing">Batalkan mode ini</button>
+        </div>`;
+      storingZone.querySelector('#btn-cancel-storing').addEventListener('click', () => {
+        storing = null;
+        capturedIn = null;
+        main.querySelector('#preview-in').style.display = 'none';
+        renderStoringZone();
+        syncButtons();
+        toast('Mode tugas luar dibatalkan.', 'info');
+      });
+    } else {
+      storingZone.innerHTML = `
+        <div class="storing-prompt fade-in">
+          <p>Kamu tidak berada di area outlet manapun. Untuk tetap absen, aktifkan <strong>mode Tugas Luar (Storing)</strong> dan isi keterangan tugasmu.</p>
+          <button class="primary" id="btn-enable-storing" style="max-width:280px">🚩 Aktifkan Mode Tugas Luar</button>
+        </div>`;
+      storingZone.querySelector('#btn-enable-storing').addEventListener('click', openStoringDialog);
+    }
+    syncButtons();
+  }
+
+  async function openStoringDialog() {
+    const fields = [
+      {
+        name: 'reason',
+        label: 'Keterangan tugas luar (wajib)',
+        type: 'text',
+        required: true,
+        placeholder: 'mis. antar pesanan ke customer di Serpong'
+      }
+    ];
+    if (exitMode === 'otp') {
+      fields.unshift({ name: 'otp', label: 'Kode OTP dari admin (wajib)', type: 'text', required: true, placeholder: '6 digit' });
+    }
+    const values = await formDialog({
+      title: 'Aktifkan Mode Tugas Luar',
+      description:
+        'Mode ini untuk staff yang sedang bertugas di luar outlet. Presensi akan ditandai "Tugas Luar/Storing" dan dicatat di outlet basismu.',
+      fields,
+      submitText: 'Lanjut'
+    });
+    if (!values) return;
+    if (!nbmBase.outlet_id) {
+      toast('Kamu belum punya "tempat kerja utama". Minta admin menetapkannya di Master User.', 'error');
+      return;
+    }
+
+    let method = 'storing';
+    let otpCodeId = null;
+    if (exitMode === 'otp') {
+      try {
+        otpCodeId = await redeemExitOtp(values.otp.trim(), nbmBase.business_unit_id);
+      } catch (error) {
+        toast(error.message ?? 'Gagal memverifikasi OTP.', 'error');
+        return;
+      }
+      if (!otpCodeId) {
+        toast('Kode OTP salah, sudah dipakai, atau kedaluwarsa.', 'error');
+        return;
+      }
+      method = 'otp';
+    }
+
+    const ok = await confirmDialog({
+      title: 'Konfirmasi Mode Tugas Luar',
+      message: `Keterangan: "${values.reason}". Presensi akan ditandai sebagai Tugas Luar (Storing) di outlet ${baseOutlet?.name ?? 'basis'}. Lanjutkan?`,
+      confirmText: 'Ya, aktifkan'
+    });
+    if (!ok) return;
+
+    storing = { reason: values.reason, method, otpCodeId };
+    renderStoringZone();
+    toast('Mode Tugas Luar aktif. Silakan ambil foto selfie.', 'success');
+  }
 
   async function runDetection() {
-    const banner = document.getElementById('detect-banner');
-    if (!banner) return;
     const loc = await getGeolocation();
     const withCoords = allOutlets.filter((o) => o.latitude != null && o.longitude != null);
     let best = null;
@@ -138,97 +272,57 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
         }
       }
     }
-
     if (best) {
       detected = best;
       mode = 'inside';
       banner.className = 'detect-banner detect-in';
-      banner.innerHTML = `✅ Terdeteksi di <strong>${best.business_unit_name}</strong> / <strong>${best.name}</strong>`;
-      document.getElementById('outside-options').style.display = 'none';
-      toast(`Terdeteksi di ${best.business_unit_name} / ${best.name}`, 'success');
+      banner.innerHTML = `✅ Terdeteksi di <strong>${esc(best.business_unit_name)}</strong> / <strong>${esc(best.name)}</strong>`;
+      toast(`Terdeteksi di ${best.name}. Silakan ambil foto selfie.`, 'success');
     } else {
       detected = null;
       mode = 'outside';
       banner.className = 'detect-banner detect-out';
-      banner.innerHTML = loc
-        ? `⚠️ Kamu di luar outlet Berjaya manapun.`
-        : `⚠️ Lokasi tidak terdeteksi (GPS mati/ditolak).`;
-      document.getElementById('outside-options').style.display = 'block';
-      toast(
-        exitMode === 'otp'
-          ? 'Di luar outlet Berjaya — isi kode OTP dari admin untuk lanjut.'
-          : 'Di luar outlet Berjaya — tandai sebagai tugas luar untuk lanjut.',
-        'warning'
-      );
+      banner.innerHTML = loc ? `⚠️ Kamu <strong>di luar area outlet</strong> Berjaya manapun.` : `⚠️ Lokasi tidak terdeteksi (GPS mati / izin ditolak).`;
     }
-    document.getElementById('btn-shoot-in').disabled = false;
+    renderStoringZone();
+    syncButtons();
   }
-  if (!doneToday && !openSession) runDetection();
 
-  // ---- Clock In ----
-  document.getElementById('btn-shoot-in')?.addEventListener('click', async () => {
+  shootBtn.addEventListener('click', async () => {
     errorEl.textContent = '';
     try {
-      const wmOutlet = mode === 'inside' ? detected.name : baseOutlet?.name ?? 'Tugas Luar';
+      const wmOutlet = mode === 'inside' ? detected.name : `${baseOutlet?.name ?? 'Tugas Luar'} (Tugas Luar)`;
       capturedIn = await openCameraCapture({
         getWatermarkText: () => formatWatermarkText(wmOutlet, 'Clock In'),
         requireFace: true
       });
-      const preview = document.getElementById('preview-in');
+      const preview = main.querySelector('#preview-in');
       preview.src = URL.createObjectURL(capturedIn.blob);
       preview.style.display = 'block';
-      document.getElementById('btn-clock-in').disabled = false;
+      syncButtons();
+      toast('Foto siap. Lanjut Clock In.', 'info');
     } catch (error) {
       errorEl.textContent = error.message ?? 'Gagal mengambil foto.';
     }
   });
 
-  document.getElementById('btn-clock-in')?.addEventListener('click', async (e) => {
+  clockInBtn.addEventListener('click', async (e) => {
+    errorEl.textContent = '';
     e.target.disabled = true;
     try {
       if (!capturedIn) throw new Error('Ambil foto selfie dulu.');
+      if (!capturedIn.descriptor) throw new Error('Wajah tidak terdeteksi di foto. Ulangi dengan pencahayaan cukup & wajah menghadap kamera.');
+      if (!isSameFace(capturedIn.descriptor, myFaceDescriptor)) throw new Error('Wajah tidak cocok dengan yang terdaftar. Presensi ditolak.');
 
-      // Face recognition memblokir: wajah tidak cocok -> presensi DITOLAK.
-      if (!capturedIn.descriptor) {
-        throw new Error('Wajah tidak terdeteksi di foto. Ulangi foto dengan pencahayaan cukup & wajah menghadap kamera.');
-      }
-      if (!isSameFace(capturedIn.descriptor, myFaceDescriptor)) {
-        throw new Error('Wajah tidak cocok dengan yang terdaftar. Presensi ditolak.');
-      }
+      const isStoring = mode === 'outside';
+      if (isStoring && !storing) throw new Error('Aktifkan mode Tugas Luar dulu sebelum clock in.');
+      const recordOutletId = isStoring ? nbmBase.outlet_id : detected.id;
+      const recordBuId = isStoring ? nbmBase.business_unit_id : detected.business_unit_id;
 
-      let recordOutletId;
-      let recordBuId;
-      let isStoring = false;
-      let exitMethod = null;
-      let exitReason = null;
-      let exitOtpCodeId = null;
-
-      if (mode === 'inside') {
-        recordOutletId = detected.id;
-        recordBuId = detected.business_unit_id;
-      } else {
-        // Di luar outlet -> catat di outlet basis (tempat kerja utama), tandai tugas luar.
-        if (!nbmBase.outlet_id) {
-          throw new Error('Kamu di luar outlet & belum punya "tempat kerja utama" (outlet). Minta admin menetapkannya di Master User.');
-        }
-        recordOutletId = nbmBase.outlet_id;
-        recordBuId = nbmBase.business_unit_id;
-        isStoring = true;
-        exitReason = document.getElementById('clock-in-exit-reason')?.value || null;
-        if (exitMode === 'otp') {
-          const otp = document.getElementById('clock-in-otp')?.value?.trim();
-          if (!otp) throw new Error('Kamu di luar outlet. Isi kode OTP dari admin dulu.');
-          const codeId = await redeemExitOtp(otp, nbmBase.business_unit_id);
-          if (!codeId) throw new Error('Kode OTP salah, sudah dipakai, atau kedaluwarsa.');
-          exitMethod = 'otp';
-          exitOtpCodeId = codeId;
-        } else {
-          exitMethod = 'storing';
-        }
-      }
-
+      // Foto diunggah DULU, baru record dibuat -> tidak ada presensi tanpa foto.
+      const photoPath = await uploadAttendanceSelfie({ outletId: recordOutletId, kind: 'in', file: capturedIn.blob });
       const location = await getGeolocation();
-      const record = await clockIn({
+      await clockIn({
         userId,
         businessUnitId: recordBuId,
         outletId: recordOutletId,
@@ -236,102 +330,59 @@ export async function renderAttendancePage(container, { userId, businessUnitId, 
         nbmOutletId: nbmBase.outlet_id,
         location,
         isStoring,
-        exitMethod,
-        exitReason,
-        exitOtpCodeId,
-        faceMatch: true
+        exitMethod: isStoring ? storing.method : null,
+        exitReason: isStoring ? storing.reason : null,
+        exitOtpCodeId: isStoring ? storing.otpCodeId : null,
+        faceMatch: true,
+        photoPath
       });
 
-      const photoPath = await uploadAttendanceSelfie({
-        outletId: recordOutletId,
-        recordId: record.id,
-        kind: 'in',
-        file: capturedIn.blob
-      });
-      await setClockInPhoto(record.id, photoPath);
-
-      toast('Clock in berhasil. Selamat bekerja! 👋', 'success');
-      await renderAttendancePage(container, { userId, businessUnitId, outletId });
+      toast(isStoring ? 'Clock in (Tugas Luar) berhasil. Hati-hati di jalan! 🚩' : 'Clock in berhasil. Selamat bekerja! 👋', 'success');
+      await renderAttendancePage(container, ctx);
     } catch (error) {
       errorEl.textContent = error.message ?? 'Gagal clock in.';
       e.target.disabled = false;
     }
   });
 
-  // ---- Clock Out ----
-  document.getElementById('btn-shoot-out')?.addEventListener('click', async () => {
-    errorEl.textContent = '';
-    try {
-      capturedOut = await openCameraCapture({
-        getWatermarkText: () => formatWatermarkText(outletName(openSession.outlet_id), 'Clock Out'),
-        requireFace: true
-      });
-      const preview = document.getElementById('preview-out');
-      preview.src = URL.createObjectURL(capturedOut.blob);
-      preview.style.display = 'block';
-      document.getElementById('btn-clock-out').disabled = false;
-    } catch (error) {
-      errorEl.textContent = error.message ?? 'Gagal mengambil foto.';
-    }
-  });
-
-  document.getElementById('btn-clock-out')?.addEventListener('click', async (e) => {
-    e.target.disabled = true;
-    try {
-      if (!capturedOut) throw new Error('Ambil foto selfie dulu.');
-
-      // Face recognition memblokir clock out juga.
-      if (!capturedOut.descriptor) {
-        throw new Error('Wajah tidak terdeteksi di foto. Ulangi foto dengan pencahayaan cukup & wajah menghadap kamera.');
-      }
-      if (!isSameFace(capturedOut.descriptor, myFaceDescriptor)) {
-        throw new Error('Wajah tidak cocok dengan yang terdaftar. Clock out ditolak.');
-      }
-
-      const photoPath = await uploadAttendanceSelfie({
-        outletId: openSession.outlet_id,
-        recordId: openSession.id,
-        kind: 'out',
-        file: capturedOut.blob
-      });
-
-      await clockOut(openSession.id, { photoPath, faceMatch: true });
-
-      toast('Clock out berhasil. Terima kasih atas kerja kerasnya hari ini! 🙌', 'success');
-      await renderAttendancePage(container, { userId, businessUnitId, outletId });
-    } catch (error) {
-      errorEl.textContent = error.message ?? 'Gagal clock out.';
-      e.target.disabled = false;
-    }
-  });
+  runDetection();
 }
 
-// ---- Gerbang registrasi wajah (wajib sebelum bisa presensi sama sekali) ----
+// ---- Gerbang registrasi wajah ----
 
-function renderFaceRegistrationGate(container, { userId, businessUnitId, outletId }) {
+function renderFaceRegistrationGate(container, ctx) {
   container.innerHTML = `
     <h1>Presensi</h1>
-    <div class="inline-card">
-      <h3 style="margin-top:0">Daftarkan Wajah Dulu</h3>
-      <p style="font-size:0.9rem;color:var(--color-text-muted)">
-        Sebelum bisa clock in/out, kamu perlu daftarkan wajah sekali di sini. Foto ini
-        dipakai untuk mencocokkan wajah kamu setiap presensi -- bukan disimpan sebagai
-        foto, hanya pola wajah (angka) yang tersimpan. Kalau wajah tidak cocok saat absen,
-        presensi akan ditolak.
+    <div class="att-card fade-in">
+      <div class="att-emoji">🙂</div>
+      <h3>Daftarkan Wajah Dulu</h3>
+      <p class="att-hint">
+        Sebelum bisa clock in/out, daftarkan wajahmu sekali di sini. Yang disimpan hanya
+        <strong>pola wajah (angka)</strong>, bukan fotonya. Kalau wajah tidak cocok saat absen, presensi ditolak.
       </p>
-      <button class="primary" id="btn-register-face" style="max-width:240px">📷 Daftarkan Wajah Sekarang</button>
+      <button class="primary" id="btn-register-face" style="max-width:260px">📷 Daftarkan Wajah Sekarang</button>
       <p class="error-text" id="face-register-error"></p>
     </div>
   `;
 
-  document.getElementById('btn-register-face').addEventListener('click', async (e) => {
+  container.querySelector('#btn-register-face').addEventListener('click', async (e) => {
     e.target.disabled = true;
-    const errorEl = document.getElementById('face-register-error');
+    const errorEl = container.querySelector('#face-register-error');
     errorEl.textContent = '';
     try {
       const descriptor = await openFaceRegistration();
       await saveMyFaceDescriptor(descriptor);
-      await renderAttendancePage(container, { userId, businessUnitId, outletId });
+      toast('Wajah berhasil didaftarkan.', 'success');
+      // Sengaja TIDAK langsung clock in — tampilkan konfirmasi dulu.
+      container.innerHTML = `
+        <h1>Presensi</h1>
+        <div class="att-card att-done fade-in">
+          <div class="att-emoji">✅</div>
+          <h3>Wajah Berhasil Didaftarkan</h3>
+          <p class="att-hint">Pendaftaran wajah <strong>tidak</strong> mencatat presensi. Lanjutkan bila kamu memang mau clock in sekarang.</p>
+          <button class="primary" id="btn-continue" style="max-width:260px">Lanjut ke Presensi</button>
+        </div>`;
+      container.querySelector('#btn-continue').addEventListener('click', () => renderAttendancePage(container, ctx));
     } catch (error) {
       errorEl.textContent = error.message ?? 'Gagal mendaftarkan wajah.';
       e.target.disabled = false;
@@ -339,7 +390,7 @@ function renderFaceRegistrationGate(container, { userId, businessUnitId, outletI
   });
 }
 
-// ---- Kartu notifikasi pengingat clock in ----
+// ---- Kartu notifikasi pengingat ----
 
 function notificationCardHtml() {
   if (!isPushSupported()) return '';
@@ -348,15 +399,14 @@ function notificationCardHtml() {
       <h3 style="margin-top:0;font-size:0.95rem">Notifikasi Pengingat Clock In</h3>
       <p style="font-size:0.85rem;color:var(--color-text-muted)" id="notif-status">Memeriksa status...</p>
       <button id="btn-enable-notif" style="max-width:260px">🔔 Aktifkan Notifikasi Pengingat</button>
-    </div>
-  `;
+    </div>`;
 }
 
 async function wireNotificationCard(container, userId) {
-  const card = document.getElementById('notif-card');
+  const card = container.querySelector('#notif-card');
   if (!card) return;
-  const statusEl = document.getElementById('notif-status');
-  const btn = document.getElementById('btn-enable-notif');
+  const statusEl = container.querySelector('#notif-status');
+  const btn = container.querySelector('#btn-enable-notif');
 
   async function refreshStatus() {
     const subscribed = await isSubscribedOnThisDevice();
@@ -364,13 +414,13 @@ async function wireNotificationCard(container, userId) {
       statusEl.textContent = 'Aktif ✓ — kamu akan diingatkan kalau lupa clock in.';
       btn.style.display = 'none';
     } else if (getPermissionStatus() === 'denied') {
-      statusEl.textContent = 'Izin notifikasi diblokir di browser/HP kamu. Aktifkan lewat pengaturan browser kalau ingin dapat pengingat.';
+      statusEl.textContent = 'Izin notifikasi diblokir di browser/HP kamu.';
       btn.style.display = 'none';
     } else if (!isPushConfigured()) {
       statusEl.textContent = 'Fitur ini belum diaktifkan admin sistem.';
       btn.style.display = 'none';
     } else {
-      statusEl.textContent = 'Belum aktif. Nyalakan supaya kamu dapat pengingat kalau lupa clock in.';
+      statusEl.textContent = 'Belum aktif. Nyalakan supaya dapat pengingat kalau lupa clock in.';
       btn.style.display = 'inline-block';
     }
   }
@@ -379,6 +429,7 @@ async function wireNotificationCard(container, userId) {
     btn.disabled = true;
     try {
       await enableReminderNotifications(userId);
+      toast('Notifikasi pengingat diaktifkan.', 'success');
       await refreshStatus();
     } catch (error) {
       statusEl.textContent = error.message ?? 'Gagal mengaktifkan notifikasi.';
@@ -389,33 +440,9 @@ async function wireNotificationCard(container, userId) {
   await refreshStatus();
 }
 
-/** Field yang muncul saat staff terdeteksi DI LUAR semua outlet (tugas luar / OTP). */
-function outsideOptionsHtml(exitMode) {
-  if (exitMode === 'otp') {
-    return `
-      <div class="field">
-        <label>Kode OTP Tugas Keluar (wajib, minta ke admin)</label>
-        <input type="text" id="clock-in-otp" placeholder="6 digit dari admin" />
-      </div>
-      <div class="field">
-        <label>Keterangan tujuan (opsional)</label>
-        <input type="text" id="clock-in-exit-reason" placeholder="misal: antar barang ke customer" />
-      </div>
-    `;
-  }
-  return `
-    <div class="field">
-      <label>Keterangan tugas luar (opsional)</label>
-      <input type="text" id="clock-in-exit-reason" placeholder="misal: antar barang ke customer" />
-    </div>
-  `;
-}
-
 function formatTime(iso) {
-  return new Date(iso).toLocaleString('id-ID', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  return new Date(iso).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
