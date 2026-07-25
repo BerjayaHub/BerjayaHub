@@ -4,6 +4,8 @@ import { listRecentChecklistActivity } from '../cleaning/cleaning.service.js';
 import { listRecentInventoryActivity, MOVEMENT_LABEL } from '../inventory/inventory.service.js';
 import { listRecentProductionActivity } from '../production/production.service.js';
 import { listRecentDispatchActivity } from '../dispatch/dispatch.service.js';
+import { listRecentSalesActivity } from '../sales/sales.service.js';
+import { formatRupiah } from '../../core/format.js';
 
 const PAGE_SIZE = 20;
 
@@ -106,7 +108,20 @@ async function dispatchProvider({ before, limit }) {
   return events;
 }
 
-const ACTIVITY_PROVIDERS = [attendanceProvider, leaveProvider, cleaningProvider, inventoryProvider, productionProvider, dispatchProvider];
+async function salesProvider({ before, limit }) {
+  const rows = await listRecentSalesActivity({ before, limit });
+  return rows.map((r) => {
+    const bu = r.business_units?.name ? ` · ${r.business_units.name}` : '';
+    const qty = Math.round(Number(r.qty) * 100) / 100;
+    return {
+      time: r.created_at,
+      icon: '💰',
+      text: `${r.user_profiles?.full_name ?? 'Staff'} jual ${qty} ${r.products?.name ?? 'menu'} (${formatRupiah(r.revenue)}) di ${r.outlets?.name ?? '-'}${bu}`
+    };
+  });
+}
+
+const ACTIVITY_PROVIDERS = [attendanceProvider, leaveProvider, cleaningProvider, inventoryProvider, productionProvider, dispatchProvider, salesProvider];
 
 export async function renderAdminDashboard(container) {
   container.innerHTML = `
@@ -118,7 +133,7 @@ export async function renderAdminDashboard(container) {
       <div class="activity-feed" id="activity-feed"><p style="font-size:0.85rem;color:var(--color-text-muted)">Memuat...</p></div>
       <button id="btn-load-more" style="margin-top:12px;display:none">Muat lebih banyak</button>
       <p style="font-size:0.78rem;color:var(--color-text-muted);margin-top:12px">
-        Menggabungkan Presensi, Pengajuan Cuti, Ceklis Kebersihan & Inventory. Modul lain otomatis ikut tampil di sini begitu dibangun.
+        Menggabungkan Presensi, Cuti, Ceklis, Inventory, Produksi, Pengiriman & Penjualan. Modul lain otomatis ikut tampil begitu dibangun.
       </p>
     </div>
   `;

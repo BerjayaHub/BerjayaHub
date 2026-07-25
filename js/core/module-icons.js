@@ -12,7 +12,8 @@ const ICONS = {
   organization: '🏢',
   master_product: '📒',
   dispatch: '🚚',
-  menu: '🍽️'
+  menu: '🍽️',
+  sales: '💰'
 };
 
 export function getModuleIcon(code) {

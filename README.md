@@ -309,6 +309,14 @@ Jalankan migration `0024_dispatch_code.sql` (nomor surat jalan). Perubahan aplik
 - **Nomor surat jalan** otomatis: `SJ-YYMMDD-XXXX`.
 - **Separator ribuan** dirapikan menyeluruh: tampilan angka pakai format Indonesia (`1.500,5` — ribuan titik, desimal koma) via `formatNum`; input uang tetap berpemisah ribuan; input jumlah (bisa desimal) tetap angka biasa agar pecahan tidak rusak.
 
+## Fase 8 — Penjualan (Cafe)
+
+Jalankan migration `0025_sales.sql`, lalu aktifkan modul **Penjualan** untuk BU Cafe. Outlet harus punya **Bisa Penjualan** (`allow_sales`) menyala (Master BU & Outlet).
+
+- **Staff App** (menu Penjualan): pilih outlet & kategori, isi **jumlah terjual per menu** hari ini → **Simpan**. Stok bahan otomatis berkurang sesuai **resep menu** (mode outlet: Standalone/Dilayani CK) via RPC `record_sales`; **omzet** (qty × harga jual) tercatat. Stok boleh minus. Rekap penjualan hari ini + total omzet tampil di bawah.
+- **Admin Portal** (menu Penjualan): laporan per menu (jumlah terjual + omzet), filter outlet & rentang tanggal, plus total omzet. Aktivitas muncul di **Dashboard** (💰).
+- Pemakaian bahan penjualan juga muncul di **Inventory → Riwayat** (jenis "Pemakaian", catatan "Penjualan").
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
@@ -320,7 +328,7 @@ Jalankan migration `0024_dispatch_code.sql` (nomor surat jalan). Perubahan aplik
 - [x] **Fase 5** — Inventory (Cafe)
 - [x] **Fase 6** — Production di level Outlet (Cafe)
 - [x] **Fase 7** — Production di Central Kitchen + Transfer/Dispatch ke outlet (Cafe)
-- [ ] **Fase 8** — Sales (Cafe)
+- [x] **Fase 8** — Sales (Cafe)
 - [ ] **Fase 9** — Cash Ledger (Cafe)
 - [ ] **Fase 10** — Pengajuan Cuti, Dashboard/Reports
 - [ ] **Fase berikutnya** — Modul Armada/Fleet untuk BU tipe logistik

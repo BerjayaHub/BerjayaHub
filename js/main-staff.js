@@ -10,6 +10,7 @@ import { renderProductStaffPage } from './modules/product/product.staff.page.js'
 import { renderProductionPage } from './modules/production/production.page.js';
 import { renderDispatchPage } from './modules/dispatch/dispatch.page.js';
 import { renderMenuPage } from './modules/menu/menu.page.js';
+import { renderSalesPage } from './modules/sales/sales.page.js';
 
 registerModule('attendance', renderAttendancePage);
 registerModule('leave', renderLeavePage);
@@ -19,6 +20,7 @@ registerModule('master_product', renderProductStaffPage);
 registerModule('production', renderProductionPage);
 registerModule('dispatch', renderDispatchPage);
 registerModule('menu', renderMenuPage);
+registerModule('sales', renderSalesPage);
 
 const app = document.getElementById('app');
 
@@ -219,7 +221,7 @@ function renderHome(context, modules, moduleCtx) {
   const staffModules = modules.filter((mod) => {
     if (!getModuleRenderer(mod.code)) return false;
     if (mod.code === 'production') return !role || role === 'central_kitchen';
-    if (mod.code === 'menu') return !role || role !== 'central_kitchen';
+    if (mod.code === 'menu' || mod.code === 'sales') return !role || role !== 'central_kitchen';
     return true;
   });
   content.innerHTML = `
