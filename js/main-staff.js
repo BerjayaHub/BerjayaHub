@@ -12,6 +12,7 @@ import { renderDispatchPage } from './modules/dispatch/dispatch.page.js';
 import { renderMenuPage } from './modules/menu/menu.page.js';
 import { renderSalesPage } from './modules/sales/sales.page.js';
 import { renderCashPage } from './modules/cash/cash.page.js';
+import { renderShiftPage } from './modules/shift/shift.page.js';
 import { renderProfilePage, initials } from './modules/profile/profile.page.js';
 import { getStaffPhotoUrl } from './modules/profile/profile.service.js';
 import { getMyTodaySession } from './modules/attendance/attendance.service.js';
@@ -26,6 +27,7 @@ registerModule('dispatch', renderDispatchPage);
 registerModule('menu', renderMenuPage);
 registerModule('sales', renderSalesPage);
 registerModule('cash_ledger', renderCashPage);
+registerModule('shift', renderShiftPage);
 
 const app = document.getElementById('app');
 

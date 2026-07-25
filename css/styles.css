@@ -572,6 +572,60 @@ button.primary:active { transform: translateY(1px); }
   background: #fff8e1;
 }
 
+/* ---- Shift / Jadwal ---- */
+.shift-grid th, .shift-grid td { white-space: nowrap; }
+.shift-grid tbody tr.shift-me { background: color-mix(in srgb, var(--color-primary) 6%, transparent); }
+
+.shift-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+  color: var(--color-primary);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 32%, transparent);
+}
+.shift-chip.shift-off {
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+}
+
+select.sc-cell {
+  min-width: 104px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px dashed var(--color-border);
+  background: transparent;
+  font-size: 0.82rem;
+  font-family: inherit;
+  color: var(--color-text);
+}
+select.sc-cell.is-set {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+  font-weight: 600;
+}
+select.sc-cell.is-off {
+  border-style: solid;
+  border-color: var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+}
+
+.shift-note {
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 0.86rem;
+  margin-bottom: 12px;
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 26%, transparent);
+}
+.shift-note-off { background: #eef6ff; border-color: #9dc6f5; color: #24486e; }
+.shift-note-none { background: #fff8ec; border-color: #f0c66b; color: #7a5200; }
+
 /* ---- Presensi ---- */
 .att-card {
   background: var(--color-surface);

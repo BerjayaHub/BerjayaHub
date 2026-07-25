@@ -25,7 +25,8 @@ export const ADMIN_TAB_CATALOG = [
 
   { code: 'attendance', label: 'Presensi', group: 'Modul lain' },
   { code: 'cleaning_checklist', label: 'Ceklis Kebersihan', group: 'Modul lain' },
-  { code: 'dispatch', label: 'Pengiriman', group: 'Modul lain' }
+  { code: 'dispatch', label: 'Pengiriman', group: 'Modul lain' },
+  { code: 'shift', label: 'Shift (jadwal kerja)', group: 'Modul lain' }
 ];
 
 export const SUPER_ADMIN_ONLY_TABS = new Set(ADMIN_TAB_CATALOG.filter((t) => t.superAdminOnly).map((t) => t.code));

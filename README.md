@@ -394,6 +394,22 @@ Jalankan migration `0032_staff_profile_and_waste.sql`.
 - **Inventory**: label diperjelas — “+ Penerimaan” → **📥 Terima dari Supplier**, “Waste” → **🗑️ Waste / Spoil** dengan pilihan **tipe**: *Spoil* (bahan/setengah jadi rusak → stok bahan berkurang langsung) atau *Waste* (menu jadi terbuang → **bahan dipotong sesuai resep menu** lewat RPC `record_menu_waste`).
 - **Audit tipe Menu**: produk bertipe Menu tidak lagi muncul di form penambahan bahan mana pun (Inventory, Opname, Transfer, Order/Pengiriman, Resep) — hanya di modul Menu, Penjualan, dan pilihan Waste menu.
 
+## Modul Shift (jadwal kerja)
+
+Jalankan migration `0034_shift.sql`, lalu **deploy ulang** `send-attendance-reminders` (reminder kini sadar jadwal shift).
+
+- **Aktivasi per outlet** — hanya **Super Admin** (Admin Portal → Shift → tab *Pengaturan*), lewat RPC `set_outlet_shift_enabled`.
+- **Pengaturan per BU** (admin BU): **jumlah shift 2–4** + **toleransi terlambat** (menit).
+- **Jam shift per outlet** (admin BU & admin outlet): nama + jam mulai/selesai tiap slot. **Mendukung shift lintas tengah malam** (jam selesai < jam mulai otomatis dianggap +1 hari).
+- **Jadwal** (admin BU & admin outlet): tabel mingguan **diedit langsung** — baris staff, kolom tanggal, pilih shift atau **Libur** per sel, tersimpan otomatis. Bisa geser minggu / pilih tanggal acuan.
+- **Staff App** (menu Shift): tabel jadwal 1 minggu (default minggu berjalan), baris staff & kolom tanggal, baris sendiri disorot, hari ini ditandai.
+- **Integrasi presensi**:
+  - Halaman Presensi menampilkan **shift hari ini** + toleransi; kalau libur/belum dijadwalkan diberi catatan khusus.
+  - Saat clock in, sistem menilai keterlambatan dan menyimpan **snapshot** di record: `Tepat waktu` / **`Toleransi`** (masih dalam batas) / **`Terlambat`** (lewat batas, beserta selisih menit) / `Tanpa jadwal` / `Hari libur`.
+  - Riwayat **Admin Portal → Presensi** dapat kolom **Shift** berisi nama shift + badge status & menit keterlambatan; ikut juga di **Export PDF**.
+  - **Push reminder clock in** memakai **jam shift masing-masing staff** saat modul Shift aktif (staff libur/tidak dijadwalkan tidak diingatkan); outlet non-shift tetap memakai jam masuk outlet.
+- Modul Shift juga bisa dibatasi lewat **Izin Admin** per user, dan muncul di Staff App sesuai **akses modul** & toggle modul BU.
+
 ## Izin akses Admin Portal per user
 
 Jalankan migration `0033_admin_tab_access.sql`.

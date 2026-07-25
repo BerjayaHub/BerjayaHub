@@ -142,7 +142,11 @@ export async function clockIn({
   exitReason,
   exitOtpCodeId,
   faceMatch,
-  photoPath
+  photoPath,
+  shiftId,
+  shiftName,
+  lateMinutes,
+  lateStatus
 }) {
   const loc = location !== undefined ? location : await getGeolocation();
   const { data, error } = await supabase
@@ -152,6 +156,10 @@ export async function clockIn({
       business_unit_id: businessUnitId,
       outlet_id: outletId,
       clock_in_photo_path: photoPath ?? null,
+      shift_id: shiftId ?? null,
+      shift_name: shiftName ?? null,
+      late_minutes: lateMinutes ?? null,
+      late_status: lateStatus ?? null,
       nbm_business_unit_id: nbmBusinessUnitId ?? businessUnitId,
       nbm_outlet_id: nbmOutletId ?? null,
       clock_in_lat: loc?.lat ?? null,
@@ -326,7 +334,7 @@ export async function reverseGeocode(lat, lng) {
 export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFrom, dateTo }) {
   let query = supabase
     .from('attendance_records')
-    .select('id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, user_profiles(full_name), outlets!outlet_id(id, name)')
+    .select('id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, shift_name, late_minutes, late_status, user_profiles(full_name), outlets!outlet_id(id, name)')
     .eq('business_unit_id', businessUnitId)
     .order('clock_in_at', { ascending: false })
     .limit(200);

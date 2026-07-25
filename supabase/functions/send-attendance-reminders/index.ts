@@ -112,11 +112,13 @@ Deno.serve(async (req) => {
   const { date: today, time: nowTime } = nowInTimezone();
   const sendErrors: Array<Record<string, unknown>> = [];
 
+  // Outlet dengan jam masuk tetap, ATAU outlet yang memakai modul Shift
+  // (jam masuknya diambil dari jadwal tiap staff).
   const { data: outlets, error: outletError } = await admin
     .from('outlets')
-    .select('id, name, business_unit_id, clock_in_time, reminder_enabled')
+    .select('id, name, business_unit_id, clock_in_time, reminder_enabled, shift_enabled')
     .eq('reminder_enabled', true)
-    .not('clock_in_time', 'is', null);
+    .or('clock_in_time.not.is.null,shift_enabled.is.true');
 
   if (outletError) return json({ error: outletError.message }, 500);
 
@@ -124,8 +126,30 @@ Deno.serve(async (req) => {
   let checkedStaffCount = 0;
 
   for (const outlet of outlets ?? []) {
-    const threshold = addMinutes(outlet.clock_in_time, GRACE_PERIOD_MINUTES);
-    if (nowTime < threshold) continue; // belum waktunya reminder untuk outlet ini
+    // Kalau outlet memakai modul Shift, jam masuk diambil dari jadwal tiap staff.
+    const shiftMode = !!outlet.shift_enabled;
+    if (!shiftMode && !outlet.clock_in_time) continue;
+
+    // Jadwal hari ini per staff (hanya saat modul Shift aktif).
+    const shiftStartByUser = new Map<string, string>();
+    if (shiftMode) {
+      const { data: sched } = await admin
+        .from('shift_schedules')
+        .select('user_id, is_off, outlet_shifts(start_time)')
+        .eq('outlet_id', outlet.id)
+        .eq('work_date', today);
+      for (const s of sched ?? []) {
+        // Staff libur -> tidak diingatkan sama sekali.
+        if (s.is_off) continue;
+        const st = (s as { outlet_shifts?: { start_time?: string } }).outlet_shifts?.start_time;
+        if (st) shiftStartByUser.set(s.user_id, st);
+      }
+    }
+
+    if (!shiftMode) {
+      const threshold = addMinutes(outlet.clock_in_time, GRACE_PERIOD_MINUTES);
+      if (nowTime < threshold) continue; // belum waktunya reminder untuk outlet ini
+    }
 
     // Staff yang ditugaskan di outlet ini (langsung, bukan level BU)
     const { data: scopes, error: scopeError } = await admin
@@ -136,6 +160,13 @@ Deno.serve(async (req) => {
 
     for (const scope of scopes ?? []) {
       if (scope.user_profiles && scope.user_profiles.is_active === false) continue;
+
+      // Mode shift: hanya staff yang dijadwalkan, dan sesuai jam shift-nya.
+      if (shiftMode) {
+        const start = shiftStartByUser.get(scope.user_id);
+        if (!start) continue; // libur / tidak dijadwalkan
+        if (nowTime < addMinutes(start, GRACE_PERIOD_MINUTES)) continue;
+      }
       checkedStaffCount++;
 
       // Sudah clock in hari ini di outlet ini?

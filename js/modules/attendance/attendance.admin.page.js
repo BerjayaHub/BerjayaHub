@@ -16,6 +16,7 @@ import { renderNbmReportTab } from './nbm-report.admin.page.js';
 import { toast, formDialog } from '../../core/ui.js';
 import { exportTablePDF } from '../../core/pdf.js';
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
+import { LATE_LABEL, LATE_BADGE } from '../shift/shift.service.js';
 
 const TABS = [
   { key: 'presensi', label: 'Presensi' },
@@ -62,7 +63,7 @@ async function renderPresensiTab(container, businessUnitId) {
     const records = await listAttendanceForAdmin(filters);
     lastRecords = records;
     container.querySelector('#attendance-table-body').innerHTML =
-      records.map((r) => rowHtml(r)).join('') || '<tr><td colspan="10">Tidak ada data.</td></tr>';
+      records.map((r) => rowHtml(r)).join('') || '<tr><td colspan="11">Tidak ada data.</td></tr>';
     wireEditButtons(container);
     wirePhotoButtons(container);
     wireAddressButtons(container);
@@ -134,7 +135,7 @@ async function renderPresensiTab(container, businessUnitId) {
 
     <table class="data-table">
       <thead>
-        <tr><th>Staff</th><th>Outlet</th><th>Tipe</th><th>Keterangan</th><th>Clock In</th><th>Wajah</th><th>Foto</th><th>Alamat</th><th>Clock Out</th><th>Aksi</th></tr>
+        <tr><th>Staff</th><th>Outlet</th><th>Tipe</th><th>Keterangan</th><th>Shift</th><th>Clock In</th><th>Wajah</th><th>Foto</th><th>Alamat</th><th>Clock Out</th><th>Aksi</th></tr>
       </thead>
       <tbody id="attendance-table-body"></tbody>
     </table>
@@ -201,6 +202,7 @@ async function renderPresensiTab(container, businessUnitId) {
           { header: 'Outlet', width: 1.2 },
           { header: 'Tipe', width: 1.2 },
           { header: 'Keterangan', width: 1.6 },
+          { header: 'Shift / Status', width: 1.4 },
           { header: 'Clock In', width: 1.1 },
           { header: 'Clock Out', width: 1.1 },
           { header: 'Wajah', width: 0.8 }
@@ -210,6 +212,7 @@ async function renderPresensiTab(container, businessUnitId) {
           r.outlets?.name ?? '-',
           tipeOf(r),
           r.is_storing ? r.exit_reason ?? '-' : '-',
+          shiftText(r),
           formatTime(r.clock_in_at),
           r.clock_out_at ? formatTime(r.clock_out_at) : '—',
           r.clock_in_face_match === true ? 'Cocok' : r.clock_in_face_match === false ? 'Perlu review' : '-'
@@ -237,6 +240,22 @@ function tipeOf(r) {
   return r.is_storing ? `Tugas Luar/Storing${r.exit_method === 'otp' ? ' (OTP)' : ''}` : 'Normal';
 }
 
+/** Keterangan shift + status keterlambatan (kalau modul Shift dipakai). */
+function shiftCell(r) {
+  if (!r.late_status) return '<span style="color:var(--color-text-muted)">-</span>';
+  const label = LATE_LABEL[r.late_status] ?? r.late_status;
+  const badge = LATE_BADGE[r.late_status] ?? '';
+  const detail = r.late_minutes ? ` ${r.late_minutes} mnt` : '';
+  return `${r.shift_name ? `${escapeHtml(r.shift_name)}<br>` : ''}<span class="badge ${badge}">${label}${detail}</span>`;
+}
+
+/** Teks ringkas untuk export PDF. */
+function shiftText(r) {
+  if (!r.late_status) return '-';
+  const label = LATE_LABEL[r.late_status] ?? r.late_status;
+  return `${r.shift_name ? r.shift_name + ' — ' : ''}${label}${r.late_minutes ? ` (${r.late_minutes} mnt)` : ''}`;
+}
+
 function rowHtml(r) {
   const storingTag = '';
   const fotoButtons = [
@@ -252,6 +271,7 @@ function rowHtml(r) {
       <td>${r.outlets?.name ?? '-'}${storingTag}</td>
       <td>${r.is_storing ? `<span class="badge badge-pending">${tipeOf(r)}</span>` : '<span class="badge badge-approved">Normal</span>'}</td>
       <td style="font-size:0.8rem;max-width:180px">${r.is_storing ? (r.exit_reason ? String(r.exit_reason) : '<span style="color:var(--color-text-muted)">tanpa keterangan</span>') : '-'}</td>
+      <td style="font-size:0.8rem">${shiftCell(r)}</td>
       <td>${formatTime(r.clock_in_at)}</td>
       <td>${faceMatchBadgeHtml(r.clock_in_face_match)}${r.clock_out_at ? '<br>' + faceMatchBadgeHtml(r.clock_out_face_match) : ''}</td>
       <td>${fotoButtons || '-'}</td>
@@ -392,8 +412,8 @@ function wireEditButtons(container) {
   container.querySelectorAll('.btn-edit').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const row = container.querySelector(`tr[data-record-id="${btn.dataset.recordId}"]`);
-      const currentIn = row.children[4].textContent;
-      const currentOut = row.children[8].textContent === '—' ? '' : row.children[8].textContent;
+      const currentIn = row.children[5].textContent;
+      const currentOut = row.children[9].textContent === '—' ? '' : row.children[9].textContent;
 
       const values = await formDialog({
         title: 'Koreksi Presensi',

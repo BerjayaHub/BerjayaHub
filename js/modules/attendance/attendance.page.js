@@ -14,6 +14,7 @@ import {
   getMyFaceDescriptor,
   saveMyFaceDescriptor
 } from './attendance.service.js';
+import { getShiftSettings, getMyScheduleFor, evaluateLateness, todayWIB, LATE_LABEL } from '../shift/shift.service.js';
 import { openCameraCapture, formatWatermarkText } from './camera-capture.js';
 import { openFaceRegistration } from './face-registration.js';
 import { loadFaceModels, isSameFace } from './face-recognition.js';
@@ -48,6 +49,16 @@ export async function renderAttendancePage(container, ctx) {
 
   const openSession = todaySession && !todaySession.clock_out_at ? todaySession : null;
   const doneToday = todaySession && todaySession.clock_out_at ? todaySession : null;
+
+  // Jadwal shift hari ini (kalau outletnya mengaktifkan modul Shift).
+  const shiftOutletActive = allOutlets.some((o) => o.shift_enabled);
+  const [mySchedule, shiftSettings] = shiftOutletActive
+    ? await Promise.all([
+        getMyScheduleFor(todayWIB()).catch(() => null),
+        getShiftSettings(nbmBase.business_unit_id).catch(() => ({ late_tolerance_minutes: 10 }))
+      ])
+    : [null, { late_tolerance_minutes: 10 }];
+  const myShift = mySchedule && !mySchedule.is_off ? mySchedule.outlet_shifts : null;
   const outletName = (id) => allOutlets.find((o) => o.id === id)?.name ?? 'Outlet';
   const baseOutlet = allOutlets.find((o) => o.id === nbmBase.outlet_id) || null;
 
@@ -148,8 +159,18 @@ export async function renderAttendancePage(container, ctx) {
   let mode = 'detecting'; // detecting | inside | outside
   let storing = null; // { reason, method, otpCodeId } bila mode tugas luar dikonfirmasi
 
+  const shiftInfoHtml = !shiftOutletActive
+    ? ''
+    : mySchedule?.is_off
+    ? `<div class="shift-note shift-note-off">🌴 Hari ini kamu <strong>dijadwalkan libur</strong>. Presensi tetap bisa dicatat bila memang masuk.</div>`
+    : myShift
+    ? `<div class="shift-note">🗓️ Shift hari ini: <strong>${esc(myShift.name)}</strong> ${myShift.start_time.slice(0, 5)}–${myShift.end_time.slice(0, 5)}
+         <span style="color:var(--color-text-muted)">· toleransi ${shiftSettings.late_tolerance_minutes} menit</span></div>`
+    : `<div class="shift-note shift-note-none">🗓️ Kamu <strong>belum dijadwalkan</strong> hari ini. Presensi tetap bisa, dan akan ditandai “Tanpa jadwal”.</div>`;
+
   main.innerHTML = `
     <div class="att-card fade-in">
+      ${shiftInfoHtml}
       <div class="detect-banner" id="detect-banner">📍 Mendeteksi lokasi kamu…</div>
       <div id="storing-zone"></div>
       <div class="att-photo-row">
@@ -320,6 +341,14 @@ export async function renderAttendancePage(container, ctx) {
       const recordBuId = isStoring ? nbmBase.business_unit_id : detected.business_unit_id;
 
       // Foto diunggah DULU, baru record dibuat -> tidak ada presensi tanpa foto.
+      // Penilaian keterlambatan terhadap jadwal shift (snapshot, ikut riwayat).
+      let lateInfo = { status: null, minutes: null };
+      if (shiftOutletActive) {
+        if (mySchedule?.is_off) lateInfo = { status: 'off_day', minutes: null };
+        else if (myShift) lateInfo = evaluateLateness(new Date(), myShift, shiftSettings.late_tolerance_minutes);
+        else lateInfo = { status: 'no_schedule', minutes: null };
+      }
+
       const photoPath = await uploadAttendanceSelfie({ outletId: recordOutletId, kind: 'in', file: capturedIn.blob });
       const location = await getGeolocation();
       await clockIn({
@@ -334,10 +363,20 @@ export async function renderAttendancePage(container, ctx) {
         exitReason: isStoring ? storing.reason : null,
         exitOtpCodeId: isStoring ? storing.otpCodeId : null,
         faceMatch: true,
-        photoPath
+        photoPath,
+        shiftId: myShift?.id ?? null,
+        shiftName: myShift?.name ?? null,
+        lateMinutes: lateInfo.minutes,
+        lateStatus: lateInfo.status
       });
 
-      toast(isStoring ? 'Clock in (Tugas Luar) berhasil. Hati-hati di jalan! 🚩' : 'Clock in berhasil. Selamat bekerja! 👋', 'success');
+      if (lateInfo.status === 'late') {
+        toast(`Clock in tercatat, tapi ${lateInfo.minutes} menit melewati toleransi — ditandai Terlambat.`, 'warning');
+      } else if (lateInfo.status === 'tolerance') {
+        toast(`Clock in berhasil (${lateInfo.minutes} menit, masih dalam toleransi).`, 'success');
+      } else {
+        toast(isStoring ? 'Clock in (Tugas Luar) berhasil. Hati-hati di jalan! 🚩' : 'Clock in berhasil. Selamat bekerja! 👋', 'success');
+      }
       await renderAttendancePage(container, ctx);
     } catch (error) {
       errorEl.textContent = error.message ?? 'Gagal clock in.';

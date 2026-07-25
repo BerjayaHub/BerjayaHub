@@ -13,6 +13,7 @@ import { renderSalesAdminPage } from './modules/sales/sales.admin.page.js';
 import { renderCashAdminPage } from './modules/cash/cash.admin.page.js';
 import { renderMenuAdminPage } from './modules/menu/menu.admin.page.js';
 import { renderStaffDataPage } from './modules/profile/staff-data.admin.page.js';
+import { renderShiftAdminPage } from './modules/shift/shift.admin.page.js';
 import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
 import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
 import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
@@ -39,6 +40,7 @@ registerModule('production', renderProductionAdminPage);
 registerModule('dispatch', renderDispatchAdminPage);
 registerModule('sales', renderSalesAdminPage);
 registerModule('cash_ledger', renderCashAdminPage);
+registerModule('shift', renderShiftAdminPage);
 // ---- Pengelompokan menu: beberapa modul digabung jadi satu menu bertab ----
 // Modul di dalam grup tidak tampil sebagai menu terpisah.
 const GROUPS = {
