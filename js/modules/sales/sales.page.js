@@ -1,4 +1,4 @@
-import { toast } from '../../core/ui.js';
+import { toast, shareDialog } from '../../core/ui.js';
 import { formatNum, formatRupiah } from '../../core/format.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProducts } from '../product/product.service.js';
@@ -84,14 +84,43 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
     let total = 0;
     for (const s of state.summary.values()) total += s.revenue;
     box.innerHTML = `
-      <h2 style="font-size:1rem">Rekap Penjualan Hari Ini</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;max-width:420px;flex-wrap:wrap">
+        <h2 style="font-size:1rem;margin:0">Rekap Penjualan Hari Ini</h2>
+        ${rows.length ? '<button id="sl-share">📤 Kirim via WhatsApp</button>' : ''}
+      </div>
       ${
         rows.length
-          ? `<table class="data-table" style="max-width:420px"><thead><tr><th>Menu</th><th>Terjual</th><th>Omzet</th></tr></thead><tbody>${rows.join('')}</tbody></table>
+          ? `<table class="data-table" style="max-width:420px;margin-top:8px"><thead><tr><th>Menu</th><th>Terjual</th><th>Omzet</th></tr></thead><tbody>${rows.join('')}</tbody></table>
              <p style="font-weight:600;margin-top:8px">Total omzet: ${formatRupiah(total)}</p>`
           : '<p style="color:var(--color-text-muted)">Belum ada penjualan tercatat hari ini.</p>'
       }
     `;
+
+    box.querySelector('#sl-share')?.addEventListener('click', () => {
+      const outletName = myOutlets.find((o) => o.id === state.outletId)?.name ?? '-';
+      let qtyTotal = 0;
+      const lines = menus
+        .filter((m) => state.summary.has(m.id))
+        .map((m) => {
+          const s = state.summary.get(m.id);
+          qtyTotal += s.qty;
+          return `• ${m.name}: ${formatNum(s.qty)} — ${formatRupiah(s.revenue)}`;
+        });
+      const text = [
+        `*Rekap Penjualan — ${outletName}*`,
+        fmtDate(date),
+        '',
+        ...lines,
+        '',
+        `Total terjual: ${formatNum(qtyTotal)} menu`,
+        `*Total omzet: ${formatRupiah(total)}*`
+      ].join('\n');
+      shareDialog({
+        title: 'Kirim Rekap Penjualan',
+        helper: 'Teks bisa diedit dulu sebelum dikirim ke WhatsApp/chat.',
+        defaultMessage: text
+      });
+    });
   }
 
   outletSel.addEventListener('change', () => {

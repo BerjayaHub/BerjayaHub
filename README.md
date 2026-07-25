@@ -399,6 +399,17 @@ Jalankan migration `0032_staff_profile_and_waste.sql`.
 - **Inventory**: label diperjelas — “+ Penerimaan” → **📥 Terima dari Supplier**, “Waste” → **🗑️ Waste / Spoil** dengan pilihan **tipe**: *Spoil* (bahan/setengah jadi rusak → stok bahan berkurang langsung) atau *Waste* (menu jadi terbuang → **bahan dipotong sesuai resep menu** lewat RPC `record_menu_waste`).
 - **Audit tipe Menu**: produk bertipe Menu tidak lagi muncul di form penambahan bahan mana pun (Inventory, Opname, Transfer, Order/Pengiriman, Resep) — hanya di modul Menu, Penjualan, dan pilihan Waste menu.
 
+## Modul Armada (Fleet)
+
+Jalankan migration `0036_fleet.sql`, lalu aktifkan modul **Armada** untuk BU lewat Master BU & Outlet → tombol **Modul**. Modul ini **admin-only** (tidak ada halaman Staff App).
+
+Admin Portal → **Armada**, 4 tab:
+
+- **Kendaraan** — data lengkap: nomor polisi, merek/model, jenis, tahun, warna, **no. rangka & no. mesin**, kepemilikan (milik sendiri/leasing/sewa), outlet/pool, status (**Tersedia / Direntalkan / Perawatan / Nonaktif**), dokumen, dan catatan. Ada filter status + pencarian fuzzy, tombol **Detail**, **Edit**, **Rentalkan/Selesai Rental**, dan **Export PDF**.
+- **Rental** — daftar kendaraan yang **sedang direntalkan** beserta **area**, penyewa, dan periodenya, plus **riwayat rental**.
+- **Dokumen & Reminder** — kotak sorot **🔔 Perlu Perpanjangan** berisi dokumen yang **kedaluwarsa** atau mendekati jatuh tempo (STNK pajak tahunan, STNK 5 tahun, KIR), diurutkan paling mendesak. Bisa **Kirim via WhatsApp** (tanpa API) dan **Export PDF**. Di bawahnya ada tabel semua dokumen + catatan kendaraan yang tanggalnya belum diisi.
+- **Pengaturan** — **ambang reminder** (default 30 hari sebelum jatuh tempo), berlaku untuk STNK & KIR.
+
 ## Modul Shift (jadwal kerja)
 
 Jalankan migration `0034_shift.sql`, lalu **deploy ulang** `send-attendance-reminders` (reminder kini sadar jadwal shift).
@@ -459,4 +470,4 @@ Berlaku di: **Presensi**, **Rekap NBM**, **Inventory → Riwayat**, **Produksi**
 - [x] **Fase 8** — Sales (Cafe)
 - [x] **Fase 9** — Cash Ledger (Cafe)
 - [ ] **Fase 10** — Pengajuan Cuti, Dashboard/Reports
-- [ ] **Fase berikutnya** — Modul Armada/Fleet untuk BU tipe logistik
+- [x] **Modul Armada/Fleet** — data kendaraan, rental, dokumen STNK/KIR + reminder
