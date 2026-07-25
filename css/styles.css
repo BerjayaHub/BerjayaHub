@@ -370,6 +370,15 @@ button.primary:active { transform: translateY(1px); }
     -webkit-overflow-scrolling: touch;
   }
 
+  /* Tabel di dalam .table-scroll: wadahnya yang menggulir, tabelnya tetap
+     table biasa supaya kolom beku (sticky) tetap bekerja di HP. */
+  .table-scroll .data-table {
+    display: table;
+    overflow: visible;
+    width: max-content;
+    min-width: 100%;
+  }
+
   .inline-card {
     max-width: 100% !important;
   }
@@ -575,6 +584,41 @@ button.primary:active { transform: translateY(1px); }
 /* ---- Shift / Jadwal ---- */
 .shift-grid th, .shift-grid td { white-space: nowrap; }
 .shift-grid tbody tr.shift-me { background: color-mix(in srgb, var(--color-primary) 6%, transparent); }
+
+/* Kolom "Staff" dibekukan: tetap terlihat saat tabel digeser ke samping.
+   Wadahnya (.table-scroll) yang menggulir, bukan halaman. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+.table-scroll .data-table {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0;
+}
+
+.shift-grid th:first-child,
+.shift-grid td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--color-surface);
+  /* garis pemisah + bayangan halus supaya batas kolom beku terlihat */
+  box-shadow: 1px 0 0 var(--color-border), 6px 0 10px -8px rgba(0, 0, 0, 0.25);
+}
+.shift-grid thead th:first-child { z-index: 3; background: var(--color-bg); }
+/* Baris "Saya" & hover tetap konsisten warnanya di kolom beku */
+.shift-grid tbody tr.shift-me td:first-child {
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+}
+.shift-grid tbody tr:hover td:first-child {
+  background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface));
+}
 
 .shift-chip {
   display: inline-block;
