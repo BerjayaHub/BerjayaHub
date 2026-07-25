@@ -1,6 +1,7 @@
 import { toast, confirmDialog, formDialog, renderSearchSelect, wireSearchSelect, infoDialog } from '../../core/ui.js';
 import { formatRupiah } from '../../core/format.js';
 import { importProducts, importRecipes, downloadProductTemplate, downloadRecipeTemplate } from './product-import.js';
+import { openRecipeEditor, MODE_LABEL, modesForType } from './recipe-editor.js';
 import {
   PRODUCT_TYPES,
   TYPE_LABEL,
@@ -15,7 +16,8 @@ import {
   costForMode,
   listUnits,
   createUnit,
-  deleteUnit
+  deleteUnit,
+  distinctCategories
 } from './product.service.js';
 
 const TABS = [
@@ -24,8 +26,6 @@ const TABS = [
   { key: 'units', label: 'Satuan' }
 ];
 
-const MODE_LABEL = { production: 'Produksi (CK)', standalone: 'Standalone', served_by_ck: 'Dilayani CK' };
-const modesForType = (t) => (t === 'semi' ? ['production'] : t === 'finished' ? ['standalone', 'served_by_ck'] : []);
 
 export async function renderMasterProductPage(container, { businessUnitId }) {
   container.innerHTML = `
@@ -75,9 +75,9 @@ async function renderProductsTab(content, businessUnitId) {
       </div>
     </div>
     <table class="data-table">
-      <thead><tr><th>Nama</th><th>Tipe</th><th>Satuan</th><th>Harga Beli</th><th>HPP / Satuan</th><th>Harga Jual</th><th>Margin</th><th>Aksi</th></tr></thead>
+      <thead><tr><th>Nama</th><th>Tipe</th><th>Kategori</th><th>Satuan</th><th>Harga Beli</th><th>HPP / Satuan</th><th>Harga Jual</th><th>Margin</th><th>Aksi</th></tr></thead>
       <tbody>
-        ${products.map((p) => productRowHtml(p, costs.get(p.id))).join('') || '<tr><td colspan="8">Belum ada produk.</td></tr>'}
+        ${products.map((p) => productRowHtml(p, costs.get(p.id))).join('') || '<tr><td colspan="9">Belum ada produk.</td></tr>'}
       </tbody>
     </table>
   `;
@@ -121,6 +121,7 @@ function productRowHtml(p, cost) {
     <tr>
       <td>${escapeHtml(p.name)}${p.is_active === false ? ' <span style="font-size:0.7rem;color:var(--color-danger)">(nonaktif)</span>' : ''}</td>
       <td>${TYPE_LABEL[p.product_type] ?? p.product_type}</td>
+      <td style="font-size:0.85rem">${escapeHtml(p.category ?? '-')}${p.subcategory ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${escapeHtml(p.subcategory)}</div>` : ''}</td>
       <td>${escapeHtml(p.base_unit)}</td>
       <td>${beli}</td>
       <td>${hpp}</td>
@@ -136,18 +137,41 @@ function productRowHtml(p, cost) {
 async function openProductDialog(content, businessUnitId, existing) {
   const isEdit = !!existing;
   let units = [];
+  let cats = { categories: [], subcategories: [] };
   try {
-    units = await listUnits();
+    const [u, prods] = await Promise.all([listUnits(), listProducts(businessUnitId)]);
+    units = u;
+    cats = distinctCategories(prods);
   } catch {
     units = [];
   }
   const unitOptions = units.map((u) => ({ value: u.name, label: u.name }));
+  const catOptions = cats.categories.map((c) => ({ value: c, label: c }));
+  const subOptions = cats.subcategories.map((c) => ({ value: c, label: c }));
   const values = await formDialog({
     title: isEdit ? 'Edit Produk' : 'Tambah Produk',
     fields: [
       { name: 'name', label: 'Nama Produk', type: 'text', required: true, value: existing?.name ?? '' },
       { name: 'product_type', label: 'Tipe', type: 'select', required: true, value: existing?.product_type ?? 'raw', options: PRODUCT_TYPES },
-      { name: 'category', label: 'Kategori (opsional)', type: 'text', value: existing?.category ?? '', placeholder: 'mis. Kopi / Non-Kopi / Makanan' },
+      {
+        name: 'category',
+        label: 'Kategori',
+        type: 'searchselect',
+        allowCreate: true,
+        value: existing?.category ?? '',
+        options: catOptions,
+        placeholder: 'cari / ketik kategori baru…',
+        help: 'Ketik nama baru lalu pilih “+ Tambah …” untuk membuat kategori.'
+      },
+      {
+        name: 'subcategory',
+        label: 'Sub-kategori',
+        type: 'searchselect',
+        allowCreate: true,
+        value: existing?.subcategory ?? '',
+        options: subOptions,
+        placeholder: 'cari / ketik sub-kategori baru…'
+      },
       { name: 'base_unit', label: 'Satuan pakai (di resep/stok)', type: 'select', required: true, value: existing?.base_unit ?? '', options: [{ value: '', label: '-- pilih satuan --' }, ...unitOptions] },
       { name: 'purchase_unit', label: 'Satuan beli', type: 'select', value: existing?.purchase_unit ?? '', options: [{ value: '', label: '-- pilih satuan --' }, ...unitOptions] },
       { name: 'purchase_qty', label: 'Isi per satuan beli (dalam satuan pakai)', type: 'number', min: 0, value: existing?.purchase_qty ?? '', placeholder: 'mis. 25000' },
@@ -182,6 +206,7 @@ async function openProductDialog(content, businessUnitId, existing) {
     name: values.name,
     product_type: values.product_type,
     category: values.category || null,
+    subcategory: values.subcategory || null,
     base_unit: values.base_unit,
     purchase_unit: isRaw ? values.purchase_unit : null,
     purchase_qty: isRaw && values.purchase_qty !== '' ? Number(values.purchase_qty) : null,
@@ -248,7 +273,15 @@ async function renderRecipesTab(content, businessUnitId) {
   `;
 
   content.querySelectorAll('.btn-edit-recipe').forEach((btn) =>
-    btn.addEventListener('click', () => openRecipeEditor(content, businessUnitId, products.find((p) => p.id === btn.dataset.id), products, btn.dataset.mode))
+    btn.addEventListener('click', () =>
+      openRecipeEditor(content.querySelector('#recipe-editor'), {
+        businessUnitId,
+        product: products.find((p) => p.id === btn.dataset.id),
+        products,
+        mode: btn.dataset.mode,
+        onSaved: () => renderRecipesTab(content, businessUnitId)
+      })
+    )
   );
   document.getElementById('btn-tpl-recipe').addEventListener('click', downloadRecipeTemplate);
   document.getElementById('btn-import-recipe').addEventListener('click', () =>
@@ -281,97 +314,6 @@ async function openImport(content, businessUnitId, kind, refresh) {
   } catch (error) {
     toast(error.message ?? 'Gagal import.', 'error');
   }
-}
-
-async function openRecipeEditor(content, businessUnitId, product, products, mode) {
-  const editor = content.querySelector('#recipe-editor');
-  editor.innerHTML = `<p>Memuat resep...</p>`;
-  let current;
-  try {
-    current = await getRecipeForProduct(product.id, mode);
-  } catch (error) {
-    editor.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
-    return;
-  }
-  // Bahan yang boleh: bahan baku & setengah jadi, kecuali produk ini sendiri.
-  const ingredientOptions = products.filter((p) => (p.product_type === 'raw' || p.product_type === 'semi') && p.id !== product.id);
-  const ingOpts = ingredientOptions.map((o) => ({ value: o.id, label: `${o.name} (${TYPE_LABEL[o.product_type]})` }));
-
-  const rowsHtml = (current.items.length ? current.items : [{ ingredient_product_id: '', qty: '' }])
-    .map((it) => ingredientRowHtml(it, ingOpts))
-    .join('');
-
-  editor.innerHTML = `
-    <div class="inline-card" style="max-width:640px">
-      <h3 style="margin-top:0">Resep: ${escapeHtml(product.name)} <span style="font-size:0.8rem;color:var(--color-text-muted)">(${TYPE_LABEL[product.product_type]} · ${MODE_LABEL[mode] ?? mode})</span></h3>
-      <div class="field" style="max-width:280px">
-        <label>Hasil / yield (dalam ${escapeHtml(product.base_unit)})</label>
-        <input type="number" id="recipe-yield" min="0" value="${current.recipe?.yield_qty ?? 1}" />
-      </div>
-      <h4 style="margin:12px 0 6px;font-size:0.9rem">Bahan</h4>
-      <div class="line-rows" id="recipe-rows">${rowsHtml}</div>
-      <button id="btn-add-ingredient" style="margin-top:10px">+ Tambah Bahan</button>
-      <div class="field" style="margin-top:12px"><label>Catatan (opsional)</label><input type="text" id="recipe-notes" value="${escapeAttr(current.recipe?.notes ?? '')}" /></div>
-      <button class="primary" id="btn-save-recipe" style="max-width:200px">Simpan Resep</button>
-      <p class="error-text" id="recipe-error"></p>
-    </div>
-  `;
-
-  const rowsBody = editor.querySelector('#recipe-rows');
-  const wireRow = (row) => {
-    const widget = row.querySelector('.search-select');
-    const unitCell = row.querySelector('.ln-unit');
-    const updateUnit = (val) => {
-      const p = ingredientOptions.find((o) => o.id === val);
-      unitCell.textContent = p ? p.base_unit : '-';
-    };
-    wireSearchSelect(widget, ingOpts, updateUnit);
-    updateUnit(widget.querySelector('input[type="hidden"]').value);
-    row.querySelector('.ln-remove').addEventListener('click', () => row.remove());
-  };
-  rowsBody.querySelectorAll('.line-row').forEach(wireRow);
-
-  editor.querySelector('#btn-add-ingredient').addEventListener('click', () => {
-    const wrap = document.createElement('div');
-    wrap.innerHTML = ingredientRowHtml({ ingredient_product_id: '', qty: '' }, ingOpts);
-    const row = wrap.firstElementChild;
-    rowsBody.appendChild(row);
-    wireRow(row);
-  });
-
-  editor.querySelector('#btn-save-recipe').addEventListener('click', async () => {
-    const errorEl = editor.querySelector('#recipe-error');
-    errorEl.textContent = '';
-    const yieldQty = Number(editor.querySelector('#recipe-yield').value);
-    if (!(yieldQty > 0)) {
-      errorEl.textContent = 'Hasil/yield harus lebih dari 0.';
-      return;
-    }
-    const items = [...rowsBody.querySelectorAll('.line-row')]
-      .map((row) => ({ ingredient_product_id: row.querySelector('.search-select input[type="hidden"]').value, qty: Number(row.querySelector('.ln-qty').value) }))
-      .filter((i) => i.ingredient_product_id && i.qty > 0);
-    if (!items.length) {
-      errorEl.textContent = 'Tambahkan minimal satu bahan.';
-      return;
-    }
-    try {
-      await saveRecipe({ productId: product.id, businessUnitId, mode, yield_qty: yieldQty, notes: editor.querySelector('#recipe-notes').value, items });
-      toast('Resep disimpan.', 'success');
-      await renderRecipesTab(content, businessUnitId);
-    } catch (error) {
-      errorEl.textContent = error.message ?? 'Gagal menyimpan resep.';
-    }
-  });
-}
-
-function ingredientRowHtml(it, ingOpts) {
-  return `
-    <div class="line-row">
-      ${renderSearchSelect({ name: 'ing', options: ingOpts, value: it.ingredient_product_id ?? '', placeholder: 'cari bahan…' })}
-      <input type="number" class="ln-qty" min="0" placeholder="jumlah" value="${it.qty ?? ''}" />
-      <span class="ln-unit">-</span>
-      <button class="ln-remove" title="Hapus bahan">✕</button>
-    </div>`;
 }
 
 // ---- Tab: Satuan (global) ----

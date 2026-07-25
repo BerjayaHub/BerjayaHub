@@ -11,6 +11,7 @@ import { renderProductionAdminPage } from './modules/production/production.admin
 import { renderDispatchAdminPage } from './modules/dispatch/dispatch.admin.page.js';
 import { renderSalesAdminPage } from './modules/sales/sales.admin.page.js';
 import { renderCashAdminPage } from './modules/cash/cash.admin.page.js';
+import { renderMenuAdminPage } from './modules/menu/menu.admin.page.js';
 import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
 import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
 import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
@@ -61,6 +62,7 @@ const GROUPS = {
     tabs: [
       { code: 'inventory', label: 'Stok & Riwayat', render: renderInventoryAdminPage },
       { code: 'master_product', label: 'Master Produk', render: renderMasterProductPage },
+      { code: 'menu', label: 'Menu', render: renderMenuAdminPage },
       { code: 'production', label: 'Produksi', render: renderProductionAdminPage },
       { code: 'sales', label: 'Penjualan', render: renderSalesAdminPage }
     ]

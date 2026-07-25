@@ -356,6 +356,14 @@ Jalankan migration `0028_nbm_adjustments.sql`.
 - Nominal asli hasil hitungan sistem tidak ditimpa — koreksi disimpan terpisah di tabel `nbm_adjustments` (hanya admin BU yang boleh mengubah), jadi jejak audit tetap ada.
 - **Pindah mode lewat header** (Staff App ↔ Admin Portal): akun ber-peran admin mendapat **segmented switcher** di header — *📱 Staff App | 🛠️ Admin Portal* — dengan mode aktif ditandai. Di Staff App switcher menyatu dengan header bertema BU (di layar sempit turun ke baris kedua, rata tengah); di Admin Portal ada **header bar baru** berisi nama BU aktif + switcher di kanan (sticky, aman dari tombol menu ☰ di mobile). Navigasi memakai halaman yang sama sehingga **tetap di dalam PWA** yang ter-install.
 
+## Revisi Inventory, Kategori Produk & Modul Menu
+
+Jalankan migration `0030_product_subcategory.sql`.
+
+- **Stok Opname jadi tabel isi-langsung** (Staff App → Inventory → **📋 Stok Opname**): menampilkan **semua bahan** dengan kolom *Stok Akhir*, **Stok Fisik** (diisi langsung di tabel), *Satuan*, dan **Selisih** yang dihitung otomatis saat mengetik (hijau/merah). Ada **filter kategori** + **pencarian fuzzy** untuk mempercepat pencarian saat opname. Baris yang dikosongkan diabaikan; simpan sekali untuk semua koreksi (dengan konfirmasi). Menggantikan pop up per-produk.
+- **Kategori & Sub-kategori produk**: field kategori kini **dropdown pencarian fuzzy** yang otomatis terisi dari kategori yang sudah ada, plus opsi **“+ Tambah …”** untuk membuat kategori/sub-kategori baru langsung dari dropdown. Ditampilkan juga di tabel Master Produk.
+- **Modul Menu di Admin Portal** (BU & Outlet → grup **Inventory** → tab **Menu**): daftar seluruh produk bertipe **Menu**, lengkap dengan **HPP Standalone** & **HPP Dilayani CK** (dihitung dari resep + harga bahan/setengah jadi), **margin**, **edit harga jual langsung di tabel**, serta tombol **atur resep per varian**. Ada filter kategori & pencarian fuzzy. Editor resep kini komponen bersama (`recipe-editor.js`) yang dipakai Master Produk maupun Menu.
+
 ## Akses modul per user
 
 Jalankan migration `0029_user_module_access.sql`.

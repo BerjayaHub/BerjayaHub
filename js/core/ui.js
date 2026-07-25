@@ -295,12 +295,14 @@ export function fuzzyMatch(query, text) {
   return false;
 }
 
-export function renderSearchSelect({ name, options, value = '', placeholder = 'Ketik untuk cari…' }) {
+export function renderSearchSelect({ name, options, value = '', placeholder = 'Ketik untuk cari…', allowCreate = false }) {
   const selected = options.find((o) => String(o.value) === String(value ?? ''));
+  // Untuk field bebas (allowCreate), nilai yang belum ada di daftar tetap ditampilkan.
+  const shownLabel = selected?.label ?? (allowCreate ? value ?? '' : '');
   return `
-    <div class="search-select" data-name="${escapeAttr(name)}">
+    <div class="search-select" data-name="${escapeAttr(name)}"${allowCreate ? ' data-allow-create="1"' : ''}>
       <input type="hidden" name="${escapeAttr(name)}" value="${escapeAttr(value ?? '')}" />
-      <input type="text" class="ss-input" autocomplete="off" placeholder="${escapeAttr(placeholder)}" value="${escapeAttr(selected?.label ?? '')}" />
+      <input type="text" class="ss-input" autocomplete="off" placeholder="${escapeAttr(placeholder)}" value="${escapeAttr(shownLabel)}" />
       <ul class="ss-list" hidden></ul>
     </div>`;
 }
@@ -310,35 +312,44 @@ export function wireSearchSelect(widget, options, onChange) {
   const hidden = widget.querySelector('input[type="hidden"]');
   const input = widget.querySelector('.ss-input');
   const list = widget.querySelector('.ss-list');
-  const labelFor = (val) => options.find((o) => String(o.value) === String(val))?.label ?? '';
-  let filtered = options;
-  const draw = () => {
+  const allowCreate = widget.dataset.allowCreate === '1';
+  const labelFor = (val) => options.find((o) => String(o.value) === String(val))?.label ?? (allowCreate ? val : '');
+
+  const draw = (filtered) => {
+    const typed = input.value.trim();
+    const exact = options.some((o) => String(o.label).toLowerCase() === typed.toLowerCase());
+    const createItem =
+      allowCreate && typed && !exact
+        ? `<li data-val="${escapeAttr(typed)}" class="ss-create">+ Tambah “${escapeHtml(typed)}”</li>`
+        : '';
     list.innerHTML =
-      filtered.slice(0, 60).map((o) => `<li data-val="${escapeAttr(o.value)}">${escapeHtml(o.label)}</li>`).join('') ||
-      '<li class="ss-empty">Tidak ada hasil</li>';
+      createItem +
+        filtered.slice(0, 60).map((o) => `<li data-val="${escapeAttr(o.value)}">${escapeHtml(o.label)}</li>`).join('') ||
+      (createItem || '<li class="ss-empty">Tidak ada hasil</li>');
     list.hidden = false;
   };
-  input.addEventListener('focus', () => {
-    filtered = options;
-    draw();
-  });
+
+  input.addEventListener('focus', () => draw(options));
   input.addEventListener('input', () => {
-    hidden.value = '';
-    filtered = options.filter((o) => fuzzyMatch(input.value, o.label));
-    draw();
+    hidden.value = allowCreate ? input.value.trim() : '';
+    draw(options.filter((o) => fuzzyMatch(input.value, o.label)));
   });
   list.addEventListener('mousedown', (e) => {
     const li = e.target.closest('li[data-val]');
     if (!li) return;
     hidden.value = li.dataset.val;
-    input.value = labelFor(li.dataset.val);
+    input.value = labelFor(li.dataset.val) || li.dataset.val;
     list.hidden = true;
     onChange?.(hidden.value);
   });
   input.addEventListener('blur', () => {
     setTimeout(() => {
       list.hidden = true;
-      input.value = hidden.value ? labelFor(hidden.value) : '';
+      if (allowCreate) {
+        hidden.value = input.value.trim();
+      } else {
+        input.value = hidden.value ? labelFor(hidden.value) : '';
+      }
     }, 150);
   });
 }
@@ -378,7 +389,7 @@ function fieldHtml(f) {
     return `
       <div class="field">
         <label for="${id}">${escapeHtml(f.label)}</label>
-        ${renderSearchSelect({ name: f.name, options: f.options ?? [], value: f.value, placeholder: f.placeholder })}
+        ${renderSearchSelect({ name: f.name, options: f.options ?? [], value: f.value, placeholder: f.placeholder, allowCreate: f.allowCreate })}
         ${help}
       </div>`;
   }

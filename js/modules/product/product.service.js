@@ -28,7 +28,7 @@ export async function deleteUnit(id) {
 export async function listProducts(businessUnitId) {
   const { data, error } = await supabase
     .from('products')
-    .select('id, name, product_type, category, base_unit, purchase_unit, purchase_qty, purchase_price, sale_price, is_active')
+    .select('id, name, product_type, category, subcategory, base_unit, purchase_unit, purchase_qty, purchase_price, sale_price, is_active')
     .eq('business_unit_id', businessUnitId)
     .order('product_type')
     .order('name');
@@ -42,6 +42,7 @@ export async function createProduct(p) {
     name: p.name,
     product_type: p.product_type,
     category: p.category || null,
+    subcategory: p.subcategory || null,
     base_unit: p.base_unit,
     purchase_unit: p.purchase_unit || null,
     purchase_qty: p.purchase_qty ?? null,
@@ -58,6 +59,7 @@ export async function updateProduct(id, p) {
       name: p.name,
       product_type: p.product_type,
       category: p.category || null,
+      subcategory: p.subcategory || null,
       base_unit: p.base_unit,
       purchase_unit: p.purchase_unit || null,
       purchase_qty: p.purchase_qty ?? null,
@@ -66,6 +68,26 @@ export async function updateProduct(id, p) {
       is_active: p.is_active
     })
     .eq('id', id);
+  if (error) throw error;
+}
+
+/** Daftar kategori & sub-kategori unik yang sudah dipakai (untuk dropdown). */
+export function distinctCategories(products) {
+  const cats = new Set();
+  const subs = new Set();
+  for (const p of products) {
+    if (p.category) cats.add(p.category);
+    if (p.subcategory) subs.add(p.subcategory);
+  }
+  return {
+    categories: [...cats].sort((a, b) => a.localeCompare(b)),
+    subcategories: [...subs].sort((a, b) => a.localeCompare(b))
+  };
+}
+
+/** Harga jual saja (dipakai edit cepat di modul Menu). */
+export async function updateSalePrice(id, salePrice) {
+  const { error } = await supabase.from('products').update({ sale_price: salePrice }).eq('id', id);
   if (error) throw error;
 }
 
