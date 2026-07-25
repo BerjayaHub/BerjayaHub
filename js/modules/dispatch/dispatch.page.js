@@ -13,6 +13,7 @@ import {
   getMyScopedOutlets,
   ORDER_STATUS,
   createStockOrder,
+  updateStockOrder,
   fulfillStockOrder,
   rejectStockOrder,
   cancelStockOrder,
@@ -157,7 +158,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         myOrders.length
           ? `<h3 style="font-size:0.95rem;margin:18px 0 8px">Order Saya</h3>
              <table class="data-table">
-               <thead><tr><th>No. Order</th><th>Ke</th><th>Waktu</th><th>Status</th><th></th></tr></thead>
+               <thead><tr><th>No. Order</th><th>Ke</th><th>Waktu</th><th>Status</th><th>Keterangan</th><th>Aksi</th></tr></thead>
                <tbody>
                  ${myOrders
                    .map(
@@ -167,12 +168,23 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                        <td style="font-size:0.8rem">${fmtDateTime(o.created_at)}</td>
                        <td><span class="badge ${ORDER_BADGE[o.status] ?? ''}">${ORDER_STATUS[o.status] ?? o.status}</span>
                          ${o.status === 'rejected' && o.reject_reason ? `<div style="font-size:0.74rem;color:var(--color-danger)">${esc(o.reject_reason)}</div>` : ''}</td>
-                       <td>${o.status === 'open' ? `<button class="btn-cancel-order" data-id="${o.id}">Batalkan</button>` : ''}</td>
+                       <td style="font-size:0.78rem">${
+                         o.edited_at
+                           ? `<span class="badge badge-pending">✎</span> Diedit oleh ${esc(o.editor?.full_name ?? 'staff')} · ${fmtDateTime(o.edited_at)}`
+                           : '<span style="color:var(--color-text-muted)">-</span>'
+                       }</td>
+                       <td>${
+                         o.status === 'open'
+                           ? `<button class="btn-edit-order" data-id="${o.id}" data-code="${esc(o.code ?? '')}">Edit</button>
+                              <button class="btn-cancel-order" data-id="${o.id}">Batalkan</button>`
+                           : ''
+                       }</td>
                      </tr>`
                    )
                    .join('')}
                </tbody>
-             </table>`
+             </table>
+             <div id="ord-edit-box" style="margin-top:12px"></div>`
           : ''
       }
     `;
@@ -219,6 +231,65 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         } catch (error) {
           toast(error.message ?? 'Gagal membatalkan order.', 'error');
         }
+      })
+    );
+
+    // Edit order yang masih menunggu (nomor order tetap sama).
+    box.querySelectorAll('.btn-edit-order').forEach((btn) =>
+      btn.addEventListener('click', async () => {
+        const editBox = box.querySelector('#ord-edit-box');
+        editBox.innerHTML = `<p style="color:var(--color-text-muted)">Memuat isi order...</p>`;
+        let items;
+        try {
+          items = await getOrderItems(btn.dataset.id);
+        } catch (error) {
+          editBox.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
+          return;
+        }
+        editBox.innerHTML = `
+          <div class="inline-card fade-in" style="max-width:640px">
+            <h4 style="margin:0 0 4px">Ubah Order ${esc(btn.dataset.code)}</h4>
+            <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 10px">
+              Nomor order tetap sama. Perubahan tercatat atas namamu beserta waktunya.
+            </p>
+            <div id="ord-edit-picker"></div>
+            <div class="field" style="margin-top:12px"><label>Catatan (opsional)</label><input type="text" id="ord-edit-notes" /></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="primary" id="ord-edit-save" style="max-width:200px">Simpan Perubahan</button>
+              <button id="ord-edit-cancel">Batal</button>
+            </div>
+            <p class="error-text" id="ord-edit-error"></p>
+          </div>`;
+
+        const editPicker = createItemPicker(editBox.querySelector('#ord-edit-picker'), {
+          products: stockProducts,
+          stockMap: state.stockMap,
+          showStock: true,
+          initial: items.map((it) => ({ product_id: it.product_id, qty: it.qty }))
+        });
+
+        editBox.querySelector('#ord-edit-cancel').addEventListener('click', () => {
+          editBox.innerHTML = '';
+        });
+
+        editBox.querySelector('#ord-edit-save').addEventListener('click', async (e) => {
+          const errorEl = editBox.querySelector('#ord-edit-error');
+          errorEl.textContent = '';
+          const newItems = editPicker.getItems();
+          if (!newItems.length) {
+            errorEl.textContent = 'Order harus berisi minimal satu produk.';
+            return;
+          }
+          e.target.disabled = true;
+          try {
+            await updateStockOrder({ orderId: btn.dataset.id, items: newItems, notes: editBox.querySelector('#ord-edit-notes').value });
+            toast('Order diperbarui.', 'success');
+            showTab();
+          } catch (error) {
+            errorEl.textContent = error.message ?? 'Gagal menyimpan perubahan.';
+            e.target.disabled = false;
+          }
+        });
       })
     );
   }

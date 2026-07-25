@@ -366,6 +366,11 @@ Jalankan migration `0031_stock_orders.sql`. Alur pengiriman kini punya langkah a
 
 Aturan yang dipakai: **sekali kirim order langsung selesai** (kekurangan dipesan ulang), dan **CK boleh menolak dengan alasan**. Order & kiriman masuk ikut auto-refresh 15 detik.
 
+### Order bisa diedit (migration `0035_stock_order_edit.sql`)
+
+Order yang **sudah bernomor** tetap bisa diubah outlet selama statusnya masih *Menunggu diproses* — nomor order **tidak berubah**. Tombol **Edit** ada di tabel *Order Saya*; isinya dimuat ulang ke pemilih produk (lengkap dengan filter kategori & stok), lalu disimpan lewat RPC `update_stock_order`.
+Tabel *Order Saya* dapat kolom **Keterangan** berisi **“✎ Diedit oleh {nama} · {tanggal & jam}”**. Yang boleh mengubah: pembuat order atau admin outlet asal; order yang sudah dikirim/ditolak tidak bisa diubah.
+
 ### Tampilan Pengiriman (Staff App)
 
 - **Bertab, tidak lagi form bertumpuk**. Tab menyesuaikan peran outlet: outlet biasa → *🧾 Order ke CK*, *🔁 Transfer / Retur*, *📦 Kiriman Masuk*; Central Kitchen → *📥 Order Masuk*, *🚚 Kirim ke Outlet*, *📦 Kiriman Masuk*.

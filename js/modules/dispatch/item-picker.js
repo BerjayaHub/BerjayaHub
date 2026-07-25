@@ -9,7 +9,7 @@ import { formatNum } from '../../core/format.js';
  *
  * @returns {{ getItems: () => Array<{product_id:string, qty:number}> }}
  */
-export function createItemPicker(mountEl, { products, stockMap = new Map(), showStock = true }) {
+export function createItemPicker(mountEl, { products, stockMap = new Map(), showStock = true, initial = [] }) {
   const categories = [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
   const state = { category: '', subcategory: '' };
 
@@ -106,7 +106,7 @@ export function createItemPicker(mountEl, { products, stockMap = new Map(), show
   mountEl.querySelector('.pf-add').addEventListener('click', addRow);
 
   refreshSubOptions();
-  renderRows([]);
+  renderRows(initial.map((i) => ({ product_id: i.product_id, qty: i.qty })));
 
   return {
     getItems: () =>

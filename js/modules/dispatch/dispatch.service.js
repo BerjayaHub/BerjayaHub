@@ -52,6 +52,16 @@ export async function fulfillStockOrder({ orderId, items, notes }) {
   return data; // dispatch id
 }
 
+/** Outlet mengubah isi order yang masih menunggu (jejak edit ikut tercatat). */
+export async function updateStockOrder({ orderId, items, notes }) {
+  const { error } = await supabase.rpc('update_stock_order', {
+    p_order: orderId,
+    p_items: items.map((i) => ({ product_id: i.product_id, qty: i.qty })),
+    p_notes: notes || null
+  });
+  if (error) throw error;
+}
+
 export async function rejectStockOrder(orderId, reason) {
   const { error } = await supabase.rpc('reject_stock_order', { p_order: orderId, p_reason: reason || null });
   if (error) throw error;
@@ -80,7 +90,7 @@ export async function listMyOrders(outletIds, limit = 30) {
   if (!outletIds?.length) return [];
   const { data, error } = await supabase
     .from('stock_orders')
-    .select('id, code, status, notes, reject_reason, created_at, handled_at, to_outlet:outlets!to_outlet_id(name)')
+    .select('id, code, status, notes, reject_reason, created_at, handled_at, edited_at, editor:user_profiles!edited_by(full_name), to_outlet:outlets!to_outlet_id(name)')
     .in('from_outlet_id', outletIds)
     .order('created_at', { ascending: false })
     .limit(limit);

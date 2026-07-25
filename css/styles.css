@@ -371,12 +371,22 @@ button.primary:active { transform: translateY(1px); }
   }
 
   /* Tabel di dalam .table-scroll: wadahnya yang menggulir, tabelnya tetap
-     table biasa supaya kolom beku (sticky) tetap bekerja di HP. */
+     table biasa supaya kolom beku (sticky) tetap bekerja di HP.
+     (Aturan global .data-table di atas mengubahnya jadi block+overflow, yang
+     membuat sticky tidak jalan — makanya dikembalikan di sini.) */
   .table-scroll .data-table {
     display: table;
     overflow: visible;
+    white-space: nowrap;
     width: max-content;
     min-width: 100%;
+  }
+  /* Sel beku perlu latar solid agar sel lain tidak menembus saat digeser. */
+  .table-scroll .shift-grid td:first-child,
+  .table-scroll .shift-grid th:first-child {
+    position: -webkit-sticky;
+    position: sticky;
+    left: 0;
   }
 
   .inline-card {
@@ -600,10 +610,20 @@ button.primary:active { transform: translateY(1px); }
   border-radius: 0;
   box-shadow: none;
   margin: 0;
+  /* PENTING: .data-table punya overflow:hidden (untuk sudut membulat), dan itu
+     mematahkan position:sticky pada sel di dalamnya. Di sini dikembalikan. */
+  overflow: visible;
+  /* separate + spacing 0 supaya border sel tetap tampil saat sel di-sticky
+     (border-collapse:collapse membuat border sel sticky hilang di sebagian browser). */
+  border-collapse: separate;
+  border-spacing: 0;
+  width: max-content;
+  min-width: 100%;
 }
 
 .shift-grid th:first-child,
 .shift-grid td:first-child {
+  position: -webkit-sticky; /* iOS Safari lama */
   position: sticky;
   left: 0;
   z-index: 2;
