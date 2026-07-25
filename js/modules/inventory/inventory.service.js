@@ -73,6 +73,18 @@ export async function recordMovement({ businessUnitId, outletId, productId, move
   if (error) throw error;
 }
 
+/** Waste MENU: bahan terpotong sesuai resep menu (lewat RPC). */
+export async function recordMenuWaste({ businessUnitId, outletId, productId, qty, notes }) {
+  const { error } = await supabase.rpc('record_menu_waste', {
+    p_bu: businessUnitId,
+    p_outlet: outletId,
+    p_product: productId,
+    p_qty: qty,
+    p_notes: notes || null
+  });
+  if (error) throw error;
+}
+
 export async function transferStock({ fromOutlet, toOutlet, productId, qty, unitCost, notes }) {
   const { error } = await supabase.rpc('transfer_stock', {
     p_from_outlet: fromOutlet,

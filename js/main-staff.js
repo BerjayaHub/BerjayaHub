@@ -12,6 +12,9 @@ import { renderDispatchPage } from './modules/dispatch/dispatch.page.js';
 import { renderMenuPage } from './modules/menu/menu.page.js';
 import { renderSalesPage } from './modules/sales/sales.page.js';
 import { renderCashPage } from './modules/cash/cash.page.js';
+import { renderProfilePage, initials } from './modules/profile/profile.page.js';
+import { getStaffPhotoUrl } from './modules/profile/profile.service.js';
+import { getMyTodaySession } from './modules/attendance/attendance.service.js';
 
 registerModule('attendance', renderAttendancePage);
 registerModule('leave', renderLeavePage);
@@ -171,6 +174,7 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
           ${buLine}
         </div>
         <button class="topbar-btn" id="btn-home-top" title="Beranda" aria-label="Beranda">🏠</button>
+        <button class="topbar-btn" id="btn-profile" title="Profil Saya" aria-label="Profil Saya">👤</button>
         <button class="topbar-btn" id="btn-change-password" title="Ubah Password" aria-label="Ubah Password">🔑</button>
         <button class="topbar-btn" id="btn-logout" title="Keluar" aria-label="Keluar">⎋</button>
       </div>
@@ -200,6 +204,28 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
   });
 
   document.getElementById('btn-home-top').addEventListener('click', () => renderHome(context, modules, moduleCtx));
+
+  document.getElementById('btn-profile').addEventListener('click', () => {
+    const content = document.getElementById('module-content');
+    content.innerHTML = `
+      <div class="module-header">
+        <button class="btn-home" id="btn-back-home">🏠 Beranda</button>
+        <span class="module-header-title">Profil Saya</span>
+      </div>
+      <div id="module-body"></div>`;
+    document.getElementById('btn-back-home').addEventListener('click', () => renderHome(context, modules, moduleCtx));
+    renderProfilePage(document.getElementById('module-body'), {
+      onProfileUpdated: async () => {
+        // Segarkan foto/nama di beranda setelah profil diubah.
+        try {
+          const fresh = await getCurrentUserContext();
+          if (fresh) context.profile = fresh.profile;
+        } catch {
+          /* abaikan */
+        }
+      }
+    });
+  });
 
   document.getElementById('btn-logout').addEventListener('click', async () => {
     const ok = await confirmDialog({
@@ -233,7 +259,7 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
   renderHome(context, modules, moduleCtx);
 }
 
-function renderHome(context, modules, moduleCtx) {
+async function renderHome(context, modules, moduleCtx) {
   const content = document.getElementById('module-content');
   const firstName = (context.profile.full_name || '').split(' ')[0] || 'Halo';
   // Hanya tampilkan modul yang punya halaman Staff App + sesuai peran outlet:
@@ -245,10 +271,17 @@ function renderHome(context, modules, moduleCtx) {
     if (mod.code === 'menu' || mod.code === 'sales') return !role || role !== 'central_kitchen';
     return true;
   });
+  const hasAttendance = staffModules.some((m) => m.code === 'attendance');
   content.innerHTML = `
-    <div class="staff-greeting">
-      <h1>Halo, ${firstName} 👋</h1>
-      <p>Pilih menu di bawah untuk mulai.</p>
+    <div class="home-hero">
+      <div class="staff-greeting">
+        <div class="hero-avatar" id="hero-avatar">${initials(context.profile.full_name)}</div>
+        <div>
+          <h1>Halo, ${firstName} 👋</h1>
+          <p>Pilih menu di bawah untuk mulai.</p>
+        </div>
+      </div>
+      ${hasAttendance ? `<button class="att-mini" id="att-mini"><div class="att-mini-head">🕐 Presensi Hari Ini</div><div class="att-mini-body" id="att-mini-body">Memuat…</div></button>` : ''}
     </div>
     <div class="card-grid">
       ${
@@ -268,6 +301,41 @@ function renderHome(context, modules, moduleCtx) {
   content.querySelectorAll('[data-module]').forEach((card) => {
     card.addEventListener('click', () => openModule(card.dataset.module, context, modules, moduleCtx));
   });
+
+  // Foto staff di sebelah sapaan (fallback: inisial nama).
+  if (context.profile.photo_path) {
+    getStaffPhotoUrl(context.profile.photo_path)
+      .then((url) => {
+        const el = document.getElementById('hero-avatar');
+        if (url && el) el.innerHTML = `<img src="${url}" alt="Foto" />`;
+      })
+      .catch(() => {});
+  }
+
+  // Ringkasan presensi hari ini, tepat di samping sapaan.
+  if (hasAttendance) {
+    document.getElementById('att-mini').addEventListener('click', () => openModule('attendance', context, modules, moduleCtx));
+    getMyTodaySession()
+      .then((s) => {
+        const body = document.getElementById('att-mini-body');
+        if (!body) return;
+        if (!s) {
+          body.innerHTML = `<span class="att-mini-status att-mini-none">Belum clock in</span><span class="att-mini-cta">Ketuk untuk absen →</span>`;
+        } else if (!s.clock_out_at) {
+          body.innerHTML = `<span class="att-mini-status att-mini-active">● Sedang bekerja</span><span class="att-mini-cta">Sejak ${fmtClock(s.clock_in_at)} · ketuk untuk clock out →</span>`;
+        } else {
+          body.innerHTML = `<span class="att-mini-status att-mini-done">✓ Selesai hari ini</span><span class="att-mini-cta">${fmtClock(s.clock_in_at)} – ${fmtClock(s.clock_out_at)}</span>`;
+        }
+      })
+      .catch(() => {
+        const body = document.getElementById('att-mini-body');
+        if (body) body.textContent = 'Ketuk untuk buka presensi';
+      });
+  }
+}
+
+function fmtClock(iso) {
+  return new Date(iso).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 }
 
 function openModule(code, context, modules, moduleCtx) {

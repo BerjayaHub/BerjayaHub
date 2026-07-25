@@ -381,6 +381,19 @@ Jalankan migration `0030_product_subcategory.sql`.
 - **Kategori & Sub-kategori produk**: field kategori kini **dropdown pencarian fuzzy** yang otomatis terisi dari kategori yang sudah ada, plus opsi **“+ Tambah …”** untuk membuat kategori/sub-kategori baru langsung dari dropdown. Ditampilkan juga di tabel Master Produk.
 - **Modul Menu di Admin Portal** (BU & Outlet → grup **Inventory** → tab **Menu**): daftar seluruh produk bertipe **Menu**, lengkap dengan **HPP Standalone** & **HPP Dilayani CK** (dihitung dari resep + harga bahan/setengah jadi), **margin**, **edit harga jual langsung di tabel**, serta tombol **atur resep per varian**. Ada filter kategori & pencarian fuzzy. Editor resep kini komponen bersama (`recipe-editor.js`) yang dipakai Master Produk maupun Menu.
 
+## Update: Data Staff, Profil, & penyesuaian UI
+
+Jalankan migration `0032_staff_profile_and_waste.sql`.
+
+- **Data staff lengkap** di `user_profiles`: nama KTP, no. KTP, jenis kelamin, alamat KTP, kode pos, nama ibu kandung, nomor darurat, ukuran baju/celana/sepatu, status kawin, NPWP, dan **foto staff** (bucket privat `staff-photos`).
+  Migration ini juga menambah **policy UPDATE untuk admin BU** pada `user_profiles` — sebelumnya admin sama sekali tidak bisa mengubah profil staff (hanya pemilik akun), sehingga tombol Edit/Nonaktifkan di Master User bisa gagal diam-diam.
+- **Tab “Data Staff”** (Admin Portal → User): tabel seluruh data staff + **filter BU & outlet**, indikator kelengkapan data, detail per staff (termasuk foto), dan **Export PDF**.
+- **Profil di Staff App** (ikon 👤 di header): staff mengisi/mengubah data pribadinya sendiri & mengunggah foto. Scope, role, modul, BU, dan outlet tetap hanya bisa diubah di Admin Portal.
+- **Beranda Staff App**: **foto staff** tampil di samping sapaan (fallback inisial nama), dan **kartu ringkasan Presensi hari ini** dipindah ke sebelah sapaan (status belum absen / sedang bekerja / selesai, ketuk untuk membuka modul Presensi).
+- **Pengiriman**: **Kiriman Masuk dikeluarkan dari sub-tab** dan disorot di atas (kartu bergaris kuning + jumlah kiriman), sementara Order/Transfer tetap sebagai sub-tab.
+- **Inventory**: label diperjelas — “+ Penerimaan” → **📥 Terima dari Supplier**, “Waste” → **🗑️ Waste / Spoil** dengan pilihan **tipe**: *Spoil* (bahan/setengah jadi rusak → stok bahan berkurang langsung) atau *Waste* (menu jadi terbuang → **bahan dipotong sesuai resep menu** lewat RPC `record_menu_waste`).
+- **Audit tipe Menu**: produk bertipe Menu tidak lagi muncul di form penambahan bahan mana pun (Inventory, Opname, Transfer, Order/Pengiriman, Resep) — hanya di modul Menu, Penjualan, dan pilihan Waste menu.
+
 ## Akses modul per user
 
 Jalankan migration `0029_user_module_access.sql`.

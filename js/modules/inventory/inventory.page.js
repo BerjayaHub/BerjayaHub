@@ -2,7 +2,7 @@ import { toast, formDialog, confirmDialog, fuzzyMatch } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
-import { getOutletStockMap, recordMovement, transferStock, getAllowStaffOpname } from './inventory.service.js';
+import { getOutletStockMap, recordMovement, transferStock, getAllowStaffOpname, recordMenuWaste } from './inventory.service.js';
 
 export async function renderInventoryPage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = `<p>Memuat inventory...</p>`;
@@ -19,7 +19,11 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     container.innerHTML = `<p class="error-text">Gagal memuat: ${error.message ?? error}</p>`;
     return;
   }
-  const activeProducts = products.filter((p) => p.is_active !== false);
+  // Bahan = bahan baku + setengah jadi. Produk bertipe MENU sengaja tidak
+  // ditampilkan di form bahan (penerimaan/spoil/opname/transfer) — menu hanya
+  // dipakai untuk Waste menu & modul Menu.
+  const activeProducts = products.filter((p) => p.is_active !== false && p.product_type !== 'finished');
+  const menuProducts = products.filter((p) => p.is_active !== false && p.product_type === 'finished');
   if (!outlets.length) {
     container.innerHTML = `<h1>Inventory</h1><p>Belum ada outlet untukmu di BU ini.</p>`;
     return;
@@ -39,8 +43,8 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       <select id="inv-outlet">${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${o.name}</option>`).join('')}</select>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-      <button class="primary" id="inv-receive" style="max-width:160px">+ Penerimaan</button>
-      <button id="inv-waste">Waste</button>
+      <button class="primary" id="inv-receive" style="max-width:220px">📥 Terima dari Supplier</button>
+      <button id="inv-waste">🗑️ Waste / Spoil</button>
       ${allowOpname ? '<button id="inv-opname">📋 Stok Opname</button>' : ''}
       <button id="inv-transfer">Transfer</button>
     </div>
@@ -86,11 +90,12 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
 
   container.querySelector('#inv-receive').addEventListener('click', async () => {
     const v = await formDialog({
-      title: 'Penerimaan Stok',
+      title: 'Terima dari Supplier',
+      description: 'Catat bahan yang baru datang dari supplier.',
       fields: [
-        { name: 'product_id', label: 'Produk', type: 'searchselect', required: true, options: productOptions },
+        { name: 'product_id', label: 'Bahan', type: 'searchselect', required: true, options: productOptions },
         { name: 'qty', label: 'Jumlah masuk', type: 'number', required: true, min: 0 },
-        { name: 'notes', label: 'Catatan (opsional)', type: 'text' }
+        { name: 'notes', label: 'Catatan (opsional)', type: 'text', placeholder: 'mis. no. nota / nama supplier' }
       ],
       submitText: 'Simpan'
     });
@@ -98,18 +103,61 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     await doMovement('receive', v.product_id, Number(v.qty), v.notes);
   });
 
+  const menuOptions = menuProducts.map((p) => ({ value: p.id, label: `${p.name} (${p.base_unit})` }));
+
   container.querySelector('#inv-waste').addEventListener('click', async () => {
     const v = await formDialog({
-      title: 'Catat Waste / Rusak',
+      title: 'Catat Waste / Spoil',
+      description: 'Waste = menu jadi yang terbuang (bahan dipotong sesuai resep). Spoil = bahan rusak/kedaluwarsa.',
       fields: [
-        { name: 'product_id', label: 'Produk', type: 'searchselect', required: true, options: productOptions },
-        { name: 'qty', label: 'Jumlah dibuang', type: 'number', required: true, min: 0 },
-        { name: 'notes', label: 'Alasan (opsional)', type: 'text', placeholder: 'mis. kedaluwarsa' }
+        {
+          name: 'kind',
+          label: 'Tipe',
+          type: 'select',
+          required: true,
+          value: 'spoil',
+          options: [
+            { value: 'spoil', label: 'Spoil — bahan / setengah jadi rusak' },
+            { value: 'waste', label: 'Waste — menu jadi terbuang' }
+          ]
+        },
+        { name: 'product_spoil', label: 'Bahan', type: 'searchselect', options: productOptions },
+        { name: 'product_waste', label: 'Menu', type: 'searchselect', options: menuOptions },
+        { name: 'qty', label: 'Jumlah', type: 'number', required: true, min: 0 },
+        { name: 'notes', label: 'Alasan (opsional)', type: 'text', placeholder: 'mis. kedaluwarsa / salah buat' }
       ],
-      submitText: 'Simpan'
+      submitText: 'Simpan',
+      onReady: (form) => {
+        const kind = form.elements['kind'];
+        const spoilField = form.querySelector('.search-select[data-name="product_spoil"]')?.closest('.field');
+        const wasteField = form.querySelector('.search-select[data-name="product_waste"]')?.closest('.field');
+        const sync = () => {
+          const isWaste = kind.value === 'waste';
+          if (spoilField) spoilField.style.display = isWaste ? 'none' : 'block';
+          if (wasteField) wasteField.style.display = isWaste ? 'block' : 'none';
+        };
+        kind.addEventListener('change', sync);
+        sync();
+      }
     });
     if (!v) return;
-    await doMovement('waste', v.product_id, -Math.abs(Number(v.qty)), v.notes);
+    const qty = Math.abs(Number(v.qty));
+    if (!(qty > 0)) return toast('Jumlah harus lebih dari 0.', 'warning');
+
+    if (v.kind === 'waste') {
+      if (!v.product_waste) return toast('Pilih menu yang terbuang.', 'warning');
+      if (!menuProducts.length) return toast('Belum ada produk bertipe Menu.', 'warning');
+      try {
+        await recordMenuWaste({ businessUnitId, outletId: state.outletId, productId: v.product_waste, qty, notes: v.notes });
+        toast('Waste menu tercatat — bahan dipotong sesuai resep.', 'success');
+        stockMap = await refresh();
+      } catch (error) {
+        toast(error.message ?? 'Gagal mencatat waste menu.', 'error');
+      }
+      return;
+    }
+    if (!v.product_spoil) return toast('Pilih bahan yang rusak.', 'warning');
+    await doMovement('waste', v.product_spoil, -qty, v.notes ? `Spoil: ${v.notes}` : 'Spoil');
   });
 
   // ---- Stok Opname: tabel yang langsung diisi (bukan pop up per produk) ----

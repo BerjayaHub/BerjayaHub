@@ -12,6 +12,7 @@ import { renderDispatchAdminPage } from './modules/dispatch/dispatch.admin.page.
 import { renderSalesAdminPage } from './modules/sales/sales.admin.page.js';
 import { renderCashAdminPage } from './modules/cash/cash.admin.page.js';
 import { renderMenuAdminPage } from './modules/menu/menu.admin.page.js';
+import { renderStaffDataPage } from './modules/profile/staff-data.admin.page.js';
 import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
 import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
 import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
@@ -52,6 +53,7 @@ const GROUPS = {
     icon: '👤',
     tabs: [
       { code: 'master_user', label: 'Master User', render: renderMasterUserPage, core: true },
+      { code: 'staff_data', label: 'Data Staff', render: renderStaffDataPage, core: true },
       { code: 'leave', label: 'Pengajuan Cuti', render: renderLeaveAdminPage },
       { code: 'cash_ledger', label: 'Kas', render: renderCashAdminPage }
     ]

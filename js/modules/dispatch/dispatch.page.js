@@ -57,6 +57,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         .map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${esc(o.name)}${o.outlet_role === 'central_kitchen' ? ' (CK)' : ''}</option>`)
         .join('')}</select>
     </div>
+    <section class="incoming-highlight" id="disp-incoming-box"></section>
     <div class="tab-bar group-tabs" id="disp-tabs"></div>
     <div id="disp-tab-content" class="fade-in"></div>
   `;
@@ -69,6 +70,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     state.tab = null;
     await loadStock();
     buildTabs();
+    renderIncoming();
   });
 
   async function loadStock() {
@@ -85,13 +87,11 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     return isCK
       ? [
           { key: 'orders-in', label: '📥 Order Masuk', render: renderIncomingOrders },
-          { key: 'send', label: '🚚 Kirim ke Outlet', render: renderSend },
-          { key: 'incoming', label: '📦 Kiriman Masuk', render: renderIncoming }
+          { key: 'send', label: '🚚 Kirim ke Outlet', render: renderSend }
         ]
       : [
           { key: 'order', label: '🧾 Order ke CK', render: renderOrderTab },
-          { key: 'transfer', label: '🔁 Transfer / Retur', render: renderSend },
-          { key: 'incoming', label: '📦 Kiriman Masuk', render: renderIncoming }
+          { key: 'transfer', label: '🔁 Transfer / Retur', render: renderSend }
         ];
   }
 
@@ -292,6 +292,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           toast(`Surat jalan ${code ?? ''} dibuat dari order.`, 'success');
           await loadStock();
           showTab();
+          renderIncoming();
           await shareDialog({ title: `Surat Jalan ${code ?? ''}`, helper: 'PDF sudah terunduh. Kirim info via WhatsApp (lampirkan file PDF-nya manual).', defaultMessage: waText });
         } catch (error) {
           toast(error.message ?? 'Gagal memproses order.', 'error');
@@ -388,22 +389,34 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     });
   }
 
-  // ---- Tab: Kiriman Masuk ----
-  async function renderIncoming(box) {
-    const incoming = await listIncomingDispatches([state.outletId]);
-    if (!incoming.length) {
-      box.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;max-width:560px;gap:8px">
-          <p style="color:var(--color-text-muted);margin:0">Tidak ada kiriman yang menunggu diterima.</p>
-          <button id="disp-refresh">⟳ Refresh</button>
-        </div>`;
-      box.querySelector('#disp-refresh').addEventListener('click', showTab);
+  // ---- Kiriman Masuk (di luar tab, disorot di atas) ----
+  async function renderIncoming() {
+    const box = container.querySelector('#disp-incoming-box');
+    if (!box) return;
+    let incoming;
+    try {
+      incoming = await listIncomingDispatches([state.outletId]);
+    } catch (error) {
+      box.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
       return;
     }
+    const header = (count) => `
+      <div class="incoming-head">
+        <h2>📦 Kiriman Masuk${count ? ` <span class="incoming-count">${count}</span>` : ''}</h2>
+        <button id="disp-refresh">⟳ Refresh</button>
+      </div>`;
+
+    if (!incoming.length) {
+      box.classList.remove('has-items');
+      box.innerHTML = `${header(0)}<p class="incoming-empty">Tidak ada kiriman yang menunggu diterima.</p>`;
+      box.querySelector('#disp-refresh').addEventListener('click', renderIncoming);
+      return;
+    }
+    box.classList.add('has-items');
     const itemsByDispatch = await Promise.all(incoming.map((d) => getDispatchItems(d.id).catch(() => [])));
 
     box.innerHTML =
-      `<div style="display:flex;justify-content:flex-end;max-width:560px;margin-bottom:8px"><button id="disp-refresh">⟳ Refresh</button></div>` +
+      header(incoming.length) +
       incoming
         .map((d, idx) => {
           const items = itemsByDispatch[idx];
@@ -434,7 +447,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         })
         .join('');
 
-    box.querySelector('#disp-refresh').addEventListener('click', showTab);
+    box.querySelector('#disp-refresh').addEventListener('click', renderIncoming);
     box.querySelectorAll('.disp-expand').forEach((btn) =>
       btn.addEventListener('click', () => {
         const body = btn.parentElement.querySelector('.recv-body');
@@ -452,6 +465,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           const { code, waText } = await emitSuratJalan(btn.dataset.id, { showReceived: true, title: 'BUKTI TERIMA' });
           toast(`Surat jalan ${code ?? ''} diterima. Stok diperbarui.`, 'success');
           await loadStock();
+          renderIncoming();
           showTab();
           await shareDialog({ title: `Bukti Terima ${code ?? ''}`, helper: 'PDF sudah terunduh. Kirim info via WhatsApp (lampirkan file PDF-nya manual).', defaultMessage: waText });
         } catch (error) {
@@ -484,6 +498,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
 
   await loadStock();
   buildTabs();
+  renderIncoming();
 
   // Auto-refresh tab "masuk" tiap 15 detik, dilewati bila ada tabel yang sedang diisi.
   const pollTimer = setInterval(() => {
@@ -492,7 +507,8 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       return;
     }
     if (container.querySelector('.recv-body:not([hidden])') || container.querySelector('.ord-body:not([hidden])')) return;
-    if (state.tab === 'incoming' || state.tab === 'orders-in') showTab();
+    renderIncoming();
+    if (state.tab === 'orders-in') showTab();
   }, 15000);
 }
 

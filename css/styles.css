@@ -1204,6 +1204,132 @@ button.primary:active { transform: translateY(1px); }
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
 }
 
-.staff-greeting { margin: 4px 0 0; }
+/* Beranda: sapaan + foto staff + ringkasan presensi bersebelahan */
+.home-hero {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.staff-greeting { display: flex; align-items: center; gap: 12px; margin: 4px 0 0; }
 .staff-greeting h1 { font-size: 1.25rem; margin: 0 0 2px; }
 .staff-greeting p { margin: 0; color: var(--color-text-muted); font-size: 0.9rem; }
+
+.hero-avatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.05rem;
+  overflow: hidden;
+  border: 2px solid var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+.hero-avatar img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Kartu ringkasan presensi di beranda */
+.att-mini {
+  flex: 0 1 240px;
+  text-align: left;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  border-radius: 14px;
+  padding: 12px 14px;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.att-mini:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--color-primary); }
+.att-mini-head { font-size: 0.78rem; color: var(--color-text-muted); font-weight: 600; margin-bottom: 6px; }
+.att-mini-body { display: flex; flex-direction: column; gap: 2px; }
+.att-mini-status { font-size: 0.95rem; font-weight: 700; }
+.att-mini-active { color: var(--color-primary); }
+.att-mini-done { color: var(--color-primary); }
+.att-mini-none { color: #b06a00; }
+.att-mini-cta { font-size: 0.74rem; color: var(--color-text-muted); }
+
+@media (max-width: 560px) {
+  .home-hero { flex-direction: column; }
+  .att-mini { flex: 1 1 auto; width: 100%; }
+}
+
+/* Profil staff */
+.profile-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.profile-avatar-wrap { position: relative; flex-shrink: 0; }
+.profile-avatar {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface));
+  color: var(--color-primary);
+  font-weight: 700;
+  font-size: 1.3rem;
+}
+.profile-photo-btn {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid var(--color-surface) !important;
+  background: var(--color-primary) !important;
+  color: #fff !important;
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0 !important;
+}
+.profile-list { display: flex; flex-direction: column; }
+.profile-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--color-border);
+  font-size: 0.88rem;
+}
+.profile-row:last-child { border-bottom: none; }
+.profile-label { color: var(--color-text-muted); flex-shrink: 0; }
+.profile-value { text-align: right; font-weight: 500; }
+
+/* Kiriman masuk yang disorot di modul Pengiriman */
+.incoming-highlight {
+  margin: 4px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+.incoming-highlight.has-items {
+  border-color: #e0a800;
+  border-left: 4px solid #d98a00;
+  background: linear-gradient(180deg, #fffdf6, var(--color-surface));
+}
+.incoming-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.incoming-head h2 { font-size: 1rem; margin: 0; display: flex; align-items: center; gap: 8px; }
+.incoming-count {
+  background: #d98a00;
+  color: #fff;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  padding: 1px 8px;
+  font-weight: 700;
+}
+.incoming-empty { color: var(--color-text-muted); margin: 8px 0 0; font-size: 0.88rem; }
+.incoming-highlight .inline-card { margin-top: 10px; margin-bottom: 0; }
+.incoming-highlight .inline-card + .inline-card { margin-top: 8px; }

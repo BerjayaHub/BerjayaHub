@@ -54,7 +54,7 @@ export async function getCurrentUserContext() {
 
   const { data: profile, error: profileError } = await supabase
     .from('user_profiles')
-    .select('id, full_name, phone, is_active')
+    .select('id, full_name, phone, is_active, photo_path')
     .eq('id', session.user.id)
     .single();
   if (profileError) throw profileError;
