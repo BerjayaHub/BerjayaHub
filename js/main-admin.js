@@ -10,6 +10,7 @@ import { renderInventoryAdminPage } from './modules/inventory/inventory.admin.pa
 import { renderProductionAdminPage } from './modules/production/production.admin.page.js';
 import { renderDispatchAdminPage } from './modules/dispatch/dispatch.admin.page.js';
 import { renderSalesAdminPage } from './modules/sales/sales.admin.page.js';
+import { renderCashAdminPage } from './modules/cash/cash.admin.page.js';
 import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
 import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
 import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
@@ -32,6 +33,7 @@ registerModule('inventory', renderInventoryAdminPage);
 registerModule('production', renderProductionAdminPage);
 registerModule('dispatch', renderDispatchAdminPage);
 registerModule('sales', renderSalesAdminPage);
+registerModule('cash_ledger', renderCashAdminPage);
 const CORE_ADMIN_MENU = [
   { code: 'dashboard', name: 'Dashboard' },
   { code: 'organization', name: 'Master BU & Outlet' },

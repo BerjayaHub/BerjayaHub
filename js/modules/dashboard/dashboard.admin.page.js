@@ -5,6 +5,7 @@ import { listRecentInventoryActivity, MOVEMENT_LABEL } from '../inventory/invent
 import { listRecentProductionActivity } from '../production/production.service.js';
 import { listRecentDispatchActivity } from '../dispatch/dispatch.service.js';
 import { listRecentSalesActivity } from '../sales/sales.service.js';
+import { listRecentCashActivity, ENTRY_LABEL } from '../cash/cash.service.js';
 import { formatRupiah } from '../../core/format.js';
 
 const PAGE_SIZE = 20;
@@ -121,7 +122,21 @@ async function salesProvider({ before, limit }) {
   });
 }
 
-const ACTIVITY_PROVIDERS = [attendanceProvider, leaveProvider, cleaningProvider, inventoryProvider, productionProvider, dispatchProvider, salesProvider];
+async function cashProvider({ before, limit }) {
+  const rows = await listRecentCashActivity({ before, limit });
+  return rows.map((r) => {
+    const bu = r.business_units?.name ? ` · ${r.business_units.name}` : '';
+    const amt = Number(r.amount) || 0;
+    const cat = r.cash_categories?.name ? ` (${r.cash_categories.name})` : '';
+    return {
+      time: r.created_at,
+      icon: '💵',
+      text: `${r.holder?.full_name ?? 'Staff'} — ${ENTRY_LABEL[r.entry_type] ?? r.entry_type} ${formatRupiah(Math.abs(amt))}${cat}${bu}`
+    };
+  });
+}
+
+const ACTIVITY_PROVIDERS = [attendanceProvider, leaveProvider, cleaningProvider, inventoryProvider, productionProvider, dispatchProvider, salesProvider, cashProvider];
 
 export async function renderAdminDashboard(container) {
   container.innerHTML = `

@@ -317,6 +317,15 @@ Jalankan migration `0025_sales.sql`, lalu aktifkan modul **Penjualan** untuk BU 
 - **Admin Portal** (menu Penjualan): laporan per menu (jumlah terjual + omzet), filter outlet & rentang tanggal, plus total omzet. Aktivitas muncul di **Dashboard** (💰).
 - Pemakaian bahan penjualan juga muncul di **Inventory → Riwayat** (jenis "Pemakaian", catatan "Penjualan").
 
+## Fase 9 — Kas (Cash Ledger)
+
+Jalankan migration `0026_cash_ledger.sql`, lalu aktifkan modul **Kas** untuk BU lewat Master BU & Outlet → tombol **Modul**.
+
+- **Kas dipegang per user** (pemegang kas), outlet dicatat sebagai konteks. Saldo dihitung dari buku kas (view `cash_balances`).
+- **Staff App** (menu Kas): kartu **Saldo Kas Saya** + tombol **Kas Masuk**, **Kas Keluar**, **Transfer** (ke pengguna lain di BU, atomik lewat RPC `transfer_cash`). Tiap entri bisa pilih **kategori** & lampirkan **foto bukti** (bucket privat `cash-proofs`). Riwayat kas tampil di bawah.
+- **Admin Portal** (menu Kas), 2 tab: **Saldo & Mutasi** (saldo per pemegang + total BU; mutasi dengan filter pemegang/jenis/tanggal + ringkasan masuk/keluar/net) dan **Kategori** (kelola kategori kas per BU, arah Masuk/Keluar/keduanya).
+- **Kas dicatat manual** — omzet penjualan **tidak** otomatis masuk kas (menghindari dobel-hitung karena ada pembayaran non-tunai). Aktivitas kas muncul di **Dashboard** (💵).
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
@@ -329,6 +338,6 @@ Jalankan migration `0025_sales.sql`, lalu aktifkan modul **Penjualan** untuk BU 
 - [x] **Fase 6** — Production di level Outlet (Cafe)
 - [x] **Fase 7** — Production di Central Kitchen + Transfer/Dispatch ke outlet (Cafe)
 - [x] **Fase 8** — Sales (Cafe)
-- [ ] **Fase 9** — Cash Ledger (Cafe)
+- [x] **Fase 9** — Cash Ledger (Cafe)
 - [ ] **Fase 10** — Pengajuan Cuti, Dashboard/Reports
 - [ ] **Fase berikutnya** — Modul Armada/Fleet untuk BU tipe logistik

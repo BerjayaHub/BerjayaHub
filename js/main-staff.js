@@ -11,6 +11,7 @@ import { renderProductionPage } from './modules/production/production.page.js';
 import { renderDispatchPage } from './modules/dispatch/dispatch.page.js';
 import { renderMenuPage } from './modules/menu/menu.page.js';
 import { renderSalesPage } from './modules/sales/sales.page.js';
+import { renderCashPage } from './modules/cash/cash.page.js';
 
 registerModule('attendance', renderAttendancePage);
 registerModule('leave', renderLeavePage);
@@ -21,6 +22,7 @@ registerModule('production', renderProductionPage);
 registerModule('dispatch', renderDispatchPage);
 registerModule('menu', renderMenuPage);
 registerModule('sales', renderSalesPage);
+registerModule('cash_ledger', renderCashPage);
 
 const app = document.getElementById('app');
 
