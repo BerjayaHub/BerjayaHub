@@ -354,7 +354,7 @@ Jalankan migration `0028_nbm_adjustments.sql`.
 
 - **Edit nominal NBM langsung di tabel** (Admin Portal → Presensi → Rekap NBM): klik kolom **Total**, ketik nominal baru, tekan Enter/keluar kolom → muncul **dialog konfirmasi** (bisa diisi alasan). Setelah disimpan, kolom baru **Keterangan** menampilkan *"Diedit oleh {nama} · {tanggal} — {catatan}"*, nominalnya ditandai kuning, dan tersedia tombol **Kembalikan hitungan sistem**. Total per staff & **Export PDF** otomatis memakai nominal hasil koreksi (kolom Keterangan ikut di PDF).
 - Nominal asli hasil hitungan sistem tidak ditimpa — koreksi disimpan terpisah di tabel `nbm_adjustments` (hanya admin BU yang boleh mengubah), jadi jejak audit tetap ada.
-- **Pintasan Admin Portal di Staff App**: akun yang punya peran admin melihat kartu khusus **🛠️ Admin Portal** (warna tema BU, beda dari kartu modul) di beranda Staff App. Navigasi memakai halaman yang sama sehingga **tetap di dalam PWA** yang ter-install di HP. Sebaliknya, Admin Portal punya tombol **📱 Buka Staff App**.
+- **Pindah mode lewat header** (Staff App ↔ Admin Portal): akun ber-peran admin mendapat **segmented switcher** di header — *📱 Staff App | 🛠️ Admin Portal* — dengan mode aktif ditandai. Di Staff App switcher menyatu dengan header bertema BU (di layar sempit turun ke baris kedua, rata tengah); di Admin Portal ada **header bar baru** berisi nama BU aktif + switcher di kanan (sticky, aman dari tombol menu ☰ di mobile). Navigasi memakai halaman yang sama sehingga **tetap di dalam PWA** yang ter-install.
 
 ## Standar filter periode (semua modul)
 

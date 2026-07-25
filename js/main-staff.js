@@ -156,20 +156,38 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
          </select>`
       : `<div class="topbar-bu">${activeBu?.name ?? ''}</div>`;
 
+  // Pintasan mode (Staff App ↔ Admin Portal) hanya untuk akun ber-peran admin.
+  const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
+  const isAdmin = (context.scopes ?? []).some((s) => ADMIN_ROLES.includes(s.role));
+
   // Tampilan tanpa menu samping: header atas + konten kartu.
   app.innerHTML = `
     <header class="staff-topbar">
-      <img src="${logoSrc}" alt="" class="topbar-logo" onerror="this.style.display='none'" />
-      <div class="topbar-info">
-        <div class="topbar-name">${context.profile.full_name}</div>
-        ${buLine}
+      <div class="topbar-main">
+        <img src="${logoSrc}" alt="" class="topbar-logo" onerror="this.style.display='none'" />
+        <div class="topbar-info">
+          <div class="topbar-name">${context.profile.full_name}</div>
+          ${buLine}
+        </div>
+        <button class="topbar-btn" id="btn-home-top" title="Beranda" aria-label="Beranda">🏠</button>
+        <button class="topbar-btn" id="btn-change-password" title="Ubah Password" aria-label="Ubah Password">🔑</button>
+        <button class="topbar-btn" id="btn-logout" title="Keluar" aria-label="Keluar">⎋</button>
       </div>
-      <button class="topbar-btn" id="btn-home-top" title="Beranda" aria-label="Beranda">🏠</button>
-      <button class="topbar-btn" id="btn-change-password" title="Ubah Password" aria-label="Ubah Password">🔑</button>
-      <button class="topbar-btn" id="btn-logout" title="Keluar" aria-label="Keluar">⎋</button>
+      ${
+        isAdmin
+          ? `<div class="app-switch app-switch-on-primary" role="tablist" aria-label="Mode aplikasi">
+              <button class="active" aria-current="page"><span>📱</span> Staff App</button>
+              <button id="btn-to-admin"><span>🛠️</span> Admin Portal</button>
+            </div>`
+          : ''
+      }
     </header>
     <main class="staff-main" id="module-content"></main>
   `;
+
+  document.getElementById('btn-to-admin')?.addEventListener('click', () => {
+    window.location.href = './admin.html';
+  });
 
   document.getElementById('bu-switcher-staff')?.addEventListener('change', (e) => {
     try {
@@ -249,23 +267,6 @@ function renderHome(context, modules, moduleCtx) {
   content.querySelectorAll('[data-module]').forEach((card) => {
     card.addEventListener('click', () => openModule(card.dataset.module, context, modules, moduleCtx));
   });
-
-  // Pintasan ke Admin Portal — hanya untuk akun yang punya peran admin.
-  // Dibuka di tab/halaman yang sama supaya tetap di dalam PWA yang ter-install.
-  const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
-  if ((context.scopes ?? []).some((s) => ADMIN_ROLES.includes(s.role))) {
-    const grid = content.querySelector('.card-grid');
-    const btn = document.createElement('button');
-    btn.className = 'module-card admin-portal-card';
-    btn.innerHTML = `
-      <span class="module-card-icon">🛠️</span>
-      <span class="module-card-label">Admin Portal</span>
-      <span class="admin-card-hint">Kelola &amp; laporan</span>`;
-    btn.addEventListener('click', () => {
-      window.location.href = './admin.html';
-    });
-    grid?.appendChild(btn);
-  }
 }
 
 function openModule(code, context, modules, moduleCtx) {
