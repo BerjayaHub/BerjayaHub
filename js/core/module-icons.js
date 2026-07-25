@@ -13,7 +13,10 @@ const ICONS = {
   master_product: '📒',
   dispatch: '🚚',
   menu: '🍽️',
-  sales: '💰'
+  sales: '💰',
+  grp_org: '🏢',
+  grp_user: '👤',
+  grp_inventory: '📦'
 };
 
 export function getModuleIcon(code) {

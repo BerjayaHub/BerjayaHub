@@ -15,6 +15,7 @@ import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.j
 import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
 import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
 import { listBusinessUnitsBasic } from './modules/organization/organization.service.js';
+import { renderGroupPage } from './core/group-page.js';
 
 const app = document.getElementById('app');
 const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
@@ -34,12 +35,57 @@ registerModule('production', renderProductionAdminPage);
 registerModule('dispatch', renderDispatchAdminPage);
 registerModule('sales', renderSalesAdminPage);
 registerModule('cash_ledger', renderCashAdminPage);
-const CORE_ADMIN_MENU = [
-  { code: 'dashboard', name: 'Dashboard' },
-  { code: 'organization', name: 'Master BU & Outlet' },
-  { code: 'master_user', name: 'Master User' },
-  { code: 'bu_appearance', name: 'Tampilan BU' }
-];
+// ---- Pengelompokan menu: beberapa modul digabung jadi satu menu bertab ----
+// Modul di dalam grup tidak tampil sebagai menu terpisah.
+const GROUPS = {
+  grp_org: {
+    name: 'BU & Outlet',
+    icon: '🏢',
+    tabs: [
+      { code: 'organization', label: 'Organisasi & Outlet', render: renderOrganizationAdminPage, core: true },
+      { code: 'bu_appearance', label: 'Tampilan BU', render: renderBuAppearancePage, core: true }
+    ]
+  },
+  grp_user: {
+    name: 'User',
+    icon: '👤',
+    tabs: [
+      { code: 'master_user', label: 'Master User', render: renderMasterUserPage, core: true },
+      { code: 'leave', label: 'Pengajuan Cuti', render: renderLeaveAdminPage },
+      { code: 'cash_ledger', label: 'Kas', render: renderCashAdminPage }
+    ]
+  },
+  grp_inventory: {
+    name: 'Inventory',
+    icon: '📦',
+    tabs: [
+      { code: 'inventory', label: 'Stok & Riwayat', render: renderInventoryAdminPage },
+      { code: 'master_product', label: 'Master Produk', render: renderMasterProductPage },
+      { code: 'production', label: 'Produksi', render: renderProductionAdminPage },
+      { code: 'sales', label: 'Penjualan', render: renderSalesAdminPage }
+    ]
+  }
+};
+
+// Kode modul yang sudah "diserap" ke dalam grup -> jangan tampil sebagai menu sendiri.
+const GROUPED_CODES = new Set(Object.values(GROUPS).flatMap((g) => g.tabs.map((t) => t.code)));
+
+const CORE_ADMIN_MENU = [{ code: 'dashboard', name: 'Dashboard' }];
+
+/** Susun menu admin: Dashboard + grup + modul aktif lain yang belum masuk grup. */
+function buildAdminMenu(activeModules) {
+  const activeCodes = new Set(activeModules.map((m) => m.code));
+  const menu = [...CORE_ADMIN_MENU];
+  for (const [code, g] of Object.entries(GROUPS)) {
+    // Grup tampil kalau ada tab core, atau minimal satu modulnya aktif untuk BU ini.
+    const visibleTabs = g.tabs.filter((t) => t.core || activeCodes.has(t.code));
+    if (visibleTabs.length) menu.push({ code, name: g.name });
+  }
+  for (const mod of activeModules) {
+    if (!GROUPED_CODES.has(mod.code)) menu.push(mod);
+  }
+  return menu;
+}
 
 async function bootstrap() {
   const session = await getSession();
@@ -163,7 +209,7 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
 
   applyBuTheme(activeBu);
 
-  const allMenu = [...CORE_ADMIN_MENU, ...modules];
+  const allMenu = buildAdminMenu(modules);
   const menuItems = allMenu
     .map((mod) => `<li><a href="#" data-module="${mod.code}">${getModuleIcon(mod.code)} ${mod.name}</a></li>`)
     .join('');
@@ -258,19 +304,34 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
       event.preventDefault();
       document.getElementById('app-nav')?.classList.remove('open');
       const code = event.target.closest('[data-module]').dataset.module;
-      openModule(code, activeBuId);
+      document.querySelectorAll('[data-module]').forEach((a) => a.classList.toggle('active', a.dataset.module === code));
+      openModule(code, activeBuId, modules);
     });
   });
 
   // Dashboard sebagai tampilan awal begitu login
-  openModule('dashboard', activeBuId);
+  document.querySelector('[data-module="dashboard"]')?.classList.add('active');
+  openModule('dashboard', activeBuId, modules);
 }
 
-function openModule(code, businessUnitId) {
-  const renderer = getModuleRenderer(code);
+function openModule(code, businessUnitId, activeModules = []) {
   const content = document.getElementById('module-content');
+  const ctx = { businessUnitId, isAdmin: true };
+  content.classList.remove('fade-in');
+  void content.offsetWidth; // restart animasi transisi halaman
+  content.classList.add('fade-in');
+
+  const group = GROUPS[code];
+  if (group) {
+    const activeCodes = new Set(activeModules.map((m) => m.code));
+    const tabs = group.tabs.filter((t) => t.core || activeCodes.has(t.code));
+    renderGroupPage(content, ctx, group.name, tabs);
+    return;
+  }
+
+  const renderer = getModuleRenderer(code);
   if (renderer) {
-    renderer(content, { businessUnitId, isAdmin: true });
+    renderer(content, ctx);
   } else {
     content.innerHTML = `<p>Modul admin "${code}" belum dibangun.</p>`;
   }
@@ -282,6 +343,8 @@ function applyBuTheme(businessUnit) {
     document.documentElement.style.setProperty('--color-primary', color);
     document.documentElement.style.setProperty('--color-primary-hover', color);
   }
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', color || '#f5f5f5');
 }
 
 bootstrap();

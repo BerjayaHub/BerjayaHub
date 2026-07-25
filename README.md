@@ -326,6 +326,18 @@ Jalankan migration `0026_cash_ledger.sql`, lalu aktifkan modul **Kas** untuk BU 
 - **Admin Portal** (menu Kas), 2 tab: **Saldo & Mutasi** (saldo per pemegang + total BU; mutasi dengan filter pemegang/jenis/tanggal + ringkasan masuk/keluar/net) dan **Kategori** (kelola kategori kas per BU, arah Masuk/Keluar/keduanya).
 - **Kas dicatat manual** — omzet penjualan **tidak** otomatis masuk kas (menghindari dobel-hitung karena ada pembayaran non-tunai). Aktivitas kas muncul di **Dashboard** (💵).
 
+## Revisi UI — pengelompokan menu & tema
+
+Tanpa migration (frontend saja).
+
+- **Warna bar HP**: `theme-color` default kini **#f5f5f5** (bukan hijau), dan otomatis **mengikuti warna tema BU** setelah login (Staff App & Admin Portal).
+- **Pengelompokan menu Admin Portal** (sub-tab dalam satu menu):
+  - **BU & Outlet** (dulu "Master BU & Outlet") → tab *Organisasi & Outlet*, *Tampilan BU*
+  - **User** (dulu "Master User") → tab *Master User*, *Pengajuan Cuti*, *Kas*
+  - **Inventory** → tab *Stok & Riwayat*, *Master Produk*, *Produksi*, *Penjualan*
+  - Tab hanya muncul kalau modulnya aktif untuk BU tersebut. Modul lain (Presensi, Ceklis, Pengiriman, Menu) tetap menu tersendiri.
+- **UI dipercantik**: tab grup bergaya "pill" dengan warna BU, menu sidebar punya penanda aktif, animasi transisi halaman (fade-in), efek fokus pada input, hover baris tabel, dan tombol sekunder yang seragam. Semua animasi otomatis nonaktif bila perangkat menyetel *reduce motion*.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

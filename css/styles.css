@@ -74,7 +74,35 @@ body {
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   font-size: 16px; /* 16px+ mencegah auto-zoom saat fokus input di iOS Safari */
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
+
+.field input:focus, .field select:focus, .search-select .ss-input:focus, .share-textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
+/* Tombol sekunder (default) diseragamkan biar rapi & elegan */
+.app-content button:not(.primary):not(.tab-btn):not(.btn-ghost):not(.btn-danger):not(.btn-whatsapp):not(.scope-remove):not(.scope-edit):not(.scope-primary):not(.ln-remove),
+.staff-main button:not(.primary):not(.tab-btn):not(.btn-ghost):not(.btn-danger):not(.btn-whatsapp):not(.topbar-btn):not(.module-card):not(.scope-remove):not(.scope-edit):not(.scope-primary):not(.ln-remove) {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: 9px;
+  padding: 8px 13px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+.app-content button:not(.primary):not(.tab-btn):hover,
+.staff-main button:not(.primary):not(.tab-btn):not(.module-card):hover {
+  background: var(--color-bg);
+  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+}
+.app-content button:active, .staff-main button:active { transform: translateY(1px); }
 
 button.primary {
   width: 100%;
@@ -136,12 +164,25 @@ button.primary:active { transform: translateY(1px); }
 }
 
 .app-nav {
-  width: 220px;
+  width: 232px;
   flex-shrink: 0;
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
   padding: var(--spacing-md);
 }
+
+.app-nav .nav-brand {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.app-content h1 {
+  font-size: 1.35rem;
+  letter-spacing: -0.01em;
+  margin: 0 0 14px;
+}
+
+.staff-main h1 { letter-spacing: -0.01em; }
 
 .app-nav ul {
   list-style: none;
@@ -151,15 +192,22 @@ button.primary:active { transform: translateY(1px); }
 
 .app-nav li a {
   display: block;
-  padding: 12px 10px; /* target sentuh lebih besar di mobile */
-  border-radius: var(--radius);
+  padding: 11px 12px; /* target sentuh lebih besar di mobile */
+  border-radius: 10px;
   color: var(--color-text);
   text-decoration: none;
   font-size: 0.9rem;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
+  transition: background 0.16s ease, color 0.16s ease, transform 0.12s ease;
 }
 
-.app-nav li a:hover { background: var(--color-bg); }
+.app-nav li a:hover { background: var(--color-bg); transform: translateX(2px); }
+
+.app-nav li a.active {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  color: var(--color-primary);
+  font-weight: 600;
+}
 
 .app-content {
   flex: 1;
@@ -191,11 +239,15 @@ button.primary:active { transform: translateY(1px); }
 
 .data-table th, .data-table td {
   text-align: left;
-  padding: 10px 12px;
+  padding: 11px 13px;
   border-bottom: 1px solid var(--color-border);
   font-size: 0.9rem;
   vertical-align: top;
 }
+
+.data-table tbody tr { transition: background 0.14s ease; }
+.data-table tbody tr:hover { background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface)); }
+.data-table tbody tr:last-child td { border-bottom: none; }
 
 .data-table th {
   background: var(--color-bg);
@@ -341,7 +393,9 @@ button.primary:active { transform: translateY(1px); }
   border-bottom: 1px solid var(--color-border);
   margin-bottom: var(--spacing-md);
   overflow-x: auto;
+  scrollbar-width: none;
 }
+.tab-bar::-webkit-scrollbar { display: none; }
 
 .tab-btn {
   border: none;
@@ -352,12 +406,49 @@ button.primary:active { transform: translateY(1px); }
   color: var(--color-text-muted);
   border-bottom: 2px solid transparent;
   white-space: nowrap;
+  border-radius: 8px 8px 0 0;
+  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
 }
+
+.tab-btn:hover { color: var(--color-text); background: rgba(0, 0, 0, 0.03); }
 
 .tab-btn.active {
   color: var(--color-primary);
   border-bottom-color: var(--color-primary);
   font-weight: 600;
+}
+
+/* Tab grup (menu gabungan) sedikit lebih menonjol */
+.group-tabs {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 5px;
+  gap: 4px;
+  box-shadow: var(--shadow-sm);
+}
+.group-tabs .tab-btn {
+  border-bottom: none;
+  border-radius: 9px;
+  padding: 9px 15px;
+}
+.group-tabs .tab-btn.active {
+  background: var(--color-primary);
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+}
+.group-tabs .tab-btn.active:hover { background: var(--color-primary-hover); }
+
+/* ---- Animasi halus ---- */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.fade-in { animation: fadeInUp 0.26s ease both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-in { animation: none; }
+  * { transition-duration: 0.01ms !important; }
 }
 
 .camera-overlay {

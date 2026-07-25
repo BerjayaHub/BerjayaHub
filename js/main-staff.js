@@ -278,6 +278,9 @@ function applyBuTheme(businessUnit) {
     document.documentElement.style.setProperty('--color-primary', color);
     document.documentElement.style.setProperty('--color-primary-hover', color);
   }
+  // Warna bar browser/status bar HP ikut tema BU (default netral #f5f5f5 sebelum login).
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', color || '#f5f5f5');
 }
 
 bootstrap();
