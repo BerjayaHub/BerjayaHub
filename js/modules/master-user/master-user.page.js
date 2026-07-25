@@ -11,8 +11,12 @@ import {
   resetStaffPassword,
   listBuActiveModules,
   getUserModuleAccess,
-  setUserModuleAccess
+  setUserModuleAccess,
+  getAdminTabAccess,
+  setAdminTabAccess
 } from './master-user.service.js';
+import { GRANTABLE_TABS } from '../../core/admin-tabs.js';
+import { amISuperAdmin } from '../inventory/inventory.service.js';
 import { listRegisteredFaceUserIds, resetFaceDescriptor } from '../attendance/attendance.service.js';
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
 
@@ -105,6 +109,7 @@ function staffRowHtml(s, registeredFaceIds) {
       <td>
         <button class="btn-edit" data-user-id="${s.profile.id}">Edit</button>
         <button class="btn-modules" data-user-id="${s.profile.id}" data-name="${s.profile.full_name}">Akses Modul</button>
+        <button class="btn-admin-access" data-user-id="${s.profile.id}" data-name="${s.profile.full_name}">Izin Admin</button>
         <button class="btn-reset-password" data-user-id="${s.profile.id}">Reset Password</button>
         <button class="btn-toggle-active" data-user-id="${s.profile.id}" data-active="${s.profile.is_active}">
           ${s.profile.is_active ? 'Nonaktifkan' : 'Aktifkan'}
@@ -307,6 +312,10 @@ function wireRowActions(container, businessUnits) {
     btn.addEventListener('click', () => openModuleAccessDialog(container, btn.dataset.userId, btn.dataset.name));
   });
 
+  container.querySelectorAll('.btn-admin-access').forEach((btn) => {
+    btn.addEventListener('click', () => openAdminAccessDialog(container, btn.dataset.userId, btn.dataset.name));
+  });
+
   container.querySelectorAll('.scope-primary').forEach((btn) => {
     btn.addEventListener('click', async () => {
       if (btn.classList.contains('is-primary')) return; // sudah jadi basis, tak perlu apa-apa
@@ -319,6 +328,59 @@ function wireRowActions(container, businessUnits) {
       }
     });
   });
+}
+
+/**
+ * Atur menu/tab Admin Portal yang boleh dibuka user ini di BU aktif.
+ * Hanya Super Admin yang boleh mengatur. Tab "Master User" tidak ada di daftar
+ * karena dikunci khusus Super Admin.
+ */
+async function openAdminAccessDialog(container, userId, staffName) {
+  const businessUnitId = container.dataset.buId;
+  if (!businessUnitId) {
+    toast('BU aktif tidak diketahui. Pilih BU dulu di switcher.', 'warning');
+    return;
+  }
+  if (!(await amISuperAdmin())) {
+    toast('Hanya Super Admin yang bisa mengatur izin akses Admin Portal.', 'warning');
+    return;
+  }
+  let current;
+  try {
+    current = await getAdminTabAccess(userId, businessUnitId);
+  } catch (error) {
+    toast(error.message ?? 'Gagal memuat izin akses.', 'error');
+    return;
+  }
+  const isDefaultAll = current.size === 0;
+
+  const values = await formDialog({
+    title: `Izin Admin Portal — ${staffName}`,
+    description: isDefaultAll
+      ? 'Saat ini user ini bisa membuka SEMUA menu Admin Portal (default). Hilangkan centang untuk membatasi.'
+      : 'Centang menu/tab Admin Portal yang boleh dibuka user ini.',
+    fields: GRANTABLE_TABS.map((t) => ({
+      name: `t_${t.code}`,
+      label: `${t.group} › ${t.label}`,
+      type: 'checkbox',
+      value: isDefaultAll ? true : current.has(t.code)
+    })),
+    submitText: 'Simpan Izin'
+  });
+  if (!values) return;
+
+  const chosen = GRANTABLE_TABS.filter((t) => values[`t_${t.code}`]).map((t) => t.code);
+  try {
+    await setAdminTabAccess(userId, businessUnitId, chosen, GRANTABLE_TABS.map((t) => t.code));
+    toast(
+      chosen.length === GRANTABLE_TABS.length
+        ? 'Izin dikembalikan ke semua menu admin.'
+        : `Izin admin disimpan (${chosen.length} menu). Dashboard selalu tersedia.`,
+      'success'
+    );
+  } catch (error) {
+    toast(error.message ?? 'Gagal menyimpan izin akses.', 'error');
+  }
 }
 
 /**

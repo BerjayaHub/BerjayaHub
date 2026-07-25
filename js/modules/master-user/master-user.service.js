@@ -119,6 +119,51 @@ export async function setUserModuleAccess(userId, businessUnitId, moduleIds, all
   if (error) throw error;
 }
 
+// ---- Izin akses menu/tab Admin Portal per user ----
+
+/** Set kode tab yang di-whitelist untuk user di BU ini (kosong = semua boleh). */
+export async function getAdminTabAccess(userId, businessUnitId) {
+  const { data, error } = await supabase
+    .from('admin_tab_access')
+    .select('tab_code')
+    .eq('user_id', userId)
+    .eq('business_unit_id', businessUnitId);
+  if (error) throw error;
+  return new Set((data ?? []).map((r) => r.tab_code));
+}
+
+/** Izin tab milik user yang sedang login (dipakai menyaring menu admin). */
+export async function getMyAdminTabAccess(businessUnitId) {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user) return new Set();
+  try {
+    return await getAdminTabAccess(user.id, businessUnitId);
+  } catch {
+    return new Set(); // gagal baca -> jangan kunci user
+  }
+}
+
+/**
+ * Simpan izin tab. Kalau `codes` mencakup semua tab yang bisa diberikan,
+ * baris dihapus semua supaya kembali ke default "semua boleh".
+ */
+export async function setAdminTabAccess(userId, businessUnitId, codes, allCodes) {
+  const { error: delError } = await supabase
+    .from('admin_tab_access')
+    .delete()
+    .eq('user_id', userId)
+    .eq('business_unit_id', businessUnitId);
+  if (delError) throw delError;
+
+  const isAll = allCodes.length > 0 && codes.length === allCodes.length;
+  if (isAll || codes.length === 0) return;
+  const rows = codes.map((c) => ({ user_id: userId, business_unit_id: businessUnitId, tab_code: c }));
+  const { error } = await supabase.from('admin_tab_access').insert(rows);
+  if (error) throw error;
+}
+
 /**
  * Tetapkan satu scope sebagai "tempat kerja utama" (basis NBM) staff.
  * Scope lain milik user yang sama otomatis di-nonaktifkan primary-nya dulu,

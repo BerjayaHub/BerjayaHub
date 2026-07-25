@@ -394,6 +394,19 @@ Jalankan migration `0032_staff_profile_and_waste.sql`.
 - **Inventory**: label diperjelas — “+ Penerimaan” → **📥 Terima dari Supplier**, “Waste” → **🗑️ Waste / Spoil** dengan pilihan **tipe**: *Spoil* (bahan/setengah jadi rusak → stok bahan berkurang langsung) atau *Waste* (menu jadi terbuang → **bahan dipotong sesuai resep menu** lewat RPC `record_menu_waste`).
 - **Audit tipe Menu**: produk bertipe Menu tidak lagi muncul di form penambahan bahan mana pun (Inventory, Opname, Transfer, Order/Pengiriman, Resep) — hanya di modul Menu, Penjualan, dan pilihan Waste menu.
 
+## Izin akses Admin Portal per user
+
+Jalankan migration `0033_admin_tab_access.sql`.
+
+Menu & sub-tab Admin Portal kini bisa dibatasi **per user, per BU** — contoh: ada user yang hanya boleh membuka **Data Staff**, atau **Data Staff + Pengajuan Cuti** saja.
+
+- **Cara atur**: Admin Portal → **User → Master User** → tombol **Izin Admin** di baris staff → centang menu/tab yang boleh dibuka. Daftarnya dikelompokkan (BU & Outlet, User, Inventory, Modul lain).
+- **Hanya Super Admin** yang bisa membuka pengaturan ini (dijaga di UI **dan** RLS).
+- **Tab "Master User" khusus Super Admin** — pengatur role & scope tidak bisa diberikan ke role lain, bahkan lewat pengaturan izin. Karena itu tab ini sengaja tidak muncul di daftar yang bisa dicentang.
+- **Default aman**: user yang belum pernah diatur boleh membuka semua menu (sesuai role-nya). Mencentang semua = kembali ke default, sehingga menu baru nanti otomatis ikut.
+- **Dashboard selalu tersedia** supaya portal tidak pernah kosong. Super Admin tidak pernah dibatasi.
+- Ini pembatasan **tampilan menu**; keamanan data tetap dijaga RLS di database.
+
 ## Akses modul per user
 
 Jalankan migration `0029_user_module_access.sql`.

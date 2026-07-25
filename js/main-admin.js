@@ -18,6 +18,8 @@ import { renderBuAppearancePage } from './modules/organization/bu-appearance.adm
 import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
 import { listBusinessUnitsBasic } from './modules/organization/organization.service.js';
 import { renderGroupPage } from './core/group-page.js';
+import { canAccessTab } from './core/admin-tabs.js';
+import { getMyAdminTabAccess } from './modules/master-user/master-user.service.js';
 
 const app = document.getElementById('app');
 const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
@@ -76,17 +78,20 @@ const GROUPED_CODES = new Set(Object.values(GROUPS).flatMap((g) => g.tabs.map((t
 
 const CORE_ADMIN_MENU = [{ code: 'dashboard', name: 'Dashboard' }];
 
-/** Susun menu admin: Dashboard + grup + modul aktif lain yang belum masuk grup. */
-function buildAdminMenu(activeModules) {
+/** Tab dalam sebuah grup yang boleh dilihat user ini di BU aktif. */
+function visibleTabsOf(group, activeCodes, isSuperAdmin, allowedTabs) {
+  return group.tabs.filter((t) => (t.core || activeCodes.has(t.code)) && canAccessTab(t.code, isSuperAdmin, allowedTabs));
+}
+
+/** Susun menu admin: Dashboard + grup + modul aktif lain, disaring izin akses. */
+function buildAdminMenu(activeModules, isSuperAdmin, allowedTabs) {
   const activeCodes = new Set(activeModules.map((m) => m.code));
   const menu = [...CORE_ADMIN_MENU];
   for (const [code, g] of Object.entries(GROUPS)) {
-    // Grup tampil kalau ada tab core, atau minimal satu modulnya aktif untuk BU ini.
-    const visibleTabs = g.tabs.filter((t) => t.core || activeCodes.has(t.code));
-    if (visibleTabs.length) menu.push({ code, name: g.name });
+    if (visibleTabsOf(g, activeCodes, isSuperAdmin, allowedTabs).length) menu.push({ code, name: g.name });
   }
   for (const mod of activeModules) {
-    if (!GROUPED_CODES.has(mod.code)) menu.push(mod);
+    if (!GROUPED_CODES.has(mod.code) && canAccessTab(mod.code, isSuperAdmin, allowedTabs)) menu.push(mod);
   }
   return menu;
 }
@@ -210,10 +215,12 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
 
   app.innerHTML = `<p style="padding:24px">Memuat modul...</p>`;
   const modules = activeBuId ? await getActiveModules(activeBuId) : [];
+  // Izin akses menu/tab per user (super admin tidak dibatasi).
+  const allowedTabs = isSuperAdmin || !activeBuId ? new Set() : await getMyAdminTabAccess(activeBuId);
 
   applyBuTheme(activeBu);
 
-  const allMenu = buildAdminMenu(modules);
+  const allMenu = buildAdminMenu(modules, isSuperAdmin, allowedTabs);
   const menuItems = allMenu
     .map((mod) => `<li><a href="#" data-module="${mod.code}">${getModuleIcon(mod.code)} ${mod.name}</a></li>`)
     .join('');
@@ -322,16 +329,16 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
       document.getElementById('app-nav')?.classList.remove('open');
       const code = event.target.closest('[data-module]').dataset.module;
       document.querySelectorAll('[data-module]').forEach((a) => a.classList.toggle('active', a.dataset.module === code));
-      openModule(code, activeBuId, modules);
+      openModule(code, activeBuId, modules, isSuperAdmin, allowedTabs);
     });
   });
 
   // Dashboard sebagai tampilan awal begitu login
   document.querySelector('[data-module="dashboard"]')?.classList.add('active');
-  openModule('dashboard', activeBuId, modules);
+  openModule('dashboard', activeBuId, modules, isSuperAdmin, allowedTabs);
 }
 
-function openModule(code, businessUnitId, activeModules = []) {
+function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = false, allowedTabs = new Set()) {
   const content = document.getElementById('module-content');
   const ctx = { businessUnitId, isAdmin: true };
   content.classList.remove('fade-in');
@@ -341,8 +348,13 @@ function openModule(code, businessUnitId, activeModules = []) {
   const group = GROUPS[code];
   if (group) {
     const activeCodes = new Set(activeModules.map((m) => m.code));
-    const tabs = group.tabs.filter((t) => t.core || activeCodes.has(t.code));
+    const tabs = visibleTabsOf(group, activeCodes, isSuperAdmin, allowedTabs);
     renderGroupPage(content, ctx, group.name, tabs);
+    return;
+  }
+
+  if (!canAccessTab(code, isSuperAdmin, allowedTabs)) {
+    content.innerHTML = `<p class="error-text">Kamu tidak punya izin membuka menu ini.</p>`;
     return;
   }
 
