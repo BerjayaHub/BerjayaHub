@@ -1,8 +1,17 @@
 import { listAttendanceForNbm, listOutletsWithGeofence } from './attendance.service.js';
-import { getNbmConfig, listOvertimeTiers, listHolidays, calculateNbm, toDateKey } from './nbm.service.js';
+import {
+  getNbmConfig,
+  listOvertimeTiers,
+  listHolidays,
+  calculateNbm,
+  toDateKey,
+  listNbmAdjustments,
+  upsertNbmAdjustment,
+  removeNbmAdjustment
+} from './nbm.service.js';
 import { exportTablePDF } from '../../core/pdf.js';
-import { toast } from '../../core/ui.js';
-import { formatRupiah } from '../../core/format.js';
+import { toast, formDialog } from '../../core/ui.js';
+import { formatRupiah, formatThousands, parseNumber, attachThousandsInput } from '../../core/format.js';
 import { monthRangeWIB } from '../../core/dates.js';
 
 let lastReportRows = [];
@@ -49,7 +58,8 @@ export async function renderNbmReportTab(container, businessUnitId) {
           { header: 'Base', width: 1 },
           { header: 'Lembur', width: 1 },
           { header: 'Storing+', width: 1 },
-          { header: 'Total', width: 1 }
+          { header: 'Total', width: 1 },
+          { header: 'Keterangan', width: 1.8 }
         ],
         rows: lastReportRows,
         filename: 'rekap-nbm'
@@ -101,59 +111,95 @@ async function runReport(businessUnitId, outlets) {
     return { record: r, nbm };
   });
 
+  // Penyesuaian manual admin (override nominal total).
+  let adjustments = new Map();
+  try {
+    adjustments = await listNbmAdjustments(rows.map(({ record }) => record.id));
+  } catch {
+    adjustments = new Map();
+  }
+  const finalTotal = ({ record, nbm }) => {
+    const adj = adjustments.get(record.id);
+    return adj ? Number(adj.amount) : nbm?.total ?? 0;
+  };
+  const ketOf = (record) => {
+    const adj = adjustments.get(record.id);
+    if (!adj) return '';
+    const who = adj.user_profiles?.full_name ?? 'admin';
+    const when = adj.edited_at ? new Date(adj.edited_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+    return `Diedit oleh ${who}${when ? ' · ' + when : ''}${adj.note ? ' — ' + adj.note : ''}`;
+  };
+
   const totalsByStaff = {};
-  for (const { record, nbm } of rows) {
-    if (!nbm) continue;
-    const name = record.user_profiles?.full_name ?? '-';
-    totalsByStaff[name] = (totalsByStaff[name] ?? 0) + nbm.total;
+  for (const row of rows) {
+    if (!row.nbm) continue;
+    const name = row.record.user_profiles?.full_name ?? '-';
+    totalsByStaff[name] = (totalsByStaff[name] ?? 0) + finalTotal(row);
   }
 
   // Simpan bentuk siap-export (dipakai tombol Export PDF).
   lastReportRows = rows
     .filter(({ nbm }) => nbm)
-    .map(({ record, nbm }) => [
-      record.user_profiles?.full_name ?? '-',
-      record.nbm_outlet?.name ?? record.outlets?.name ?? '-',
-      toDateKey(new Date(record.clock_in_at)),
-      record.is_storing ? 'Ya' : '-',
-      nbm.isHoliday ? 'Ya' : '-',
-      formatRupiah(nbm.base),
-      formatRupiah(nbm.overtimeBonus),
-      formatRupiah(nbm.storingBonus),
-      formatRupiah(nbm.total)
-    ]);
+    .map((row) => {
+      const { record, nbm } = row;
+      return [
+        record.user_profiles?.full_name ?? '-',
+        record.nbm_outlet?.name ?? record.outlets?.name ?? '-',
+        toDateKey(new Date(record.clock_in_at)),
+        record.is_storing ? 'Ya' : '-',
+        nbm.isHoliday ? 'Ya' : '-',
+        formatRupiah(nbm.base),
+        formatRupiah(nbm.overtimeBonus),
+        formatRupiah(nbm.storingBonus),
+        formatRupiah(finalTotal(row)),
+        ketOf(record) || '-'
+      ];
+    });
 
   resultEl.innerHTML = `
-    <table class="data-table" style="margin-top:16px">
+    <p style="font-size:0.8rem;color:var(--color-text-muted);margin:14px 0 6px">
+      Kolom <strong>Total</strong> bisa diubah langsung — klik nominalnya, ketik nilai baru, lalu tekan Enter/keluar dari kolom untuk konfirmasi.
+    </p>
+    <table class="data-table">
       <thead>
-        <tr><th>Staff</th><th>Outlet Basis</th><th>Lokasi Absen</th><th>Tanggal</th><th>Storing</th><th>Libur</th><th>Base</th><th>Lembur</th><th>Storing+</th><th>Total</th></tr>
+        <tr><th>Staff</th><th>Outlet Basis</th><th>Lokasi Absen</th><th>Tanggal</th><th>Storing</th><th>Libur</th><th>Base</th><th>Lembur</th><th>Storing+</th><th>Total</th><th>Keterangan</th></tr>
       </thead>
       <tbody>
         ${
           rows
-            .map(({ record, nbm }) => {
+            .map((row) => {
+              const { record, nbm } = row;
               const baseName = record.nbm_outlet?.name ?? record.outlets?.name ?? '-';
               const physName = record.outlets?.name ?? '-';
               const physCell = physName === baseName ? '<span style="color:var(--color-text-muted)">(sama)</span>' : physName;
               if (!nbm) {
-                return `<tr><td>${record.user_profiles?.full_name ?? '-'}</td><td>${baseName}</td><td>${physCell}</td><td>${toDateKey(new Date(record.clock_in_at))}</td><td colspan="6">Belum bisa dihitung (belum clock out / NBM outlet basis belum diset)</td></tr>`;
+                return `<tr><td>${esc(record.user_profiles?.full_name ?? '-')}</td><td>${esc(baseName)}</td><td>${physCell}</td><td>${toDateKey(new Date(record.clock_in_at))}</td><td colspan="7">Belum bisa dihitung (belum clock out / NBM outlet basis belum diset)</td></tr>`;
               }
+              const adj = adjustments.get(record.id);
+              const total = finalTotal(row);
               return `
-                <tr>
-                  <td>${record.user_profiles?.full_name ?? '-'}</td>
-                  <td>${baseName}</td>
+                <tr data-record="${record.id}">
+                  <td>${esc(record.user_profiles?.full_name ?? '-')}</td>
+                  <td>${esc(baseName)}</td>
                   <td>${physCell}</td>
                   <td>${toDateKey(new Date(record.clock_in_at))}</td>
                   <td>${record.is_storing ? 'Ya' : '-'}</td>
                   <td>${nbm.isHoliday ? 'Ya' : '-'}</td>
-                  <td>Rp${nbm.base.toLocaleString('id-ID')}</td>
-                  <td>Rp${nbm.overtimeBonus.toLocaleString('id-ID')}</td>
-                  <td>Rp${nbm.storingBonus.toLocaleString('id-ID')}</td>
-                  <td><strong>Rp${nbm.total.toLocaleString('id-ID')}</strong></td>
+                  <td>${formatRupiah(nbm.base)}</td>
+                  <td>${formatRupiah(nbm.overtimeBonus)}</td>
+                  <td>${formatRupiah(nbm.storingBonus)}</td>
+                  <td>
+                    <input type="text" inputmode="numeric" class="nbm-total-input${adj ? ' is-edited' : ''}"
+                      data-record="${record.id}" data-original="${nbm.total}" value="${formatThousands(Math.round(total))}" />
+                  </td>
+                  <td style="font-size:0.78rem;max-width:200px">
+                    <span class="nbm-ket">${adj ? `<span class="badge badge-pending">✎</span> ${esc(ketOf(record))}` : '<span style="color:var(--color-text-muted)">-</span>'}</span>
+                    ${adj ? `<div><button class="btn-reset-nbm" data-record="${record.id}" style="margin-top:4px">Kembalikan hitungan sistem</button></div>` : ''}
+                  </td>
                 </tr>
               `;
             })
-            .join('') || '<tr><td colspan="10">Tidak ada data.</td></tr>'
+            .join('') || '<tr><td colspan="11">Tidak ada data.</td></tr>'
         }
       </tbody>
     </table>
@@ -164,10 +210,65 @@ async function runReport(businessUnitId, outlets) {
       <tbody>
         ${
           Object.entries(totalsByStaff)
-            .map(([name, total]) => `<tr><td>${name}</td><td>Rp${total.toLocaleString('id-ID')}</td></tr>`)
+            .map(([name, total]) => `<tr><td>${esc(name)}</td><td>${formatRupiah(total)}</td></tr>`)
             .join('') || '<tr><td colspan="2">-</td></tr>'
         }
       </tbody>
     </table>
   `;
+
+  // ---- Edit nominal langsung di tabel ----
+  resultEl.querySelectorAll('.nbm-total-input').forEach((input) => {
+    attachThousandsInput(input);
+    let before = input.value;
+    input.addEventListener('focus', () => {
+      before = input.value;
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') input.blur();
+      if (e.key === 'Escape') {
+        input.value = before;
+        input.blur();
+      }
+    });
+    input.addEventListener('blur', async () => {
+      if (input.value === before) return;
+      const newAmount = parseNumber(input.value);
+      const original = Number(input.dataset.original) || 0;
+      const values = await formDialog({
+        title: 'Konfirmasi Ubah Nominal NBM',
+        description: `Nominal sistem ${formatRupiah(original)} akan diubah menjadi ${formatRupiah(newAmount)}. Perubahan ini tercatat atas namamu.`,
+        fields: [{ name: 'note', label: 'Alasan/catatan (opsional)', type: 'text', placeholder: 'mis. koreksi lembur manual' }],
+        submitText: 'Simpan Perubahan'
+      });
+      if (!values) {
+        input.value = before;
+        return;
+      }
+      try {
+        await upsertNbmAdjustment({ recordId: input.dataset.record, businessUnitId, amount: newAmount, note: values.note });
+        toast('Nominal NBM diperbarui.', 'success');
+        await runReport(businessUnitId, outlets);
+      } catch (error) {
+        toast(error.message ?? 'Gagal menyimpan perubahan.', 'error');
+        input.value = before;
+      }
+    });
+  });
+
+  resultEl.querySelectorAll('.btn-reset-nbm').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      try {
+        await removeNbmAdjustment(btn.dataset.record);
+        toast('Nominal dikembalikan ke hitungan sistem.', 'success');
+        await runReport(businessUnitId, outlets);
+      } catch (error) {
+        toast(error.message ?? 'Gagal mengembalikan nominal.', 'error');
+      }
+    })
+  );
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }

@@ -348,6 +348,14 @@ Tanpa migration (frontend saja).
 - **Admin → Presensi**: tabel rekap dapat kolom **Tipe** (Normal / Tugas Luar-Storing, plus penanda OTP) dan **Keterangan**, serta tombol **⇩ Export PDF**.
 - **Admin → Rekap NBM**: tombol **⇩ Export PDF**, dan filter tanggal otomatis terisi **tanggal 1 bulan berjalan s/d hari ini** (langsung tampil saat tab dibuka).
 
+## Koreksi nominal NBM & pintasan Admin Portal
+
+Jalankan migration `0028_nbm_adjustments.sql`.
+
+- **Edit nominal NBM langsung di tabel** (Admin Portal → Presensi → Rekap NBM): klik kolom **Total**, ketik nominal baru, tekan Enter/keluar kolom → muncul **dialog konfirmasi** (bisa diisi alasan). Setelah disimpan, kolom baru **Keterangan** menampilkan *"Diedit oleh {nama} · {tanggal} — {catatan}"*, nominalnya ditandai kuning, dan tersedia tombol **Kembalikan hitungan sistem**. Total per staff & **Export PDF** otomatis memakai nominal hasil koreksi (kolom Keterangan ikut di PDF).
+- Nominal asli hasil hitungan sistem tidak ditimpa — koreksi disimpan terpisah di tabel `nbm_adjustments` (hanya admin BU yang boleh mengubah), jadi jejak audit tetap ada.
+- **Pintasan Admin Portal di Staff App**: akun yang punya peran admin melihat kartu khusus **🛠️ Admin Portal** (warna tema BU, beda dari kartu modul) di beranda Staff App. Navigasi memakai halaman yang sama sehingga **tetap di dalam PWA** yang ter-install di HP. Sebaliknya, Admin Portal punya tombol **📱 Buka Staff App**.
+
 ## Standar filter periode (semua modul)
 
 Semua filter periode di Admin Portal kini **default: tanggal 1 bulan berjalan s/d hari ini** (WIB), lewat helper bersama `js/core/dates.js` (`monthRangeWIB`, `isoFrom`, `isoTo`).

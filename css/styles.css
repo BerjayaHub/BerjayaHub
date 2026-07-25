@@ -544,6 +544,33 @@ button.primary:active { transform: translateY(1px); }
 .badge-rejected { background: #fdecec; color: #a12727; border-color: var(--color-danger); }
 .badge-cancelled { background: var(--color-bg); color: var(--color-text-muted); }
 
+/* Input nominal yang bisa diedit langsung di tabel (rekap NBM) */
+.nbm-total-input {
+  width: 118px;
+  padding: 7px 9px;
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+  background: transparent;
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: var(--color-text);
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.nbm-total-input:hover { border-color: var(--color-primary); background: var(--color-surface); }
+.nbm-total-input:focus {
+  outline: none;
+  border-style: solid;
+  border-color: var(--color-primary);
+  background: var(--color-surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+.nbm-total-input.is-edited {
+  border-style: solid;
+  border-color: #e0a800;
+  background: #fff8e1;
+}
+
 /* ---- Presensi ---- */
 .att-card {
   background: var(--color-surface);
@@ -687,6 +714,31 @@ button.primary:active { transform: translateY(1px); }
   font-weight: 600;
   text-align: center;
   color: var(--color-text);
+}
+
+/* Kartu pintasan ke Admin Portal — sengaja beda dari kartu modul biasa */
+.module-card.admin-portal-card {
+  background: linear-gradient(145deg, var(--color-primary), color-mix(in srgb, var(--color-primary) 72%, #000));
+  border: none;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+.module-card.admin-portal-card .module-card-label { color: #fff; }
+.module-card.admin-portal-card .admin-card-hint {
+  font-size: 0.7rem;
+  opacity: 0.85;
+  margin-top: -2px;
+}
+.module-card.admin-portal-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120px 60px at 100% 0%, rgba(255, 255, 255, 0.22), transparent 70%);
+  pointer-events: none;
+}
+.module-card.admin-portal-card:hover {
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--color-primary) 38%, transparent);
 }
 
 .module-header {

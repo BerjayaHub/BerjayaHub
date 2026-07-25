@@ -249,6 +249,23 @@ function renderHome(context, modules, moduleCtx) {
   content.querySelectorAll('[data-module]').forEach((card) => {
     card.addEventListener('click', () => openModule(card.dataset.module, context, modules, moduleCtx));
   });
+
+  // Pintasan ke Admin Portal — hanya untuk akun yang punya peran admin.
+  // Dibuka di tab/halaman yang sama supaya tetap di dalam PWA yang ter-install.
+  const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
+  if ((context.scopes ?? []).some((s) => ADMIN_ROLES.includes(s.role))) {
+    const grid = content.querySelector('.card-grid');
+    const btn = document.createElement('button');
+    btn.className = 'module-card admin-portal-card';
+    btn.innerHTML = `
+      <span class="module-card-icon">🛠️</span>
+      <span class="module-card-label">Admin Portal</span>
+      <span class="admin-card-hint">Kelola &amp; laporan</span>`;
+    btn.addEventListener('click', () => {
+      window.location.href = './admin.html';
+    });
+    grid?.appendChild(btn);
+  }
 }
 
 function openModule(code, context, modules, moduleCtx) {

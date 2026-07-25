@@ -242,7 +242,8 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
         </div>
         ${buSwitcherHtml}
         <ul>${menuItems || '<li>Belum ada modul aktif</li>'}</ul>
-        <button id="btn-change-password" style="margin-top:16px;width:100%">Ubah Password</button>
+        <button id="btn-to-staff" style="margin-top:16px;width:100%">📱 Buka Staff App</button>
+        <button id="btn-change-password" style="margin-top:8px;width:100%">Ubah Password</button>
         <div id="change-password-wrap"></div>
         <button class="primary" id="btn-logout" style="margin-top:8px">Keluar</button>
       </nav>
@@ -257,6 +258,10 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
   });
 
   document.getElementById('btn-logout').addEventListener('click', signOut);
+
+  document.getElementById('btn-to-staff').addEventListener('click', () => {
+    window.location.href = './index.html';
+  });
 
   document.getElementById('bu-switcher')?.addEventListener('change', (e) => {
     const newBu = e.target.value;

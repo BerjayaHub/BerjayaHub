@@ -66,6 +66,45 @@ export async function removeHoliday(id) {
   if (error) throw error;
 }
 
+// ---- Penyesuaian manual nominal NBM oleh admin (override) ----
+
+/** Ambil penyesuaian untuk sekumpulan record presensi -> Map recordId -> row. */
+export async function listNbmAdjustments(recordIds) {
+  if (!recordIds?.length) return new Map();
+  const { data, error } = await supabase
+    .from('nbm_adjustments')
+    .select('attendance_record_id, amount, note, edited_at, user_profiles!edited_by(full_name)')
+    .in('attendance_record_id', recordIds);
+  if (error) throw error;
+  const map = new Map();
+  for (const r of data ?? []) map.set(r.attendance_record_id, r);
+  return map;
+}
+
+export async function upsertNbmAdjustment({ recordId, businessUnitId, amount, note }) {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  const { error } = await supabase.from('nbm_adjustments').upsert(
+    {
+      attendance_record_id: recordId,
+      business_unit_id: businessUnitId,
+      amount,
+      note: note || null,
+      edited_by: user?.id ?? null,
+      edited_at: new Date().toISOString()
+    },
+    { onConflict: 'attendance_record_id' }
+  );
+  if (error) throw error;
+}
+
+/** Batalkan penyesuaian -> kembali ke nominal hitungan sistem. */
+export async function removeNbmAdjustment(recordId) {
+  const { error } = await supabase.from('nbm_adjustments').delete().eq('attendance_record_id', recordId);
+  if (error) throw error;
+}
+
 // ---- Kalkulasi (murni JS, gampang diaudit/diubah) ----
 
 /** Menit sejak tengah malam TANGGAL clock_in, dari sebuah timestamp ISO. */
