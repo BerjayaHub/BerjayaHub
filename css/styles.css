@@ -1009,6 +1009,43 @@ button.primary:active { transform: translateY(1px); }
 }
 .btn-whatsapp:hover { background: #1eb857; }
 
+/* Pemilih produk (Order / Kirim / Transfer): filter + baris produk */
+.picker-filters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+
+.picker-rows { display: flex; flex-direction: column; gap: 8px; }
+
+.picker-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.picker-row .search-select { flex: 1; min-width: 0; }
+.picker-row .pf-stock {
+  width: 92px;
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+.picker-row .pf-qty { width: 92px; flex-shrink: 0; }
+.picker-row .pf-remove { flex-shrink: 0; }
+
+@media (max-width: 560px) {
+  .picker-row { flex-wrap: wrap; }
+  .picker-row .search-select { flex-basis: 100%; }
+  .picker-row .pf-stock { text-align: left; }
+}
+
 .line-rows { display: flex; flex-direction: column; gap: 8px; }
 .line-row { display: flex; gap: 8px; align-items: center; }
 .line-row .search-select { flex: 1; min-width: 0; }

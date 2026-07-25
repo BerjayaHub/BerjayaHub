@@ -366,6 +366,13 @@ Jalankan migration `0031_stock_orders.sql`. Alur pengiriman kini punya langkah a
 
 Aturan yang dipakai: **sekali kirim order langsung selesai** (kekurangan dipesan ulang), dan **CK boleh menolak dengan alasan**. Order & kiriman masuk ikut auto-refresh 15 detik.
 
+### Tampilan Pengiriman (Staff App)
+
+- **Bertab, tidak lagi form bertumpuk**. Tab menyesuaikan peran outlet: outlet biasa → *🧾 Order ke CK*, *🔁 Transfer / Retur*, *📦 Kiriman Masuk*; Central Kitchen → *📥 Order Masuk*, *🚚 Kirim ke Outlet*, *📦 Kiriman Masuk*.
+- **Pemilih produk baru** (`item-picker.js`) dipakai di semua form tambah produk: **filter Kategori & Sub-kategori** (sub-kategori mengikuti kategori terpilih) + pencarian fuzzy per baris, dan kolom **Stok Akhir** di outlet asal supaya staff tahu sisa stok saat menentukan jumlah order/kirim.
+- **Produk bertipe Menu tidak ditampilkan** di Order maupun Pengiriman (hanya bahan baku & setengah jadi), supaya tidak membingungkan staff.
+- Di sisi CK, tabel proses order juga menampilkan **Stok CK** per produk (merah bila stok kurang dari yang diminta).
+
 ## Revisi Inventory, Kategori Produk & Modul Menu
 
 Jalankan migration `0030_product_subcategory.sql`.
