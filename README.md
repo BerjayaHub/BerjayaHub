@@ -348,6 +348,12 @@ Tanpa migration (frontend saja).
 - **Admin → Presensi**: tabel rekap dapat kolom **Tipe** (Normal / Tugas Luar-Storing, plus penanda OTP) dan **Keterangan**, serta tombol **⇩ Export PDF**.
 - **Admin → Rekap NBM**: tombol **⇩ Export PDF**, dan filter tanggal otomatis terisi **tanggal 1 bulan berjalan s/d hari ini** (langsung tampil saat tab dibuka).
 
+## Standar filter periode (semua modul)
+
+Semua filter periode di Admin Portal kini **default: tanggal 1 bulan berjalan s/d hari ini** (WIB), lewat helper bersama `js/core/dates.js` (`monthRangeWIB`, `isoFrom`, `isoTo`).
+
+Berlaku di: **Presensi**, **Rekap NBM**, **Inventory → Riwayat**, **Produksi**, **Pengiriman**, **Penjualan**, **Kas → Mutasi**, dan **Ceklis → Rekap** (yang tadinya filter satu tanggal, kini rentang Dari–Sampai).
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

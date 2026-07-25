@@ -3,6 +3,7 @@ import { formatNum, formatRupiah } from '../../core/format.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProducts, listRecipesFull, computeCosts, TYPE_LABEL } from '../product/product.service.js';
 import { listStockBalances, listMovements, MOVEMENT_LABEL, amISuperAdmin, getAllowStaffOpname, setAllowStaffOpname } from './inventory.service.js';
+import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 
 const TABS = [
   { key: 'stock', label: 'Stok' },
@@ -125,6 +126,7 @@ async function loadStock(content, businessUnitId, outletId) {
 // ---- Tab: Riwayat ----
 
 async function renderHistoryTab(content, businessUnitId, outlets) {
+  const range = monthRangeWIB();
   content.innerHTML = `
     <div class="inline-card" style="max-width:640px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
       <div class="field" style="margin:0"><label>Outlet</label>
@@ -133,8 +135,8 @@ async function renderHistoryTab(content, businessUnitId, outlets) {
       <div class="field" style="margin:0"><label>Jenis</label>
         <select id="hist-type"><option value="">Semua</option>${Object.entries(MOVEMENT_LABEL).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
       </div>
-      <div class="field" style="margin:0"><label>Dari</label><input type="date" id="hist-from" /></div>
-      <div class="field" style="margin:0"><label>Sampai</label><input type="date" id="hist-to" /></div>
+      <div class="field" style="margin:0"><label>Dari</label><input type="date" id="hist-from" value="${range.from}" /></div>
+      <div class="field" style="margin:0"><label>Sampai</label><input type="date" id="hist-to" value="${range.to}" /></div>
       <button class="primary" id="hist-go" style="max-width:120px">Tampilkan</button>
     </div>
     <div id="hist-result"></div>
@@ -157,8 +159,8 @@ async function loadHistory(content, businessUnitId) {
       businessUnitId,
       outletId,
       movementType,
-      dateFrom: from ? new Date(from).toISOString() : '',
-      dateTo: to ? new Date(to + 'T23:59:59').toISOString() : ''
+      dateFrom: isoFrom(from),
+      dateTo: isoTo(to)
     });
   } catch (error) {
     result.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;

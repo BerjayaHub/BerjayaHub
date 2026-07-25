@@ -1,18 +1,19 @@
 import { formatNum, formatRupiah } from '../../core/format.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
-import { listSalesReport, todayWIB } from './sales.service.js';
+import { listSalesReport } from './sales.service.js';
+import { monthRangeWIB } from '../../core/dates.js';
 
 export async function renderSalesAdminPage(container, { businessUnitId }) {
   const outlets = (await listAttendanceOutlets().catch(() => [])).filter((o) => o.business_unit_id === businessUnitId).map((o) => ({ id: o.id, name: o.name }));
-  const today = todayWIB();
+  const range = monthRangeWIB();
   container.innerHTML = `
     <h1>Penjualan</h1>
     <div class="inline-card" style="max-width:620px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
       <div class="field" style="margin:0"><label>Outlet</label>
         <select id="sr-outlet"><option value="">Semua</option>${outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('')}</select>
       </div>
-      <div class="field" style="margin:0"><label>Dari</label><input type="date" id="sr-from" value="${today}" /></div>
-      <div class="field" style="margin:0"><label>Sampai</label><input type="date" id="sr-to" value="${today}" /></div>
+      <div class="field" style="margin:0"><label>Dari</label><input type="date" id="sr-from" value="${range.from}" /></div>
+      <div class="field" style="margin:0"><label>Sampai</label><input type="date" id="sr-to" value="${range.to}" /></div>
       <button class="primary" id="sr-go" style="max-width:120px">Tampilkan</button>
     </div>
     <div id="sr-result"></div>

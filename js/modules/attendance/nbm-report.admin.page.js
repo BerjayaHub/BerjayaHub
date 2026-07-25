@@ -3,23 +3,14 @@ import { getNbmConfig, listOvertimeTiers, listHolidays, calculateNbm, toDateKey 
 import { exportTablePDF } from '../../core/pdf.js';
 import { toast } from '../../core/ui.js';
 import { formatRupiah } from '../../core/format.js';
-
-/** Tanggal 1 bulan ini & hari ini (WIB), untuk default filter. */
-function defaultRange() {
-  const now = new Date();
-  const wib = new Date(now.getTime() + 7 * 3600000);
-  const pad = (n) => String(n).padStart(2, '0');
-  const y = wib.getUTCFullYear();
-  const m = pad(wib.getUTCMonth() + 1);
-  return { from: `${y}-${m}-01`, to: `${y}-${m}-${pad(wib.getUTCDate())}` };
-}
+import { monthRangeWIB } from '../../core/dates.js';
 
 let lastReportRows = [];
 
 export async function renderNbmReportTab(container, businessUnitId) {
   container.innerHTML = `<p>Memuat...</p>`;
   const outlets = await listOutletsWithGeofence(businessUnitId);
-  const range = defaultRange();
+  const range = monthRangeWIB();
 
   container.innerHTML = `
     <div class="inline-card" style="max-width:640px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">

@@ -11,9 +11,9 @@ import {
   deleteSession,
   listRunsForAdmin,
   getRunItems,
-  getChecklistPhotoUrl,
-  todayWIB
+  getChecklistPhotoUrl
 } from './cleaning.service.js';
+import { monthRangeWIB } from '../../core/dates.js';
 
 const TABS = [
   { key: 'items', label: 'Item Ceklis' },
@@ -217,7 +217,8 @@ async function renderReportTab(content, businessUnitId) {
       <div class="field" style="margin:0"><label>Outlet</label>
         <select id="rep-outlet"><option value="">Semua outlet</option>${outlets.map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('')}</select>
       </div>
-      <div class="field" style="margin:0"><label>Tanggal</label><input type="date" id="rep-date" value="${todayWIB()}" /></div>
+      <div class="field" style="margin:0"><label>Dari</label><input type="date" id="rep-from" value="${monthRangeWIB().from}" /></div>
+      <div class="field" style="margin:0"><label>Sampai</label><input type="date" id="rep-to" value="${monthRangeWIB().to}" /></div>
       <button class="primary" id="rep-go" style="max-width:120px">Tampilkan</button>
     </div>
     <div id="rep-result"></div>
@@ -229,12 +230,13 @@ async function renderReportTab(content, businessUnitId) {
 
 async function loadReport(content, businessUnitId) {
   const outletId = content.querySelector('#rep-outlet').value || '';
-  const date = content.querySelector('#rep-date').value || '';
+  const dateFrom = content.querySelector('#rep-from').value || '';
+  const dateTo = content.querySelector('#rep-to').value || '';
   const result = content.querySelector('#rep-result');
   result.innerHTML = `<p>Memuat...</p>`;
   let runs;
   try {
-    runs = await listRunsForAdmin({ businessUnitId, outletId, date });
+    runs = await listRunsForAdmin({ businessUnitId, outletId, dateFrom, dateTo });
   } catch (error) {
     result.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
     return;

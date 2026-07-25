@@ -9,9 +9,9 @@ import {
   deleteCashCategory,
   listCashBalances,
   listCashEntriesAdmin,
-  getCashProofUrl,
-  todayWIB
+  getCashProofUrl
 } from './cash.service.js';
+import { monthRangeWIB } from '../../core/dates.js';
 
 const DIRECTIONS = [
   { value: 'both', label: 'Masuk & Keluar' },
@@ -56,7 +56,7 @@ async function renderBalancesTab(content, businessUnitId) {
   const nameById = new Map(staff.map((s) => [s.user_id, s.full_name]));
   const rows = balances.filter((b) => Number(b.balance) !== 0 || nameById.has(b.holder_id));
   const total = rows.reduce((sum, b) => sum + Number(b.balance || 0), 0);
-  const today = todayWIB();
+  const range = monthRangeWIB();
 
   content.innerHTML = `
     <h2 style="font-size:1.05rem">Saldo Kas per Pemegang</h2>
@@ -76,8 +76,8 @@ async function renderBalancesTab(content, businessUnitId) {
       <div class="field" style="margin:0"><label>Jenis</label>
         <select id="cm-type"><option value="">Semua</option>${Object.entries(ENTRY_LABEL).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
       </div>
-      <div class="field" style="margin:0"><label>Dari</label><input type="date" id="cm-from" value="${today}" /></div>
-      <div class="field" style="margin:0"><label>Sampai</label><input type="date" id="cm-to" value="${today}" /></div>
+      <div class="field" style="margin:0"><label>Dari</label><input type="date" id="cm-from" value="${range.from}" /></div>
+      <div class="field" style="margin:0"><label>Sampai</label><input type="date" id="cm-to" value="${range.to}" /></div>
       <button class="primary" id="cm-go" style="max-width:120px">Tampilkan</button>
     </div>
     <div id="cm-result"></div>

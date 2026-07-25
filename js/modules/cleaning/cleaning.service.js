@@ -148,16 +148,17 @@ export async function submitChecklistRun({ businessUnitId, outletId, sessionId, 
 
 // ---- Admin: rekap ----
 
-export async function listRunsForAdmin({ businessUnitId, outletId, date }) {
+export async function listRunsForAdmin({ businessUnitId, outletId, dateFrom, dateTo }) {
   let query = supabase
     .from('checklist_runs')
     .select('id, run_date, notes, photo_path, created_at, user_profiles(full_name), checklist_sessions(name), outlets(name)')
     .eq('business_unit_id', businessUnitId)
     .order('run_date', { ascending: false })
     .order('created_at', { ascending: false })
-    .limit(300);
+    .limit(500);
   if (outletId) query = query.eq('outlet_id', outletId);
-  if (date) query = query.eq('run_date', date);
+  if (dateFrom) query = query.gte('run_date', dateFrom);
+  if (dateTo) query = query.lte('run_date', dateTo);
   const { data, error } = await query;
   if (error) throw error;
   return data ?? [];

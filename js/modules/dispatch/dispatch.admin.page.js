@@ -1,18 +1,20 @@
 import { toast, infoDialog } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
 import { listDispatchesAdmin, getDispatchItems, DISPATCH_STATUS } from './dispatch.service.js';
+import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 
 const STATUS_BADGE = { sent: 'badge-pending', received: 'badge-approved', cancelled: 'badge-cancelled' };
 
 export async function renderDispatchAdminPage(container, { businessUnitId }) {
+  const range = monthRangeWIB();
   container.innerHTML = `
     <h1>Pengiriman</h1>
     <div class="inline-card" style="max-width:600px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
       <div class="field" style="margin:0"><label>Status</label>
         <select id="dp-status"><option value="">Semua</option>${Object.entries(DISPATCH_STATUS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
       </div>
-      <div class="field" style="margin:0"><label>Dari</label><input type="date" id="dp-from" /></div>
-      <div class="field" style="margin:0"><label>Sampai</label><input type="date" id="dp-to" /></div>
+      <div class="field" style="margin:0"><label>Dari</label><input type="date" id="dp-from" value="${range.from}" /></div>
+      <div class="field" style="margin:0"><label>Sampai</label><input type="date" id="dp-to" value="${range.to}" /></div>
       <button class="primary" id="dp-go" style="max-width:120px">Tampilkan</button>
     </div>
     <div id="dp-result"></div>
@@ -33,8 +35,8 @@ async function load(container, businessUnitId) {
     rows = await listDispatchesAdmin({
       businessUnitId,
       status,
-      dateFrom: from ? new Date(from).toISOString() : '',
-      dateTo: to ? new Date(to + 'T23:59:59').toISOString() : ''
+      dateFrom: isoFrom(from),
+      dateTo: isoTo(to)
     });
   } catch (error) {
     result.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;

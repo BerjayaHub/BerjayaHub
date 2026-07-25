@@ -15,6 +15,7 @@ import { renderNbmSettingsTab } from './nbm-settings.admin.page.js';
 import { renderNbmReportTab } from './nbm-report.admin.page.js';
 import { toast, formDialog } from '../../core/ui.js';
 import { exportTablePDF } from '../../core/pdf.js';
+import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 
 const TABS = [
   { key: 'presensi', label: 'Presensi' },
@@ -52,7 +53,9 @@ async function renderPresensiTab(container, businessUnitId) {
 
   const outlets = await listOutletsWithGeofence(businessUnitId);
   const exitMode = await getExitTaskMode(businessUnitId);
-  const filters = { businessUnitId, outletId: '', dateFrom: '', dateTo: '' };
+  // Default periode: tanggal 1 bulan berjalan s/d hari ini.
+  const range = monthRangeWIB();
+  const filters = { businessUnitId, outletId: '', dateFrom: isoFrom(range.from), dateTo: isoTo(range.to) };
   let lastRecords = [];
 
   async function refresh() {
@@ -123,8 +126,8 @@ async function renderPresensiTab(container, businessUnitId) {
           ${(outlets ?? []).map((o) => `<option value="${o.id}">${o.name}</option>`).join('')}
         </select>
       </div>
-      <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="filter-from" /></div>
-      <div class="field" style="margin:0"><label>Sampai tanggal</label><input type="date" id="filter-to" /></div>
+      <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="filter-from" value="${range.from}" /></div>
+      <div class="field" style="margin:0"><label>Sampai tanggal</label><input type="date" id="filter-to" value="${range.to}" /></div>
       <button class="primary" id="btn-filter" style="max-width:120px">Filter</button>
       <button id="btn-export-att">⇩ Export PDF</button>
     </div>
@@ -185,14 +188,14 @@ async function renderPresensiTab(container, businessUnitId) {
 
   document.getElementById('btn-export-att').addEventListener('click', async () => {
     if (!lastRecords.length) return toast('Tidak ada data untuk diexport.', 'warning');
-    const outletName = filters.outletId ? outlets.find((o) => o.id === filters.outletId)?.name ?? '-' : 'Semua outlet';
-    const periode = filters.dateFrom || filters.dateTo
-      ? `${filters.dateFrom ? new Date(filters.dateFrom).toLocaleDateString('id-ID') : '…'} s/d ${filters.dateTo ? new Date(filters.dateTo).toLocaleDateString('id-ID') : '…'}`
-      : 'Semua tanggal';
+    const namaOutlet = filters.outletId ? outlets.find((o) => o.id === filters.outletId)?.name ?? '-' : 'Semua outlet';
+    const dFrom = document.getElementById('filter-from').value;
+    const dTo = document.getElementById('filter-to').value;
+    const periode = dFrom || dTo ? `${dFrom || '…'} s/d ${dTo || '…'}` : 'Semua tanggal';
     try {
       await exportTablePDF({
         title: 'Rekap Presensi',
-        subtitle: `${outletName} · ${periode}`,
+        subtitle: `${namaOutlet} · Periode ${periode}`,
         columns: [
           { header: 'Staff', width: 1.4 },
           { header: 'Outlet', width: 1.2 },
@@ -221,10 +224,8 @@ async function renderPresensiTab(container, businessUnitId) {
 
   document.getElementById('btn-filter').addEventListener('click', () => {
     filters.outletId = document.getElementById('filter-outlet').value || '';
-    const from = document.getElementById('filter-from').value;
-    const to = document.getElementById('filter-to').value;
-    filters.dateFrom = from ? new Date(from).toISOString() : '';
-    filters.dateTo = to ? new Date(to + 'T23:59:59').toISOString() : '';
+    filters.dateFrom = isoFrom(document.getElementById('filter-from').value);
+    filters.dateTo = isoTo(document.getElementById('filter-to').value);
     refresh();
   });
 

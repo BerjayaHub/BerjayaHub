@@ -1,17 +1,19 @@
 import { formatNum } from '../../core/format.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProductionRuns } from './production.service.js';
+import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 
 export async function renderProductionAdminPage(container, { businessUnitId }) {
   const outlets = (await listAttendanceOutlets().catch(() => [])).filter((o) => o.business_unit_id === businessUnitId).map((o) => ({ id: o.id, name: o.name }));
+  const range = monthRangeWIB();
   container.innerHTML = `
     <h1>Produksi</h1>
     <div class="inline-card" style="max-width:600px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
       <div class="field" style="margin:0"><label>Outlet</label>
         <select id="pr-outlet"><option value="">Semua</option>${outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('')}</select>
       </div>
-      <div class="field" style="margin:0"><label>Dari</label><input type="date" id="pr-from" /></div>
-      <div class="field" style="margin:0"><label>Sampai</label><input type="date" id="pr-to" /></div>
+      <div class="field" style="margin:0"><label>Dari</label><input type="date" id="pr-from" value="${range.from}" /></div>
+      <div class="field" style="margin:0"><label>Sampai</label><input type="date" id="pr-to" value="${range.to}" /></div>
       <button class="primary" id="pr-go" style="max-width:120px">Tampilkan</button>
     </div>
     <div id="pr-result"></div>
@@ -32,8 +34,8 @@ async function loadRuns(container, businessUnitId) {
     runs = await listProductionRuns({
       businessUnitId,
       outletId,
-      dateFrom: from ? new Date(from).toISOString() : '',
-      dateTo: to ? new Date(to + 'T23:59:59').toISOString() : ''
+      dateFrom: isoFrom(from),
+      dateTo: isoTo(to)
     });
   } catch (error) {
     result.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
