@@ -11,7 +11,7 @@ import { supabase } from '../config/supabase-client.js';
 export async function getActiveModules(businessUnitId) {
   const { data, error } = await supabase
     .from('bu_modules')
-    .select('is_active, modules(code, name, description)')
+    .select('is_active, modules(id, code, name, description)')
     .eq('business_unit_id', businessUnitId)
     .eq('is_active', true);
 
@@ -39,4 +39,25 @@ export function registerModule(code, renderFn) {
 
 export function getModuleRenderer(code) {
   return registry.get(code) ?? null;
+}
+
+/**
+ * Modul yang boleh diakses SATU user di sebuah BU.
+ * Aturan: kalau user tidak punya baris user_module_access di BU ini -> boleh
+ * semua modul aktif BU (default). Kalau punya -> hanya yang terdaftar.
+ */
+export async function getMyAllowedModules(businessUnitId, activeModules) {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user) return activeModules;
+  const { data, error } = await supabase
+    .from('user_module_access')
+    .select('module_id')
+    .eq('user_id', user.id)
+    .eq('business_unit_id', businessUnitId);
+  if (error) return activeModules; // gagal baca -> jangan kunci user
+  const ids = new Set((data ?? []).map((r) => r.module_id));
+  if (ids.size === 0) return activeModules;
+  return activeModules.filter((m) => ids.has(m.id));
 }

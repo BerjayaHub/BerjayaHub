@@ -1,5 +1,5 @@
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
-import { getActiveModules, getModuleRenderer, registerModule } from './core/module-loader.js';
+import { getActiveModules, getModuleRenderer, registerModule, getMyAllowedModules } from './core/module-loader.js';
 import { getModuleIcon } from './core/module-icons.js';
 import { toast, confirmDialog, formDialog } from './core/ui.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
@@ -138,7 +138,8 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
   const activeScope = scopesInBu.find((s) => s.is_primary) ?? scopesInBu[0] ?? context.scopes[0];
 
   app.innerHTML = `<p style="padding:24px">Memuat modul...</p>`;
-  const modules = await getActiveModules(activeBuId);
+  // Modul aktif BU, lalu disaring lagi oleh akses per user (kalau diatur admin).
+  const modules = await getMyAllowedModules(activeBuId, await getActiveModules(activeBuId)).catch(() => []);
   const moduleCtx = {
     userId: context.profile.id,
     businessUnitId: activeBuId,

@@ -356,6 +356,17 @@ Jalankan migration `0028_nbm_adjustments.sql`.
 - Nominal asli hasil hitungan sistem tidak ditimpa — koreksi disimpan terpisah di tabel `nbm_adjustments` (hanya admin BU yang boleh mengubah), jadi jejak audit tetap ada.
 - **Pindah mode lewat header** (Staff App ↔ Admin Portal): akun ber-peran admin mendapat **segmented switcher** di header — *📱 Staff App | 🛠️ Admin Portal* — dengan mode aktif ditandai. Di Staff App switcher menyatu dengan header bertema BU (di layar sempit turun ke baris kedua, rata tengah); di Admin Portal ada **header bar baru** berisi nama BU aktif + switcher di kanan (sticky, aman dari tombol menu ☰ di mobile). Navigasi memakai halaman yang sama sehingga **tetap di dalam PWA** yang ter-install.
 
+## Akses modul per user
+
+Jalankan migration `0029_user_module_access.sql`.
+
+Selain toggle modul **per BU** (BU & Outlet → Modul), admin kini bisa membatasi modul **per staff**: Admin Portal → **User → Master User** → tombol **Akses Modul** di baris staff → centang modul yang boleh dia akses di Staff App.
+
+- **Default aman**: staff yang belum pernah diatur otomatis boleh **semua modul aktif BU**. Kalau semua modul dicentang, sistem menyimpannya sebagai "default" — jadi modul baru yang diaktifkan BU nanti otomatis ikut terlihat.
+- Berlaku per **BU aktif** (ikut switcher BU di Admin Portal), jadi staff multi-BU bisa punya akses berbeda di tiap BU.
+- Dijaga RLS: staff hanya bisa membaca aksesnya sendiri; hanya admin BU yang boleh mengubah.
+- Catatan: ini mengatur **modul yang tampil di Staff App**. Pembatasan lain tetap berlaku seperti sebelumnya — akses Admin Portal ditentukan **role**, dan Produksi/Menu/Penjualan ditentukan **peran outlet** (CK vs outlet penjualan).
+
 ## Standar filter periode (semua modul)
 
 Semua filter periode di Admin Portal kini **default: tanggal 1 bulan berjalan s/d hari ini** (WIB), lewat helper bersama `js/core/dates.js` (`monthRangeWIB`, `isoFrom`, `isoTo`).

@@ -8,7 +8,10 @@ import {
   removeMembershipScope,
   setPrimaryScope,
   createStaffUser,
-  resetStaffPassword
+  resetStaffPassword,
+  listBuActiveModules,
+  getUserModuleAccess,
+  setUserModuleAccess
 } from './master-user.service.js';
 import { listRegisteredFaceUserIds, resetFaceDescriptor } from '../attendance/attendance.service.js';
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
@@ -27,7 +30,9 @@ const ROLE_OPTIONS = [
   { value: 'super_admin', label: 'Super Admin' }
 ];
 
-export async function renderMasterUserPage(container) {
+export async function renderMasterUserPage(container, ctx = {}) {
+  const businessUnitId = ctx.businessUnitId ?? container.dataset.buId ?? null;
+  container.dataset.buId = businessUnitId ?? '';
   container.innerHTML = `<p>Memuat data staff...</p>`;
 
   const [staffList, businessUnits, registeredFaceIds] = await Promise.all([
@@ -99,6 +104,7 @@ function staffRowHtml(s, registeredFaceIds) {
       </td>
       <td>
         <button class="btn-edit" data-user-id="${s.profile.id}">Edit</button>
+        <button class="btn-modules" data-user-id="${s.profile.id}" data-name="${s.profile.full_name}">Akses Modul</button>
         <button class="btn-reset-password" data-user-id="${s.profile.id}">Reset Password</button>
         <button class="btn-toggle-active" data-user-id="${s.profile.id}" data-active="${s.profile.is_active}">
           ${s.profile.is_active ? 'Nonaktifkan' : 'Aktifkan'}
@@ -297,6 +303,10 @@ function wireRowActions(container, businessUnits) {
     );
   });
 
+  container.querySelectorAll('.btn-modules').forEach((btn) => {
+    btn.addEventListener('click', () => openModuleAccessDialog(container, btn.dataset.userId, btn.dataset.name));
+  });
+
   container.querySelectorAll('.scope-primary').forEach((btn) => {
     btn.addEventListener('click', async () => {
       if (btn.classList.contains('is-primary')) return; // sudah jadi basis, tak perlu apa-apa
@@ -309,6 +319,61 @@ function wireRowActions(container, businessUnits) {
       }
     });
   });
+}
+
+/**
+ * Atur modul apa saja yang boleh diakses staff ini di BU aktif.
+ * Semua tercentang = default (otomatis ikut modul baru yang diaktifkan BU).
+ */
+async function openModuleAccessDialog(container, userId, staffName) {
+  const businessUnitId = container.dataset.buId;
+  if (!businessUnitId) {
+    toast('BU aktif tidak diketahui. Pilih BU dulu di switcher.', 'warning');
+    return;
+  }
+  let modules;
+  let current;
+  try {
+    [modules, current] = await Promise.all([listBuActiveModules(businessUnitId), getUserModuleAccess(userId, businessUnitId)]);
+  } catch (error) {
+    toast(error.message ?? 'Gagal memuat daftar modul.', 'error');
+    return;
+  }
+  if (!modules.length) {
+    toast('Belum ada modul aktif di BU ini (atur di BU & Outlet → Modul).', 'warning');
+    return;
+  }
+  const isDefaultAll = current.size === 0;
+
+  const values = await formDialog({
+    title: `Akses Modul — ${staffName}`,
+    description: isDefaultAll
+      ? 'Saat ini staff ini bisa mengakses SEMUA modul aktif BU (default). Hilangkan centang untuk membatasi.'
+      : 'Centang modul yang boleh diakses staff ini di Staff App.',
+    fields: modules.map((m) => ({
+      name: `m_${m.id}`,
+      label: m.name,
+      type: 'checkbox',
+      value: isDefaultAll ? true : current.has(m.id)
+    })),
+    submitText: 'Simpan Akses'
+  });
+  if (!values) return;
+
+  const chosen = modules.filter((m) => values[`m_${m.id}`]).map((m) => m.id);
+  if (!chosen.length) {
+    toast('Pilih minimal satu modul.', 'warning');
+    return;
+  }
+  try {
+    await setUserModuleAccess(userId, businessUnitId, chosen, modules.map((m) => m.id));
+    toast(
+      chosen.length === modules.length ? 'Akses dikembalikan ke semua modul BU.' : `Akses modul disimpan (${chosen.length} modul).`,
+      'success'
+    );
+  } catch (error) {
+    toast(error.message ?? 'Gagal menyimpan akses modul.', 'error');
+  }
 }
 
 /**

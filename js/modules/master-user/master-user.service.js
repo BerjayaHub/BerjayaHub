@@ -75,6 +75,50 @@ export async function removeMembershipScope(scopeId) {
   if (error) throw error;
 }
 
+// ---- Akses modul per user (dalam satu BU) ----
+
+/** Modul aktif di sebuah BU (id, code, name) untuk pilihan akses. */
+export async function listBuActiveModules(businessUnitId) {
+  const { data, error } = await supabase
+    .from('bu_modules')
+    .select('is_active, modules(id, code, name)')
+    .eq('business_unit_id', businessUnitId)
+    .eq('is_active', true);
+  if (error) throw error;
+  return (data ?? []).map((r) => r.modules).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Set module_id yang di-whitelist untuk user di BU ini (kosong = semua modul). */
+export async function getUserModuleAccess(userId, businessUnitId) {
+  const { data, error } = await supabase
+    .from('user_module_access')
+    .select('module_id')
+    .eq('user_id', userId)
+    .eq('business_unit_id', businessUnitId);
+  if (error) throw error;
+  return new Set((data ?? []).map((r) => r.module_id));
+}
+
+/**
+ * Simpan akses modul user. Kalau `moduleIds` mencakup SEMUA modul aktif BU,
+ * baris dihapus semua supaya kembali ke default "semua modul" (lebih bersih,
+ * dan otomatis ikut kalau nanti ada modul baru diaktifkan untuk BU).
+ */
+export async function setUserModuleAccess(userId, businessUnitId, moduleIds, allModuleIds) {
+  const { error: delError } = await supabase
+    .from('user_module_access')
+    .delete()
+    .eq('user_id', userId)
+    .eq('business_unit_id', businessUnitId);
+  if (delError) throw delError;
+
+  const isAll = allModuleIds.length > 0 && moduleIds.length === allModuleIds.length;
+  if (isAll || moduleIds.length === 0) return; // default: semua modul BU
+  const rows = moduleIds.map((mid) => ({ user_id: userId, business_unit_id: businessUnitId, module_id: mid }));
+  const { error } = await supabase.from('user_module_access').insert(rows);
+  if (error) throw error;
+}
+
 /**
  * Tetapkan satu scope sebagai "tempat kerja utama" (basis NBM) staff.
  * Scope lain milik user yang sama otomatis di-nonaktifkan primary-nya dulu,
