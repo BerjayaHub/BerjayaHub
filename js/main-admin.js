@@ -16,6 +16,7 @@ import { renderStaffDataPage } from './modules/profile/staff-data.admin.page.js'
 import { renderShiftAdminPage } from './modules/shift/shift.admin.page.js';
 import { renderFleetAdminPage } from './modules/fleet/fleet.admin.page.js';
 import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
+import { renderReportAdminPage } from './modules/report/report.admin.page.js';
 import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
 import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
 import { listBusinessUnitsBasic } from './modules/organization/organization.service.js';
@@ -29,6 +30,7 @@ const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
 // Modul "core" admin: selalu tampil untuk admin, tidak tergantung toggle bu_modules
 // (beda dengan modul operasional seperti presensi/inventory yang di-toggle per BU)
 registerModule('dashboard', renderAdminDashboard);
+registerModule('report', renderReportAdminPage);
 registerModule('organization', renderOrganizationAdminPage);
 registerModule('master_user', renderMasterUserPage);
 registerModule('bu_appearance', renderBuAppearancePage);
@@ -80,7 +82,12 @@ const GROUPS = {
 // Kode modul yang sudah "diserap" ke dalam grup -> jangan tampil sebagai menu sendiri.
 const GROUPED_CODES = new Set(Object.values(GROUPS).flatMap((g) => g.tabs.map((t) => t.code)));
 
-const CORE_ADMIN_MENU = [{ code: 'dashboard', name: 'Dashboard' }];
+// Laporan bersifat lintas-modul, jadi ikut "core" (tidak di-toggle per BU),
+// tapi tetap bisa dibatasi lewat Izin Admin per user.
+const CORE_ADMIN_MENU = [
+  { code: 'dashboard', name: 'Dashboard' },
+  { code: 'report', name: 'Laporan' }
+];
 
 /** Tab dalam sebuah grup yang boleh dilihat user ini di BU aktif. */
 function visibleTabsOf(group, activeCodes, isSuperAdmin, allowedTabs) {
@@ -90,7 +97,7 @@ function visibleTabsOf(group, activeCodes, isSuperAdmin, allowedTabs) {
 /** Susun menu admin: Dashboard + grup + modul aktif lain, disaring izin akses. */
 function buildAdminMenu(activeModules, isSuperAdmin, allowedTabs) {
   const activeCodes = new Set(activeModules.map((m) => m.code));
-  const menu = [...CORE_ADMIN_MENU];
+  const menu = CORE_ADMIN_MENU.filter((m) => canAccessTab(m.code, isSuperAdmin, allowedTabs));
   for (const [code, g] of Object.entries(GROUPS)) {
     if (visibleTabsOf(g, activeCodes, isSuperAdmin, allowedTabs).length) menu.push({ code, name: g.name });
   }

@@ -405,7 +405,7 @@ Jalankan migration `0032_staff_profile_and_waste.sql`.
 - **Inventory**: label diperjelas — “+ Penerimaan” → **📥 Terima dari Supplier**, “Waste” → **🗑️ Waste / Spoil** dengan pilihan **tipe**: *Spoil* (bahan/setengah jadi rusak → stok bahan berkurang langsung) atau *Waste* (menu jadi terbuang → **bahan dipotong sesuai resep menu** lewat RPC `record_menu_waste`).
 - **Audit tipe Menu**: produk bertipe Menu tidak lagi muncul di form penambahan bahan mana pun (Inventory, Opname, Transfer, Order/Pengiriman, Resep) — hanya di modul Menu, Penjualan, dan pilihan Waste menu.
 
-## Modul Armada (Fleet)
+## Fase 10 — Modul Armada (Fleet)
 
 Jalankan migration `0036_fleet.sql`, lalu aktifkan modul **Armada** untuk BU lewat Master BU & Outlet → tombol **Modul**. Modul ini **admin-only** (tidak ada halaman Staff App).
 
@@ -443,6 +443,46 @@ Jalankan migration `0034_shift.sql`, lalu **deploy ulang** `send-attendance-remi
   - Riwayat **Admin Portal → Presensi** dapat kolom **Shift** berisi nama shift + badge status & menit keterlambatan; ikut juga di **Export PDF**.
   - **Push reminder clock in** memakai **jam shift masing-masing staff** saat modul Shift aktif (staff libur/tidak dijadwalkan tidak diingatkan); outlet non-shift tetap memakai jam masuk outlet.
 - Modul Shift juga bisa dibatasi lewat **Izin Admin** per user, dan muncul di Staff App sesuai **akses modul** & toggle modul BU.
+
+## Fase 11 — Laporan (Report)
+
+**Tidak perlu migration.** Modul Laporan hanya membaca data yang sudah ada. Menunya bersifat **core** (tidak di-toggle per BU) karena isinya lintas modul, tapi tetap bisa dibatasi lewat **Izin Admin per user** (kode tab `report`).
+
+Admin Portal → **📊 Laporan**: pilih **jenis laporan**, **outlet**, dan **periode** (default tanggal 1 bulan berjalan s/d hari ini), lalu **Tampilkan** / **Export PDF**. Tiap laporan menampilkan kartu KPI ringkas, tabel, dan **catatan metodologi** supaya angkanya bisa diaudit.
+
+Laporan yang sudah tersedia:
+
+- **Laba Rugi** (Keuangan) — Omzet penjualan − HPP bahan (dari resep aktif: mode *Standalone*, mundur ke *Dilayani CK*) = **laba kotor**; dikurangi **beban kas keluar per kategori** = **laba bersih (estimasi)**. Kas Masuk & transfer antar pemegang kas sengaja **tidak** dihitung sebagai pendapatan supaya tidak dobel dengan omzet. Menu yang belum punya HPP disebutkan di catatan, bukan diam-diam dianggap nol.
+- **Rekap Penggajian (NBM)** (SDM) — satu baris per staff: hari hadir, hari libur, storing, NBM dasar, lembur, bonus storing, **penyesuaian manual** (selisih terhadap hitungan otomatis dari tab Rekap NBM), dan total. Ada baris TOTAL.
+- **Rekap Presensi & Disiplin** (SDM) — satu baris per staff: hadir, tepat waktu, toleransi, terlambat, total menit terlambat, tugas luar, hari cuti (dari pengajuan disetujui yang jatuh di periode), dan sesi belum clock out. Diurutkan dari yang paling sering terlambat, dan **staff dengan 0 hari hadir tetap ditampilkan**.
+
+Laporan SDM mengikuti **BU/outlet basis** staff (tanda ★ di Master User), bukan lokasi absen fisik — konsisten dengan Rekap NBM.
+
+### Menambah laporan baru
+
+Kerangkanya generik: `report.admin.page.js` tidak tahu isi laporan apa pun. Cukup tambah satu entri di `REPORTS` pada `js/modules/report/report.service.js`:
+
+```js
+{
+  key: 'stock_value',
+  label: 'Nilai Persediaan',
+  group: 'Inventory',
+  description: 'Nilai stok per outlet.',
+  build: async ({ businessUnitId, outletId, from, to }) => ({
+    columns: [{ header: 'Produk', width: 2 }, { header: 'Nilai', width: 1, numeric: true }],
+    rows: [['Gula', 'Rp150.000']],
+    summary: [{ label: 'Total nilai', value: 'Rp150.000' }],  // opsional
+    bold: [],                                                  // indeks baris tebal, opsional
+    note: 'Catatan metodologi.'                                // opsional, mendukung **tebal**
+  })
+}
+```
+
+Pemilih periode/outlet, render tabel, kartu KPI, dan Export PDF otomatis ikut — UI tidak perlu disentuh.
+
+### Kandidat laporan berikutnya
+
+Selisih pemakaian bahan (resep × penjualan vs `stock_movements` — penangkap kebocoran), penjualan per menu & tren harian, arus kas, nilai persediaan, produksi & yield CK, pemenuhan order/pengiriman, utilisasi armada, sisa jatah cuti, kepatuhan ceklis kebersihan.
 
 ## Izin akses Admin Portal per user
 
@@ -487,5 +527,5 @@ Berlaku di: **Presensi**, **Rekap NBM**, **Inventory → Riwayat**, **Produksi**
 - [x] **Fase 7** — Production di Central Kitchen + Transfer/Dispatch ke outlet (Cafe)
 - [x] **Fase 8** — Sales (Cafe)
 - [x] **Fase 9** — Cash Ledger (Cafe)
-- [ ] **Fase 10** — Pengajuan Cuti, Dashboard/Reports
-- [x] **Modul Armada/Fleet** — data kendaraan, rental, dokumen STNK/KIR + reminder, master Merk/Tipe/Area Rental, filter & import xlsx
+- [x] **Fase 10** — Armada/Fleet: data kendaraan, rental, dokumen STNK/KIR + reminder, master Merk/Tipe/Area Rental, filter & import xlsx
+- [ ] **Fase 11** — Report/Laporan lintas modul

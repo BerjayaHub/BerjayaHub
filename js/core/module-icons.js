@@ -8,6 +8,7 @@ const ICONS = {
   fleet: '🚗',
   master_user: '👤',
   dashboard: '🏠',
+  report: '📊',
   bu_appearance: '🎨',
   organization: '🏢',
   master_product: '📒',

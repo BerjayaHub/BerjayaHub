@@ -6,6 +6,7 @@
 
 export const ADMIN_TAB_CATALOG = [
   { code: 'dashboard', label: 'Dashboard', group: 'Umum', always: true },
+  { code: 'report', label: 'Laporan', group: 'Umum' },
 
   { code: 'organization', label: 'Organisasi & Outlet', group: 'BU & Outlet' },
   { code: 'bu_appearance', label: 'Tampilan BU', group: 'BU & Outlet' },

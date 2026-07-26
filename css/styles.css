@@ -1451,3 +1451,38 @@ select.sc-cell.is-off {
 .incoming-empty { color: var(--color-text-muted); margin: 8px 0 0; font-size: 0.88rem; }
 .incoming-highlight .inline-card { margin-top: 10px; margin-bottom: 0; }
 .incoming-highlight .inline-card + .inline-card { margin-top: 8px; }
+
+/* ---- Modul Laporan (Fase 11) ---- */
+.report-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.report-kpi {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-primary);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.report-kpi-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+.report-kpi-value {
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
+.report-note {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  background: var(--color-bg);
+  border-left: 3px solid var(--color-border);
+  border-radius: 0 8px 8px 0;
+  padding: 8px 12px;
+  margin-top: 12px;
+}
