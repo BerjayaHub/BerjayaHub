@@ -411,10 +411,22 @@ Jalankan migration `0036_fleet.sql`, lalu aktifkan modul **Armada** untuk BU lew
 
 Admin Portal → **Armada**, 4 tab:
 
-- **Kendaraan** — data lengkap: nomor polisi, merek/model, jenis, tahun, warna, **no. rangka & no. mesin**, kepemilikan (milik sendiri/leasing/sewa), outlet/pool, status (**Tersedia / Direntalkan / Perawatan / Nonaktif**), dokumen, dan catatan. Ada filter status + pencarian fuzzy, tombol **Detail**, **Edit**, **Rentalkan/Selesai Rental**, dan **Export PDF**.
-- **Rental** — daftar kendaraan yang **sedang direntalkan** beserta **area**, penyewa, dan periodenya, plus **riwayat rental**.
+- **Kendaraan** — data lengkap: nomor polisi, **Merk & Tipe** (dropdown master), jenis, tahun, warna, **no. rangka & no. mesin**, **Nama STNK**, **Area Rental** (dropdown master), status (**Tersedia / Direntalkan / Perawatan / Nonaktif**), dokumen, dan catatan. Tombol **Detail**, **Edit**, **Rentalkan/Selesai Rental**, **Import xlsx**, dan **Export PDF**.
+- **Rental** — daftar kendaraan yang **sedang direntalkan** beserta **area rental**, penyewa, dan periodenya, plus **riwayat rental**.
 - **Dokumen & Reminder** — kotak sorot **🔔 Perlu Perpanjangan** berisi dokumen yang **kedaluwarsa** atau mendekati jatuh tempo (STNK pajak tahunan, STNK 5 tahun, KIR), diurutkan paling mendesak. Bisa **Kirim via WhatsApp** (tanpa API) dan **Export PDF**. Di bawahnya ada tabel semua dokumen + catatan kendaraan yang tanggalnya belum diisi.
-- **Pengaturan** — **ambang reminder** (default 30 hari sebelum jatuh tempo), berlaku untuk STNK & KIR.
+- **Pengaturan** — **ambang reminder** (default 30 hari sebelum jatuh tempo) + **Master Data** (kelola Merk, Tipe, Area Rental).
+
+### Revisi Armada (migration `0037_fleet_masters.sql`)
+
+Jalankan `0037_fleet_masters.sql`. Master merk/tipe/area **tidak di-seed hardcode** — isinya murni dari input user, dan data kendaraan yang sudah ada otomatis dijadikan isi master awal.
+
+- **Merk & Tipe jadi dropdown bertingkat.** Tabel `vehicle_brands` dan `vehicle_models` (tipe selalu menempel pada satu merk). Pilih **Toyota** → dropdown Tipe hanya menampilkan Avanza/Innova/…; pilih **Daihatsu** → Xenia/Gran Max/… Keduanya **bisa ditambah langsung dari form kendaraan**: ketik nama baru lalu pilih **“+ Tambah”**, tersimpan ke master saat form disimpan.
+- **Kepemilikan → Nama STNK.** Kolom `vehicles.ownership` di-*rename* jadi `stnk_owner_name` dan berubah dari pilihan hardcode menjadi **teks bebas** (nama pemilik sesuai STNK). Ikut tampil di tabel (di bawah plat), Detail, dan Export PDF.
+- **Outlet/Pool → Area Rental.** Tabel `rental_areas` sebagai master; field di form kendaraan jadi dropdown (bisa tambah dari form) supaya penulisan area seragam antar admin. Nilai lama dari outlet/pool otomatis dipindah jadi area. `vehicles.rental_area` kini berarti **area kendaraan yang menetap** — **Selesai Rental tidak lagi mengosongkannya**; area sesi rental tetap tersimpan di `vehicle_rentals.rental_area`.
+- **Filter baru** di tab Kendaraan: **Area Rental**, **rentang jatuh tempo pajak STNK**, dan **rentang masa berlaku KIR** (selain status & pencarian). Ada tombol **Reset filter**, jumlah baris yang tampil, dan ringkasan filter ikut tercetak di **Export PDF**.
+- **Import massal .xlsx/.csv** (`fleet-import.js`, SheetJS via CDN). Kolom wajib hanya **Nomor Polisi**; nama kolom fleksibel (mis. `Merk`/`Merek`/`Brand`, `Nopol`/`Plat`). Tanggal menerima `YYYY-MM-DD`, `DD/MM/YYYY`, dan serial Excel. Merk/Tipe/Area baru **otomatis masuk ke master**. Ada opsi **perbarui kendaraan yang nopolnya sudah ada** (status kendaraan yang sedang direntalkan tidak ditimpa), tombol **Download template**, dan ringkasan hasil (ditambah/diperbarui/dilewati/master baru + daftar error per baris).
+- **Kelola master** di tab Pengaturan: tambah/ubah nama/hapus Merk, Tipe, dan Area. Mengubah nama master ikut memperbarui kendaraan yang memakainya.
+- `formDialog` kini mendukung `onChange` pada field `searchselect`, dipakai untuk dropdown bertingkat Merk → Tipe.
 
 ## Modul Shift (jadwal kerja)
 
@@ -476,4 +488,4 @@ Berlaku di: **Presensi**, **Rekap NBM**, **Inventory → Riwayat**, **Produksi**
 - [x] **Fase 8** — Sales (Cafe)
 - [x] **Fase 9** — Cash Ledger (Cafe)
 - [ ] **Fase 10** — Pengajuan Cuti, Dashboard/Reports
-- [x] **Modul Armada/Fleet** — data kendaraan, rental, dokumen STNK/KIR + reminder
+- [x] **Modul Armada/Fleet** — data kendaraan, rental, dokumen STNK/KIR + reminder, master Merk/Tipe/Area Rental, filter & import xlsx

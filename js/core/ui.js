@@ -129,10 +129,13 @@ export function formDialog({
     // Auto-format ribuan untuk field 'money' & 'qty'.
     fields.filter((f) => f.type === 'money' || f.type === 'qty').forEach((f) => attachThousandsInput(form.elements[f.name]));
 
-    // Aktifkan search-select fuzzy.
+    // Aktifkan search-select fuzzy. `f.onChange` dipakai untuk field bertingkat
+    // (mis. Merk -> Tipe): opsi field turunan cukup di-mutate di tempat
+    // (`opts.length = 0; opts.push(...)`) karena wireSearchSelect membaca array
+    // yang sama setiap kali daftar digambar.
     fields
       .filter((f) => f.type === 'searchselect')
-      .forEach((f) => wireSearchSelect(form.querySelector(`.search-select[data-name="${f.name}"]`), f.options ?? []));
+      .forEach((f) => wireSearchSelect(form.querySelector(`.search-select[data-name="${f.name}"]`), f.options ?? [], f.onChange));
 
     const errorEl = overlay.querySelector('.modal-error');
     const close = (result) => {

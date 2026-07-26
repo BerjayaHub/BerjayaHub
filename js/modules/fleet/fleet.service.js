@@ -24,12 +24,8 @@ export const VEHICLE_TYPES = [
   { value: 'Bus', label: 'Bus' },
   { value: 'Lainnya', label: 'Lainnya' }
 ];
-export const OWNERSHIP_OPTIONS = [
-  { value: '', label: '-- pilih --' },
-  { value: 'Milik Sendiri', label: 'Milik Sendiri' },
-  { value: 'Leasing', label: 'Leasing' },
-  { value: 'Sewa', label: 'Sewa' }
-];
+// Merk, Tipe, dan Area Rental TIDAK di-hardcode — semuanya master data per BU
+// yang diisi sendiri oleh user (lihat migration 0037).
 
 /** Selisih hari dari hari ini (WIB) ke tanggal target. Negatif = sudah lewat. */
 export function daysUntil(dateStr) {
@@ -69,12 +65,128 @@ export async function upsertFleetSettings(businessUnitId, { reminder_lead_days }
   if (error) throw error;
 }
 
+// ---- Master: Merk, Tipe (per merk), Area Rental ----
+// Semua diisi user; bisa ditambah langsung dari form kendaraan (allowCreate).
+
+export async function listVehicleBrands(businessUnitId) {
+  const { data, error } = await supabase
+    .from('vehicle_brands')
+    .select('id, name')
+    .eq('business_unit_id', businessUnitId)
+    .order('name');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listVehicleModels(businessUnitId) {
+  const { data, error } = await supabase
+    .from('vehicle_models')
+    .select('id, name, brand_id')
+    .eq('business_unit_id', businessUnitId)
+    .order('name');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listRentalAreas(businessUnitId) {
+  const { data, error } = await supabase
+    .from('rental_areas')
+    .select('id, name')
+    .eq('business_unit_id', businessUnitId)
+    .order('name');
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Ambil semua master sekaligus (dipakai form & filter). */
+export async function loadFleetMasters(businessUnitId) {
+  const [brands, models, areas] = await Promise.all([
+    listVehicleBrands(businessUnitId).catch(() => []),
+    listVehicleModels(businessUnitId).catch(() => []),
+    listRentalAreas(businessUnitId).catch(() => [])
+  ]);
+  return { brands, models, areas };
+}
+
+const norm = (s) => String(s ?? '').trim();
+const same = (a, b) => norm(a).toLowerCase() === norm(b).toLowerCase();
+
+/** Get-or-create merk. Mengembalikan baris merk (id, name) atau null kalau nama kosong. */
+export async function ensureBrand(businessUnitId, name) {
+  const clean = norm(name);
+  if (!clean) return null;
+  const existing = (await listVehicleBrands(businessUnitId)).find((b) => same(b.name, clean));
+  if (existing) return existing;
+  const { data, error } = await supabase
+    .from('vehicle_brands')
+    .insert({ business_unit_id: businessUnitId, name: clean })
+    .select('id, name')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/** Get-or-create tipe di bawah satu merk. */
+export async function ensureModel(businessUnitId, brandId, name) {
+  const clean = norm(name);
+  if (!clean || !brandId) return null;
+  const existing = (await listVehicleModels(businessUnitId)).find((m) => m.brand_id === brandId && same(m.name, clean));
+  if (existing) return existing;
+  const { data, error } = await supabase
+    .from('vehicle_models')
+    .insert({ business_unit_id: businessUnitId, brand_id: brandId, name: clean })
+    .select('id, name, brand_id')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/** Get-or-create area rental. */
+export async function ensureArea(businessUnitId, name) {
+  const clean = norm(name);
+  if (!clean) return null;
+  const existing = (await listRentalAreas(businessUnitId)).find((a) => same(a.name, clean));
+  if (existing) return existing;
+  const { data, error } = await supabase
+    .from('rental_areas')
+    .insert({ business_unit_id: businessUnitId, name: clean })
+    .select('id, name')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+const MASTER_TABLE = { brand: 'vehicle_brands', model: 'vehicle_models', area: 'rental_areas' };
+
+/** Ubah nama master. Untuk merk/tipe/area, kendaraan yang memakainya ikut diperbarui. */
+export async function renameMaster(kind, id, newName, { businessUnitId, oldName, brandId } = {}) {
+  const clean = norm(newName);
+  if (!clean) throw new Error('Nama tidak boleh kosong.');
+  const { error } = await supabase.from(MASTER_TABLE[kind]).update({ name: clean }).eq('id', id);
+  if (error) throw error;
+  if (!businessUnitId || !oldName) return;
+  const col = kind === 'brand' ? 'brand' : kind === 'model' ? 'model' : 'rental_area';
+  let q = supabase.from('vehicles').update({ [col]: clean }).eq('business_unit_id', businessUnitId).eq(col, oldName);
+  // Tipe hanya diganti pada kendaraan bermerk sama, karena nama tipe bisa
+  // dipakai merk lain.
+  if (kind === 'model' && brandId) {
+    const brand = (await listVehicleBrands(businessUnitId)).find((b) => b.id === brandId);
+    if (brand) q = q.eq('brand', brand.name);
+  }
+  await q;
+}
+
+export async function deleteMaster(kind, id) {
+  const { error } = await supabase.from(MASTER_TABLE[kind]).delete().eq('id', id);
+  if (error) throw error;
+}
+
 // ---- Kendaraan ----
 
 export async function listVehicles(businessUnitId) {
   const { data, error } = await supabase
     .from('vehicles')
-    .select('*, outlets(name)')
+    .select('*')
     .eq('business_unit_id', businessUnitId)
     .order('plate_number');
   if (error) throw error;
@@ -124,17 +236,17 @@ export async function startRental({ businessUnitId, vehicleId, renterName, renta
   });
   if (insErr) throw insErr;
 
-  const { error } = await supabase
-    .from('vehicles')
-    .update({
-      status: 'rented',
-      renter_name: renterName,
-      rental_area: rentalArea || null,
-      rental_start: startDate,
-      rental_end: endDate || null,
-      rental_notes: notes || null
-    })
-    .eq('id', vehicleId);
+  const patch = {
+    status: 'rented',
+    renter_name: renterName,
+    rental_start: startDate,
+    rental_end: endDate || null,
+    rental_notes: notes || null
+  };
+  // rental_area = Area Rental kendaraan (menetap). Hanya ditimpa kalau admin
+  // memilih area lain saat merentalkan.
+  if (rentalArea) patch.rental_area = rentalArea;
+  const { error } = await supabase.from('vehicles').update(patch).eq('id', vehicleId);
   if (error) throw error;
 }
 
@@ -150,9 +262,10 @@ export async function endRental(vehicleId, endDate) {
   if (open?.length) {
     await supabase.from('vehicle_rentals').update({ end_date: endDate }).eq('id', open[0].id);
   }
+  // rental_area TIDAK dikosongkan: itu Area Rental kendaraan, bukan data sesi.
   const { error } = await supabase
     .from('vehicles')
-    .update({ status: 'idle', renter_name: null, rental_area: null, rental_start: null, rental_end: null, rental_notes: null })
+    .update({ status: 'idle', renter_name: null, rental_start: null, rental_end: null, rental_notes: null })
     .eq('id', vehicleId);
   if (error) throw error;
 }
@@ -160,7 +273,7 @@ export async function endRental(vehicleId, endDate) {
 export async function listRentals(businessUnitId, vehicleId) {
   let q = supabase
     .from('vehicle_rentals')
-    .select('id, renter_name, rental_area, start_date, end_date, notes, vehicles(plate_number)')
+    .select('id, vehicle_id, renter_name, rental_area, start_date, end_date, notes, vehicles(plate_number)')
     .eq('business_unit_id', businessUnitId)
     .order('start_date', { ascending: false })
     .limit(300);
