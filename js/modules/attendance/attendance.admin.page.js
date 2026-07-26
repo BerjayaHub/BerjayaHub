@@ -59,11 +59,29 @@ async function renderPresensiTab(container, businessUnitId) {
   const filters = { businessUnitId, outletId: '', dateFrom: isoFrom(range.from), dateTo: isoTo(range.to) };
   let lastRecords = [];
 
+  // Nama outlet untuk filter/PDF — termasuk outlet BU lain yang muncul di data
+  // (staff basis BU ini bisa absen di outlet BU lain).
+  const outletNames = new Map((outlets ?? []).map((o) => [o.id, o.name]));
+
   async function refresh() {
     const records = await listAttendanceForAdmin(filters);
     lastRecords = records;
     container.querySelector('#attendance-table-body').innerHTML =
       records.map((r) => rowHtml(r)).join('') || '<tr><td colspan="11">Tidak ada data.</td></tr>';
+
+    // Lengkapi pilihan filter outlet dengan outlet lain yang terpakai di data.
+    const sel = container.querySelector('#filter-outlet');
+    let added = false;
+    for (const r of records) {
+      const o = r.outlets;
+      if (o?.id && !outletNames.has(o.id)) {
+        outletNames.set(o.id, o.name);
+        sel.insertAdjacentHTML('beforeend', `<option value="${o.id}">${escapeHtml(o.name)}${r.loc_bu?.name ? ` (${escapeHtml(r.loc_bu.name)})` : ''}</option>`);
+        added = true;
+      }
+    }
+    if (added) sel.value = filters.outletId || '';
+
     wireEditButtons(container);
     wirePhotoButtons(container);
     wireAddressButtons(container);
@@ -189,7 +207,7 @@ async function renderPresensiTab(container, businessUnitId) {
 
   document.getElementById('btn-export-att').addEventListener('click', async () => {
     if (!lastRecords.length) return toast('Tidak ada data untuk diexport.', 'warning');
-    const namaOutlet = filters.outletId ? outlets.find((o) => o.id === filters.outletId)?.name ?? '-' : 'Semua outlet';
+    const namaOutlet = filters.outletId ? outletNames.get(filters.outletId) ?? '-' : 'Semua outlet';
     const dFrom = document.getElementById('filter-from').value;
     const dTo = document.getElementById('filter-to').value;
     const periode = dFrom || dTo ? `${dFrom || '…'} s/d ${dTo || '…'}` : 'Semua tanggal';
@@ -268,7 +286,12 @@ function rowHtml(r) {
   return `
     <tr data-record-id="${r.id}" data-lat="${r.clock_in_lat ?? ''}" data-lng="${r.clock_in_lng ?? ''}">
       <td>${r.user_profiles?.full_name ?? '-'}</td>
-      <td>${r.outlets?.name ?? '-'}${storingTag}</td>
+      <td>${r.outlets?.name ?? '-'}${storingTag}${
+        // Kalau absen di outlet milik BU lain, tampilkan BU lokasinya agar jelas.
+        r.nbm_business_unit_id && r.business_unit_id && r.nbm_business_unit_id !== r.business_unit_id && r.loc_bu?.name
+          ? `<div style="font-size:0.72rem;color:var(--color-text-muted)">di BU ${escapeHtml(r.loc_bu.name)}</div>`
+          : ''
+      }</td>
       <td>${r.is_storing ? `<span class="badge badge-pending">${tipeOf(r)}</span>` : '<span class="badge badge-approved">Normal</span>'}</td>
       <td style="font-size:0.8rem;max-width:180px">${r.is_storing ? (r.exit_reason ? String(r.exit_reason) : '<span style="color:var(--color-text-muted)">tanpa keterangan</span>') : '-'}</td>
       <td style="font-size:0.8rem">${shiftCell(r)}</td>

@@ -331,11 +331,19 @@ export async function reverseGeocode(lat, lng) {
   return address;
 }
 
+/**
+ * Riwayat presensi untuk Admin Portal.
+ *
+ * Disaring berdasarkan **BU BASIS** staff (nbm_business_unit_id), bukan BU lokasi
+ * absen. Jadi staff BU Admin yang absen di outlet Central Kitchen (BU Cafe) tetap
+ * masuk rekap BU Admin, sementara kolom Outlet tetap menampilkan lokasi fisiknya.
+ * Baris lama yang belum punya basis di-fallback ke business_unit_id.
+ */
 export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFrom, dateTo }) {
   let query = supabase
     .from('attendance_records')
-    .select('id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, shift_name, late_minutes, late_status, user_profiles(full_name), outlets!outlet_id(id, name)')
-    .eq('business_unit_id', businessUnitId)
+    .select('id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, shift_name, late_minutes, late_status, business_unit_id, nbm_business_unit_id, user_profiles(full_name), outlets!outlet_id(id, name), loc_bu:business_units!business_unit_id(name)')
+    .or(`nbm_business_unit_id.eq.${businessUnitId},and(nbm_business_unit_id.is.null,business_unit_id.eq.${businessUnitId})`)
     .order('clock_in_at', { ascending: false })
     .limit(200);
 

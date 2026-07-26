@@ -212,6 +212,10 @@ Jalankan migration `0011_nbm_base_and_roaming_attendance.sql` **dan** `0012_atte
 - `attendance_records` dapat FK kedua ke `outlets` (`nbm_outlet_id`) & ke `business_units` — query embed `outlets(...)` diberi hint `!outlet_id`/`!nbm_outlet_id` agar tidak ambigu.
 - RPC `list_attendance_outlets()` (security definer) memberi staff koordinat semua outlet aktif untuk deteksi lokasi.
 
+### Rekap presensi ikut BU basis staff
+
+Riwayat presensi di Admin Portal disaring berdasarkan **BU basis** staff (tempat kerja utama), **bukan** BU lokasi absen. Contoh: staff dengan basis **BU Admin** yang absen di outlet **Central Kitchen** (BU Cafe) tetap muncul di rekap **BU Admin**, sedangkan kolom **Outlet** tetap menampilkan *Central Kitchen* (dengan keterangan kecil "di BU Cafe" bila BU-nya berbeda). Pilihan filter Outlet otomatis ditambah outlet BU lain yang muncul di data. Baris lama yang belum punya basis di-fallback ke BU lokasi. Ini menyamakan perilakunya dengan **Rekap NBM**, yang memang sudah berbasis outlet/BU basis.
+
 ## Fase 3 — Pengajuan Cuti
 
 Jalankan migration `0013_leave.sql`, lalu aktifkan modul **Cuti** untuk BU lewat Admin Portal → Master BU & Outlet → tombol **Modul** (centang "Pengajuan Cuti").
