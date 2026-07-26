@@ -50,8 +50,14 @@ export async function renderAttendancePage(container, ctx) {
   const openSession = todaySession && !todaySession.clock_out_at ? todaySession : null;
   const doneToday = todaySession && todaySession.clock_out_at ? todaySession : null;
 
-  // Jadwal shift hari ini (kalau outletnya mengaktifkan modul Shift).
-  const shiftOutletActive = allOutlets.some((o) => o.shift_enabled);
+  const outletName = (id) => allOutlets.find((o) => o.id === id)?.name ?? 'Outlet';
+  const baseOutlet = allOutlets.find((o) => o.id === nbmBase.outlet_id) || null;
+
+  // Jadwal shift hari ini — hanya kalau OUTLET BASIS staff ini yang mengaktifkan
+  // modul Shift. `allOutlets` berisi outlet SEMUA BU (dari RPC security-definer),
+  // jadi jangan pakai .some(): satu outlet BU lain yang pakai shift akan bikin
+  // staff BU non-shift ikut kena catatan "belum dijadwalkan".
+  const shiftOutletActive = !!baseOutlet?.shift_enabled;
   const [mySchedule, shiftSettings] = shiftOutletActive
     ? await Promise.all([
         getMyScheduleFor(todayWIB()).catch(() => null),
@@ -59,8 +65,6 @@ export async function renderAttendancePage(container, ctx) {
       ])
     : [null, { late_tolerance_minutes: 10 }];
   const myShift = mySchedule && !mySchedule.is_off ? mySchedule.outlet_shifts : null;
-  const outletName = (id) => allOutlets.find((o) => o.id === id)?.name ?? 'Outlet';
-  const baseOutlet = allOutlets.find((o) => o.id === nbmBase.outlet_id) || null;
 
   container.innerHTML = `
     <h1>Presensi</h1>
