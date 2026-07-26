@@ -459,20 +459,37 @@ Sistem sengaja memisahkan **dua jenis "libur"** — menggabungkannya akan salah,
 | `holidays` | Hari libur nasional/perusahaan | NBM tarif libur + bonus PH + hak cuti pengganti |
 | `shift_schedules.is_off` | Libur **pribadi** staff | Tidak dinilai terlambat |
 
-### Kebijakan per BU (Pengaturan NBM & Lembur)
+### Kebijakan libur: outlet dulu, baru BU (migration `0039`)
+
+Satu BU bisa punya dua outlet dengan **hari libur rutin berbeda** (mis. CK libur Senin, cafe libur Selasa), sementara BU tanpa outlet (Divisi Admin) tetap butuh pengaturan di level BU. Karena itu kolom di `outlets` dibuat **nullable**:
+
+- `outlets.holiday_policy` / `outlets.weekly_off_days` **NULL** → warisi dari BU
+- terisi → menimpa kebijakan BU khusus outlet itu
+
+Nullable (bukan default `'{}'`) supaya **“belum diatur”** bisa dibedakan dari **“sengaja tanpa libur mingguan”**. Resolusinya di `getHolidayPolicy(businessUnitId, outletId)`, per-field, dan mengembalikan `from: { policy, days }` yang menandai asal nilainya.
+
+Dua modenya:
 
 - **Tetap beroperasi** (`operational`, default) — Minggu & hari besar **tetap hari kerja**. Staff yang masuk dapat kompensasi PH. Untuk Cafe, Bengkel, Armada.
-- **Ikut kalender libur nasional** (`follow_calendar`) — tanggal libur nasional **dan** hari libur mingguan yang dicentang otomatis muncul sebagai **Libur** di Jadwal Shift, tanpa admin mengisi satu-satu. Untuk Divisi Admin.
+- **Ikut kalender libur nasional** (`follow_calendar`) — tanggal libur nasional **dan** hari libur rutin yang dicentang otomatis muncul sebagai **Libur** di Jadwal Shift, tanpa admin mengisi satu-satu.
 
-Libur otomatis hanya **default tampilan** — admin tetap bisa menimpanya per tanggal kalau ada yang masuk. Tidak ada asumsi hari Minggu yang berlaku global: `resolveAutoOff()` hanya aktif untuk BU ber-policy `follow_calendar`. (Asumsi global semacam ini pernah jadi sumber bug lintas BU — lihat catatan perbaikan di bagian Presensi.)
+Di Admin Portal: kartu **Kebijakan Hari Libur — Default BU** di atas (juga satu-satunya pengaturan untuk BU tanpa outlet), lalu **Hari Libur Rutin Outlet Ini** di tiap outlet dengan checkbox *Ikut kebijakan BU*.
+
+Libur otomatis hanya **default tampilan** — admin tetap bisa menimpanya per tanggal kalau ada yang masuk. Tidak ada asumsi hari Minggu yang berlaku global: `resolveAutoOff()` hanya aktif untuk scope ber-policy `follow_calendar`. (Asumsi global semacam ini pernah jadi sumber bug lintas BU — lihat catatan perbaikan di bagian Presensi.)
 
 Daftar hari libur tetap diisi untuk **kedua** mode; yang berbeda hanya efeknya.
 
-### Menarik hari libur nasional
+### Menarik hari libur nasional (butuh Edge Function)
 
-Tombol **⇩ Tarik hari libur nasional** di Pengaturan NBM & Lembur. Datanya diambil dari `dayoffapi.vercel.app` (cadangan otomatis: `api-harilibur.vercel.app`), lalu **ditampilkan sebagai daftar centang untuk disetujui admin** sebelum masuk tabel `holidays`.
+```bash
+supabase functions deploy fetch-national-holidays
+```
 
-API ini **pintasan input, bukan dependensi** — kalau layanannya mati, aplikasi tidak terganggu dan hari libur tetap bisa ditambah manual. Penarikan ulang bersifat *upsert* (menambal, bukan menduplikasi) berkat index unik `uniq_holiday_bu_date`.
+**Wajib di-deploy.** Layanan hari libur publik Indonesia tidak mengirim header CORS, jadi fetch langsung dari browser selalu gagal dengan `Failed to fetch`. Edge Function `fetch-national-holidays` menariknya di sisi server, menormalkan bentuknya, dan mengembalikannya dengan header CORS yang benar. Function ini **tidak menulis apa pun ke database**.
+
+Tombol **⇩ Tarik hari libur nasional** di Pengaturan NBM & Lembur → sumber `dayoffapi.vercel.app` (cadangan otomatis `api-harilibur.vercel.app`) → hasilnya **ditampilkan sebagai daftar centang untuk disetujui admin** sebelum masuk tabel `holidays`.
+
+API ini **pintasan input, bukan dependensi** — kalau layanannya mati, aplikasi tidak terganggu dan hari libur tetap bisa ditambah manual. Penarikan ulang bersifat *upsert* (menambal, bukan menduplikasi) berkat index unik `uniq_holiday_bu_date`. Sisi klien masih menyimpan jalur fetch langsung sebagai cadangan kalau function belum di-deploy.
 
 Dua hal yang **tidak bisa** diandalkan dari API mana pun, jadi harus tetap bisa dikoreksi manual:
 
@@ -490,6 +507,12 @@ Diatur di form NBM tiap outlet — semuanya default 0 supaya perhitungan lama ti
 Catatan: laporan PH baru menghitung **hak**-nya; pemberian ke jatah cuti staff masih manual lewat modul Cuti.
 
 **RLS:** policy `holidays_select_member` ditambahkan supaya Staff App bisa membaca **tanggal** libur (untuk catatan di halaman Presensi & Jadwal Shift). Nominalnya (`outlet_nbm_config`, tier lembur) tetap admin-only.
+
+### Penyeragaman istilah "Storing"
+
+Semua label & teks bantuan yang sebelumnya hanya menulis **“Storing”** kini konsisten memakai **“Tugas Luar/Storing”** — di mode tugas keluar (Admin Portal), banner & dialog Staff App, kolom Rekap NBM, form Bonus, dan laporan. Nama kolom database (`is_storing`, `storing_bonus_amount`) dan kelas CSS **tidak** diubah supaya data lama tetap kompatibel.
+
+Rekap NBM juga dapat kolom **Bonus PH** — sebelumnya `phBonus` sudah masuk ke Total tapi tidak punya kolom sendiri, sehingga jumlah kolom tidak sama dengan Total saat bonus PH diisi.
 
 ## Fase 11 — Laporan (Report)
 

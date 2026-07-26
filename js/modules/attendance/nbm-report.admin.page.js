@@ -58,11 +58,12 @@ export async function renderNbmReportTab(container, businessUnitId) {
           { header: 'Staff', width: 1.5 },
           { header: 'Outlet Basis', width: 1.2 },
           { header: 'Tanggal', width: 0.9 },
-          { header: 'Storing', width: 0.7 },
+          { header: 'Tugas Luar/Storing', width: 1.1 },
           { header: 'Libur', width: 0.6 },
           { header: 'Base', width: 1 },
           { header: 'Lembur', width: 1 },
-          { header: 'Storing+', width: 1 },
+          { header: 'Bonus Tugas Luar/Storing', width: 1.2 },
+          { header: 'Bonus PH', width: 1 },
           { header: 'Total', width: 1 },
           { header: 'Keterangan', width: 1.8 }
         ],
@@ -156,6 +157,7 @@ async function runReport(businessUnitId, outlets) {
         formatRupiah(nbm.base),
         formatRupiah(nbm.overtimeBonus),
         formatRupiah(nbm.storingBonus),
+        formatRupiah(nbm.phBonus ?? 0),
         formatRupiah(finalTotal(row)),
         ketOf(record) || '-'
       ];
@@ -167,7 +169,7 @@ async function runReport(businessUnitId, outlets) {
     </p>
     <table class="data-table">
       <thead>
-        <tr><th>Staff</th><th>Outlet Basis</th><th>Lokasi Absen</th><th>Tanggal</th><th>Storing</th><th>Libur</th><th>Base</th><th>Lembur</th><th>Storing+</th><th>Total</th><th>Keterangan</th></tr>
+        <tr><th>Staff</th><th>Outlet Basis</th><th>Lokasi Absen</th><th>Tanggal</th><th>Tugas Luar/Storing</th><th>Libur</th><th>Base</th><th>Lembur</th><th>Bonus Tugas Luar/Storing</th><th>Bonus PH</th><th>Total</th><th>Keterangan</th></tr>
       </thead>
       <tbody>
         ${
@@ -178,7 +180,7 @@ async function runReport(businessUnitId, outlets) {
               const physName = physOutletName(record);
               const physCell = physName === baseName ? '<span style="color:var(--color-text-muted)">(sama)</span>' : esc(physName);
               if (!nbm) {
-                return `<tr><td>${esc(record.user_profiles?.full_name ?? '-')}</td><td>${esc(baseName)}</td><td>${physCell}</td><td>${toDateKey(new Date(record.clock_in_at))}</td><td colspan="7">Belum bisa dihitung (belum clock out / NBM outlet basis belum diset)</td></tr>`;
+                return `<tr><td>${esc(record.user_profiles?.full_name ?? '-')}</td><td>${esc(baseName)}</td><td>${physCell}</td><td>${toDateKey(new Date(record.clock_in_at))}</td><td colspan="8">Belum bisa dihitung (belum clock out / NBM outlet basis belum diset)</td></tr>`;
               }
               const adj = adjustments.get(record.id);
               const total = finalTotal(row);
@@ -193,6 +195,7 @@ async function runReport(businessUnitId, outlets) {
                   <td>${formatRupiah(nbm.base)}</td>
                   <td>${formatRupiah(nbm.overtimeBonus)}</td>
                   <td>${formatRupiah(nbm.storingBonus)}</td>
+                  <td>${formatRupiah(nbm.phBonus ?? 0)}</td>
                   <td>
                     <input type="text" inputmode="numeric" class="nbm-total-input${adj ? ' is-edited' : ''}"
                       data-record="${record.id}" data-original="${nbm.total}" value="${formatThousands(Math.round(total))}" />
@@ -204,7 +207,7 @@ async function runReport(businessUnitId, outlets) {
                 </tr>
               `;
             })
-            .join('') || '<tr><td colspan="11">Tidak ada data.</td></tr>'
+            .join('') || '<tr><td colspan="12">Tidak ada data.</td></tr>'
         }
       </tbody>
     </table>

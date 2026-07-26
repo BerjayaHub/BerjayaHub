@@ -30,7 +30,7 @@ async function attendanceProvider({ before, limit }) {
   for (const r of records) {
     const who = r.user_profiles?.full_name ?? 'Staff';
     const where = `${r.outlets?.name ?? '-'}${r.business_units?.name ? ` · ${r.business_units.name}` : ''}`;
-    events.push({ time: r.clock_in_at, icon: '🕐', text: `${who} clock in di ${where}${r.is_storing ? ' (tugas luar)' : ''}` });
+    events.push({ time: r.clock_in_at, icon: '🕐', text: `${who} clock in di ${where}${r.is_storing ? ' (Tugas Luar/Storing)' : ''}` });
     if (r.clock_out_at) events.push({ time: r.clock_out_at, icon: '🕐', text: `${who} clock out di ${where}` });
   }
   return events;

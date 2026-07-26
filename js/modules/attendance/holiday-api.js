@@ -14,6 +14,8 @@
 //     prediksi hisab yang dipakai API.
 // =========================================================
 
+import { supabase } from '../../config/supabase-client.js';
+
 const SOURCES = [
   // Utama: membedakan cuti bersama lewat flag `is_cuti`.
   { name: 'dayoffapi', url: (year) => `https://dayoffapi.vercel.app/api?year=${year}` },
@@ -71,11 +73,26 @@ function parseRows(raw) {
 
 /**
  * Tarik daftar hari libur nasional satu tahun.
- * Mencoba sumber utama lalu cadangan. Melempar error yang bisa dibaca admin
- * kalau dua-duanya gagal.
+ *
+ * JALUR UTAMA: Edge Function `fetch-national-holidays`. Layanan hari libur
+ * publik tidak mengirim header CORS, jadi fetch LANGSUNG dari browser pasti
+ * gagal dengan "Failed to fetch" — penarikan harus lewat server.
+ *
+ * JALUR CADANGAN: fetch langsung, kalau-kalau Edge Function belum di-deploy
+ * dan suatu saat layanannya membuka CORS.
  */
 export async function fetchNationalHolidays(year) {
   const errors = [];
+
+  try {
+    const { data, error } = await supabase.functions.invoke('fetch-national-holidays', { body: { year } });
+    if (error) throw error;
+    if (data?.holidays?.length) return { source: `${data.source} (via server)`, holidays: parseRows(data.holidays) };
+    if (data?.error) errors.push(data.error);
+  } catch (e) {
+    errors.push(`Edge Function: ${e.message ?? e}`);
+  }
+
   for (const src of SOURCES) {
     try {
       const res = await fetch(src.url(year), { headers: { Accept: 'application/json' } });
@@ -87,13 +104,15 @@ export async function fetchNationalHolidays(year) {
       if (rows.length) return { source: src.name, holidays: rows };
       errors.push(`${src.name}: tidak mengembalikan data untuk ${year}`);
     } catch (e) {
-      // Paling sering: CORS diblokir, atau layanannya sedang mati.
+      // "Failed to fetch" di sini = CORS diblokir (bukan layanannya mati).
       errors.push(`${src.name}: ${e.message ?? e}`);
     }
   }
+
   throw new Error(
     `Gagal menarik hari libur ${year}. ${errors.join(' · ')}. ` +
-      'Layanan ini pihak ketiga dan bisa mati sewaktu-waktu — kamu tetap bisa menambah hari libur manual di bawah.'
+      'Kalau semuanya "Failed to fetch", Edge Function `fetch-national-holidays` kemungkinan belum di-deploy — ' +
+      'jalankan: supabase functions deploy fetch-national-holidays. Sementara itu hari libur tetap bisa ditambah manual di bawah.'
   );
 }
 

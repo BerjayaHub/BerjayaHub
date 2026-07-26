@@ -114,10 +114,10 @@ async function renderPresensiTab(container, businessUnitId) {
 
   container.innerHTML = `
     <div class="inline-card" style="max-width:640px">
-      <h3 style="margin-top:0">Mode Tugas Keluar (BU ini)</h3>
+      <h3 style="margin-top:0">Mode Tugas Luar/Storing (BU ini)</h3>
       <div class="field" style="max-width:220px">
         <select id="exit-mode-select">
-          <option value="storing" ${exitMode === 'storing' ? 'selected' : ''}>Storing (tanpa OTP)</option>
+          <option value="storing" ${exitMode === 'storing' ? 'selected' : ''}>Tugas Luar/Storing (tanpa OTP)</option>
           <option value="otp" ${exitMode === 'otp' ? 'selected' : ''}>OTP (kode dari admin)</option>
         </select>
       </div>
@@ -143,7 +143,7 @@ async function renderPresensiTab(container, businessUnitId) {
       </table>
       <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:8px">
         Kalau koordinat belum diisi, staff bisa clock in dari mana saja (geofence belum aktif untuk outlet itu).
-        Staff yang mengisi tugas keluar juga otomatis lewati geofence.
+        Staff yang mengaktifkan mode Tugas Luar/Storing juga otomatis lewati geofence.
       </p>
     </details>
 
@@ -194,7 +194,7 @@ async function renderPresensiTab(container, businessUnitId) {
   document.getElementById('btn-save-exit-mode').addEventListener('click', async () => {
     try {
       await setExitTaskMode(businessUnitId, document.getElementById('exit-mode-select').value);
-      toast('Mode tugas keluar disimpan.', 'success');
+      toast('Mode Tugas Luar/Storing disimpan.', 'success');
     } catch (error) {
       toast(error.message ?? 'Gagal menyimpan mode.', 'error');
     }

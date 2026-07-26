@@ -9,8 +9,10 @@ import {
   addHoliday,
   addHolidaysBulk,
   removeHoliday,
-  getHolidayPolicy,
-  setHolidayPolicy
+  getBuHolidayPolicy,
+  setHolidayPolicy,
+  getOutletHolidayPolicy,
+  setOutletHolidayPolicy
 } from './nbm.service.js';
 import { fetchNationalHolidays, holidayLabel } from './holiday-api.js';
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
@@ -22,26 +24,31 @@ export async function renderNbmSettingsTab(container, businessUnitId) {
   container.innerHTML = `<p>Memuat pengaturan NBM...</p>`;
   const [outlets, policy] = await Promise.all([
     listOutletsWithGeofence(businessUnitId),
-    getHolidayPolicy(businessUnitId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] }))
+    getBuHolidayPolicy(businessUnitId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] }))
   ]);
 
-  if (!outlets.length) {
-    container.innerHTML = `<p>Belum ada outlet di BU ini.</p>`;
-    return;
-  }
-
+  // BU tanpa outlet (mis. Divisi Admin) tetap butuh pengaturan hari libur —
+  // jadi kartu kebijakan BU ditampilkan lebih dulu, sebelum cek outlet.
   container.innerHTML = `
     <div id="holiday-policy-card"></div>
-    <div class="field" style="max-width:280px;margin-top:16px">
-      <label>Pilih Outlet</label>
-      <select id="nbm-outlet-select">
-        ${outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('')}
-      </select>
-    </div>
-    <div id="nbm-outlet-detail"></div>
+    ${
+      outlets.length
+        ? `<div class="field" style="max-width:280px;margin-top:16px">
+             <label>Pilih Outlet</label>
+             <select id="nbm-outlet-select">
+               ${outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('')}
+             </select>
+           </div>
+           <div id="nbm-outlet-detail"></div>`
+        : `<p style="color:var(--color-text-muted);margin-top:16px">
+             Belum ada outlet di BU ini, jadi pengaturan NBM per outlet belum bisa diisi.
+             Kebijakan hari libur di atas berlaku untuk seluruh staff BU ini.
+           </p>`
+    }
   `;
 
-  renderHolicyCard(container.querySelector('#holiday-policy-card'), businessUnitId, policy);
+  renderHolicyCard(container.querySelector('#holiday-policy-card'), businessUnitId, policy, outlets.length > 0);
+  if (!outlets.length) return;
 
   const select = document.getElementById('nbm-outlet-select');
   select.addEventListener('change', () => renderOutletDetail(select.value, businessUnitId));
@@ -50,13 +57,23 @@ export async function renderNbmSettingsTab(container, businessUnitId) {
 
 // ---- Kartu kebijakan hari libur (level BU) ----
 
-function renderHolicyCard(host, businessUnitId, policy) {
+function renderHolicyCard(host, businessUnitId, policy, hasOutlets) {
   const isCalendar = policy.holiday_policy === 'follow_calendar';
   const offDays = new Set((policy.weekly_off_days ?? []).map(Number));
 
   host.innerHTML = `
     <div class="inline-card" style="max-width:560px">
-      <h3 style="margin-top:0">Kebijakan Hari Libur (BU ini)</h3>
+      <h3 style="margin-top:0">Kebijakan Hari Libur — ${hasOutlets ? 'Default BU' : 'BU ini'}</h3>
+      ${
+        hasOutlets
+          ? `<p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:0">
+               Ini <strong>default</strong> untuk semua outlet di BU ini. Outlet yang hari liburnya berbeda bisa menimpanya
+               di pengaturan per outlet di bawah.
+             </p>`
+          : `<p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:0">
+               BU ini belum punya outlet, jadi kebijakan di sini langsung berlaku untuk seluruh staffnya.
+             </p>`
+      }
       <div class="field">
         <label for="hp-mode">Bagaimana BU ini memperlakukan Minggu & hari besar?</label>
         <select id="hp-mode">
@@ -107,13 +124,51 @@ async function renderOutletDetail(outletId, businessUnitId) {
   const detail = document.getElementById('nbm-outlet-detail');
   detail.innerHTML = `<p>Memuat...</p>`;
 
-  const [config, tiers, holidays] = await Promise.all([
+  const [config, tiers, holidays, outletPolicy, buPolicy] = await Promise.all([
     getNbmConfig(outletId),
     listOvertimeTiers(outletId),
-    listHolidays({ businessUnitId, outletId })
+    listHolidays({ businessUnitId, outletId }),
+    getOutletHolidayPolicy(outletId).catch(() => ({ holiday_policy: null, weekly_off_days: null })),
+    getBuHolidayPolicy(businessUnitId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] }))
   ]);
 
+  // Outlet mewarisi BU selama kolomnya masih null.
+  const ikutBu = outletPolicy.holiday_policy == null && outletPolicy.weekly_off_days == null;
+  const efMode = outletPolicy.holiday_policy ?? buPolicy.holiday_policy;
+  const efDays = new Set((outletPolicy.weekly_off_days ?? buPolicy.weekly_off_days ?? []).map(Number));
+
   detail.innerHTML = `
+    <div class="inline-card" style="max-width:560px;margin-top:16px">
+      <h3 style="margin-top:0">Hari Libur Rutin Outlet Ini</h3>
+      <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:0">
+        Dipakai kalau outlet ini punya hari libur rutin yang <strong>berbeda</strong> dari outlet lain di BU yang sama.
+      </p>
+      <div class="field field-check">
+        <input type="checkbox" id="op-inherit" ${ikutBu ? 'checked' : ''} />
+        <label for="op-inherit" style="margin:0">Ikut kebijakan BU</label>
+      </div>
+      <div id="op-custom" style="${ikutBu ? 'display:none' : ''}">
+        <div class="field">
+          <label for="op-mode">Outlet ini saat Minggu &amp; hari besar</label>
+          <select id="op-mode">
+            <option value="operational"${efMode === 'follow_calendar' ? '' : ' selected'}>Tetap beroperasi</option>
+            <option value="follow_calendar"${efMode === 'follow_calendar' ? ' selected' : ''}>Ikut kalender libur nasional</option>
+          </select>
+        </div>
+        <div class="field" id="op-weekly-wrap" style="${efMode === 'follow_calendar' ? '' : 'display:none'}">
+          <label>Hari libur rutin outlet ini</label>
+          <div style="display:flex;flex-wrap:wrap;gap:10px">
+            ${DAY_NAMES.map(
+              (d, i) => `<label class="scope-badge" style="cursor:pointer">
+                <input type="checkbox" class="op-day" value="${i}" style="width:auto;margin:0"${efDays.has(i) ? ' checked' : ''} /> ${d}
+              </label>`
+            ).join('')}
+          </div>
+        </div>
+      </div>
+      <button class="primary" id="op-save" style="max-width:220px">Simpan Libur Outlet</button>
+    </div>
+
     <form class="inline-card" id="nbm-config-form" style="max-width:420px;margin-top:16px">
       <h3>Nominal NBM</h3>
       <div class="field">
@@ -125,7 +180,7 @@ async function renderOutletDetail(outletId, businessUnitId) {
         <input type="text" inputmode="numeric" class="js-money" name="holiday_amount" value="${config?.holiday_amount == null ? '' : formatThousands(config.holiday_amount)}" />
       </div>
       <div class="field">
-        <label>Bonus Storing (Rp)</label>
+        <label>Bonus Tugas Luar/Storing (Rp)</label>
         <input type="text" inputmode="numeric" class="js-money" name="storing_bonus_amount" value="${formatThousands(config?.storing_bonus_amount ?? 0)}" required />
       </div>
 
@@ -191,6 +246,33 @@ async function renderOutletDetail(outletId, businessUnitId) {
   `;
 
   detail.querySelectorAll('.js-money').forEach((el) => attachThousandsInput(el));
+
+  // ---- Kebijakan libur per outlet ----
+  const inheritChk = detail.querySelector('#op-inherit');
+  const opMode = detail.querySelector('#op-mode');
+  inheritChk.addEventListener('change', () => {
+    detail.querySelector('#op-custom').style.display = inheritChk.checked ? 'none' : '';
+  });
+  opMode.addEventListener('change', () => {
+    detail.querySelector('#op-weekly-wrap').style.display = opMode.value === 'follow_calendar' ? '' : 'none';
+  });
+  detail.querySelector('#op-save').addEventListener('click', async () => {
+    try {
+      if (inheritChk.checked) {
+        // null/null = kembali mewarisi BU.
+        await setOutletHolidayPolicy(outletId, { holiday_policy: null, weekly_off_days: null });
+      } else {
+        const days = [...detail.querySelectorAll('.op-day')].filter((c) => c.checked).map((c) => Number(c.value));
+        await setOutletHolidayPolicy(outletId, {
+          holiday_policy: opMode.value,
+          weekly_off_days: opMode.value === 'follow_calendar' ? days : []
+        });
+      }
+      toast('Kebijakan libur outlet disimpan.', 'success');
+    } catch (error) {
+      toast(error.message ?? 'Gagal menyimpan kebijakan outlet.', 'error');
+    }
+  });
 
   document.getElementById('nbm-config-form').addEventListener('submit', async (e) => {
     e.preventDefault();

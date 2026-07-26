@@ -82,13 +82,47 @@ export async function addHolidaysBulk(businessUnitId, holidays) {
   return holidays.length;
 }
 
-/** Kebijakan hari libur BU (lihat migration 0038). */
-export async function getHolidayPolicy(businessUnitId) {
+/**
+ * Kebijakan hari libur EFEKTIF (migration 0038 + 0039).
+ *
+ * Libur rutin ditentukan di level OUTLET, karena satu BU bisa punya dua outlet
+ * dengan hari libur berbeda. Kolom outlet yang NULL berarti "ikut BU" — itulah
+ * jalur yang dipakai BU tanpa outlet seperti Divisi Admin.
+ *
+ * @returns { holiday_policy, weekly_off_days, from: { policy, days } }
+ *          `from` menandai asal nilainya ('outlet' | 'bu') untuk ditampilkan di UI.
+ */
+export async function getHolidayPolicy(businessUnitId, outletId = null) {
+  const [buRes, outletRes] = await Promise.all([
+    supabase.from('business_units').select('holiday_policy, weekly_off_days').eq('id', businessUnitId).maybeSingle(),
+    outletId
+      ? supabase.from('outlets').select('holiday_policy, weekly_off_days').eq('id', outletId).maybeSingle()
+      : Promise.resolve({ data: null, error: null })
+  ]);
+  if (buRes.error) throw buRes.error;
+
+  const bu = {
+    holiday_policy: buRes.data?.holiday_policy ?? 'operational',
+    weekly_off_days: buRes.data?.weekly_off_days ?? []
+  };
+  const o = outletRes?.data ?? null;
+  return {
+    holiday_policy: o?.holiday_policy ?? bu.holiday_policy,
+    weekly_off_days: o?.weekly_off_days ?? bu.weekly_off_days,
+    from: {
+      policy: o?.holiday_policy ? 'outlet' : 'bu',
+      days: o?.weekly_off_days ? 'outlet' : 'bu'
+    }
+  };
+}
+
+/** Kebijakan mentah milik BU sendiri (untuk form pengaturan, tanpa pewarisan). */
+export async function getBuHolidayPolicy(businessUnitId) {
   const { data, error } = await supabase
     .from('business_units')
     .select('holiday_policy, weekly_off_days')
     .eq('id', businessUnitId)
-    .single();
+    .maybeSingle();
   if (error) throw error;
   return { holiday_policy: data?.holiday_policy ?? 'operational', weekly_off_days: data?.weekly_off_days ?? [] };
 }
@@ -98,6 +132,26 @@ export async function setHolidayPolicy(businessUnitId, { holiday_policy, weekly_
     .from('business_units')
     .update({ holiday_policy, weekly_off_days: weekly_off_days ?? [] })
     .eq('id', businessUnitId);
+  if (error) throw error;
+}
+
+/** Kebijakan mentah milik outlet (null = belum diatur / ikut BU). */
+export async function getOutletHolidayPolicy(outletId) {
+  const { data, error } = await supabase
+    .from('outlets')
+    .select('holiday_policy, weekly_off_days')
+    .eq('id', outletId)
+    .maybeSingle();
+  if (error) throw error;
+  return { holiday_policy: data?.holiday_policy ?? null, weekly_off_days: data?.weekly_off_days ?? null };
+}
+
+/** Simpan kebijakan outlet. Kirim null/null untuk kembali mengikuti BU. */
+export async function setOutletHolidayPolicy(outletId, { holiday_policy, weekly_off_days }) {
+  const { error } = await supabase
+    .from('outlets')
+    .update({ holiday_policy: holiday_policy ?? null, weekly_off_days: weekly_off_days ?? null })
+    .eq('id', outletId);
   if (error) throw error;
 }
 

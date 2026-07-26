@@ -34,7 +34,7 @@ export const REPORTS = [
     key: 'payroll_nbm',
     label: 'Rekap Penggajian (NBM)',
     group: 'SDM',
-    description: 'Satu baris per staff: hari hadir, lembur, storing, penyesuaian, dan total NBM.',
+    description: 'Satu baris per staff: hari hadir, lembur, tugas luar/storing, penyesuaian, dan total NBM.',
     build: buildPayrollNbm
   },
   {
@@ -293,10 +293,10 @@ async function buildPayrollNbm({ businessUnitId, outletId, from, to }) {
       { header: 'Staff', width: 1.8 },
       { header: 'Hadir', width: 0.6, numeric: true },
       { header: 'Libur', width: 0.6, numeric: true },
-      { header: 'Storing', width: 0.7, numeric: true },
+      { header: 'Tugas Luar/Storing', width: 1, numeric: true },
       { header: 'NBM Dasar', width: 1.2, numeric: true },
       { header: 'Lembur', width: 1.1, numeric: true },
-      { header: 'Bonus Storing', width: 1.1, numeric: true },
+      { header: 'Bonus Tugas Luar/Storing', width: 1.3, numeric: true },
       { header: 'Bonus PH', width: 1, numeric: true },
       { header: 'Penyesuaian', width: 1.1, numeric: true },
       { header: 'Total', width: 1.2, numeric: true }
@@ -396,7 +396,7 @@ async function buildAttendanceDiscipline({ businessUnitId, outletId, from, to })
       { header: LATE_LABEL.tolerance, width: 0.9, numeric: true },
       { header: 'Terlambat', width: 0.9, numeric: true },
       { header: 'Menit telat', width: 0.9, numeric: true },
-      { header: 'Tugas luar', width: 0.9, numeric: true },
+      { header: 'Tugas Luar/Storing', width: 1, numeric: true },
       { header: 'Cuti (hari)', width: 0.9, numeric: true },
       { header: 'Belum clock out', width: 1, numeric: true }
     ],

@@ -70,7 +70,9 @@ export async function renderAttendancePage(container, ctx) {
   // Kebijakan hari libur BU basis (0038) — berlaku untuk semua BU, termasuk
   // yang tidak memakai modul Shift.
   const [holidayPolicy, buHolidays] = await Promise.all([
-    getHolidayPolicy(nbmBase.business_unit_id).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] })),
+    // Libur rutin ikut OUTLET BASIS staff; kalau outletnya belum diatur,
+    // otomatis mewarisi kebijakan BU (jalur untuk BU tanpa outlet).
+    getHolidayPolicy(nbmBase.business_unit_id, nbmBase.outlet_id).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] })),
     listHolidays({ businessUnitId: nbmBase.business_unit_id, outletId: nbmBase.outlet_id }).catch(() => [])
   ]);
   const autoOff = resolveAutoOff(todayWIB(), holidayPolicy, holidayMapOf(buHolidays));
@@ -220,7 +222,7 @@ export async function renderAttendancePage(container, ctx) {
     if (storing) {
       storingZone.innerHTML = `
         <div class="storing-banner fade-in">
-          <div class="storing-title">🚩 Kamu dalam mode <strong>Tugas Luar (Storing)</strong></div>
+          <div class="storing-title">🚩 Kamu dalam mode <strong>Tugas Luar/Storing</strong></div>
           <div class="storing-desc">${esc(storing.reason)}</div>
           <div class="storing-meta">Presensi dicatat di outlet basis: <strong>${esc(baseOutlet?.name ?? '-')}</strong>${storing.method === 'otp' ? ' · OTP terverifikasi' : ''}</div>
           <button type="button" id="btn-cancel-storing">Batalkan mode ini</button>
@@ -236,8 +238,8 @@ export async function renderAttendancePage(container, ctx) {
     } else {
       storingZone.innerHTML = `
         <div class="storing-prompt fade-in">
-          <p>Kamu tidak berada di area outlet manapun. Untuk tetap absen, aktifkan <strong>mode Tugas Luar (Storing)</strong> dan isi keterangan tugasmu.</p>
-          <button class="primary" id="btn-enable-storing" style="max-width:280px">🚩 Aktifkan Mode Tugas Luar</button>
+          <p>Kamu tidak berada di area outlet manapun. Untuk tetap absen, aktifkan <strong>mode Tugas Luar/Storing</strong> dan isi keterangan tugasmu.</p>
+          <button class="primary" id="btn-enable-storing" style="max-width:280px">🚩 Aktifkan Mode Tugas Luar/Storing</button>
         </div>`;
       storingZone.querySelector('#btn-enable-storing').addEventListener('click', openStoringDialog);
     }
@@ -258,7 +260,7 @@ export async function renderAttendancePage(container, ctx) {
       fields.unshift({ name: 'otp', label: 'Kode OTP dari admin (wajib)', type: 'text', required: true, placeholder: '6 digit' });
     }
     const values = await formDialog({
-      title: 'Aktifkan Mode Tugas Luar',
+      title: 'Aktifkan Mode Tugas Luar/Storing',
       description:
         'Mode ini untuk staff yang sedang bertugas di luar outlet. Presensi akan ditandai "Tugas Luar/Storing" dan dicatat di outlet basismu.',
       fields,
@@ -288,7 +290,7 @@ export async function renderAttendancePage(container, ctx) {
 
     const ok = await confirmDialog({
       title: 'Konfirmasi Mode Tugas Luar',
-      message: `Keterangan: "${values.reason}". Presensi akan ditandai sebagai Tugas Luar (Storing) di outlet ${baseOutlet?.name ?? 'basis'}. Lanjutkan?`,
+      message: `Keterangan: "${values.reason}". Presensi akan ditandai sebagai Tugas Luar/Storing di outlet ${baseOutlet?.name ?? 'basis'}. Lanjutkan?`,
       confirmText: 'Ya, aktifkan'
     });
     if (!ok) return;
@@ -355,7 +357,7 @@ export async function renderAttendancePage(container, ctx) {
       if (!isSameFace(capturedIn.descriptor, myFaceDescriptor)) throw new Error('Wajah tidak cocok dengan yang terdaftar. Presensi ditolak.');
 
       const isStoring = mode === 'outside';
-      if (isStoring && !storing) throw new Error('Aktifkan mode Tugas Luar dulu sebelum clock in.');
+      if (isStoring && !storing) throw new Error('Aktifkan mode Tugas Luar/Storing dulu sebelum clock in.');
       const recordOutletId = isStoring ? nbmBase.outlet_id : detected.id;
       const recordBuId = isStoring ? nbmBase.business_unit_id : detected.business_unit_id;
 
@@ -398,7 +400,7 @@ export async function renderAttendancePage(container, ctx) {
       } else if (lateInfo.status === 'tolerance') {
         toast(`Clock in berhasil (${lateInfo.minutes} menit, masih dalam toleransi).`, 'success');
       } else {
-        toast(isStoring ? 'Clock in (Tugas Luar) berhasil. Hati-hati di jalan! 🚩' : 'Clock in berhasil. Selamat bekerja! 👋', 'success');
+        toast(isStoring ? 'Clock in (Tugas Luar/Storing) berhasil. Hati-hati di jalan! 🚩' : 'Clock in berhasil. Selamat bekerja! 👋', 'success');
       }
       await renderAttendancePage(container, ctx);
     } catch (error) {

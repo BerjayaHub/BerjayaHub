@@ -74,7 +74,7 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
         listBuStaff(businessUnitId),
         listOutletShifts(state.outletId),
         listSchedules({ outletId: state.outletId, from: wk.from, to: wk.to }),
-        getHolidayPolicy(businessUnitId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] })),
+        getHolidayPolicy(businessUnitId, state.outletId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] })),
         listHolidays({ businessUnitId, outletId: state.outletId }).catch(() => [])
       ]);
     } catch (error) {
