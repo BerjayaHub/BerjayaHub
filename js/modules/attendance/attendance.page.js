@@ -14,7 +14,8 @@ import {
   getMyFaceDescriptor,
   saveMyFaceDescriptor
 } from './attendance.service.js';
-import { getShiftSettings, getMyScheduleFor, evaluateLateness, todayWIB, LATE_LABEL } from '../shift/shift.service.js';
+import { getShiftSettings, getMyScheduleFor, evaluateLateness, todayWIB, LATE_LABEL, resolveAutoOff, holidayMapOf } from '../shift/shift.service.js';
+import { getHolidayPolicy, listHolidays } from './nbm.service.js';
 import { openCameraCapture, formatWatermarkText } from './camera-capture.js';
 import { openFaceRegistration } from './face-registration.js';
 import { loadFaceModels, isSameFace } from './face-recognition.js';
@@ -65,6 +66,14 @@ export async function renderAttendancePage(container, ctx) {
       ])
     : [null, { late_tolerance_minutes: 10 }];
   const myShift = mySchedule && !mySchedule.is_off ? mySchedule.outlet_shifts : null;
+
+  // Kebijakan hari libur BU basis (0038) — berlaku untuk semua BU, termasuk
+  // yang tidak memakai modul Shift.
+  const [holidayPolicy, buHolidays] = await Promise.all([
+    getHolidayPolicy(nbmBase.business_unit_id).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] })),
+    listHolidays({ businessUnitId: nbmBase.business_unit_id, outletId: nbmBase.outlet_id }).catch(() => [])
+  ]);
+  const autoOff = resolveAutoOff(todayWIB(), holidayPolicy, holidayMapOf(buHolidays));
 
   container.innerHTML = `
     <h1>Presensi</h1>
@@ -163,7 +172,13 @@ export async function renderAttendancePage(container, ctx) {
   let mode = 'detecting'; // detecting | inside | outside
   let storing = null; // { reason, method, otpCodeId } bila mode tugas luar dikonfirmasi
 
-  const shiftInfoHtml = !shiftOutletActive
+  // Libur otomatis (kebijakan BU) diberi tahu duluan — berlaku juga untuk BU
+  // yang tidak memakai modul Shift, mis. Divisi Admin.
+  const shiftInfoHtml = autoOff.off
+    ? `<div class="shift-note shift-note-off">🌴 Hari ini <strong>libur</strong> (${esc(autoOff.reason)}). Presensi tetap bisa dicatat bila memang masuk.</div>`
+    : autoOff.holidayName
+    ? `<div class="shift-note">🎉 Hari ini <strong>${esc(autoOff.holidayName)}</strong> — BU kamu tetap beroperasi, dan presensimu dihitung dengan tarif hari libur.</div>`
+    : !shiftOutletActive
     ? ''
     : mySchedule?.is_off
     ? `<div class="shift-note shift-note-off">🌴 Hari ini kamu <strong>dijadwalkan libur</strong>. Presensi tetap bisa dicatat bila memang masuk.</div>`
@@ -347,7 +362,11 @@ export async function renderAttendancePage(container, ctx) {
       // Foto diunggah DULU, baru record dibuat -> tidak ada presensi tanpa foto.
       // Penilaian keterlambatan terhadap jadwal shift (snapshot, ikut riwayat).
       let lateInfo = { status: null, minutes: null };
-      if (shiftOutletActive) {
+      if (autoOff.off) {
+        // Libur menurut kebijakan BU -> masuk hari ini tidak dinilai terlambat,
+        // walau BU-nya tidak memakai modul Shift sama sekali.
+        lateInfo = { status: 'off_day', minutes: null };
+      } else if (shiftOutletActive) {
         if (mySchedule?.is_off) lateInfo = { status: 'off_day', minutes: null };
         else if (myShift) lateInfo = evaluateLateness(new Date(), myShift, shiftSettings.late_tolerance_minutes);
         else lateInfo = { status: 'no_schedule', minutes: null };

@@ -15,8 +15,11 @@ import {
   weekRange,
   addDays,
   todayWIB,
-  shiftCrossesMidnight
+  shiftCrossesMidnight,
+  resolveAutoOff,
+  holidayMapOf
 } from './shift.service.js';
+import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
 
 const TABS = [
   { key: 'schedule', label: 'Jadwal' },
@@ -95,17 +98,22 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
   async function draw() {
     grid.innerHTML = `<p>Memuat jadwal...</p>`;
     const wk = weekRange(state.anchor);
-    let staff, shifts, schedules;
+    let staff, shifts, schedules, policy, holidays;
     try {
-      [staff, shifts, schedules] = await Promise.all([
+      [staff, shifts, schedules, policy, holidays] = await Promise.all([
         listBuStaff(businessUnitId),
         listOutletShifts(state.outletId),
-        listSchedules({ outletId: state.outletId, from: wk.from, to: wk.to })
+        listSchedules({ outletId: state.outletId, from: wk.from, to: wk.to }),
+        getHolidayPolicy(businessUnitId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] })),
+        listHolidays({ businessUnitId, outletId: state.outletId }).catch(() => [])
       ]);
     } catch (error) {
       grid.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
       return;
     }
+    const holidayMap = holidayMapOf(holidays);
+    const autoOff = new Map(wk.days.map((d) => [d, resolveAutoOff(d, policy, holidayMap)]));
+    const adaAutoOff = [...autoOff.values()].some((a) => a.off);
     const activeShifts = shifts.filter((s) => s.is_active);
     if (!activeShifts.length) {
       grid.innerHTML = `<p style="color:var(--color-text-muted)">Outlet ini belum punya jam shift. Atur dulu di tab <strong>Jam Shift</strong>.</p>`;
@@ -140,7 +148,11 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
                       .map((d) => {
                         const cur = map.get(`${st.user_id}|${d}`);
                         const sel = cur ? (cur.is_off ? 'off' : cur.shift_id) : '';
-                        return `<td style="text-align:center"><select class="sc-cell${sel === 'off' ? ' is-off' : sel ? ' is-set' : ''}" data-user="${st.user_id}" data-date="${d}">${opts(sel)}</select></td>`;
+                        const auto = autoOff.get(d);
+                        // Libur otomatis hanya jadi *default tampilan*; admin
+                        // tetap bisa menimpanya (mis. lembur di hari libur).
+                        const hint = !cur && auto?.off ? `<div style="font-size:0.66rem;color:var(--color-text-muted)">Libur · ${esc(auto.reason)}</div>` : '';
+                        return `<td style="text-align:center"><select class="sc-cell${sel === 'off' ? ' is-off' : sel ? ' is-set' : ''}" data-user="${st.user_id}" data-date="${d}">${opts(sel)}</select>${hint}</td>`;
                       })
                       .join('')}
                   </tr>`
@@ -150,6 +162,14 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
           </tbody>
         </table>
       </div>
+      ${
+        adaAutoOff
+          ? `<p style="font-size:0.76rem;color:var(--color-text-muted);margin-top:8px">
+               Tanggal bertanda <strong>Libur</strong> mengikuti kebijakan hari libur BU (Pengaturan NBM &amp; Lembur) — tidak perlu diisi satu-satu,
+               tapi tetap bisa ditimpa kalau ada yang masuk.
+             </p>`
+          : ''
+      }
       <p style="font-size:0.76rem;color:var(--color-text-muted);margin-top:8px">
         “–” = belum dijadwalkan · “Libur” = hari libur staff.
         ${activeShifts.map((s) => `<strong>${esc(s.name)}</strong> ${s.start_time.slice(0, 5)}–${s.end_time.slice(0, 5)}${shiftCrossesMidnight(s) ? ' (+1 hari)' : ''}`).join(' · ')}

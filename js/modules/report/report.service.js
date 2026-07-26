@@ -3,6 +3,7 @@ import { formatRupiah, formatNum } from '../../core/format.js';
 import { isoFrom, isoTo } from '../../core/dates.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
 import { getNbmConfig, listOvertimeTiers, listHolidays, listNbmAdjustments, calculateNbm } from '../attendance/nbm.service.js';
+// listHolidays juga dipakai laporan Hak Cuti Pengganti (PH).
 import { listBuStaff } from '../leave/leave.service.js';
 import { LATE_LABEL } from '../shift/shift.service.js';
 
@@ -42,6 +43,13 @@ export const REPORTS = [
     group: 'SDM',
     description: 'Satu baris per staff: hari hadir, ketepatan waktu, menit keterlambatan, dan hari cuti.',
     build: buildAttendanceDiscipline
+  },
+  {
+    key: 'ph_replacement',
+    label: 'Hak Cuti Pengganti (PH)',
+    group: 'SDM',
+    description: 'Staff yang tetap masuk di hari libur nasional beserta hak cuti penggantinya.',
+    build: buildPhReplacement
   }
 ];
 
@@ -218,7 +226,7 @@ async function buildPayrollNbm({ businessUnitId, outletId, from, to }) {
   const agg = new Map();
   const bucket = (uid) => {
     if (!agg.has(uid))
-      agg.set(uid, { hadir: 0, libur: 0, storing: 0, belumTutup: 0, base: 0, lembur: 0, bonusStoring: 0, adjust: 0, total: 0 });
+      agg.set(uid, { hadir: 0, libur: 0, storing: 0, belumTutup: 0, base: 0, lembur: 0, bonusStoring: 0, phBonus: 0, adjust: 0, total: 0 });
     return agg.get(uid);
   };
 
@@ -237,6 +245,7 @@ async function buildPayrollNbm({ businessUnitId, outletId, from, to }) {
     b.base += nbm.base;
     b.lembur += nbm.overtimeBonus;
     b.bonusStoring += nbm.storingBonus;
+    b.phBonus += nbm.phBonus ?? 0;
     const adj = adjustments.get(r.id);
     // Penyesuaian manual admin MENGGANTIKAN total baris itu.
     const totalBaris = adj ? Number(adj.amount) : nbm.total;
@@ -257,6 +266,7 @@ async function buildPayrollNbm({ businessUnitId, outletId, from, to }) {
     rp(r.base),
     rp(r.lembur),
     rp(r.bonusStoring),
+    r.phBonus ? rp(r.phBonus) : '-',
     r.adjust ? rp(r.adjust) : '-',
     rp(r.total)
   ]);
@@ -269,6 +279,7 @@ async function buildPayrollNbm({ businessUnitId, outletId, from, to }) {
       rp(sum('base')),
       rp(sum('lembur')),
       rp(sum('bonusStoring')),
+      sum('phBonus') ? rp(sum('phBonus')) : '-',
       sum('adjust') ? rp(sum('adjust')) : '-',
       rp(sum('total'))
     ]);
@@ -286,6 +297,7 @@ async function buildPayrollNbm({ businessUnitId, outletId, from, to }) {
       { header: 'NBM Dasar', width: 1.2, numeric: true },
       { header: 'Lembur', width: 1.1, numeric: true },
       { header: 'Bonus Storing', width: 1.1, numeric: true },
+      { header: 'Bonus PH', width: 1, numeric: true },
       { header: 'Penyesuaian', width: 1.1, numeric: true },
       { header: 'Total', width: 1.2, numeric: true }
     ],
@@ -402,5 +414,71 @@ async function buildAttendanceDiscipline({ businessUnitId, outletId, from, to })
         ? `${formatNum(tanpaJadwal)} sesi tidak punya jadwal shift sehingga tidak masuk kolom tepat waktu/toleransi/terlambat (dari total ${formatNum(totalBerjadwal + tanpaJadwal)} sesi). `
         : '') +
       'Cuti dihitung dari pengajuan berstatus disetujui yang harinya jatuh di dalam periode.'
+  };
+}
+
+// ---------------------------------------------------------
+// 4. Hak Cuti Pengganti (PH)
+// ---------------------------------------------------------
+
+async function buildPhReplacement({ businessUnitId, outletId, from, to }) {
+  const [records, staff, holidays] = await Promise.all([
+    fetchAttendance({ businessUnitId, outletId, from, to }),
+    listBuStaff(businessUnitId).catch(() => []),
+    listHolidays({ businessUnitId, outletId: outletId || null }).catch(() => [])
+  ]);
+  const namaStaff = new Map(staff.map((s) => [s.user_id, s.full_name]));
+  const holidayName = new Map(holidays.filter((h) => h.holiday_date >= from && h.holiday_date <= to).map((h) => [h.holiday_date, h.name]));
+
+  // Hak cuti pengganti ditentukan per outlet BASIS (Pengaturan NBM & Lembur).
+  const outletIds = [...new Set(records.map((r) => r.nbm_outlet_id ?? r.outlet_id).filter(Boolean))];
+  const perDay = {};
+  for (const oid of outletIds) {
+    const cfg = await getNbmConfig(oid).catch(() => null);
+    perDay[oid] = Number(cfg?.ph_replacement_days ?? 0);
+  }
+
+  const agg = new Map();
+  for (const r of records) {
+    const tgl = dateKey(new Date(r.clock_in_at));
+    const nama = holidayName.get(tgl);
+    if (!nama) continue; // hanya hari yang terdaftar sebagai libur nasional
+    const oid = r.nbm_outlet_id ?? r.outlet_id;
+    if (!agg.has(r.user_id)) agg.set(r.user_id, { hari: 0, hak: 0, tanggal: [] });
+    const b = agg.get(r.user_id);
+    b.hari++;
+    b.hak += perDay[oid] ?? 0;
+    b.tanggal.push(`${tgl} (${nama})`);
+  }
+
+  const baris = [...agg.entries()]
+    .map(([uid, b]) => ({ nama: namaStaff.get(uid) ?? '(staff tidak dikenal)', ...b }))
+    .sort((a, b) => b.hak - a.hak || a.nama.localeCompare(b.nama));
+
+  const rows = baris.map((r) => [r.nama, formatNum(r.hari), formatNum(r.hak, 2), r.tanggal.join(', ')]);
+  const totalHak = baris.reduce((t, r) => t + r.hak, 0);
+  if (rows.length) rows.push([`TOTAL (${baris.length} staff)`, formatNum(baris.reduce((t, r) => t + r.hari, 0)), formatNum(totalHak, 2), '']);
+
+  const belumDiatur = outletIds.filter((oid) => !perDay[oid]).length;
+
+  return {
+    columns: [
+      { header: 'Staff', width: 1.8 },
+      { header: 'Hari kerja di libur nasional', width: 1.3, numeric: true },
+      { header: 'Hak cuti pengganti (hari)', width: 1.2, numeric: true },
+      { header: 'Tanggal', width: 3 }
+    ],
+    rows,
+    bold: rows.length ? [rows.length - 1] : [],
+    summary: [
+      { label: 'Hari libur di periode ini', value: formatNum(holidayName.size) },
+      { label: 'Staff yang masuk', value: formatNum(baris.length) },
+      { label: 'Total hak cuti pengganti', value: `${formatNum(totalHak, 2)} hari` }
+    ],
+    note:
+      'Hanya menghitung presensi yang tanggalnya terdaftar di **Hari Libur** (Pengaturan NBM & Lembur) — jadi pastikan kalender liburnya sudah ditarik/diisi. ' +
+      'Besaran hak per hari diambil dari **Cuti pengganti** di pengaturan NBM outlet basis staff. ' +
+      (belumDiatur ? `${belumDiatur} outlet belum mengisi cuti pengganti, sehingga haknya 0. ` : '') +
+      'Laporan ini baru sebatas **perhitungan hak**; pemberiannya ke jatah cuti staff masih dilakukan admin lewat modul Cuti.'
   };
 }

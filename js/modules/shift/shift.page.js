@@ -1,6 +1,7 @@
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listBuStaff } from '../leave/leave.service.js';
-import { listOutletShifts, listSchedules, weekRange, addDays, todayWIB, shiftCrossesMidnight } from './shift.service.js';
+import { listOutletShifts, listSchedules, weekRange, addDays, todayWIB, shiftCrossesMidnight, resolveAutoOff, holidayMapOf } from './shift.service.js';
+import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
 
 /**
  * Jadwal Shift (Staff App): tabel jadwal satu minggu — baris staff, kolom tanggal.
@@ -67,17 +68,21 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
   async function draw() {
     grid.innerHTML = `<p>Memuat...</p>`;
     const wk = weekRange(state.anchor);
-    let staff, shifts, schedules;
+    let staff, shifts, schedules, policy, holidays;
     try {
-      [staff, shifts, schedules] = await Promise.all([
+      [staff, shifts, schedules, policy, holidays] = await Promise.all([
         listBuStaff(businessUnitId),
         listOutletShifts(state.outletId),
-        listSchedules({ outletId: state.outletId, from: wk.from, to: wk.to })
+        listSchedules({ outletId: state.outletId, from: wk.from, to: wk.to }),
+        getHolidayPolicy(businessUnitId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] })),
+        listHolidays({ businessUnitId, outletId: state.outletId }).catch(() => [])
       ]);
     } catch (error) {
       grid.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
       return;
     }
+    const holidayMap = holidayMapOf(holidays);
+    const autoOff = new Map(wk.days.map((d) => [d, resolveAutoOff(d, policy, holidayMap)]));
     const map = new Map();
     for (const s of schedules) map.set(`${s.user_id}|${s.work_date}`, s);
     // Tampilkan staff yang punya jadwal minggu ini + diri sendiri (biar ringkas).
@@ -108,6 +113,11 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
                     ${wk.days
                       .map((d) => {
                         const cur = map.get(`${st.user_id}|${d}`);
+                        const auto = autoOff.get(d);
+                        // Libur otomatis dari kebijakan BU — tidak perlu baris jadwal.
+                        if (!cur && auto?.off)
+                          return `<td style="text-align:center"><span class="shift-chip shift-off">Libur</span>
+                            <div style="font-size:0.66rem;color:var(--color-text-muted)">${esc(auto.reason)}</div></td>`;
                         if (!cur) return `<td style="text-align:center;color:var(--color-text-muted)">–</td>`;
                         if (cur.is_off) return `<td style="text-align:center"><span class="shift-chip shift-off">Libur</span></td>`;
                         const sh = cur.outlet_shifts;

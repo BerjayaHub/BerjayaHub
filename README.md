@@ -448,6 +448,49 @@ Jalankan migration `0034_shift.sql`, lalu **deploy ulang** `send-attendance-remi
   - **Push reminder clock in** memakai **jam shift masing-masing staff** saat modul Shift aktif (staff libur/tidak dijadwalkan tidak diingatkan); outlet non-shift tetap memakai jam masuk outlet.
 - Modul Shift juga bisa dibatasi lewat **Izin Admin** per user, dan muncul di Staff App sesuai **akses modul** & toggle modul BU.
 
+## Kebijakan Hari Libur & Public Holiday
+
+Jalankan migration `0038_public_holidays.sql`.
+
+Sistem sengaja memisahkan **dua jenis "libur"** — menggabungkannya akan salah, karena staff cafe yang masuk saat Idul Fitri **dapat tarif libur tapi bukan sedang libur**:
+
+| | Apa | Efeknya |
+|---|---|---|
+| `holidays` | Hari libur nasional/perusahaan | NBM tarif libur + bonus PH + hak cuti pengganti |
+| `shift_schedules.is_off` | Libur **pribadi** staff | Tidak dinilai terlambat |
+
+### Kebijakan per BU (Pengaturan NBM & Lembur)
+
+- **Tetap beroperasi** (`operational`, default) — Minggu & hari besar **tetap hari kerja**. Staff yang masuk dapat kompensasi PH. Untuk Cafe, Bengkel, Armada.
+- **Ikut kalender libur nasional** (`follow_calendar`) — tanggal libur nasional **dan** hari libur mingguan yang dicentang otomatis muncul sebagai **Libur** di Jadwal Shift, tanpa admin mengisi satu-satu. Untuk Divisi Admin.
+
+Libur otomatis hanya **default tampilan** — admin tetap bisa menimpanya per tanggal kalau ada yang masuk. Tidak ada asumsi hari Minggu yang berlaku global: `resolveAutoOff()` hanya aktif untuk BU ber-policy `follow_calendar`. (Asumsi global semacam ini pernah jadi sumber bug lintas BU — lihat catatan perbaikan di bagian Presensi.)
+
+Daftar hari libur tetap diisi untuk **kedua** mode; yang berbeda hanya efeknya.
+
+### Menarik hari libur nasional
+
+Tombol **⇩ Tarik hari libur nasional** di Pengaturan NBM & Lembur. Datanya diambil dari `dayoffapi.vercel.app` (cadangan otomatis: `api-harilibur.vercel.app`), lalu **ditampilkan sebagai daftar centang untuk disetujui admin** sebelum masuk tabel `holidays`.
+
+API ini **pintasan input, bukan dependensi** — kalau layanannya mati, aplikasi tidak terganggu dan hari libur tetap bisa ditambah manual. Penarikan ulang bersifat *upsert* (menambal, bukan menduplikasi) berkat index unik `uniq_holiday_bu_date`.
+
+Dua hal yang **tidak bisa** diandalkan dari API mana pun, jadi harus tetap bisa dikoreksi manual:
+
+- **Cuti bersama** ditetapkan SKB 3 Menteri, biasanya baru terbit akhir tahun sebelumnya.
+- **Idul Fitri/Adha** ditentukan sidang isbat dan bisa geser sehari dari prediksi hisab.
+
+### Kompensasi PH (dinamis, per outlet)
+
+Diatur di form NBM tiap outlet — semuanya default 0 supaya perhitungan lama tidak berubah sampai admin mengisinya:
+
+- `holiday_amount` (sudah ada) — **menggantikan** NBM normal di hari libur.
+- `ph_bonus_amount` — bonus **tambahan** di atas NBM hari libur, untuk yang tetap masuk.
+- `ph_replacement_days` — hak **cuti pengganti** (hari) per hari kerja yang jatuh di hari libur nasional. Rekapnya di **Laporan → Hak Cuti Pengganti (PH)**.
+
+Catatan: laporan PH baru menghitung **hak**-nya; pemberian ke jatah cuti staff masih manual lewat modul Cuti.
+
+**RLS:** policy `holidays_select_member` ditambahkan supaya Staff App bisa membaca **tanggal** libur (untuk catatan di halaman Presensi & Jadwal Shift). Nominalnya (`outlet_nbm_config`, tier lembur) tetap admin-only.
+
 ## Fase 11 — Laporan (Report)
 
 **Tidak perlu migration.** Modul Laporan hanya membaca data yang sudah ada. Menunya bersifat **core** (tidak di-toggle per BU) karena isinya lintas modul, tapi tetap bisa dibatasi lewat **Izin Admin per user** (kode tab `report`).
@@ -459,6 +502,7 @@ Laporan yang sudah tersedia:
 - **Laba Rugi** (Keuangan) — Omzet penjualan − HPP bahan (dari resep aktif: mode *Standalone*, mundur ke *Dilayani CK*) = **laba kotor**; dikurangi **beban kas keluar per kategori** = **laba bersih (estimasi)**. Kas Masuk & transfer antar pemegang kas sengaja **tidak** dihitung sebagai pendapatan supaya tidak dobel dengan omzet. Menu yang belum punya HPP disebutkan di catatan, bukan diam-diam dianggap nol.
 - **Rekap Penggajian (NBM)** (SDM) — satu baris per staff: hari hadir, hari libur, storing, NBM dasar, lembur, bonus storing, **penyesuaian manual** (selisih terhadap hitungan otomatis dari tab Rekap NBM), dan total. Ada baris TOTAL.
 - **Rekap Presensi & Disiplin** (SDM) — satu baris per staff: hadir, tepat waktu, toleransi, terlambat, total menit terlambat, tugas luar, hari cuti (dari pengajuan disetujui yang jatuh di periode), dan sesi belum clock out. Diurutkan dari yang paling sering terlambat, dan **staff dengan 0 hari hadir tetap ditampilkan**.
+- **Hak Cuti Pengganti (PH)** (SDM) — staff yang tetap masuk di tanggal yang terdaftar sebagai hari libur nasional, beserta hak cuti penggantinya (dari `ph_replacement_days` outlet basis) dan daftar tanggalnya.
 
 Laporan SDM mengikuti **BU/outlet basis** staff (tanda ★ di Master User), bukan lokasi absen fisik — konsisten dengan Rekap NBM.
 

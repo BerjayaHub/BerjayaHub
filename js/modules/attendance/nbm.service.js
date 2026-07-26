@@ -12,10 +12,16 @@ export async function getNbmConfig(outletId) {
   return data;
 }
 
-export async function upsertNbmConfig(outletId, { base_amount, holiday_amount, storing_bonus_amount }) {
-  const { error } = await supabase
-    .from('outlet_nbm_config')
-    .upsert({ outlet_id: outletId, base_amount, holiday_amount, storing_bonus_amount, updated_at: new Date().toISOString() });
+export async function upsertNbmConfig(outletId, { base_amount, holiday_amount, storing_bonus_amount, ph_bonus_amount, ph_replacement_days }) {
+  const { error } = await supabase.from('outlet_nbm_config').upsert({
+    outlet_id: outletId,
+    base_amount,
+    holiday_amount,
+    storing_bonus_amount,
+    ph_bonus_amount: ph_bonus_amount ?? 0,
+    ph_replacement_days: ph_replacement_days ?? 0,
+    updated_at: new Date().toISOString()
+  });
   if (error) throw error;
 }
 
@@ -52,6 +58,47 @@ export async function listHolidays({ businessUnitId, outletId }) {
   const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
+}
+
+/**
+ * Simpan banyak hari libur sekaligus (hasil tarik API, setelah disetujui admin).
+ * Selalu di level BU (outlet_id null) supaya berlaku untuk semua outlet, dan
+ * memakai upsert agar penarikan ulang menambal, bukan menduplikasi.
+ */
+export async function addHolidaysBulk(businessUnitId, holidays) {
+  if (!holidays?.length) return 0;
+  const { error } = await supabase.from('holidays').upsert(
+    holidays.map((h) => ({
+      holiday_date: h.date,
+      name: h.name,
+      business_unit_id: businessUnitId,
+      outlet_id: null,
+      is_joint_leave: !!h.isJoint,
+      source: 'api'
+    })),
+    { onConflict: 'business_unit_id,holiday_date' }
+  );
+  if (error) throw error;
+  return holidays.length;
+}
+
+/** Kebijakan hari libur BU (lihat migration 0038). */
+export async function getHolidayPolicy(businessUnitId) {
+  const { data, error } = await supabase
+    .from('business_units')
+    .select('holiday_policy, weekly_off_days')
+    .eq('id', businessUnitId)
+    .single();
+  if (error) throw error;
+  return { holiday_policy: data?.holiday_policy ?? 'operational', weekly_off_days: data?.weekly_off_days ?? [] };
+}
+
+export async function setHolidayPolicy(businessUnitId, { holiday_policy, weekly_off_days }) {
+  const { error } = await supabase
+    .from('business_units')
+    .update({ holiday_policy, weekly_off_days: weekly_off_days ?? [] })
+    .eq('id', businessUnitId);
+  if (error) throw error;
 }
 
 export async function addHoliday({ holiday_date, name, business_unit_id, outlet_id }) {
@@ -144,12 +191,18 @@ export function calculateNbm(record, config, tiers, holidayDates) {
 
   const storingBonus = record.is_storing ? Number(config.storing_bonus_amount ?? 0) : 0;
 
+  // Bonus PH: kompensasi TAMBAHAN untuk yang tetap masuk di hari libur.
+  // Beda dengan holiday_amount yang MENGGANTIKAN NBM normal. Default 0, jadi
+  // perhitungan lama tidak berubah sampai admin mengisinya.
+  const phBonus = isHoliday ? Number(config.ph_bonus_amount ?? 0) : 0;
+
   return {
     isHoliday,
     base,
     overtimeBonus,
     storingBonus,
-    total: base + overtimeBonus + storingBonus
+    phBonus,
+    total: base + overtimeBonus + storingBonus + phBonus
   };
 }
 

@@ -42,6 +42,39 @@ export function shiftCrossesMidnight(s) {
   return s.end_time < s.start_time;
 }
 
+// ---- Libur otomatis (kebijakan BU, migration 0038) ----
+
+const DAY_NAMES = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+/**
+ * Apakah sebuah tanggal otomatis libur menurut kebijakan BU?
+ *
+ * Hanya berlaku untuk BU ber-policy `follow_calendar`. BU `operational`
+ * (cafe/bengkel) TIDAK pernah libur otomatis — Minggu & hari besar tetap hari
+ * kerja, dan kompensasinya lewat NBM/cuti pengganti. Ini sengaja: menganggap
+ * Minggu libur secara global pernah jadi sumber bug lintas BU.
+ *
+ * @param dateStr   'YYYY-MM-DD'
+ * @param policy    { holiday_policy, weekly_off_days }
+ * @param holidayMap Map<'YYYY-MM-DD', namaHariLibur>
+ * @returns { off: boolean, reason: string|null }
+ */
+export function resolveAutoOff(dateStr, policy, holidayMap) {
+  const namaLibur = holidayMap?.get?.(dateStr) ?? null;
+  if (policy?.holiday_policy !== 'follow_calendar') return { off: false, reason: null, holidayName: namaLibur };
+  if (namaLibur) return { off: true, reason: namaLibur, holidayName: namaLibur };
+  const dow = new Date(dateStr + 'T00:00:00').getDay();
+  if ((policy.weekly_off_days ?? []).map(Number).includes(dow)) {
+    return { off: true, reason: DAY_NAMES[dow], holidayName: null };
+  }
+  return { off: false, reason: null, holidayName: null };
+}
+
+/** Map tanggal -> nama hari libur, dari hasil listHolidays(). */
+export function holidayMapOf(holidays) {
+  return new Map((holidays ?? []).map((h) => [h.holiday_date, h.name]));
+}
+
 /** "08:00:00" -> menit sejak tengah malam. */
 export function timeToMinutes(t) {
   if (!t) return null;
