@@ -2,6 +2,7 @@ import {
   listAttendanceForAdmin,
   correctAttendanceRecord,
   listOutletsWithGeofence,
+  listAttendanceOutlets,
   setOutletLocation,
   setOutletWorkHours,
   getExitTaskMode,
@@ -59,24 +60,48 @@ async function renderPresensiTab(container, businessUnitId) {
   const filters = { businessUnitId, outletId: '', dateFrom: isoFrom(range.from), dateTo: isoTo(range.to) };
   let lastRecords = [];
 
-  // Nama outlet untuk filter/PDF — termasuk outlet BU lain yang muncul di data
-  // (staff basis BU ini bisa absen di outlet BU lain).
+  // Direktori SEMUA outlet aktif (lewat RPC security-definer). Dibutuhkan karena
+  // staff basis BU ini boleh absen di outlet BU lain, sedangkan RLS `outlets_select`
+  // hanya mengizinkan admin membaca outlet dalam scope-nya sendiri — tanpa ini
+  // kolom Outlet akan kosong ("-") untuk presensi lintas BU.
+  const allOutlets = await listAttendanceOutlets().catch(() => []);
+  const outletInfo = new Map(allOutlets.map((o) => [o.id, o]));
+  // Nama outlet untuk filter/PDF.
   const outletNames = new Map((outlets ?? []).map((o) => [o.id, o.name]));
 
+  /** Nama outlet lokasi absen + BU-nya, apa pun BU pemiliknya. */
+  function outletOf(r) {
+    const info = outletInfo.get(r.outlet_id);
+    return {
+      name: info?.name ?? outletNames.get(r.outlet_id) ?? '-',
+      buName: info?.business_unit_name ?? '',
+      isOtherBu: !!(r.nbm_business_unit_id && r.business_unit_id && r.nbm_business_unit_id !== r.business_unit_id)
+    };
+  }
+
   async function refresh() {
-    const records = await listAttendanceForAdmin(filters);
+    const body = container.querySelector('#attendance-table-body');
+    let records;
+    try {
+      records = await listAttendanceForAdmin(filters);
+    } catch (error) {
+      body.innerHTML = `<tr><td colspan="11" class="error-text">Gagal memuat rekap presensi: ${escapeHtml(error.message ?? error)}</td></tr>`;
+      return;
+    }
     lastRecords = records;
-    container.querySelector('#attendance-table-body').innerHTML =
-      records.map((r) => rowHtml(r)).join('') || '<tr><td colspan="11">Tidak ada data.</td></tr>';
+    body.innerHTML = records.map((r) => rowHtml(r, outletOf(r))).join('') || '<tr><td colspan="11">Tidak ada data.</td></tr>';
 
     // Lengkapi pilihan filter outlet dengan outlet lain yang terpakai di data.
     const sel = container.querySelector('#filter-outlet');
     let added = false;
     for (const r of records) {
-      const o = r.outlets;
-      if (o?.id && !outletNames.has(o.id)) {
-        outletNames.set(o.id, o.name);
-        sel.insertAdjacentHTML('beforeend', `<option value="${o.id}">${escapeHtml(o.name)}${r.loc_bu?.name ? ` (${escapeHtml(r.loc_bu.name)})` : ''}</option>`);
+      if (r.outlet_id && !outletNames.has(r.outlet_id)) {
+        const info = outletInfo.get(r.outlet_id);
+        outletNames.set(r.outlet_id, info?.name ?? 'Outlet lain');
+        sel.insertAdjacentHTML(
+          'beforeend',
+          `<option value="${r.outlet_id}">${escapeHtml(info?.name ?? 'Outlet lain')}${info?.business_unit_name ? ` (${escapeHtml(info.business_unit_name)})` : ''}</option>`
+        );
         added = true;
       }
     }
@@ -227,7 +252,7 @@ async function renderPresensiTab(container, businessUnitId) {
         ],
         rows: lastRecords.map((r) => [
           r.user_profiles?.full_name ?? '-',
-          r.outlets?.name ?? '-',
+          outletOf(r).name,
           tipeOf(r),
           r.is_storing ? r.exit_reason ?? '-' : '-',
           shiftText(r),
@@ -274,7 +299,7 @@ function shiftText(r) {
   return `${r.shift_name ? r.shift_name + ' — ' : ''}${label}${r.late_minutes ? ` (${r.late_minutes} mnt)` : ''}`;
 }
 
-function rowHtml(r) {
+function rowHtml(r, outlet) {
   const storingTag = '';
   const fotoButtons = [
     r.clock_in_photo_path ? `<button class="btn-view-photo" data-path="${r.clock_in_photo_path}">In</button>` : '',
@@ -286,10 +311,10 @@ function rowHtml(r) {
   return `
     <tr data-record-id="${r.id}" data-lat="${r.clock_in_lat ?? ''}" data-lng="${r.clock_in_lng ?? ''}">
       <td>${r.user_profiles?.full_name ?? '-'}</td>
-      <td>${r.outlets?.name ?? '-'}${storingTag}${
+      <td>${escapeHtml(outlet.name)}${storingTag}${
         // Kalau absen di outlet milik BU lain, tampilkan BU lokasinya agar jelas.
-        r.nbm_business_unit_id && r.business_unit_id && r.nbm_business_unit_id !== r.business_unit_id && r.loc_bu?.name
-          ? `<div style="font-size:0.72rem;color:var(--color-text-muted)">di BU ${escapeHtml(r.loc_bu.name)}</div>`
+        outlet.isOtherBu && outlet.buName
+          ? `<div style="font-size:0.72rem;color:var(--color-text-muted)">di BU ${escapeHtml(outlet.buName)}</div>`
           : ''
       }</td>
       <td>${r.is_storing ? `<span class="badge badge-pending">${tipeOf(r)}</span>` : '<span class="badge badge-approved">Normal</span>'}</td>
@@ -460,6 +485,10 @@ function wireEditButtons(container) {
       }
     });
   });
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 function formatTime(iso) {

@@ -1,4 +1,4 @@
-import { listAttendanceForNbm, listOutletsWithGeofence } from './attendance.service.js';
+import { listAttendanceForNbm, listOutletsWithGeofence, listAttendanceOutlets } from './attendance.service.js';
 import {
   getNbmConfig,
   listOvertimeTiers,
@@ -15,10 +15,15 @@ import { formatRupiah, formatThousands, parseNumber, attachThousandsInput } from
 import { monthRangeWIB } from '../../core/dates.js';
 
 let lastReportRows = [];
+// Nama SEMUA outlet aktif (RPC security-definer) — dipakai untuk kolom "Lokasi
+// Absen", karena outlet milik BU lain tidak terbaca lewat RLS `outlets_select`.
+let outletNameById = new Map();
+const physOutletName = (r) => outletNameById.get(r.outlet_id) ?? r.outlets?.name ?? '-';
 
 export async function renderNbmReportTab(container, businessUnitId) {
   container.innerHTML = `<p>Memuat...</p>`;
   const outlets = await listOutletsWithGeofence(businessUnitId);
+  outletNameById = new Map((await listAttendanceOutlets().catch(() => [])).map((o) => [o.id, o.name]));
   const range = monthRangeWIB();
 
   container.innerHTML = `
@@ -90,7 +95,7 @@ async function runReport(businessUnitId, outlets) {
 
   // NBM dihitung berdasarkan outlet BASIS (nbm_outlet), bukan lokasi absen.
   // Fallback ke lokasi absen untuk record lama yang belum punya basis.
-  const baseOutletId = (r) => r.nbm_outlet?.id ?? r.outlets?.id;
+  const baseOutletId = (r) => r.nbm_outlet_id ?? r.outlet_id;
 
   // Preload config/tier/holiday per outlet basis yang muncul, biar gak query berulang
   const outletIds = [...new Set(records.map(baseOutletId).filter(Boolean))];
@@ -144,7 +149,7 @@ async function runReport(businessUnitId, outlets) {
       const { record, nbm } = row;
       return [
         record.user_profiles?.full_name ?? '-',
-        record.nbm_outlet?.name ?? record.outlets?.name ?? '-',
+        record.nbm_outlet?.name ?? physOutletName(record),
         toDateKey(new Date(record.clock_in_at)),
         record.is_storing ? 'Ya' : '-',
         nbm.isHoliday ? 'Ya' : '-',
@@ -169,9 +174,9 @@ async function runReport(businessUnitId, outlets) {
           rows
             .map((row) => {
               const { record, nbm } = row;
-              const baseName = record.nbm_outlet?.name ?? record.outlets?.name ?? '-';
-              const physName = record.outlets?.name ?? '-';
-              const physCell = physName === baseName ? '<span style="color:var(--color-text-muted)">(sama)</span>' : physName;
+              const baseName = record.nbm_outlet?.name ?? physOutletName(record);
+              const physName = physOutletName(record);
+              const physCell = physName === baseName ? '<span style="color:var(--color-text-muted)">(sama)</span>' : esc(physName);
               if (!nbm) {
                 return `<tr><td>${esc(record.user_profiles?.full_name ?? '-')}</td><td>${esc(baseName)}</td><td>${physCell}</td><td>${toDateKey(new Date(record.clock_in_at))}</td><td colspan="7">Belum bisa dihitung (belum clock out / NBM outlet basis belum diset)</td></tr>`;
               }

@@ -74,7 +74,7 @@ export async function renderAttendancePage(container, ctx) {
           recent
             .map(
               (r) => `<tr>
-                <td>${esc(r.outlets?.name ?? '-')}</td>
+                <td>${esc(outletName(r.outlet_id))}</td>
                 <td>${formatTime(r.clock_in_at)}</td>
                 <td>${r.clock_out_at ? formatTime(r.clock_out_at) : '—'}</td>
               </tr>`

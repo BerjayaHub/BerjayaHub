@@ -97,7 +97,9 @@ export async function getMyTodaySession() {
 export async function getMyRecentAttendance(limit = 10) {
   const { data, error } = await supabase
     .from('attendance_records')
-    .select('id, clock_in_at, clock_out_at, outlets!outlet_id(name)')
+    // Nama outlet diresolusi di UI (list_attendance_outlets), karena outlet BU lain
+    // tidak terbaca lewat RLS `outlets_select`.
+    .select('id, clock_in_at, clock_out_at, outlet_id')
     .order('clock_in_at', { ascending: false })
     .limit(limit);
   if (error) throw error;
@@ -342,7 +344,11 @@ export async function reverseGeocode(lat, lng) {
 export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFrom, dateTo }) {
   let query = supabase
     .from('attendance_records')
-    .select('id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, shift_name, late_minutes, late_status, business_unit_id, nbm_business_unit_id, user_profiles(full_name), outlets!outlet_id(id, name), loc_bu:business_units!business_unit_id(name)')
+    // CATATAN: nama outlet/BU lokasi TIDAK di-embed di sini. RLS `outlets_select`
+    // & `business_units_select` hanya mengizinkan baris dalam scope user, jadi
+    // untuk presensi di outlet BU lain embed-nya akan balik null ("-").
+    // Nama outlet diresolusi di UI lewat RPC `list_attendance_outlets` (security definer).
+    .select('id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, shift_name, late_minutes, late_status, business_unit_id, nbm_business_unit_id, outlet_id, user_profiles(full_name)')
     .or(`nbm_business_unit_id.eq.${businessUnitId},and(nbm_business_unit_id.is.null,business_unit_id.eq.${businessUnitId})`)
     .order('clock_in_at', { ascending: false })
     .limit(200);
@@ -365,7 +371,9 @@ export async function listAttendanceForNbm({ businessUnitId, outletId, dateFrom,
   let query = supabase
     .from('attendance_records')
     .select(
-      'id, clock_in_at, clock_out_at, is_storing, nbm_business_unit_id, nbm_outlet_id, user_profiles(full_name), outlets!outlet_id(id, name), nbm_outlet:outlets!nbm_outlet_id(id, name)'
+      // outlets!outlet_id (lokasi absen) bisa null kalau outletnya milik BU lain
+      // (RLS outlets_select). Nama lokasi diresolusi di UI via list_attendance_outlets.
+      'id, clock_in_at, clock_out_at, is_storing, business_unit_id, nbm_business_unit_id, outlet_id, nbm_outlet_id, user_profiles(full_name), nbm_outlet:outlets!nbm_outlet_id(id, name)'
     )
     .eq('nbm_business_unit_id', businessUnitId)
     .order('clock_in_at', { ascending: false })
