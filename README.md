@@ -585,7 +585,7 @@ Selisih pemakaian bahan (resep × penjualan vs `stock_movements` — penangkap k
 
 ## Notifikasi Telegram ke grup PIC
 
-Jalankan migration `0041_telegram_notifications.sql` dan `0042_telegram_routes.sql`. Langkah setup lengkap ada di **`supabase/functions/notify-telegram/SETUP.md`** — ringkasnya: set secret → deploy → atur tujuan grup & uji → pasang webhook & cron.
+Jalankan migration `0041_telegram_notifications.sql`, `0042_telegram_routes.sql`, dan `0043_telegram_triggers.sql`. Langkah setup lengkap ada di **`supabase/functions/notify-telegram/SETUP.md`** — ringkasnya: set secret → deploy → atur tujuan grup & uji → pasang webhook & cron.
 
 **Token bot disimpan sebagai secret Edge Function, tidak pernah masuk folder `js/`** — repo ini publik di GitHub Pages, jadi apa pun di frontend bisa dibaca siapa saja. **ID grup sebaliknya disimpan di database** (`telegram_routes`) supaya bisa diubah/ditambah dari Admin Portal tanpa redeploy; ini aman karena chat ID hanyalah pengenal — tanpa token bot ia tidak bisa dipakai mengirim apa pun. Aksesnya tetap dikunci super admin lewat RLS.
 
@@ -601,6 +601,10 @@ Jalankan migration `0041_telegram_notifications.sql` dan `0042_telegram_routes.s
 Resolusi tujuan: **rute khusus BU → rute global (`business_unit_id` NULL) → secret `TELEGRAM_CHAT_ID`** sebagai cadangan terakhir. Kolom `business_unit_id` nullable memakai pola pewarisan yang sama dengan kebijakan hari libur, jadi kalau nanti satu BU perlu grup berbeda untuk event yang sama, cukup tambah baris *Khusus BU* — tanpa mengubah kode.
 
 Reminder armada mengelompokkan kendaraan **per grup tujuan**, sehingga saat rute per-BU dipakai, tiap grup hanya menerima kendaraan miliknya.
+
+**Pemicunya dipasang lewat SQL, bukan dashboard.** Database Webhook Supabase sebenarnya hanya pembungkus trigger + `pg_net`, dan menunya sempat berpindah dari *Database* ke *Integrations → Webhooks*. Migration `0043` memasang trigger `trg_notify_leave_requests` & `trg_notify_stock_orders` langsung — masuk kontrol versi, ikut saat project di-restore, dan tidak bergantung navigasi dashboard. URL & `NOTIFY_SECRET` dibaca dari tabel `integration_settings` yang diisi sekali lewat SQL Editor, **tidak ditulis di file migration** karena repo ini publik.
+
+Dua sifat yang disengaja: `pg_net` **asinkron** sehingga lambatnya Telegram tidak memperlambat app, dan kegagalan kirim **ditelan** (`raise warning`) supaya pengajuan cuti tetap tersimpan — notifikasi tidak boleh menggagalkan transaksi bisnis. Riwayat panggilan bisa dicek di `net._http_response`.
 
 Katalog event ada di `js/modules/notifications/telegram.service.js` (`TELEGRAM_EVENTS`). Menambah event baru = satu entri di situ + penanganan `event_key`-nya di Edge Function; UI kelola rute otomatis ikut. Slot `reservation` disiapkan untuk modul reservasi Awal Bermula.
 

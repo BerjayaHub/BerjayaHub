@@ -79,24 +79,60 @@ Pesan error yang sering muncul:
 
 ---
 
-## 5. Pasang Database Webhook
+## 5. Pasang pemicu (trigger)
 
-Supabase Dashboard → **Database → Webhooks → Create a new hook**. Buat **dua**
-hook, keduanya menunjuk ke function yang sama:
+Jalankan migration `0043_telegram_triggers.sql`, lalu isi URL & secret **sekali**
+lewat **SQL Editor**:
 
-**Hook A — pengajuan & keputusan cuti**
+```sql
+insert into integration_settings (key, value) values
+  ('notify_telegram_url', 'https://<PROJECT-REF>.supabase.co/functions/v1/notify-telegram'),
+  ('notify_secret',       '<NOTIFY_SECRET>')
+on conflict (key) do update set value = excluded.value, updated_at = now();
+```
 
-- Table: `leave_requests`
-- Events: **Insert**, **Update**
-- Type: **Supabase Edge Functions** → `notify-telegram`
-- HTTP Headers: tambahkan `x-notify-secret` = nilai `NOTIFY_SECRET`
+Selesai — trigger untuk `leave_requests` dan `stock_orders` sudah terpasang.
 
-**Hook B — order stok**
+**Kenapa lewat SQL, bukan dashboard?** Database Webhook Supabase sebenarnya cuma
+pembungkus trigger + `pg_net`. Membuatnya lewat migration lebih baik: masuk
+kontrol versi, ikut kalau project di-restore, dan tidak bergantung letak menu
+dashboard yang bisa berpindah. Nilai secret sengaja tidak ditulis di file
+migration karena repo ini publik — makanya diisi lewat SQL Editor.
 
-- Table: `stock_orders`
-- Events: **Insert**
-- Type: **Supabase Edge Functions** → `notify-telegram`
-- HTTP Headers: `x-notify-secret` = nilai `NOTIFY_SECRET`
+Sifat penting: `pg_net` **asinkron**, jadi lambatnya Telegram tidak memperlambat
+app. Dan kalau pengiriman gagal, error-nya ditelan (`raise warning`) supaya
+pengajuan cuti tetap tersimpan — notifikasi tidak boleh menggagalkan transaksi
+bisnis.
+
+**Cek riwayat panggilan** kalau pesan tidak sampai:
+
+```sql
+select id, status_code, content, created
+from net._http_response
+order by created desc
+limit 10;
+```
+
+`status_code` 200 = Edge Function menerima. Kalau `content` berisi `{"ok":false,...}`,
+masalahnya ada di sisi Telegram (lihat tabel error di langkah 4).
+
+<details>
+<summary>Alternatif: lewat dashboard</summary>
+
+Menunya **bukan** lagi di bawah *Database*. Sekarang ada di
+**Integrations → Webhooks** (ikon puzzle di bilah kiri), atau langsung:
+`https://supabase.com/dashboard/project/_/integrations/webhooks/overview`
+
+Buat dua hook ke function `notify-telegram`, keduanya dengan HTTP header
+`x-notify-secret` = nilai `NOTIFY_SECRET`:
+
+- `leave_requests` — events **Insert** & **Update**
+- `stock_orders` — event **Insert**
+
+Kalau memakai cara ini, **jangan** pasang trigger dari langkah SQL di atas —
+nanti pesannya terkirim dua kali.
+
+</details>
 
 Function menyaring sendiri: `UPDATE` pada `leave_requests` hanya dikirim kalau
 **status benar-benar berubah** ke `approved`/`rejected`, jadi melengkapi lampiran
