@@ -501,7 +501,9 @@ Tombol **⇩ Tarik hari libur nasional** di Pengaturan NBM & Lembur → hasilnya
 
 Sumber yang CORS-nya tertutup tetap dicoba lewat Edge Function. Kalau function membalas non-2xx, badan responsnya dibaca manual (`error.context.json()`) supaya pesan errornya menyebut **sumber mana** yang gagal, bukan sekadar "non-2xx status code".
 
-API ini **pintasan input, bukan dependensi** — kalau layanannya mati, aplikasi tidak terganggu dan hari libur tetap bisa ditambah manual. Penarikan ulang bersifat *upsert* (menambal, bukan menduplikasi) berkat index unik `uniq_holiday_bu_date`. Sisi klien masih menyimpan jalur fetch langsung sebagai cadangan kalau function belum di-deploy.
+API ini **pintasan input, bukan dependensi** — kalau layanannya mati, aplikasi tidak terganggu dan hari libur tetap bisa ditambah manual.
+
+**Penarikan ulang menambal, bukan menduplikasi** — tapi *bukan* lewat `ON CONFLICT`. Index unik `uniq_holiday_bu_date` bersifat **partial** (`where outlet_id is null`), dan Postgres hanya mau memakai index partial untuk `ON CONFLICT` bila predikat `WHERE`-nya ikut disebutkan — yang tidak bisa dikirim lewat PostgREST. Gejalanya: *"there is no unique or exclusion constraint matching the ON CONFLICT specification"*. Karena itu `addHolidaysBulk()` membaca dulu tanggal yang sudah ada, meng-`UPDATE` yang cocok, dan meng-`INSERT` sisanya. Index partialnya tetap dipertahankan sebagai pengaman duplikat di level database.
 
 Dua hal yang **tidak bisa** diandalkan dari API mana pun, jadi harus tetap bisa dikoreksi manual:
 

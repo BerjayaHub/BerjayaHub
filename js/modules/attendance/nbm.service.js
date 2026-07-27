@@ -62,24 +62,59 @@ export async function listHolidays({ businessUnitId, outletId }) {
 
 /**
  * Simpan banyak hari libur sekaligus (hasil tarik API, setelah disetujui admin).
- * Selalu di level BU (outlet_id null) supaya berlaku untuk semua outlet, dan
- * memakai upsert agar penarikan ulang menambal, bukan menduplikasi.
+ * Selalu di level BU (outlet_id null) supaya berlaku untuk semua outlet.
+ *
+ * SENGAJA TIDAK memakai upsert/ON CONFLICT: index unik di migration 0038
+ * bersifat **partial** (`where outlet_id is null`), dan Postgres hanya mau
+ * memakai index partial untuk ON CONFLICT bila predikat WHERE-nya ikut
+ * disebutkan — sesuatu yang tidak bisa dikirim lewat PostgREST. Gejalanya:
+ * "there is no unique or exclusion constraint matching the ON CONFLICT
+ * specification". Jadi baris yang sudah ada di-UPDATE, sisanya di-INSERT.
+ *
+ * @returns { inserted, updated }
  */
 export async function addHolidaysBulk(businessUnitId, holidays) {
-  if (!holidays?.length) return 0;
-  const { error } = await supabase.from('holidays').upsert(
-    holidays.map((h) => ({
-      holiday_date: h.date,
-      name: h.name,
-      business_unit_id: businessUnitId,
-      outlet_id: null,
-      is_joint_leave: !!h.isJoint,
-      source: 'api'
-    })),
-    { onConflict: 'business_unit_id,holiday_date' }
-  );
-  if (error) throw error;
-  return holidays.length;
+  if (!holidays?.length) return { inserted: 0, updated: 0 };
+
+  const dates = holidays.map((h) => h.date);
+  const { data: existing, error: selErr } = await supabase
+    .from('holidays')
+    .select('id, holiday_date')
+    .eq('business_unit_id', businessUnitId)
+    .is('outlet_id', null)
+    .in('holiday_date', dates);
+  if (selErr) throw selErr;
+
+  const idByDate = new Map((existing ?? []).map((r) => [r.holiday_date, r.id]));
+  const baru = [];
+  let updated = 0;
+
+  for (const h of holidays) {
+    const id = idByDate.get(h.date);
+    if (id) {
+      const { error } = await supabase
+        .from('holidays')
+        .update({ name: h.name, is_joint_leave: !!h.isJoint, source: 'api' })
+        .eq('id', id);
+      if (error) throw error;
+      updated++;
+    } else {
+      baru.push({
+        holiday_date: h.date,
+        name: h.name,
+        business_unit_id: businessUnitId,
+        outlet_id: null,
+        is_joint_leave: !!h.isJoint,
+        source: 'api'
+      });
+    }
+  }
+
+  if (baru.length) {
+    const { error } = await supabase.from('holidays').insert(baru);
+    if (error) throw error;
+  }
+  return { inserted: baru.length, updated };
 }
 
 /**

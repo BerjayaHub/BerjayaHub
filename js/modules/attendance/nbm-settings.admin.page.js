@@ -371,8 +371,8 @@ async function renderOutletDetail(outletId, businessUnitId) {
     const dipilih = hasil.holidays.filter((h) => pilihan[`d_${h.date}`]);
     if (!dipilih.length) return toast('Tidak ada tanggal yang dipilih.', 'warning');
     try {
-      await addHolidaysBulk(businessUnitId, dipilih);
-      toast(`${dipilih.length} hari libur tersimpan.`, 'success');
+      const { inserted, updated } = await addHolidaysBulk(businessUnitId, dipilih);
+      toast(`${inserted} hari libur baru ditambahkan${updated ? `, ${updated} diperbarui` : ''}.`, 'success');
       await renderOutletDetail(outletId, businessUnitId);
     } catch (error) {
       toast(error.message ?? 'Gagal menyimpan hari libur.', 'error');
