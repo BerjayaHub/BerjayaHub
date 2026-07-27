@@ -602,6 +602,8 @@ on conflict (key) do update set value = excluded.value, updated_at = now();
 
 ### Dua jalur masuk
 
+Di Admin Portal, **Reservasi berdiri sendiri sebagai menu 📅** — sengaja tidak digabung ke grup Inventory supaya mudah dicari.
+
 **Staff App** (menu Reservasi) — staff mencatat reservasi telepon/WA/walk-in. Pilihan jam otomatis menampilkan **sisa kursi** per slot; yang penuh atau sudah lewat batas waktu tidak muncul. Di bawahnya ada **riwayat inline** dengan filter rentang tanggal (default tanggal 1 bulan berjalan s/d hari ini) dan pilihan outlet. Outlet yang muncul hanya yang jadi scope staff itu, dan **Central Kitchen dikecualikan** karena tidak melayani tamu.
 
 **Website** — halaman **`reservasi.html`** hidup di repo ini dan otomatis ter-hosting GitHub Pages, jadi website tinggal menaruh tombol:

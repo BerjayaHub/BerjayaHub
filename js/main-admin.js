@@ -80,8 +80,7 @@ const GROUPS = {
       { code: 'master_product', label: 'Master Produk', render: renderMasterProductPage },
       { code: 'menu', label: 'Menu', render: renderMenuAdminPage },
       { code: 'production', label: 'Produksi', render: renderProductionAdminPage },
-      { code: 'sales', label: 'Penjualan', render: renderSalesAdminPage },
-      { code: 'reservation', label: 'Reservasi', render: renderReservationAdminPage }
+      { code: 'sales', label: 'Penjualan', render: renderSalesAdminPage }
     ]
   }
 };

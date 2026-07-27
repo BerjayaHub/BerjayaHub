@@ -27,8 +27,9 @@ export const ADMIN_TAB_CATALOG = [
   { code: 'menu', label: 'Menu', group: 'Inventory' },
   { code: 'production', label: 'Produksi', group: 'Inventory' },
   { code: 'sales', label: 'Penjualan', group: 'Inventory' },
-  { code: 'reservation', label: 'Reservasi', group: 'Inventory' },
 
+  // Menu berdiri sendiri (tidak digabung ke grup Inventory) supaya mudah dicari.
+  { code: 'reservation', label: 'Reservasi', group: 'Modul lain' },
   { code: 'attendance', label: 'Presensi', group: 'Modul lain' },
   { code: 'cleaning_checklist', label: 'Ceklis Kebersihan', group: 'Modul lain' },
   { code: 'dispatch', label: 'Pengiriman', group: 'Modul lain' },
