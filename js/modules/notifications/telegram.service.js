@@ -42,6 +42,43 @@ export function eventInfo(key) {
   return TELEGRAM_EVENTS.find((e) => e.key === key) ?? { key, icon: '•', label: key, detail: '' };
 }
 
+/**
+ * Kunci `integration_settings` yang harus terisi supaya PEMICU jalan.
+ * Rute grup sudah bisa dicek lewat tombol Tes, tapi tes itu memanggil Edge
+ * Function langsung dari browser — ia TIDAK membuktikan bahwa database sudah
+ * tahu harus memanggil siapa saat ada data baru. Ini yang paling sering
+ * terlewat: tesnya hijau, tapi event sungguhan diam.
+ */
+export const INTEGRATION_KEYS = [
+  {
+    key: 'notify_telegram_url',
+    label: 'URL notifikasi cuti & order stok',
+    hint: 'https://<PROJECT-REF>.supabase.co/functions/v1/notify-telegram'
+  },
+  {
+    key: 'notify_reservation_url',
+    label: 'URL notifikasi reservasi',
+    hint: 'https://<PROJECT-REF>.supabase.co/functions/v1/notify-reservation'
+  },
+  { key: 'notify_secret', label: 'NOTIFY_SECRET (harus sama dengan secret Edge Function)', hint: '<string acak>' }
+];
+
+export async function getIntegrationStatus() {
+  const { data, error } = await supabase.from('integration_settings').select('key, value, updated_at');
+  if (error) throw error;
+  const map = new Map((data ?? []).map((r) => [r.key, r]));
+  return INTEGRATION_KEYS.map((k) => {
+    const row = map.get(k.key);
+    return {
+      ...k,
+      isSet: !!row?.value,
+      // Secret tidak pernah ditampilkan utuh — cukup buktinya sudah terisi.
+      preview: row?.value ? (k.key === 'notify_secret' ? '••••••' + String(row.value).slice(-4) : row.value) : null,
+      updatedAt: row?.updated_at ?? null
+    };
+  });
+}
+
 export async function listTelegramRoutes() {
   const { data, error } = await supabase
     .from('telegram_routes')

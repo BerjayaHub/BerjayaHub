@@ -7,7 +7,8 @@ import {
   saveTelegramRoute,
   deleteTelegramRoute,
   sendTelegramTest,
-  detectTelegramChats
+  detectTelegramChats,
+  getIntegrationStatus
 } from './telegram.service.js';
 
 /**
@@ -21,9 +22,13 @@ import {
 export async function renderTelegramAdminPage(container) {
   container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat pengaturan notifikasi...</p>`;
 
-  let routes, bus;
+  let routes, bus, integrasi;
   try {
-    [routes, bus] = await Promise.all([listTelegramRoutes(), listBusinessUnitsBasic().catch(() => [])]);
+    [routes, bus, integrasi] = await Promise.all([
+      listTelegramRoutes(),
+      listBusinessUnitsBasic().catch(() => []),
+      getIntegrationStatus().catch(() => [])
+    ]);
   } catch (error) {
     container.innerHTML = `<p class="error-text">Gagal memuat: ${esc(error.message ?? error)}</p>`;
     return;
@@ -46,6 +51,42 @@ export async function renderTelegramAdminPage(container) {
         <code>chat not found</code>. Tambahkan bot ke grup, kirim satu pesan di sana, lalu deteksi ulang.
       </p>
       <div id="tg-detect-result" style="margin-top:10px"></div>
+    </div>
+
+    <div class="inline-card" style="max-width:660px;margin-bottom:16px">
+      <h3 style="margin-top:0">Status Pemicu Database</h3>
+      <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
+        Tombol <strong>Tes</strong> di bawah memanggil Edge Function langsung dari browser — itu membuktikan bot &amp; grupnya benar,
+        tapi <strong>tidak</strong> membuktikan database tahu harus memanggil siapa saat ada data baru. Bagian inilah yang paling
+        sering terlewat: tes hijau, tapi event sungguhan diam.
+      </p>
+      <table class="data-table">
+        <thead><tr><th>Pengaturan</th><th>Status</th></tr></thead>
+        <tbody>
+          ${integrasi
+            .map(
+              (k) => `<tr>
+                <td><strong>${esc(k.label)}</strong>
+                  <div style="font-size:0.72rem;color:var(--color-text-muted);font-family:ui-monospace,Menlo,monospace">${esc(k.key)}</div></td>
+                <td>${
+                  k.isSet
+                    ? `<span class="badge badge-approved">terisi</span>
+                       <div style="font-size:0.7rem;color:var(--color-text-muted);word-break:break-all">${esc(k.preview)}</div>`
+                    : '<span class="badge badge-rejected">belum diisi</span>'
+                }</td>
+              </tr>`
+            )
+            .join('')}
+        </tbody>
+      </table>
+      ${
+        integrasi.some((k) => !k.isSet)
+          ? `<p style="font-size:0.82rem;margin:10px 0 0">Jalankan sekali di <strong>SQL Editor</strong> (ganti nilainya):</p>
+             <pre style="font-size:0.72rem;background:var(--color-bg);padding:10px;border-radius:8px;overflow:auto;margin:6px 0 0">insert into integration_settings (key, value) values
+${integrasi.filter((k) => !k.isSet).map((k) => `  ('${k.key}', '${k.hint}')`).join(',\n')}
+on conflict (key) do update set value = excluded.value, updated_at = now();</pre>`
+          : '<p style="font-size:0.82rem;color:var(--color-primary);margin:10px 0 0">✅ Semua pemicu sudah terdaftar.</p>'
+      }
     </div>
 
     <div id="tg-routes"></div>

@@ -240,6 +240,12 @@ export function shareDialog({ title = 'Bagikan', helper = '', defaultMessage = '
       <div class="modal-card" role="dialog" aria-modal="true">
         <h3 class="modal-title">${escapeHtml(title)}</h3>
         ${helper ? `<p class="modal-text">${escapeHtml(helper)}</p>` : ''}
+        ${
+          phone
+            ? `<p class="modal-text" style="margin-top:-6px">Tombol WhatsApp akan membuka chat ke
+                 <strong style="font-family:ui-monospace,Menlo,monospace">+${escapeHtml(String(phone).replace(/\D/g, ''))}</strong>.</p>`
+            : ''
+        }
         <div class="field">
           <label for="share-text">Pesan (bisa diedit)</label>
           <textarea id="share-text" rows="4" class="share-textarea"></textarea>
@@ -247,7 +253,7 @@ export function shareDialog({ title = 'Bagikan', helper = '', defaultMessage = '
         <div class="modal-actions" style="flex-wrap:wrap">
           <button type="button" class="btn-ghost" data-act="close">Tutup</button>
           <button type="button" class="btn-ghost" data-act="copy">Salin</button>
-          <button type="button" class="btn-inline btn-whatsapp" data-act="wa">WhatsApp</button>
+          <button type="button" class="btn-inline btn-whatsapp" data-act="wa">${phone ? 'Kirim ke Customer' : 'WhatsApp'}</button>
           ${canShare ? `<button type="button" class="primary btn-inline" data-act="share">Bagikan…</button>` : ''}
         </div>
       </div>

@@ -100,7 +100,7 @@ function rowHtml(r) {
     <td>
       <button class="primary rv-ok" data-id="${r.id}" style="max-width:110px">Setujui</button>
       <button class="rv-no" data-id="${r.id}">Tolak</button>
-      <button class="rv-wa" data-id="${r.id}">WA</button>
+      <button class="rv-wa" data-id="${r.id}" title="Buka chat WhatsApp ke ${esc(r.phone)}">💬 WA</button>
     </td>
   </tr>`;
 }
@@ -124,7 +124,8 @@ function wireActions(host, rows, reload) {
         // tanpa kabar hanya karena admin lupa membuka tombol WA.
         await shareDialog({
           title: 'Kirim Konfirmasi ke Customer',
-          helper: 'Teks bisa diedit sebelum dikirim. Tombol WhatsApp langsung membuka chat ke nomor customer.',
+          helper:
+            'Nomor tujuan diambil otomatis dari formulir reservasi (Staff App maupun website) — admin tidak perlu menyimpan kontak customer lebih dulu.',
           defaultMessage: buildConfirmMessage(r),
           phone: waNumber(r.phone)
         });
@@ -166,6 +167,7 @@ function wireActions(host, rows, reload) {
       const r = byId(b.dataset.id);
       shareDialog({
         title: `WhatsApp ke ${r.customer_name}`,
+        helper: 'Nomor tujuan diambil otomatis dari formulir reservasi — admin tidak perlu menyimpan kontak customer.',
         defaultMessage: buildConfirmMessage(r),
         phone: waNumber(r.phone)
       });
