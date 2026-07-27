@@ -58,7 +58,12 @@ async function sendTelegram(text: string, chatId: string | null) {
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true })
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok || body?.ok === false) return { ok: false, error: body?.description ?? `HTTP ${res.status}` };
+  if (!res.ok || body?.ok === false) {
+    let error = body?.description ?? `HTTP ${res.status}`;
+    const idBaru = body?.parameters?.migrate_to_chat_id;
+    if (idBaru) error += ` — grup sudah jadi supergroup, ID barunya: ${idBaru}.`;
+    return { ok: false, error };
+  }
   return { ok: true };
 }
 

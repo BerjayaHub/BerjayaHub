@@ -80,7 +80,13 @@ export async function sendTelegram(text: string, chatId: string | null) {
   // Telegram membalas 200 dengan {ok:false} kalau chat_id salah / bot dikeluarkan
   // dari grup — jadi status HTTP saja tidak cukup untuk menyimpulkan berhasil.
   if (!res.ok || body?.ok === false) {
-    return { ok: false, error: body?.description ?? `HTTP ${res.status}`, statusCode: res.status };
+    let error = body?.description ?? `HTTP ${res.status}`;
+    // Grup biasa yang di-UPGRADE jadi supergroup akan berganti ID. Telegram
+    // memberi tahu ID barunya di `parameters.migrate_to_chat_id` — disebutkan
+    // langsung supaya admin tinggal menyalinnya, tidak perlu menebak.
+    const idBaru = body?.parameters?.migrate_to_chat_id;
+    if (idBaru) error += ` — grup ini sudah jadi supergroup, ID barunya: ${idBaru}. Ganti ID chat di Admin Portal dengan angka itu.`;
+    return { ok: false, error, statusCode: res.status, migrateTo: idBaru ?? null };
   }
   return { ok: true };
 }

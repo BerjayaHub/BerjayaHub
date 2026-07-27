@@ -73,9 +73,38 @@ Pesan error yang sering muncul:
 
 | Pesan | Artinya |
 | --- | --- |
-| `chat not found` | Bot belum ditambahkan ke grup, atau ID grup salah (lupa tanda minus) |
+| `chat not found` | Bot belum ditambahkan ke grup, atau ID grup salah |
+| `group chat was upgraded to a supergroup chat` | Grup naik status jadi supergroup dan **ID-nya berganti**. Pesan error kita ikut menyebutkan ID barunya — tinggal salin ke Admin Portal |
 | `bot was kicked from the group chat` | Bot dikeluarkan dari grup |
 | `TELEGRAM_BOT_TOKEN ... belum diset` | Secret belum ter-set, atau function belum di-deploy ulang setelah set secret |
+
+### Soal bentuk ID grup
+
+**Awalan `-100` tidak wajib.** Bentuknya tergantung jenis chat:
+
+| Jenis | Bentuk ID | Contoh |
+| --- | --- | --- |
+| Grup biasa | negatif, tanpa `-100` | `-4123456789`, `-512345678` |
+| Supergroup / channel | negatif diawali `-100` | `-1001234567890` |
+
+Jadi ID `-5xxxxxxx` **sah** untuk grup biasa. Kalau ditolak, penyebabnya bukan
+awalannya, melainkan salah satu dari:
+
+1. **Bot belum jadi anggota grup itu** — paling sering. Tes ke grup lain berhasil
+   karena bot memang ada di sana.
+2. **Grupnya sudah di-upgrade jadi supergroup**, sehingga ID lamanya mati.
+3. **ID disalin dari sumber yang memotong awalan** (mis. URL Telegram Web).
+   Ambil ulang dari `getUpdates`, salin **persis** apa adanya.
+
+Cara memastikan — kirim pesan di grup itu, lalu buka `getUpdates` dan lihat
+objek `chat`:
+
+```json
+"chat": { "id": -4123456789, "title": "Awal Bermula", "type": "group" }
+```
+
+`type` menunjukkan jenisnya (`group` / `supergroup`), dan `id` adalah nilai yang
+harus disalin apa adanya — termasuk tanda minus.
 
 ---
 
