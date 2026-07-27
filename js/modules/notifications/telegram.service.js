@@ -29,6 +29,12 @@ export const TELEGRAM_EVENTS = [
     icon: '🚗',
     label: 'Dokumen kendaraan jatuh tempo',
     detail: 'Cron harian · Edge Function send-fleet-reminders'
+  },
+  {
+    key: 'reservation',
+    icon: '📅',
+    label: 'Reservasi baru (staff & website)',
+    detail: 'Trigger DB · INSERT pada reservations → notify-reservation'
   }
 ];
 
@@ -81,6 +87,26 @@ export async function saveTelegramRoute({ id, eventKey, businessUnitId, chatId, 
 export async function deleteTelegramRoute(id) {
   const { error } = await supabase.from('telegram_routes').delete().eq('id', id);
   if (error) throw error;
+}
+
+/**
+ * Tanya Telegram: grup mana saja yang bot ini ada di dalamnya?
+ * Sekaligus jadi bukti keanggotaan — grup yang tidak muncul berarti botnya
+ * memang belum ditambahkan ke sana.
+ */
+export async function detectTelegramChats() {
+  const { data, error } = await supabase.functions.invoke('notify-telegram', { body: { detect_chats: true } });
+  if (error) {
+    let detail = error.message ?? String(error);
+    try {
+      const body = await error.context?.json?.();
+      if (body?.error) detail = body.error;
+    } catch {
+      /* pakai pesan aslinya */
+    }
+    throw new Error(detail);
+  }
+  return data;
 }
 
 /** Kirim pesan tes ke grup tertentu (chat_id langsung, atau lewat rute event). */

@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f5f5" />
+    <meta name="description" content="Reservasi meja online — Berjaya Group." />
+    <title>Reservasi Meja</title>
+    <link rel="stylesheet" href="css/styles.css" />
+    <style>
+      /* Halaman publik: berdiri sendiri, tidak memakai shell Staff App/Admin. */
+      body { background: var(--color-bg); }
+      .rv-wrap { max-width: 560px; margin: 0 auto; padding: 24px 16px 48px; }
+      .rv-head { text-align: center; margin-bottom: 20px; }
+      .rv-head img { height: 52px; }
+      .rv-head h1 { font-size: 1.35rem; margin: 12px 0 4px; }
+      .rv-head p { color: var(--color-text-muted); font-size: 0.9rem; margin: 0; }
+      .rv-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 14px; padding: 18px; }
+      .rv-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+      .rv-slot {
+        border: 1px solid var(--color-border); background: var(--color-surface); border-radius: 10px;
+        padding: 8px 6px; font-size: 0.85rem; cursor: pointer; text-align: center; line-height: 1.3;
+      }
+      .rv-slot small { display: block; font-size: 0.68rem; color: var(--color-text-muted); }
+      .rv-slot[aria-pressed='true'] { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 12%, transparent); font-weight: 700; }
+      .rv-slot:disabled { opacity: 0.4; cursor: not-allowed; text-decoration: line-through; }
+      .rv-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+      .rv-done { text-align: center; padding: 24px 8px; }
+      .rv-done .rv-code { font-family: ui-monospace, Menlo, monospace; font-size: 1.3rem; font-weight: 700; letter-spacing: 1px; }
+    </style>
+  </head>
+  <body>
+    <div class="rv-wrap">
+      <div class="rv-head">
+        <img src="images/logo.svg" alt="" onerror="this.style.display='none'" />
+        <h1>Reservasi Meja</h1>
+        <p>Isi formulir di bawah. Kami konfirmasi lewat WhatsApp.</p>
+      </div>
+      <div id="rv-root" class="rv-card">
+        <p style="color: var(--color-text-muted)">Memuat…</p>
+      </div>
+      <p style="text-align: center; font-size: 0.75rem; color: var(--color-text-muted); margin-top: 16px">
+        Berjaya Group · Reservasi ini belum final sampai kami konfirmasi.
+      </p>
+    </div>
+
+    <script type="module">
+      import { supabase } from './js/config/supabase-client.js';
+      import { toast } from './js/core/ui.js';
+
+      const root = document.getElementById('rv-root');
+      const esc = (s) =>
+        String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const todayWIB = () => new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
+
+      let outlets = [];
+      const state = { outletId: '', date: todayWIB(), time: '', areas: [] };
+
+      async function boot() {
+        const { data, error } = await supabase.rpc('public_reservation_outlets');
+        if (error) {
+          root.innerHTML = `<p class="error-text">Gagal memuat: ${esc(error.message)}</p>`;
+          return;
+        }
+        outlets = data ?? [];
+        if (!outlets.length) {
+          root.innerHTML = `<p style="color:var(--color-text-muted)">Reservasi online sedang tidak tersedia. Silakan hubungi kami langsung.</p>`;
+          return;
+        }
+        state.outletId = outlets[0].outlet_id;
+        renderForm();
+      }
+
+      function currentOutlet() {
+        return outlets.find((o) => o.outlet_id === state.outletId);
+      }
+
+      function renderForm() {
+        const o = currentOutlet();
+        const maxDate = new Date(Date.now() + (o?.max_days_ahead ?? 60) * 86400000).toISOString().slice(0, 10);
+        root.innerHTML = `
+          <form id="rv-form" autocomplete="on">
+            <div class="field">
+              <label for="f-outlet">Outlet</label>
+              <select id="f-outlet">
+                ${outlets.map((x) => `<option value="${x.outlet_id}"${x.outlet_id === state.outletId ? ' selected' : ''}>${esc(x.outlet_name)}</option>`).join('')}
+              </select>
+              ${o?.address ? `<span class="field-help">${esc(o.address)}</span>` : ''}
+            </div>
+            ${o?.public_note ? `<p style="font-size:0.82rem;color:var(--color-text-muted);margin-top:-4px">${esc(o.public_note)}</p>` : ''}
+
+            <div class="field">
+              <label for="f-date">Tanggal</label>
+              <input type="date" id="f-date" value="${state.date}" min="${todayWIB()}" max="${maxDate}" required />
+            </div>
+
+            <div class="field">
+              <label>Jam</label>
+              <div class="rv-slots" id="f-slots"><span style="color:var(--color-text-muted);font-size:0.85rem">Memuat jam…</span></div>
+            </div>
+
+            <div class="field">
+              <label for="f-pax">Jumlah tamu</label>
+              <input type="number" id="f-pax" min="1" value="2" required />
+            </div>
+
+            <div class="field" id="f-area-wrap" style="display:none">
+              <label for="f-area">Area (opsional)</label>
+              <select id="f-area"><option value="">Tidak ada preferensi</option></select>
+            </div>
+
+            <div class="field">
+              <label for="f-name">Nama</label>
+              <input type="text" id="f-name" required autocomplete="name" />
+            </div>
+            <div class="field">
+              <label for="f-phone">No. WhatsApp</label>
+              <input type="tel" id="f-phone" required placeholder="08xxxxxxxxxx" autocomplete="tel" />
+              <span class="field-help">Kami pakai nomor ini untuk mengirim konfirmasi.</span>
+            </div>
+            <div class="field">
+              <label for="f-email">Email (opsional)</label>
+              <input type="email" id="f-email" autocomplete="email" />
+            </div>
+            <div class="field">
+              <label for="f-notes">Permintaan khusus (opsional)</label>
+              <input type="text" id="f-notes" placeholder="ulang tahun, kursi bayi, alergi…" />
+            </div>
+            <div class="field">
+              <label for="f-ref">Tahu dari mana? (opsional)</label>
+              <input type="text" id="f-ref" placeholder="Instagram, teman, Google Maps…" />
+            </div>
+
+            <!-- Jebakan bot: manusia tidak akan pernah mengisi ini. -->
+            <div class="rv-hp" aria-hidden="true">
+              <label for="f-website">Website</label>
+              <input type="text" id="f-website" tabindex="-1" autocomplete="off" />
+            </div>
+
+            <button class="primary" type="submit" id="f-submit">Kirim Reservasi</button>
+            <p class="error-text" id="f-error"></p>
+          </form>
+        `;
+
+        const $ = (id) => document.getElementById(id);
+        $('f-outlet').addEventListener('change', (e) => {
+          state.outletId = e.target.value;
+          state.time = '';
+          renderForm();
+        });
+        $('f-date').addEventListener('change', (e) => {
+          state.date = e.target.value;
+          state.time = '';
+          loadSlots();
+        });
+        $('rv-form').addEventListener('submit', submit);
+        loadAreas();
+        loadSlots();
+      }
+
+      async function loadAreas() {
+        const { data } = await supabase.rpc('public_reservation_areas', { p_outlet: state.outletId });
+        state.areas = data ?? [];
+        const wrap = document.getElementById('f-area-wrap');
+        const sel = document.getElementById('f-area');
+        if (!state.areas.length) {
+          wrap.style.display = 'none';
+          return;
+        }
+        sel.innerHTML =
+          '<option value="">Tidak ada preferensi</option>' + state.areas.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
+        wrap.style.display = '';
+      }
+
+      async function loadSlots() {
+        const box = document.getElementById('f-slots');
+        box.innerHTML = `<span style="color:var(--color-text-muted);font-size:0.85rem">Memuat jam…</span>`;
+        const { data, error } = await supabase.rpc('reservation_availability', { p_outlet: state.outletId, p_date: state.date });
+        if (error) {
+          box.innerHTML = `<span class="error-text">${esc(error.message)}</span>`;
+          return;
+        }
+        const slots = data ?? [];
+        if (!slots.length) {
+          box.innerHTML = `<span style="color:var(--color-text-muted);font-size:0.85rem">Tidak ada jam tersedia untuk tanggal ini.</span>`;
+          return;
+        }
+        box.innerHTML = slots
+          .map((s) => {
+            const jam = String(s.slot_time).slice(0, 5);
+            const sisa = s.max_pax - s.used_pax;
+            return `<button type="button" class="rv-slot" data-time="${jam}" aria-pressed="${state.time === jam}" ${s.is_open ? '' : 'disabled'}>
+              ${jam}<small>${s.is_open ? `sisa ${sisa}` : 'penuh'}</small>
+            </button>`;
+          })
+          .join('');
+        box.querySelectorAll('.rv-slot').forEach((b) =>
+          b.addEventListener('click', () => {
+            state.time = b.dataset.time;
+            box.querySelectorAll('.rv-slot').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+          })
+        );
+      }
+
+      async function submit(e) {
+        e.preventDefault();
+        const $ = (id) => document.getElementById(id);
+        const err = $('f-error');
+        err.textContent = '';
+        if (!state.time) {
+          err.textContent = 'Pilih jam dulu.';
+          return;
+        }
+        const btn = $('f-submit');
+        btn.disabled = true;
+        btn.textContent = 'Mengirim…';
+        try {
+          const { data, error } = await supabase.functions.invoke('submit-reservation', {
+            body: {
+              outlet_id: state.outletId,
+              reserve_date: state.date,
+              reserve_time: state.time,
+              pax: Number($('f-pax').value),
+              area_id: $('f-area')?.value || null,
+              customer_name: $('f-name').value,
+              phone: $('f-phone').value,
+              email: $('f-email').value,
+              notes: $('f-notes').value,
+              referral_source: $('f-ref').value,
+              website: $('f-website').value
+            }
+          });
+          if (error) {
+            // Badan respons non-2xx tidak dibaca otomatis — dibaca manual supaya
+            // pesan aslinya ("jam penuh", "sisa kursi tinggal 3") sampai ke customer.
+            let detail = error.message ?? String(error);
+            try {
+              const body = await error.context?.json?.();
+              if (body?.error) detail = body.error;
+            } catch {
+              /* pakai pesan aslinya */
+            }
+            throw new Error(detail);
+          }
+          if (!data?.ok) throw new Error(data?.error ?? 'Gagal mengirim reservasi.');
+          renderDone(data.code);
+        } catch (e2) {
+          err.textContent = e2.message ?? 'Gagal mengirim reservasi.';
+          toast(e2.message ?? 'Gagal mengirim reservasi.', 'error');
+          btn.disabled = false;
+          btn.textContent = 'Kirim Reservasi';
+          loadSlots(); // slot mungkin baru saja terisi orang lain
+        }
+      }
+
+      function renderDone(code) {
+        const o = currentOutlet();
+        root.innerHTML = `
+          <div class="rv-done">
+            <div style="font-size:2.4rem">✅</div>
+            <h2 style="margin:8px 0 4px;font-size:1.1rem">Reservasi Terkirim</h2>
+            <p style="color:var(--color-text-muted);font-size:0.9rem;margin:0 0 12px">
+              Simpan nomor ini. Kami akan mengonfirmasi lewat WhatsApp.
+            </p>
+            <div class="rv-code">${esc(code ?? '-')}</div>
+            <p style="font-size:0.86rem;margin-top:14px">
+              ${esc(o?.outlet_name ?? '')}<br />
+              ${new Date(state.date + 'T00:00:00').toLocaleDateString('id-ID', {
+                weekday: 'long',
+                day: '2-digit',
+                month: 'long',
+                year: 'numeric'
+              })} · ${esc(state.time)}
+            </p>
+            <button class="primary" style="margin-top:16px;max-width:220px" onclick="location.reload()">Buat Reservasi Lain</button>
+          </div>
+        `;
+      }
+
+      boot();
+    </script>
+  </body>
+</html>

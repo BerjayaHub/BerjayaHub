@@ -15,6 +15,7 @@ import { renderMenuAdminPage } from './modules/menu/menu.admin.page.js';
 import { renderStaffDataPage } from './modules/profile/staff-data.admin.page.js';
 import { renderShiftAdminPage } from './modules/shift/shift.admin.page.js';
 import { renderFleetAdminPage } from './modules/fleet/fleet.admin.page.js';
+import { renderReservationAdminPage } from './modules/reservation/reservation.admin.page.js';
 import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
 import { renderReportAdminPage } from './modules/report/report.admin.page.js';
 import { renderTelegramAdminPage } from './modules/notifications/telegram.admin.page.js';
@@ -47,6 +48,7 @@ registerModule('sales', renderSalesAdminPage);
 registerModule('cash_ledger', renderCashAdminPage);
 registerModule('shift', renderShiftAdminPage);
 registerModule('fleet', renderFleetAdminPage);
+registerModule('reservation', renderReservationAdminPage);
 // ---- Pengelompokan menu: beberapa modul digabung jadi satu menu bertab ----
 // Modul di dalam grup tidak tampil sebagai menu terpisah.
 const GROUPS = {
@@ -78,7 +80,8 @@ const GROUPS = {
       { code: 'master_product', label: 'Master Produk', render: renderMasterProductPage },
       { code: 'menu', label: 'Menu', render: renderMenuAdminPage },
       { code: 'production', label: 'Produksi', render: renderProductionAdminPage },
-      { code: 'sales', label: 'Penjualan', render: renderSalesAdminPage }
+      { code: 'sales', label: 'Penjualan', render: renderSalesAdminPage },
+      { code: 'reservation', label: 'Reservasi', render: renderReservationAdminPage }
     ]
   }
 };

@@ -583,6 +583,60 @@ Pemilih periode/outlet, render tabel, kartu KPI, dan Export PDF otomatis ikut �
 
 Selisih pemakaian bahan (resep × penjualan vs `stock_movements` — penangkap kebocoran), penjualan per menu & tren harian, arus kas, nilai persediaan, produksi & yield CK, pemenuhan order/pengiriman, utilisasi armada, sisa jatah cuti, kepatuhan ceklis kebersihan.
 
+## Modul Reservasi
+
+Jalankan migration `0044_reservation.sql`, lalu aktifkan modul **Reservasi** untuk BU lewat Master BU & Outlet → tombol **Modul**.
+
+```bash
+supabase functions deploy submit-reservation --no-verify-jwt
+supabase functions deploy notify-reservation --no-verify-jwt
+```
+
+Daftarkan URL pemicunya sekali di **SQL Editor** (nilainya tidak ditulis di migration karena repo ini publik):
+
+```sql
+insert into integration_settings (key, value) values
+  ('notify_reservation_url', 'https://<PROJECT-REF>.supabase.co/functions/v1/notify-reservation')
+on conflict (key) do update set value = excluded.value, updated_at = now();
+```
+
+### Dua jalur masuk
+
+**Staff App** (menu Reservasi) — staff mencatat reservasi telepon/WA/walk-in. Pilihan jam otomatis menampilkan **sisa kursi** per slot; yang penuh atau sudah lewat batas waktu tidak muncul. Di bawahnya ada **riwayat inline** dengan filter rentang tanggal (default tanggal 1 bulan berjalan s/d hari ini) dan pilihan outlet. Outlet yang muncul hanya yang jadi scope staff itu, dan **Central Kitchen dikecualikan** karena tidak melayani tamu.
+
+**Website** — halaman **`reservasi.html`** hidup di repo ini dan otomatis ter-hosting GitHub Pages, jadi website tinggal menaruh tombol:
+
+```html
+<a href="https://<user>.github.io/<repo>/reservasi.html">Reservasi Meja</a>
+```
+
+Atau di-*embed*: `<iframe src="…/reservasi.html" style="width:100%;height:900px;border:0"></iframe>`
+
+Pilihan ini diambil supaya seluruh kode reservasi ada di satu tempat dan **tidak bergantung developer website** untuk tiap revisi. Halamannya memakai tema yang sama (`css/styles.css`).
+
+**Website tidak menulis langsung ke database.** Semua reservasi web lewat Edge Function `submit-reservation` yang memakai `service_role` setelah memvalidasi. Karena itu **tidak ada policy insert untuk role `anon`** — jalur tulis publik ke database ditutup. Membuka RLS untuk `anon` jauh lebih rapuh daripada satu pintu server. Yang terbuka untuk publik hanya tiga RPC `security definer` yang cuma mengembalikan data tidak sensitif: `public_reservation_outlets()`, `public_reservation_areas()`, dan `reservation_availability()`.
+
+Perlindungan di Edge Function: **honeypot** (field tersembunyi; bot yang mengisinya dibalas sukses palsu agar tidak belajar), **rate limit 3 reservasi per nomor per 24 jam**, normalisasi nomor telepon, validasi ulang kapasitas & lead time, dan pembatasan `area_id` hanya milik outlet tersebut.
+
+### Kapasitas & alur
+
+Diatur per outlet di **Admin Portal → Reservasi → Pengaturan & Area** — semuanya data, bukan hardcode: jam buka/tutup, panjang slot, **maksimal tamu per slot**, minimal pesan H- berapa jam, paling jauh berapa hari, catatan halaman publik, dan toggle **buka reservasi lewat website**.
+
+Aturan slot dihitung di database lewat `reservation_availability()`, sehingga Staff App dan halaman publik memakai **satu sumber aturan**. Hanya reservasi berstatus *Menunggu* & *Dikonfirmasi* yang memakan kuota. `create_reservation()` mengunci baris pengaturan outlet (`for update`) sebelum menghitung, jadi dua staff yang menyimpan bersamaan tidak bisa sama-sama lolos kuota.
+
+Alur: **Menunggu → Dikonfirmasi → Selesai / Tidak datang**, plus *Dibatalkan* dan *Ditolak*. Semua reservasi masuk sebagai *Menunggu* dan disetujui di **Admin Portal → Reservasi → Perlu Diproses**. Kalau itu terasa merepotkan untuk staff yang menerima telepon, nyalakan **"Input dari Staff App langsung dikonfirmasi"** di pengaturan outlet — tidak perlu ubah kode.
+
+Begitu **Setujui** diklik, dialog WhatsApp langsung terbuka dengan teks konfirmasi siap kirim ke nomor customer (`wa.me`, tanpa API) — sengaja otomatis supaya customer tidak menunggu tanpa kabar hanya karena admin lupa menekan tombol WA. `shareDialog()` sekarang menerima parameter `phone` untuk membuka chat ke nomor tertentu.
+
+### Notifikasi
+
+Reservasi baru memicu `notify-reservation` yang mengirim **dua** hal sekaligus:
+
+- **Telegram** ke grup sesuai rute event `reservation` (grup Awal Bermula) — lihat bagian Notifikasi Telegram.
+- **Web Push** ke **admin outlet terkait** (super admin / admin BU / admin outlet itu), supaya yang berwenang menyetujui tahu tanpa memantau grup. Push hanya dikirim untuk yang berstatus *Menunggu*; yang sudah auto-confirm tidak mengganggu admin. Langganan push yang sudah mati (404/410) otomatis dibersihkan.
+
+**Penting saat migrasi:** Google Form reservasi yang sekarang masih mengirim ke grup Awal Bermula harus **dimatikan** begitu modul ini jalan. Kalau tidak, ada dua jalur masuk yang tidak saling tahu — dan itu justru menyebabkan double-booking, karena reservasi dari Google Form tidak ikut memakan kuota slot.
+
 ## Notifikasi Telegram ke grup PIC
 
 Jalankan migration `0041_telegram_notifications.sql`, `0042_telegram_routes.sql`, dan `0043_telegram_triggers.sql`. Langkah setup lengkap ada di **`supabase/functions/notify-telegram/SETUP.md`** — ringkasnya: set secret → deploy → atur tujuan grup & uji → pasang webhook & cron.
@@ -597,6 +651,7 @@ Jalankan migration `0041_telegram_notifications.sql`, `0042_telegram_routes.sql`
 | ✅ Cuti disetujui / ditolak | Berjaya | Database Webhook · `UPDATE` pada `leave_requests`, **hanya saat status berubah** |
 | 🚗 Dokumen kendaraan jatuh tempo | Berjaya | Cron harian · `send-fleet-reminders` |
 | 📦 Order stok baru ke CK | Awal Bermula | Database Webhook · `INSERT` pada `stock_orders` |
+| 📅 Reservasi baru | Awal Bermula | Trigger DB · `INSERT` pada `reservations` → `notify-reservation` |
 
 Resolusi tujuan: **rute khusus BU → rute global (`business_unit_id` NULL) → secret `TELEGRAM_CHAT_ID`** sebagai cadangan terakhir. Kolom `business_unit_id` nullable memakai pola pewarisan yang sama dengan kebijakan hari libur, jadi kalau nanti satu BU perlu grup berbeda untuk event yang sama, cukup tambah baris *Khusus BU* — tanpa mengubah kode.
 
@@ -660,3 +715,4 @@ Berlaku di: **Presensi**, **Rekap NBM**, **Inventory → Riwayat**, **Produksi**
 - [x] **Fase 9** — Cash Ledger (Cafe)
 - [x] **Fase 10** — Armada/Fleet: data kendaraan, rental, dokumen STNK/KIR + reminder, master Merk/Tipe/Area Rental, filter & import xlsx
 - [ ] **Fase 11** — Report/Laporan lintas modul
+- [x] **Modul Reservasi** — input Staff App + halaman publik `reservasi.html`, kuota per slot, approval Admin Portal, notifikasi Telegram & Web Push

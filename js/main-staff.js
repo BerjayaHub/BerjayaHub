@@ -12,6 +12,7 @@ import { renderDispatchPage } from './modules/dispatch/dispatch.page.js';
 import { renderMenuPage } from './modules/menu/menu.page.js';
 import { renderSalesPage } from './modules/sales/sales.page.js';
 import { renderCashPage } from './modules/cash/cash.page.js';
+import { renderReservationPage } from './modules/reservation/reservation.page.js';
 import { renderShiftPage } from './modules/shift/shift.page.js';
 import { renderProfilePage, initials } from './modules/profile/profile.page.js';
 import { getStaffPhotoUrl } from './modules/profile/profile.service.js';
@@ -27,6 +28,7 @@ registerModule('dispatch', renderDispatchPage);
 registerModule('menu', renderMenuPage);
 registerModule('sales', renderSalesPage);
 registerModule('cash_ledger', renderCashPage);
+registerModule('reservation', renderReservationPage);
 registerModule('shift', renderShiftPage);
 
 const app = document.getElementById('app');
@@ -280,7 +282,8 @@ async function renderHome(context, modules, moduleCtx) {
   const staffModules = modules.filter((mod) => {
     if (!getModuleRenderer(mod.code)) return false;
     if (mod.code === 'production') return !role || role === 'central_kitchen';
-    if (mod.code === 'menu' || mod.code === 'sales') return !role || role !== 'central_kitchen';
+    // Menu, penjualan, dan reservasi hanya untuk outlet yang melayani tamu.
+    if (mod.code === 'menu' || mod.code === 'sales' || mod.code === 'reservation') return !role || role !== 'central_kitchen';
     return true;
   });
   const hasAttendance = staffModules.some((m) => m.code === 'attendance');

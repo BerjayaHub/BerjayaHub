@@ -6,7 +6,8 @@ import {
   listTelegramRoutes,
   saveTelegramRoute,
   deleteTelegramRoute,
-  sendTelegramTest
+  sendTelegramTest,
+  detectTelegramChats
 } from './telegram.service.js';
 
 /**
@@ -34,12 +35,25 @@ export async function renderTelegramAdminPage(container) {
       Tiap jenis event bisa diarahkan ke grup yang berbeda. Token bot disimpan sebagai
       <strong>secret di Edge Function</strong> — yang diatur di sini hanya tujuan grupnya.
     </p>
+    <div class="inline-card" style="max-width:660px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <h3 style="margin:0">Deteksi Grup</h3>
+        <button id="tg-detect">🔍 Deteksi grup bot</button>
+      </div>
+      <p style="font-size:0.82rem;color:var(--color-text-muted);margin:6px 0 0">
+        Menampilkan grup yang <strong>bot ini benar-benar menjadi anggotanya</strong>, lengkap dengan ID-nya.
+        Kalau sebuah grup tidak muncul di sini, botnya memang belum ditambahkan ke grup itu — itulah penyebab
+        <code>chat not found</code>. Tambahkan bot ke grup, kirim satu pesan di sana, lalu deteksi ulang.
+      </p>
+      <div id="tg-detect-result" style="margin-top:10px"></div>
+    </div>
+
     <div id="tg-routes"></div>
 
     <div class="inline-card" style="max-width:660px;margin-top:16px">
       <h3 style="margin-top:0">Kalau Pesan Tidak Sampai</h3>
       <ul style="font-size:0.84rem;color:var(--color-text-muted);padding-left:18px;margin-bottom:0">
-        <li><strong>chat not found</strong> — bot belum ditambahkan ke grup, atau ID salah. ID grup <strong>selalu diawali tanda minus</strong>.</li>
+        <li><strong>chat not found</strong> — bot belum ditambahkan ke grup, atau ID salah. Pakai <strong>Deteksi grup</strong> di atas untuk memastikan. Awalan <code>-100</code> hanya untuk supergroup; grup biasa ber-ID negatif polos, dan itu normal.</li>
         <li><strong>bot was kicked</strong> — bot dikeluarkan dari grup, tambahkan kembali.</li>
         <li><strong>Tes berhasil tapi event tidak terkirim</strong> — Database Webhook belum didaftarkan di dashboard Supabase (lihat <code>SETUP.md</code>).</li>
         <li><strong>Reminder armada tidak muncul</strong> — cron harian belum dipasang, atau semua dokumen memang masih aman.</li>
@@ -48,6 +62,7 @@ export async function renderTelegramAdminPage(container) {
   `;
 
   const host = container.querySelector('#tg-routes');
+  wireDetect(container);
   draw();
 
   function routeFor(key) {
@@ -215,6 +230,40 @@ export async function renderTelegramAdminPage(container) {
       toast(error.message ?? 'Gagal menyimpan rute.', 'error');
     }
   }
+}
+
+/** Tombol deteksi grup: satu klik, tanpa perlu membuka URL getUpdates manual. */
+function wireDetect(container) {
+  const btn = container.querySelector('#tg-detect');
+  const box = container.querySelector('#tg-detect-result');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    box.innerHTML = `<p style="color:var(--color-text-muted)">Menghubungi Telegram…</p>`;
+    try {
+      const data = await detectTelegramChats();
+      const chats = data?.chats ?? [];
+      box.innerHTML = `
+        <p style="font-size:0.82rem;margin:0 0 6px">
+          Bot: <strong>@${esc(data?.bot ?? '-')}</strong> · ditemukan <strong>${chats.length}</strong> chat.
+        </p>
+        ${
+          chats.length
+            ? `<table class="data-table"><thead><tr><th>Nama</th><th>Jenis</th><th>ID Chat</th></tr></thead><tbody>
+                 ${chats
+                   .map(
+                     (c) => `<tr><td>${esc(c.title)}</td><td>${esc(c.type)}</td>
+                       <td style="font-family:ui-monospace,Menlo,monospace;font-size:0.82rem"><strong>${esc(c.id)}</strong></td></tr>`
+                   )
+                   .join('')}
+               </tbody></table>`
+            : `<p class="error-text" style="margin:0">Tidak ada chat terdeteksi. Kirim satu pesan di grupnya (atau <code>/start@${esc(data?.bot ?? 'namabot')}</code>), lalu coba lagi.</p>`
+        }`;
+    } catch (e) {
+      box.innerHTML = `<p class="error-text" style="margin:0">❌ ${esc(e.message ?? e)}</p>`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 function esc(s) {

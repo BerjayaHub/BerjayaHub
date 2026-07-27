@@ -227,7 +227,12 @@ export function infoDialog({ title = 'Detail', bodyHtml = '' } = {}) {
  * sheet native (navigator.share), WhatsApp (wa.me), atau disalin. Untuk kirim
  * manual ke staff/PIC via chat.
  */
-export function shareDialog({ title = 'Bagikan', helper = '', defaultMessage = '' } = {}) {
+/**
+ * Dialog bagikan teks. `phone` opsional: kalau diisi, tombol WhatsApp membuka
+ * chat ke nomor itu langsung (wa.me/<nomor>) — dipakai modul Reservasi untuk
+ * mengirim konfirmasi ke customer tanpa WhatsApp API.
+ */
+export function shareDialog({ title = 'Bagikan', helper = '', defaultMessage = '', phone = '' } = {}) {
   return new Promise((resolve) => {
     const overlay = buildOverlay();
     const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
@@ -270,7 +275,8 @@ export function shareDialog({ title = 'Bagikan', helper = '', defaultMessage = '
       }
     });
     overlay.querySelector('[data-act="wa"]').addEventListener('click', () => {
-      window.open('https://wa.me/?text=' + encodeURIComponent(ta.value), '_blank');
+      const tujuan = String(phone ?? '').replace(/\D/g, '');
+      window.open(`https://wa.me/${tujuan}?text=` + encodeURIComponent(ta.value), '_blank');
     });
     overlay.querySelector('[data-act="share"]')?.addEventListener('click', async () => {
       try {

@@ -241,6 +241,47 @@ Deno.serve(async (req) => {
     return json({ error: 'Body harus JSON' }, 400);
   }
 
+  // Deteksi grup: tanya Telegram grup mana saja yang BOT INI ada di dalamnya.
+  // Menghilangkan tebak-tebakan ID — sekaligus membuktikan keanggotaan bot,
+  // karena getUpdates hanya memuat chat tempat bot benar-benar menjadi anggota.
+  if (payload?.detect_chats) {
+    if (!BOT_TOKEN) return json({ error: 'TELEGRAM_BOT_TOKEN belum diset sebagai secret.' }, 400);
+    try {
+      // Tanpa parameter `offset`, update TIDAK dikonsumsi — jadi aman dipanggil
+      // berkali-kali dan tidak mengganggu sistem lain yang memakai bot sama.
+      const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?limit=100`);
+      const body = await res.json().catch(() => ({}));
+      if (body?.ok === false) {
+        let error = body?.description ?? `HTTP ${res.status}`;
+        if (String(error).includes('terminated by other getUpdates')) {
+          error += ' — ada sistem lain yang sedang polling bot ini (kemungkinan app lama). Matikan sementara, lalu coba lagi.';
+        }
+        if (String(error).includes('webhook is active')) {
+          error += ' — bot ini dipakai dengan mode webhook oleh sistem lain, jadi deteksi otomatis tidak bisa dipakai.';
+        }
+        return json({ error }, 502);
+      }
+      const me = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getMe`)
+        .then((r) => r.json())
+        .catch(() => null);
+
+      const chats = new Map<string, { id: string; title: string; type: string }>();
+      // deno-lint-ignore no-explicit-any
+      for (const u of (body?.result ?? []) as any[]) {
+        const c = u?.message?.chat ?? u?.channel_post?.chat ?? u?.my_chat_member?.chat;
+        if (!c?.id) continue;
+        chats.set(String(c.id), {
+          id: String(c.id),
+          title: c.title ?? c.username ?? c.first_name ?? '(tanpa nama)',
+          type: c.type ?? '-'
+        });
+      }
+      return json({ ok: true, bot: me?.result?.username ?? null, chats: [...chats.values()] });
+    } catch (e) {
+      return json({ error: (e as Error).message }, 502);
+    }
+  }
+
   // Mode tes dari Admin Portal. Bisa menyasar chat tertentu (chat_id) atau
   // rute sebuah event (event_key) — supaya tiap grup bisa diuji terpisah.
   if (payload?.test) {
