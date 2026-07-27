@@ -14,7 +14,7 @@ import {
   getOutletHolidayPolicy,
   setOutletHolidayPolicy
 } from './nbm.service.js';
-import { fetchNationalHolidays, holidayLabel, parsePastedHolidays, sourceUrl } from './holiday-api.js';
+import { fetchNationalHolidays, holidayLabel, parsePastedHolidays, sourceLinks } from './holiday-api.js';
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
 import { formatThousands, formatRupiah, parseNumber, attachThousandsInput } from '../../core/format.js';
 
@@ -352,7 +352,12 @@ async function renderOutletDetail(outletId, businessUnitId) {
     const sudahAda = new Set(holidays.map((h) => h.holiday_date));
     const pilihan = await formDialog({
       title: `Hari Libur ${year} (${hasil.holidays.length} tanggal)`,
-      description: `Sumber: ${hasil.source}. Hilangkan centang untuk tanggal yang tidak dipakai BU ini. Tanggal yang sudah ada akan diperbarui, bukan diduplikasi.`,
+      description:
+        `Sumber: ${hasil.source}. Hilangkan centang untuk tanggal yang tidak dipakai BU ini. ` +
+        'Tanggal yang sudah ada akan diperbarui, bukan diduplikasi.' +
+        (hasil.hasJointLeave === false
+          ? ' ⚠️ Sumber ini hanya memuat hari libur nasional — CUTI BERSAMA tidak termasuk, tambahkan manual setelah SKB 3 Menteri terbit.'
+          : ''),
       fields: hasil.holidays.map((h) => ({
         name: `d_${h.date}`,
         label: holidayLabel(h) + (sudahAda.has(h.date) ? ' — sudah ada' : ''),
@@ -420,12 +425,13 @@ function tierRowHtml(t) {
  * Return { source, holidays } atau null kalau dibatalkan.
  */
 async function pasteHolidaysFallback(year, penyebab) {
-  const url = sourceUrl(year);
+  const links = sourceLinks(year);
   const values = await formDialog({
     title: `Tempel Data Hari Libur ${year}`,
     description:
-      'Penarikan otomatis gagal. Cara ini selalu berhasil: klik "Buka sumber" di bawah, ' +
-      'blok semua isi halaman yang terbuka (Ctrl+A lalu Ctrl+C), kembali ke sini, dan tempel di kotak.',
+      'Penarikan otomatis gagal. Cara ini selalu berhasil: buka salah satu sumber di bawah, blok semua isi halaman ' +
+      'yang terbuka (Ctrl+A lalu Ctrl+C), kembali ke sini, dan tempel di kotak. Kalau halamannya kosong atau tertulis ' +
+      '"deployment paused", berarti sumber itu sedang mati — coba sumber berikutnya.',
     fields: [
       {
         name: 'raw',
@@ -440,10 +446,15 @@ async function pasteHolidaysFallback(year, penyebab) {
     submitText: 'Proses',
     onReady: (form, { setError }) => {
       const p = document.createElement('p');
-      p.innerHTML = `<button type="button" id="hp-open-src" class="btn-ghost">↗ Buka sumber (${year})</button>`;
+      p.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px';
+      p.innerHTML = links
+        .map((l, i) => `<button type="button" class="btn-ghost hp-src" data-i="${i}">↗ ${l.name}</button>`)
+        .join('');
       form.prepend(p);
-      p.querySelector('#hp-open-src').addEventListener('click', () => window.open(url, '_blank', 'noopener'));
-      setError(String(penyebab?.message ?? penyebab ?? '').slice(0, 220));
+      p.querySelectorAll('.hp-src').forEach((b) =>
+        b.addEventListener('click', () => window.open(links[Number(b.dataset.i)].url, '_blank', 'noopener'))
+      );
+      setError(String(penyebab?.message ?? penyebab ?? '').slice(0, 300));
     }
   });
   if (!values) return null;

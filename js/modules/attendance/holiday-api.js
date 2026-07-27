@@ -16,11 +16,23 @@
 
 import { supabase } from '../../config/supabase-client.js';
 
+/**
+ * Urutan sengaja: Nager.Date lebih dulu karena infrastrukturnya jauh lebih
+ * tahan lama (open source, tanpa rate limit, CORS terbuka) — dua sumber
+ * komunitas di bawahnya menumpang hosting gratis Vercel yang bisa
+ * "temporarily paused" tanpa pemberitahuan, dan itu memang sudah terjadi.
+ *
+ * Konsekuensinya: Nager.Date TIDAK memuat **cuti bersama** (SKB 3 Menteri),
+ * jadi kalau data datang dari sana, cuti bersama harus ditambah manual.
+ */
 const SOURCES = [
-  // Utama: membedakan cuti bersama lewat flag `is_cuti`.
-  { name: 'dayoffapi', url: (year) => `https://dayoffapi.vercel.app/api?year=${year}` },
-  // Cadangan otomatis kalau yang utama tidak bisa dihubungi.
-  { name: 'api-harilibur', url: (year) => `https://api-harilibur.vercel.app/api?year=${year}` }
+  {
+    name: 'Nager.Date',
+    url: (year) => `https://date.nager.at/api/v3/PublicHolidays/${year}/ID`,
+    hasJointLeave: false
+  },
+  { name: 'dayoffapi', url: (year) => `https://dayoffapi.vercel.app/api?year=${year}`, hasJointLeave: true },
+  { name: 'api-harilibur', url: (year) => `https://api-harilibur.vercel.app/api?year=${year}`, hasJointLeave: false }
 ];
 
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -48,6 +60,7 @@ const truthy = (v) => v === true || v === 'true' || v === 1 || v === '1';
  * Parser sengaja TOLERAN: bentuk respons tiap layanan berbeda dan bisa berubah
  * sewaktu-waktu, jadi kita terima beberapa nama field sekaligus daripada
  * mengunci ke satu bentuk.
+ *   Nager.Date     -> { date, localName, name }   (localName = bahasa Indonesia)
  *   dayoffapi      -> { tanggal, keterangan, is_cuti }
  *   api-harilibur  -> { holiday_date, holiday_name, is_national_holiday }
  */
@@ -57,7 +70,8 @@ function parseRows(raw) {
   for (const r of arr) {
     if (!r || typeof r !== 'object') continue;
     const date = toISO(r.tanggal ?? r.holiday_date ?? r.date ?? r.tgl);
-    const name = String(r.keterangan ?? r.holiday_name ?? r.name ?? r.description ?? '').trim();
+    // localName didahulukan supaya namanya bahasa Indonesia, bukan Inggris.
+    const name = String(r.keterangan ?? r.holiday_name ?? r.localName ?? r.name ?? r.description ?? '').trim();
     if (!date || !name) continue;
     // api-harilibur menandai libur non-nasional (mis. hari raya lokal Bali)
     // lewat is_national_holiday = false; itu kita anggap bukan cuti bersama.
@@ -84,15 +98,8 @@ function parseRows(raw) {
 export async function fetchNationalHolidays(year) {
   const errors = [];
 
-  try {
-    const { data, error } = await supabase.functions.invoke('fetch-national-holidays', { body: { year } });
-    if (error) throw error;
-    if (data?.holidays?.length) return { source: `${data.source} (via server)`, holidays: parseRows(data.holidays) };
-    if (data?.error) errors.push(data.error);
-  } catch (e) {
-    errors.push(`Edge Function: ${e.message ?? e}`);
-  }
-
+  // Nager.Date mengizinkan CORS, jadi dicoba LANGSUNG lebih dulu — paling cepat
+  // dan tidak bergantung Edge Function sama sekali.
   for (const src of SOURCES) {
     try {
       const res = await fetch(src.url(year), { headers: { Accept: 'application/json' } });
@@ -101,24 +108,44 @@ export async function fetchNationalHolidays(year) {
         continue;
       }
       const rows = parseRows(await res.json());
-      if (rows.length) return { source: src.name, holidays: rows };
-      errors.push(`${src.name}: tidak mengembalikan data untuk ${year}`);
+      if (rows.length) return { source: src.name, holidays: rows, hasJointLeave: src.hasJointLeave };
+      errors.push(`${src.name}: tidak ada data untuk ${year}`);
     } catch (e) {
-      // "Failed to fetch" di sini = CORS diblokir (bukan layanannya mati).
+      // "Failed to fetch" di sini = CORS diblokir ATAU layanannya mati.
       errors.push(`${src.name}: ${e.message ?? e}`);
     }
   }
 
-  throw new Error(
-    `Gagal menarik hari libur ${year}. ${errors.join(' · ')}. ` +
-      'Kalau semuanya "Failed to fetch", Edge Function `fetch-national-holidays` kemungkinan belum di-deploy — ' +
-      'jalankan: supabase functions deploy fetch-national-holidays. Sementara itu hari libur tetap bisa ditambah manual di bawah.'
-  );
+  // Sumber yang tidak mengizinkan CORS masih bisa ditarik lewat server.
+  try {
+    const { data, error } = await supabase.functions.invoke('fetch-national-holidays', { body: { year } });
+    if (error) {
+      // Badan respons non-2xx tidak dibaca otomatis oleh supabase-js — dibaca
+      // manual supaya admin tahu sumber mana yang bermasalah, bukan sekadar
+      // "non-2xx status code".
+      let detail = error.message ?? String(error);
+      try {
+        const body = await error.context?.json?.();
+        if (body?.error) detail = body.error;
+      } catch {
+        /* biarkan pakai pesan aslinya */
+      }
+      errors.push(`Edge Function: ${detail}`);
+    } else if (data?.holidays?.length) {
+      return { source: `${data.source} (via server)`, holidays: parseRows(data.holidays), hasJointLeave: true };
+    } else if (data?.error) {
+      errors.push(`Edge Function: ${data.error}`);
+    }
+  } catch (e) {
+    errors.push(`Edge Function: ${e.message ?? e}`);
+  }
+
+  throw new Error(`Gagal menarik hari libur ${year}. ${errors.join(' · ')}`);
 }
 
-/** URL sumber, untuk dibuka manual di tab baru saat penarikan otomatis gagal. */
-export function sourceUrl(year, name = 'dayoffapi') {
-  return (SOURCES.find((s) => s.name === name) ?? SOURCES[0]).url(year);
+/** Daftar sumber + URL-nya, untuk dibuka manual saat penarikan otomatis gagal. */
+export function sourceLinks(year) {
+  return SOURCES.map((s) => ({ name: s.name, url: s.url(year) }));
 }
 
 /**

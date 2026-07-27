@@ -489,9 +489,17 @@ Layanan hari libur publik Indonesia tidak mengirim header CORS, jadi fetch langs
 
 **`--no-verify-jwt` wajib.** Tanpa flag itu, gerbang Supabase menolak request **preflight `OPTIONS`** dari browser — preflight tidak membawa header `Authorization`, jadi dibalas `401` sebelum kode function sempat jalan. Di browser gejalanya: `Failed to send a request to the Edge Function`. Aman karena function ini tidak menyentuh data user, tidak memakai `service_role`, dan satu-satunya input adalah angka tahun yang divalidasi. Detail & cara uji ada di `supabase/functions/fetch-national-holidays/README.md`.
 
-**Jalur darurat (selalu berhasil).** Kalau penarikan otomatis gagal — apa pun sebabnya — dialognya otomatis beralih ke mode **tempel manual**: tombol *Buka sumber* membuka URL layanan di tab baru (membuka URL secara langsung tidak kena CORS), lalu isinya tinggal disalin-tempel. Menerima JSON dari layanan mana pun maupun baris sederhana `2026-01-01, Tahun Baru`. Hasilnya masuk ke daftar centang yang sama untuk disetujui.
+**Jalur darurat (selalu berhasil).** Kalau penarikan otomatis gagal — apa pun sebabnya — dialognya otomatis beralih ke mode **tempel manual**: tersedia tombol untuk membuka **tiap** sumber di tab baru (membuka URL secara langsung tidak kena CORS), lalu isinya tinggal disalin-tempel. Menerima JSON dari layanan mana pun maupun baris sederhana `2026-01-01, Tahun Baru`. Hasilnya masuk ke daftar centang yang sama untuk disetujui.
 
-Tombol **⇩ Tarik hari libur nasional** di Pengaturan NBM & Lembur → sumber `dayoffapi.vercel.app` (cadangan otomatis `api-harilibur.vercel.app`) → hasilnya **ditampilkan sebagai daftar centang untuk disetujui admin** sebelum masuk tabel `holidays`.
+Tombol **⇩ Tarik hari libur nasional** di Pengaturan NBM & Lembur → hasilnya **ditampilkan sebagai daftar centang untuk disetujui admin** sebelum masuk tabel `holidays`.
+
+**Urutan sumber** (sengaja, berdasarkan ketahanan):
+
+1. **`date.nager.at`** — open source, tanpa rate limit, **CORS terbuka** sehingga bisa ditarik langsung dari browser tanpa Edge Function. Namanya diambil dari `localName` (bahasa Indonesia). **Tidak memuat cuti bersama** — dialog persetujuan memperingatkan ini, dan cuti bersama ditambah manual setelah SKB 3 Menteri terbit.
+2. `dayoffapi.vercel.app` — punya flag cuti bersama, tapi menumpang hosting gratis Vercel. Per Juli 2026 statusnya *"This deployment is temporarily paused"*.
+3. `api-harilibur.vercel.app` — cadangan terakhir, hosting sejenis.
+
+Sumber yang CORS-nya tertutup tetap dicoba lewat Edge Function. Kalau function membalas non-2xx, badan responsnya dibaca manual (`error.context.json()`) supaya pesan errornya menyebut **sumber mana** yang gagal, bukan sekadar "non-2xx status code".
 
 API ini **pintasan input, bukan dependensi** — kalau layanannya mati, aplikasi tidak terganggu dan hari libur tetap bisa ditambah manual. Penarikan ulang bersifat *upsert* (menambal, bukan menduplikasi) berkat index unik `uniq_holiday_bu_date`. Sisi klien masih menyimpan jalur fetch langsung sebagai cadangan kalau function belum di-deploy.
 

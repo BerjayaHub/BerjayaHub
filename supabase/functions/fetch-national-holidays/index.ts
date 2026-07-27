@@ -23,8 +23,11 @@ function json(body: unknown, status = 200) {
   });
 }
 
+// Nager.Date lebih dulu: infrastrukturnya jauh lebih tahan lama. Dua sumber
+// komunitas di bawahnya menumpang hosting gratis Vercel yang bisa
+// "temporarily paused" tanpa pemberitahuan (sudah pernah terjadi pada dayoffapi).
 const SOURCES = [
-  // Utama: punya flag `is_cuti` untuk membedakan cuti bersama.
+  { name: 'Nager.Date', url: (y: number) => `https://date.nager.at/api/v3/PublicHolidays/${y}/ID` },
   { name: 'dayoffapi', url: (y: number) => `https://dayoffapi.vercel.app/api?year=${y}` },
   { name: 'api-harilibur', url: (y: number) => `https://api-harilibur.vercel.app/api?year=${y}` }
 ];
@@ -52,6 +55,7 @@ const truthy = (v: unknown) => v === true || v === 'true' || v === 1 || v === '1
 /**
  * Parser sengaja toleran: bentuk respons tiap layanan berbeda dan bisa berubah,
  * jadi kita terima beberapa nama field sekaligus.
+ *   Nager.Date    -> { date, localName, name }   (localName = bahasa Indonesia)
  *   dayoffapi     -> { tanggal, keterangan, is_cuti }
  *   api-harilibur -> { holiday_date, holiday_name, is_national_holiday }
  */
@@ -62,7 +66,7 @@ function parseRows(raw: any) {
   for (const r of arr) {
     if (!r || typeof r !== 'object') continue;
     const date = toISO(r.tanggal ?? r.holiday_date ?? r.date ?? r.tgl);
-    const name = String(r.keterangan ?? r.holiday_name ?? r.name ?? r.description ?? '').trim();
+    const name = String(r.keterangan ?? r.holiday_name ?? r.localName ?? r.name ?? r.description ?? '').trim();
     if (!date || !name) continue;
     out.push({ date, name, isJoint: truthy(r.is_cuti ?? r.is_joint_leave ?? r.cuti_bersama) });
   }
