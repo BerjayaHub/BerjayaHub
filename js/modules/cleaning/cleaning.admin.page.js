@@ -16,14 +16,14 @@ import {
 import { monthRangeWIB } from '../../core/dates.js';
 
 const TABS = [
-  { key: 'items', label: 'Item Ceklis' },
+  { key: 'items', label: 'Item Aktivitas' },
   { key: 'sessions', label: 'Sesi' },
   { key: 'report', label: 'Rekap' }
 ];
 
 export async function renderCleaningAdminPage(container, { businessUnitId }) {
   container.innerHTML = `
-    <h1>Ceklis Kebersihan</h1>
+    <h1>Daily Activities</h1>
     <div class="tab-bar">
       ${TABS.map((t, i) => `<button class="tab-btn ${i === 0 ? 'active' : ''}" data-tab="${t.key}">${t.label}</button>`).join('')}
     </div>
@@ -53,7 +53,7 @@ async function renderItemsTab(content, businessUnitId) {
   }
   content.innerHTML = `
     <div class="page-header">
-      <h2 style="font-size:1.05rem;margin:0">Item Ceklis (berlaku semua outlet BU)</h2>
+      <h2 style="font-size:1.05rem;margin:0">Item Aktivitas (berlaku semua outlet BU)</h2>
       <button class="primary" id="btn-new-item" style="max-width:180px">+ Tambah Item</button>
     </div>
     <table class="data-table">
@@ -134,7 +134,7 @@ async function renderSessionsTab(content, businessUnitId) {
   }
   content.innerHTML = `
     <div class="page-header">
-      <h2 style="font-size:1.05rem;margin:0">Sesi Ceklis (mis. Buka, Tutup)</h2>
+      <h2 style="font-size:1.05rem;margin:0">Sesi Aktivitas (mis. Buka, Tutup)</h2>
       <button class="primary" id="btn-new-session" style="max-width:180px">+ Tambah Sesi</button>
     </div>
     <table class="data-table">
@@ -284,7 +284,7 @@ async function loadReport(content, businessUnitId) {
               .map((i) => `<li>${i.checked ? '✅' : '⬜'} ${escapeHtml(i.checklist_items?.label ?? '-')}${i.note ? ` <span style="color:var(--color-text-muted)">(${escapeHtml(i.note)})</span>` : ''}</li>`)
               .join('')}</ul>`
           : '<p>Tidak ada item.</p>';
-        await infoDialog({ title: 'Detail Ceklis', bodyHtml });
+        await infoDialog({ title: 'Detail Aktivitas', bodyHtml });
       } catch (error) {
         toast(error.message ?? 'Gagal memuat detail.', 'error');
       }

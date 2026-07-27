@@ -14,7 +14,7 @@ const PAGE_SIZE = 20;
 // Feed aktivitas multi-sumber (lintas-BU). Setiap modul menyumbang aktivitas
 // lewat sebuah "provider": async ({ before, limit }) => Event[]
 //   Event = { time: ISO string, text, icon }
-// Tambah modul baru (Inventory, Ceklis Kebersihan, dll) cukup dengan
+// Tambah modul baru (Inventory, Daily Activities, dll) cukup dengan
 // menambah satu provider ke array ACTIVITY_PROVIDERS di bawah — sisanya
 // (merge, urut, paginasi) otomatis.
 // =========================================================
@@ -63,7 +63,7 @@ async function cleaningProvider({ before, limit }) {
     return {
       time: r.created_at,
       icon: '🧹',
-      text: `${r.user_profiles?.full_name ?? 'Staff'} selesai ceklis ${r.checklist_sessions?.name ?? ''} di ${r.outlets?.name ?? '-'}${bu}`
+      text: `${r.user_profiles?.full_name ?? 'Staff'} selesai aktivitas ${r.checklist_sessions?.name ?? ''} di ${r.outlets?.name ?? '-'}${bu}`
     };
   });
 }
@@ -148,7 +148,7 @@ export async function renderAdminDashboard(container) {
       <div class="activity-feed" id="activity-feed"><p style="font-size:0.85rem;color:var(--color-text-muted)">Memuat...</p></div>
       <button id="btn-load-more" style="margin-top:12px;display:none">Muat lebih banyak</button>
       <p style="font-size:0.78rem;color:var(--color-text-muted);margin-top:12px">
-        Menggabungkan Presensi, Cuti, Ceklis, Inventory, Produksi, Pengiriman & Penjualan. Modul lain otomatis ikut tampil begitu dibangun.
+        Menggabungkan Presensi, Cuti, Daily Activities, Inventory, Produksi, Pengiriman & Penjualan. Modul lain otomatis ikut tampil begitu dibangun.
       </p>
     </div>
   `;

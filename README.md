@@ -243,15 +243,17 @@ Setiap Business Unit punya daftar modul aktif sendiri (tabel `bu_modules`), jadi
 
 Outlet punya `outlet_role`: `standalone`, `central_kitchen`, atau `served_by_ck`. Outlet ber-role `served_by_ck` menunjuk ke outlet CK lewat kolom `served_by_outlet_id`. Satu CK bisa melayani banyak outlet. Owner bisa ubah role ini kapan saja lewat Admin Portal (modul Organization — belum dibangun di Fase 0 ini).
 
-## Ceklis Kebersihan
+## Daily Activities (dulu Ceklis Kebersihan)
 
-Jalankan migration `0016_cleaning_checklist.sql`, lalu aktifkan modul **Ceklis Kebersihan** untuk BU lewat Admin Portal → Master BU & Outlet → tombol **Modul**.
+Jalankan migration `0016_cleaning_checklist.sql`, lalu aktifkan modul **Daily Activities** untuk BU lewat Admin Portal → Master BU & Outlet → tombol **Modul**.
 
-- **Admin Portal** (menu Ceklis Kebersihan), 3 tab:
+> Modul ini dulu bernama *Ceklis Kebersihan*. Penggantian namanya ada di migration `0045` — nama modul disimpan di tabel `modules`, jadi mengubah teks di kode saja tidak cukup: kartu Staff App & menu Admin Portal membacanya dari database.
+
+- **Admin Portal** (menu Daily Activities), 3 tab:
   - **Item Ceklis** — daftar item (rata/flat), berlaku semua outlet di BU. Atur urutan & aktif/nonaktif.
   - **Sesi** — sesi per hari (mis. Buka, Tutup, atau shift), per BU.
   - **Rekap** — lihat sesi yang sudah dikerjakan per outlet/tanggal: siapa, catatan, **foto bukti**, dan detail centang item.
-- **Staff App** (menu Ceklis Kebersihan): pilih outlet & sesi, centang item, **wajib 1 foto bukti**, kirim. Sesi yang sudah selesai hari itu ditandai ✅ (1 run per outlet/sesi/hari).
+- **Staff App** (menu Daily Activities): pilih outlet & sesi, centang item, **wajib 1 foto bukti**, kirim. Sesi yang sudah selesai hari itu ditandai ✅ (1 run per outlet/sesi/hari).
 - Foto disimpan di bucket privat `checklist-photos` (RLS: pemilik + admin outlet). Aktivitas otomatis muncul di **Dashboard**.
 
 ## Fase 4 — Master Produk & Resep (Cafe)
@@ -583,6 +585,17 @@ Pemilih periode/outlet, render tabel, kartu KPI, dan Export PDF otomatis ikut �
 
 Selisih pemakaian bahan (resep × penjualan vs `stock_movements` — penangkap kebocoran), penjualan per menu & tren harian, arus kas, nilai persediaan, produksi & yield CK, pemenuhan order/pengiriman, utilisasi armada, sisa jatah cuti, kepatuhan ceklis kebersihan.
 
+## Modul Inventaris Aset
+
+Jalankan migration `0045_asset_inventory.sql`, lalu aktifkan modul **Inventaris Aset** untuk BU lewat Master BU & Outlet → tombol **Modul**.
+
+Data per barang: **Nama Barang, Jumlah, Ukuran Barang, Foto, Kondisi** (Normal / Rusak / **Lain-lain** dengan keterangan bebas), plus catatan opsional. Kolom keterangan kondisi hanya muncul saat kondisi *Lain-lain* dipilih, dan otomatis dikosongkan kalau kondisinya diubah — supaya tidak menyisakan keterangan lama yang menyesatkan.
+
+- **Staff App** & **Admin Portal** memakai halaman yang sama (`asset.page.js`); bedanya hanya cakupan outlet — staff melihat outlet dalam scope-nya, admin melihat seluruh outlet BU dan bisa menghapus.
+- Filter outlet, kondisi, dan pencarian nama; ada **Export PDF** dan ringkasan jumlah unit + berapa yang rusak.
+- Foto disimpan di bucket privat `asset-photos` dengan path `<outlet>/<asset-id>.<ext>`, jadi satu aset selalu punya paling banyak satu foto dan tidak ada file yatim. Foto diunggah **setelah** baris asetnya ada.
+- RLS: anggota BU bisa melihat, siapa pun yang punya scope di outlet bisa mencatat & mengubah (pendataan aset biasanya dikerjakan staff), tapi **menghapus dibatasi admin outlet**.
+
 ## Modul Reservasi
 
 Jalankan migration `0044_reservation.sql`, lalu aktifkan modul **Reservasi** untuk BU lewat Master BU & Outlet → tombol **Modul**.
@@ -708,7 +721,7 @@ Berlaku di: **Presensi**, **Rekap NBM**, **Inventory → Riwayat**, **Produksi**
 - [x] **Fase 1** — Master User/Staff (admin CRUD)
 - [x] **Fase 2** — Presensi (lintas semua BU)
 - [x] **Fase 3** — Pengajuan Cuti (lintas semua BU)
-- [x] **Fase 3b** — Ceklis Kebersihan (lintas semua BU)
+- [x] **Fase 3b** — Daily Activities (dulu "Ceklis Kebersihan", lintas semua BU)
 - [x] **Fase 4** — Master Produk & Master Formula/Resep (Cafe)
 - [x] **Fase 5** — Inventory (Cafe)
 - [x] **Fase 6** — Production di level Outlet (Cafe)
@@ -717,4 +730,5 @@ Berlaku di: **Presensi**, **Rekap NBM**, **Inventory → Riwayat**, **Produksi**
 - [x] **Fase 9** — Cash Ledger (Cafe)
 - [x] **Fase 10** — Armada/Fleet: data kendaraan, rental, dokumen STNK/KIR + reminder, master Merk/Tipe/Area Rental, filter & import xlsx
 - [ ] **Fase 11** — Report/Laporan lintas modul
+- [x] **Modul Inventaris Aset** — nama, jumlah, ukuran, foto, kondisi (Normal/Rusak/Lain-lain)
 - [x] **Modul Reservasi** — input Staff App + halaman publik `reservasi.html`, kuota per slot, approval Admin Portal, notifikasi Telegram & Web Push

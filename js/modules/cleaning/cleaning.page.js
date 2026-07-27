@@ -9,7 +9,7 @@ import {
 } from './cleaning.service.js';
 
 export async function renderCleaningPage(container, { userId, businessUnitId, outletId }) {
-  container.innerHTML = `<p>Memuat ceklis kebersihan...</p>`;
+  container.innerHTML = `<p>Memuat daily activities...</p>`;
 
   let outlets, sessions, items;
   try {
@@ -24,18 +24,18 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
   }
 
   if (!outlets.length) {
-    container.innerHTML = `<h1>Ceklis Kebersihan</h1><p>Belum ada outlet untukmu di BU ini.</p>`;
+    container.innerHTML = `<h1>Daily Activities</h1><p>Belum ada outlet untukmu di BU ini.</p>`;
     return;
   }
   if (!sessions.length || !items.length) {
-    container.innerHTML = `<h1>Ceklis Kebersihan</h1><p style="color:var(--color-text-muted)">Admin belum mengatur ${!sessions.length ? 'sesi' : 'item'} ceklis untuk BU ini.</p>`;
+    container.innerHTML = `<h1>Daily Activities</h1><p style="color:var(--color-text-muted)">Admin belum mengatur ${!sessions.length ? 'sesi' : 'item'} aktivitas untuk BU ini.</p>`;
     return;
   }
 
   const state = { outletId: outlets.some((o) => o.id === outletId) ? outletId : outlets[0].id };
 
   container.innerHTML = `
-    <h1>Ceklis Kebersihan</h1>
+    <h1>Daily Activities</h1>
     <div class="field" style="max-width:280px">
       <label>Outlet</label>
       <select id="clean-outlet">
@@ -107,7 +107,7 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
           <label>Catatan (opsional)</label>
           <input type="text" id="clean-notes" placeholder="mis. kran wastafel bocor" />
         </div>
-        <button class="primary" id="clean-submit">Kirim Ceklis</button>
+        <button class="primary" id="clean-submit">Kirim Aktivitas</button>
         <p class="error-text" id="clean-error"></p>
       </div>
     `;
@@ -131,10 +131,10 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
           notes: body.querySelector('#clean-notes').value,
           file
         });
-        toast(`Ceklis "${session.name}" terkirim. Terima kasih! 🧹`, 'success');
+        toast(`Aktivitas "${session.name}" terkirim. Terima kasih! ✅`, 'success');
         renderSessionList();
       } catch (error) {
-        errorEl.textContent = error.message ?? 'Gagal mengirim ceklis.';
+        errorEl.textContent = error.message ?? 'Gagal mengirim aktivitas.';
         e.target.disabled = false;
       }
     });

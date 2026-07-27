@@ -10,14 +10,17 @@ export const ADMIN_TAB_CATALOG = [
   // Berisi tombol uji koneksi bot -> data tingkat organisasi, super admin saja.
   { code: 'telegram', label: 'Notifikasi Telegram', group: 'Umum', superAdminOnly: true },
 
-  { code: 'organization', label: 'Organisasi & Outlet', group: 'BU & Outlet' },
-  { code: 'bu_appearance', label: 'Tampilan BU', group: 'BU & Outlet' },
+  // Struktur organisasi & tampilan BU = pengaturan tingkat organisasi -> super admin.
+  { code: 'organization', label: 'Organisasi & Outlet', group: 'BU & Outlet', superAdminOnly: true },
+  { code: 'bu_appearance', label: 'Tampilan BU', group: 'BU & Outlet', superAdminOnly: true },
 
   // Master User mengatur role & scope -> HANYA super admin, tidak bisa diberikan
   // ke role lain lewat pengaturan izin.
   { code: 'master_user', label: 'Master User (role & scope)', group: 'User', superAdminOnly: true },
-  { code: 'staff_data', label: 'Data Staff', group: 'User' },
-  { code: 'leave', label: 'Pengajuan Cuti', group: 'User' },
+  { code: 'staff_data', label: 'Data Staff', group: 'User', superAdminOnly: true },
+  // Sengaja DI LUAR grup User: menu User kini khusus super admin, sedangkan
+  // persetujuan cuti tetap harus bisa dikerjakan admin BU/outlet (PIC).
+  { code: 'leave', label: 'Pengajuan Cuti', group: 'Modul lain' },
   // Kas melekat pada USER lintas BU (0040) -> data tingkat organisasi,
   // hanya super admin. Sama seperti Master User, tidak bisa diberikan ke role lain.
   { code: 'cash_ledger', label: 'Kas (semua pemegang)', group: 'User', superAdminOnly: true },
@@ -31,10 +34,11 @@ export const ADMIN_TAB_CATALOG = [
   // Menu berdiri sendiri (tidak digabung ke grup Inventory) supaya mudah dicari.
   { code: 'reservation', label: 'Reservasi', group: 'Modul lain' },
   { code: 'attendance', label: 'Presensi', group: 'Modul lain' },
-  { code: 'cleaning_checklist', label: 'Ceklis Kebersihan', group: 'Modul lain' },
+  { code: 'cleaning_checklist', label: 'Daily Activities', group: 'Modul lain' },
   { code: 'dispatch', label: 'Pengiriman', group: 'Modul lain' },
   { code: 'shift', label: 'Shift (jadwal kerja)', group: 'Modul lain' },
-  { code: 'fleet', label: 'Armada (kendaraan)', group: 'Modul lain' }
+  { code: 'fleet', label: 'Armada (kendaraan)', group: 'Modul lain' },
+  { code: 'asset', label: 'Inventaris Aset', group: 'Modul lain' }
 ];
 
 export const SUPER_ADMIN_ONLY_TABS = new Set(ADMIN_TAB_CATALOG.filter((t) => t.superAdminOnly).map((t) => t.code));

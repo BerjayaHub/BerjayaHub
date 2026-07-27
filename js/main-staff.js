@@ -13,6 +13,7 @@ import { renderMenuPage } from './modules/menu/menu.page.js';
 import { renderSalesPage } from './modules/sales/sales.page.js';
 import { renderCashPage } from './modules/cash/cash.page.js';
 import { renderReservationPage } from './modules/reservation/reservation.page.js';
+import { renderAssetPage } from './modules/asset/asset.page.js';
 import { renderShiftPage } from './modules/shift/shift.page.js';
 import { renderProfilePage, initials } from './modules/profile/profile.page.js';
 import { getStaffPhotoUrl } from './modules/profile/profile.service.js';
@@ -29,6 +30,7 @@ registerModule('menu', renderMenuPage);
 registerModule('sales', renderSalesPage);
 registerModule('cash_ledger', renderCashPage);
 registerModule('reservation', renderReservationPage);
+registerModule('asset', renderAssetPage);
 registerModule('shift', renderShiftPage);
 
 const app = document.getElementById('app');
@@ -287,6 +289,10 @@ async function renderHome(context, modules, moduleCtx) {
     return true;
   });
   const hasAttendance = staffModules.some((m) => m.code === 'attendance');
+  // Presensi sudah punya kartu sendiri di header (att-mini), jadi jangan
+  // ditampilkan lagi sebagai kartu biasa — dua pintu ke halaman yang sama
+  // hanya membingungkan.
+  const gridModules = staffModules.filter((m) => !(hasAttendance && m.code === 'attendance'));
   content.innerHTML = `
     <div class="home-hero">
       <div class="staff-greeting">
@@ -300,7 +306,7 @@ async function renderHome(context, modules, moduleCtx) {
     </div>
     <div class="card-grid">
       ${
-        staffModules
+        gridModules
           .map(
             (mod) => `
           <button class="module-card" data-module="${mod.code}">

@@ -16,6 +16,7 @@ import { renderStaffDataPage } from './modules/profile/staff-data.admin.page.js'
 import { renderShiftAdminPage } from './modules/shift/shift.admin.page.js';
 import { renderFleetAdminPage } from './modules/fleet/fleet.admin.page.js';
 import { renderReservationAdminPage } from './modules/reservation/reservation.admin.page.js';
+import { renderAssetAdminPage } from './modules/asset/asset.page.js';
 import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
 import { renderReportAdminPage } from './modules/report/report.admin.page.js';
 import { renderTelegramAdminPage } from './modules/notifications/telegram.admin.page.js';
@@ -49,6 +50,7 @@ registerModule('cash_ledger', renderCashAdminPage);
 registerModule('shift', renderShiftAdminPage);
 registerModule('fleet', renderFleetAdminPage);
 registerModule('reservation', renderReservationAdminPage);
+registerModule('asset', renderAssetAdminPage);
 // ---- Pengelompokan menu: beberapa modul digabung jadi satu menu bertab ----
 // Modul di dalam grup tidak tampil sebagai menu terpisah.
 const GROUPS = {
@@ -66,7 +68,6 @@ const GROUPS = {
     tabs: [
       { code: 'master_user', label: 'Master User', render: renderMasterUserPage, core: true },
       { code: 'staff_data', label: 'Data Staff', render: renderStaffDataPage, core: true },
-      { code: 'leave', label: 'Pengajuan Cuti', render: renderLeaveAdminPage },
       // core: true -> kas tidak lagi tergantung toggle modul per BU, karena
       // saldonya milik user dan lintas BU. Aksesnya dijaga superAdminOnly.
       { code: 'cash_ledger', label: 'Kas', render: renderCashAdminPage, core: true }

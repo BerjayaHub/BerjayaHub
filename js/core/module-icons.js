@@ -17,6 +17,7 @@ const ICONS = {
   menu: '🍽️',
   sales: '💰',
   reservation: '📅',
+  asset: '🪑',
   shift: '🗓️',
   grp_org: '🏢',
   grp_user: '👤',
