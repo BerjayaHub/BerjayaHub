@@ -1,5 +1,5 @@
 import { toast, formDialog } from '../../core/ui.js';
-import { monthRangeWIB, todayWIB } from '../../core/dates.js';
+import { todayWIB } from '../../core/dates.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { getMyScopedOutlets } from '../dispatch/dispatch.service.js';
 import {
@@ -28,8 +28,10 @@ export async function renderReservationPage(container, { businessUnitId }) {
     return;
   }
 
-  const range = monthRangeWIB();
-  const state = { outletId: outlets[0].id, from: range.from, to: range.to };
+  // Default HARI INI, bukan sebulan penuh: yang dibutuhkan staff saat membuka
+  // halaman ini adalah tamu yang datang hari ini, bukan riwayat sebulan.
+  const hariIni = todayWIB();
+  const state = { outletId: outlets[0].id, from: hariIni, to: hariIni };
 
   container.innerHTML = `
     <div class="page-header">
@@ -41,9 +43,15 @@ export async function renderReservationPage(container, { businessUnitId }) {
       <div class="field" style="margin:0;max-width:220px"><label>Outlet</label>
         <select id="rv-outlet">${outlets.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}</select>
       </div>
-      <div class="field" style="margin:0;max-width:165px"><label>Dari tanggal</label><input type="date" id="rv-from" value="${range.from}" /></div>
-      <div class="field" style="margin:0;max-width:165px"><label>Sampai tanggal</label><input type="date" id="rv-to" value="${range.to}" /></div>
-      <button id="rv-refresh">Tampilkan</button>
+      <div class="field" style="margin:0;max-width:165px"><label>Dari tanggal</label><input type="date" id="rv-from" value="${hariIni}" /></div>
+      <div class="field" style="margin:0;max-width:165px"><label>Sampai tanggal</label><input type="date" id="rv-to" value="${hariIni}" /></div>
+      <button class="primary" id="rv-refresh" style="max-width:120px">Tampilkan</button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="rv-quick" data-range="today">Hari ini</button>
+        <button class="rv-quick" data-range="tomorrow">Besok</button>
+        <button class="rv-quick" data-range="week">7 hari</button>
+        <button class="rv-quick" data-range="month">Bulan ini</button>
+      </div>
     </div>
 
     <div id="rv-list" style="margin-top:12px"></div>
@@ -59,6 +67,26 @@ export async function renderReservationPage(container, { businessUnitId }) {
   container.querySelector('#rv-refresh').addEventListener('click', refresh);
   container.querySelector('#rv-new').addEventListener('click', openForm);
 
+  // Pintasan rentang — rentang lain tetap bisa diisi manual lewat dua kolom tanggal.
+  container.querySelectorAll('.rv-quick').forEach((b) =>
+    b.addEventListener('click', () => {
+      const t = todayWIB();
+      const geser = (n) => {
+        const d = new Date(t + 'T00:00:00');
+        d.setDate(d.getDate() + n);
+        const pad = (x) => String(x).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      };
+      if (b.dataset.range === 'today') [state.from, state.to] = [t, t];
+      if (b.dataset.range === 'tomorrow') [state.from, state.to] = [geser(1), geser(1)];
+      if (b.dataset.range === 'week') [state.from, state.to] = [t, geser(6)];
+      if (b.dataset.range === 'month') [state.from, state.to] = [t.slice(0, 8) + '01', geser(0)];
+      container.querySelector('#rv-from').value = state.from;
+      container.querySelector('#rv-to').value = state.to;
+      refresh();
+    })
+  );
+
   async function refresh() {
     list.innerHTML = `<p style="color:var(--color-text-muted)">Memuat…</p>`;
     let rows;
@@ -71,6 +99,7 @@ export async function renderReservationPage(container, { businessUnitId }) {
     const tamu = rows.filter((r) => r.status === 'confirmed' || r.status === 'pending').reduce((t, r) => t + (Number(r.pax) || 0), 0);
     list.innerHTML = `
       <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
+        ${state.from === state.to ? fmtDate(state.from) : `${fmtDate(state.from)} – ${fmtDate(state.to)}`} ·
         <strong>${rows.length}</strong> reservasi · <strong>${tamu}</strong> tamu (menunggu + dikonfirmasi)
       </p>
       <div class="table-scroll">
