@@ -53,15 +53,40 @@ export const INTEGRATION_KEYS = [
   {
     key: 'notify_telegram_url',
     label: 'URL notifikasi cuti & order stok',
+    fn: 'notify-telegram',
     hint: 'https://<PROJECT-REF>.supabase.co/functions/v1/notify-telegram'
   },
   {
     key: 'notify_reservation_url',
     label: 'URL notifikasi reservasi',
+    fn: 'notify-reservation',
     hint: 'https://<PROJECT-REF>.supabase.co/functions/v1/notify-reservation'
   },
   { key: 'notify_secret', label: 'NOTIFY_SECRET (harus sama dengan secret Edge Function)', hint: '<string acak>' }
 ];
+
+/**
+ * Periksa BENTUK URL, bukan sekadar "terisi".
+ * Kasus nyata: `<PROJECT-REF>` terhapus saat menempel sehingga tersimpan
+ * `https://.supabase.co/...` — terisi, tapi tidak menunjuk ke mana pun. pg_net
+ * gagal diam-diam karena trigger sengaja menelan error, jadi salahnya sulit
+ * ditemukan kalau UI cuma bilang "terisi".
+ */
+function urlProblem(value, fn) {
+  let u;
+  try {
+    u = new URL(value);
+  } catch {
+    return 'Bukan URL yang valid.';
+  }
+  if (u.protocol !== 'https:') return 'Harus https.';
+  // "https://.supabase.co" lolos parsing URL, jadi host-nya dicek manual.
+  if (!u.hostname || u.hostname.startsWith('.') || u.hostname.split('.').filter(Boolean).length < 3) {
+    return 'Nama project hilang dari URL — bagian sebelum ".supabase.co" kosong.';
+  }
+  if (fn && !u.pathname.endsWith(`/${fn}`)) return `URL harus berakhir dengan /${fn}.`;
+  return null;
+}
 
 export async function getIntegrationStatus() {
   const { data, error } = await supabase.from('integration_settings').select('key, value, updated_at');
@@ -69,11 +94,15 @@ export async function getIntegrationStatus() {
   const map = new Map((data ?? []).map((r) => [r.key, r]));
   return INTEGRATION_KEYS.map((k) => {
     const row = map.get(k.key);
+    const isSet = !!row?.value;
+    const problem = isSet && k.fn ? urlProblem(row.value, k.fn) : null;
     return {
       ...k,
-      isSet: !!row?.value,
+      isSet,
+      problem,
+      ok: isSet && !problem,
       // Secret tidak pernah ditampilkan utuh — cukup buktinya sudah terisi.
-      preview: row?.value ? (k.key === 'notify_secret' ? '••••••' + String(row.value).slice(-4) : row.value) : null,
+      preview: isSet ? (k.key === 'notify_secret' ? '••••••' + String(row.value).slice(-4) : row.value) : null,
       updatedAt: row?.updated_at ?? null
     };
   });

@@ -1,4 +1,5 @@
 import { toast, formDialog } from '../../core/ui.js';
+import { pushCardHtml, wirePushCard } from '../../core/push-card.js';
 import {
   GENDER_OPTIONS,
   MARITAL_OPTIONS,
@@ -70,7 +71,13 @@ export async function renderProfilePage(container, ctx = {}) {
         Business Unit, outlet, role, dan akses modul diatur oleh admin — tidak bisa diubah dari sini.
       </p>
     </div>
+
+    ${pushCardHtml({ title: 'Notifikasi di Perangkat Ini' })}
   `;
+
+  // Notifikasi ditaruh di Profil supaya SEMUA staff menemukannya — bukan hanya
+  // yang kebetulan membuka halaman Presensi.
+  wirePushCard(container, profile.id);
 
   // Ganti foto
   const fileInput = container.querySelector('#photo-input');

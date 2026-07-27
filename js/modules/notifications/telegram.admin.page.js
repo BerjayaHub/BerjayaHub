@@ -69,10 +69,14 @@ export async function renderTelegramAdminPage(container) {
                 <td><strong>${esc(k.label)}</strong>
                   <div style="font-size:0.72rem;color:var(--color-text-muted);font-family:ui-monospace,Menlo,monospace">${esc(k.key)}</div></td>
                 <td>${
-                  k.isSet
-                    ? `<span class="badge badge-approved">terisi</span>
+                  !k.isSet
+                    ? '<span class="badge badge-rejected">belum diisi</span>'
+                    : k.ok
+                    ? `<span class="badge badge-approved">siap</span>
                        <div style="font-size:0.7rem;color:var(--color-text-muted);word-break:break-all">${esc(k.preview)}</div>`
-                    : '<span class="badge badge-rejected">belum diisi</span>'
+                    : `<span class="badge badge-rejected">salah format</span>
+                       <div style="font-size:0.72rem;color:var(--color-danger)">${esc(k.problem)}</div>
+                       <div style="font-size:0.7rem;color:var(--color-text-muted);word-break:break-all">${esc(k.preview)}</div>`
                 }</td>
               </tr>`
             )
@@ -80,12 +84,12 @@ export async function renderTelegramAdminPage(container) {
         </tbody>
       </table>
       ${
-        integrasi.some((k) => !k.isSet)
-          ? `<p style="font-size:0.82rem;margin:10px 0 0">Jalankan sekali di <strong>SQL Editor</strong> (ganti nilainya):</p>
+        integrasi.some((k) => !k.ok)
+          ? `<p style="font-size:0.82rem;margin:10px 0 0">Perbaiki lewat <strong>SQL Editor</strong> (ganti <code>&lt;PROJECT-REF&gt;</code> dengan nama project Supabase-mu):</p>
              <pre style="font-size:0.72rem;background:var(--color-bg);padding:10px;border-radius:8px;overflow:auto;margin:6px 0 0">insert into integration_settings (key, value) values
-${integrasi.filter((k) => !k.isSet).map((k) => `  ('${k.key}', '${k.hint}')`).join(',\n')}
+${integrasi.filter((k) => !k.ok).map((k) => `  ('${k.key}', '${k.hint}')`).join(',\n')}
 on conflict (key) do update set value = excluded.value, updated_at = now();</pre>`
-          : '<p style="font-size:0.82rem;color:var(--color-primary);margin:10px 0 0">✅ Semua pemicu sudah terdaftar.</p>'
+          : '<p style="font-size:0.82rem;color:var(--color-primary);margin:10px 0 0">✅ Semua pemicu sudah terdaftar &amp; formatnya benar.</p>'
       }
     </div>
 

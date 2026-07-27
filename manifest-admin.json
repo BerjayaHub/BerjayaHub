@@ -1,10 +1,9 @@
 {
-  "name": "Berjaya Hub — Staff App",
-  "short_name": "Berjaya Hub",
-  "start_url": "./index.html",
+  "name": "Berjaya Hub — Admin Portal",
+  "short_name": "Berjaya Admin",
+  "start_url": "./admin.html",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
   "background_color": "#f7f7f8",
   "theme_color": "#f5f5f5",
   "icons": [

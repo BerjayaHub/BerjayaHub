@@ -585,6 +585,34 @@ Pemilih periode/outlet, render tabel, kartu KPI, dan Export PDF otomatis ikut �
 
 Selisih pemakaian bahan (resep × penjualan vs `stock_movements` — penangkap kebocoran), penjualan per menu & tren harian, arus kas, nilai persediaan, produksi & yield CK, pemenuhan order/pengiriman, utilisasi armada, sisa jatah cuti, kepatuhan ceklis kebersihan.
 
+## PWA & Push Notification
+
+### Ikon Home Screen
+
+Ikon PNG di-generate dari `images/logo.svg`: `icon-180.png` (iOS), `icon-192.png`, `icon-512.png`, dan `icon-maskable-512.png` (Android).
+
+**iOS tidak mendukung SVG untuk `apple-touch-icon`.** Sebelumnya `<link rel="apple-touch-icon">` menunjuk ke `logo.svg`, sehingga ikon di Home Screen iPhone kosong / jadi screenshot halaman. Latar ikon juga dibuat **putih solid** karena area transparan dirender **hitam** oleh iOS. Ikon di dalam notifikasi (`sw.js`) ikut diganti ke PNG — SVG sering tidak dirender di notifikasi.
+
+Admin Portal punya **`manifest-admin.json`** sendiri supaya bisa di-install terpisah ("Berjaya Admin") tanpa menimpa Staff App.
+
+> Setelah deploy, **hapus dulu PWA lama dari Home Screen** lalu Add to Home Screen ulang — iOS meng-cache ikon dengan agresif.
+
+### Mengaktifkan notifikasi
+
+```bash
+supabase functions deploy send-test-push
+```
+
+Kartu notifikasi ada di **Staff App → 👤 Profil → Notifikasi di Perangkat Ini**, dan juga di halaman Presensi. Sebelumnya tombol aktivasi **hanya** ada di halaman Presensi — staff yang tidak pernah membukanya tidak punya langganan sama sekali, sehingga push apa pun (termasuk reservasi) tidak akan sampai. Komponennya sekarang dipakai bersama di `js/core/push-card.js`.
+
+Kartunya punya tombol **📨 Kirim Tes** yang mengirim push ke perangkat sendiri lewat Edge Function `send-test-push` — bisa dibuktikan sekarang juga tanpa menunggu jadwal cron atau menunggu ada reservasi masuk. Function itu mengenali pemanggil dari **JWT-nya sendiri** dan hanya mengirim ke langganan milik user itu; tidak ada cara mengirim ke orang lain. Langganan yang sudah mati (404/410) otomatis dibersihkan.
+
+### Yang mengirim push
+
+Hanya dua: **`send-attendance-reminders`** (pengingat clock in, butuh cron) dan **`notify-reservation`** (reservasi baru → admin outlet). Modul lain seperti Pengiriman **belum pernah** punya push — bukan rusak, memang belum dibuat.
+
+**Catatan iOS:** Web Push di iPhone hanya bekerja kalau app sudah **ditambahkan ke Home Screen** lewat Safari dan dibuka dari ikon itu — tidak bekerja di tab Safari biasa.
+
 ## Modul Inventaris Aset
 
 Jalankan migration `0045_asset_inventory.sql`, lalu aktifkan modul **Inventaris Aset** untuk BU lewat Master BU & Outlet → tombol **Modul**.

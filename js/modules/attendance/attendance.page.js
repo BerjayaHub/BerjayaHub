@@ -19,13 +19,7 @@ import { getHolidayPolicy, listHolidays } from './nbm.service.js';
 import { openCameraCapture, formatWatermarkText } from './camera-capture.js';
 import { openFaceRegistration } from './face-registration.js';
 import { loadFaceModels, isSameFace } from './face-recognition.js';
-import {
-  isPushSupported,
-  isPushConfigured,
-  isSubscribedOnThisDevice,
-  getPermissionStatus,
-  enableReminderNotifications
-} from './push-notifications.js';
+import { pushCardHtml, wirePushCard } from '../../core/push-card.js';
 
 export async function renderAttendancePage(container, ctx) {
   const { userId, businessUnitId, outletId } = ctx;
@@ -80,7 +74,7 @@ export async function renderAttendancePage(container, ctx) {
   container.innerHTML = `
     <h1>Presensi</h1>
     <div id="att-main"></div>
-    ${notificationCardHtml()}
+    ${pushCardHtml({ title: 'Notifikasi Pengingat Clock In' })}
     <h2 style="font-size:1rem;margin-top:24px">Riwayat Terakhir</h2>
     <table class="data-table">
       <thead><tr><th>Outlet</th><th>Clock In</th><th>Clock Out</th></tr></thead>
@@ -101,7 +95,7 @@ export async function renderAttendancePage(container, ctx) {
   `;
 
   const main = container.querySelector('#att-main');
-  wireNotificationCard(container, userId);
+  wirePushCard(container, userId);
 
   // ---- Sudah selesai hari ini ----
   if (doneToday) {
@@ -452,56 +446,6 @@ function renderFaceRegistrationGate(container, ctx) {
       e.target.disabled = false;
     }
   });
-}
-
-// ---- Kartu notifikasi pengingat ----
-
-function notificationCardHtml() {
-  if (!isPushSupported()) return '';
-  return `
-    <div class="inline-card" id="notif-card" style="margin-top:16px">
-      <h3 style="margin-top:0;font-size:0.95rem">Notifikasi Pengingat Clock In</h3>
-      <p style="font-size:0.85rem;color:var(--color-text-muted)" id="notif-status">Memeriksa status...</p>
-      <button id="btn-enable-notif" style="max-width:260px">🔔 Aktifkan Notifikasi Pengingat</button>
-    </div>`;
-}
-
-async function wireNotificationCard(container, userId) {
-  const card = container.querySelector('#notif-card');
-  if (!card) return;
-  const statusEl = container.querySelector('#notif-status');
-  const btn = container.querySelector('#btn-enable-notif');
-
-  async function refreshStatus() {
-    const subscribed = await isSubscribedOnThisDevice();
-    if (subscribed) {
-      statusEl.textContent = 'Aktif ✓ — kamu akan diingatkan kalau lupa clock in.';
-      btn.style.display = 'none';
-    } else if (getPermissionStatus() === 'denied') {
-      statusEl.textContent = 'Izin notifikasi diblokir di browser/HP kamu.';
-      btn.style.display = 'none';
-    } else if (!isPushConfigured()) {
-      statusEl.textContent = 'Fitur ini belum diaktifkan admin sistem.';
-      btn.style.display = 'none';
-    } else {
-      statusEl.textContent = 'Belum aktif. Nyalakan supaya dapat pengingat kalau lupa clock in.';
-      btn.style.display = 'inline-block';
-    }
-  }
-
-  btn?.addEventListener('click', async () => {
-    btn.disabled = true;
-    try {
-      await enableReminderNotifications(userId);
-      toast('Notifikasi pengingat diaktifkan.', 'success');
-      await refreshStatus();
-    } catch (error) {
-      statusEl.textContent = error.message ?? 'Gagal mengaktifkan notifikasi.';
-      btn.disabled = false;
-    }
-  });
-
-  await refreshStatus();
 }
 
 function formatTime(iso) {

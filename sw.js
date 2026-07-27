@@ -21,8 +21,10 @@ self.addEventListener('push', (event) => {
 
   const options = {
     body: payload.body,
-    icon: payload.icon || 'images/logo.svg',
-    badge: payload.badge || 'images/logo.svg',
+    // PNG, bukan SVG: banyak platform (termasuk iOS & sebagian Android)
+    // tidak merender SVG di notifikasi, hasilnya ikon kosong.
+    icon: payload.icon || 'images/icon-192.png',
+    badge: payload.badge || 'images/icon-192.png',
     data: { url: payload.url || './' },
     vibrate: [200, 100, 200],
     tag: payload.tag || 'berjaya-hub-reminder',
