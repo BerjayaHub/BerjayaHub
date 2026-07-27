@@ -397,6 +397,17 @@ function fieldHtml(f) {
       </div>`;
   }
 
+  if (f.type === 'textarea') {
+    return `
+      <div class="field">
+        <label for="${id}">${escapeHtml(f.label)}</label>
+        <textarea id="${id}" name="${escapeAttr(f.name)}" rows="${f.rows ?? 6}" ${req}
+          placeholder="${escapeAttr(f.placeholder ?? '')}"
+          style="width:100%;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:0.8rem">${escapeHtml(f.value ?? '')}</textarea>
+        ${help}
+      </div>`;
+  }
+
   if (f.type === 'money') {
     return `
       <div class="field">

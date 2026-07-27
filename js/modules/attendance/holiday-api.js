@@ -116,6 +116,55 @@ export async function fetchNationalHolidays(year) {
   );
 }
 
+/** URL sumber, untuk dibuka manual di tab baru saat penarikan otomatis gagal. */
+export function sourceUrl(year, name = 'dayoffapi') {
+  return (SOURCES.find((s) => s.name === name) ?? SOURCES[0]).url(year);
+}
+
+/**
+ * Jalur darurat: admin membuka URL sumber di tab baru (membuka URL langsung
+ * TIDAK kena CORS — yang diblokir hanya fetch dari halaman lain), lalu menempel
+ * isinya ke sini. Selalu berhasil, tanpa bergantung Edge Function maupun CORS.
+ *
+ * Menerima JSON array dari layanan mana pun, atau baris teks sederhana
+ * "YYYY-MM-DD, Nama Libur" (satu per baris) — mis. hasil salin dari Excel.
+ */
+export function parsePastedHolidays(text) {
+  const raw = String(text ?? '').trim();
+  if (!raw) throw new Error('Belum ada data yang ditempel.');
+
+  // Coba JSON dulu.
+  if (raw.startsWith('[') || raw.startsWith('{')) {
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      throw new Error(`Teksnya mirip JSON tapi tidak valid: ${e.message}`);
+    }
+    const rows = parseRows(parsed);
+    if (!rows.length) throw new Error('JSON terbaca, tapi tidak ada tanggal + nama yang bisa dikenali di dalamnya.');
+    return rows;
+  }
+
+  // Fallback: baris "tanggal, nama" (pemisah koma / titik koma / tab).
+  const out = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t) continue;
+    const parts = t.split(/[;,\t]/);
+    if (parts.length < 2) continue;
+    const date = toISO(parts[0]);
+    const name = parts.slice(1).join(',').trim();
+    if (!date || !name) continue;
+    out.push({ date, name, isJoint: /cuti bersama/i.test(name) });
+  }
+  if (!out.length) {
+    throw new Error('Format tidak dikenali. Tempel JSON dari layanan hari libur, atau baris "2026-01-01, Tahun Baru" satu per baris.');
+  }
+  const seen = new Set();
+  return out.filter((h) => (seen.has(h.date) ? false : seen.add(h.date))).sort((a, b) => a.date.localeCompare(b.date));
+}
+
 /** Label ramah untuk ditampilkan di dialog persetujuan. */
 export function holidayLabel(h) {
   const d = new Date(h.date + 'T00:00:00');

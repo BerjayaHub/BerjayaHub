@@ -482,10 +482,14 @@ Daftar hari libur tetap diisi untuk **kedua** mode; yang berbeda hanya efeknya.
 ### Menarik hari libur nasional (butuh Edge Function)
 
 ```bash
-supabase functions deploy fetch-national-holidays
+supabase functions deploy fetch-national-holidays --no-verify-jwt
 ```
 
-**Wajib di-deploy.** Layanan hari libur publik Indonesia tidak mengirim header CORS, jadi fetch langsung dari browser selalu gagal dengan `Failed to fetch`. Edge Function `fetch-national-holidays` menariknya di sisi server, menormalkan bentuknya, dan mengembalikannya dengan header CORS yang benar. Function ini **tidak menulis apa pun ke database**.
+Layanan hari libur publik Indonesia tidak mengirim header CORS, jadi fetch langsung dari browser selalu gagal dengan `Failed to fetch`. Edge Function `fetch-national-holidays` menariknya di sisi server, menormalkan bentuknya, dan mengembalikannya dengan header CORS yang benar. Function ini **tidak menulis apa pun ke database**.
+
+**`--no-verify-jwt` wajib.** Tanpa flag itu, gerbang Supabase menolak request **preflight `OPTIONS`** dari browser — preflight tidak membawa header `Authorization`, jadi dibalas `401` sebelum kode function sempat jalan. Di browser gejalanya: `Failed to send a request to the Edge Function`. Aman karena function ini tidak menyentuh data user, tidak memakai `service_role`, dan satu-satunya input adalah angka tahun yang divalidasi. Detail & cara uji ada di `supabase/functions/fetch-national-holidays/README.md`.
+
+**Jalur darurat (selalu berhasil).** Kalau penarikan otomatis gagal — apa pun sebabnya — dialognya otomatis beralih ke mode **tempel manual**: tombol *Buka sumber* membuka URL layanan di tab baru (membuka URL secara langsung tidak kena CORS), lalu isinya tinggal disalin-tempel. Menerima JSON dari layanan mana pun maupun baris sederhana `2026-01-01, Tahun Baru`. Hasilnya masuk ke daftar centang yang sama untuk disetujui.
 
 Tombol **⇩ Tarik hari libur nasional** di Pengaturan NBM & Lembur → sumber `dayoffapi.vercel.app` (cadangan otomatis `api-harilibur.vercel.app`) → hasilnya **ditampilkan sebagai daftar centang untuk disetujui admin** sebelum masuk tabel `holidays`.
 

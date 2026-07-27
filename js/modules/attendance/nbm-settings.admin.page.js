@@ -14,7 +14,7 @@ import {
   getOutletHolidayPolicy,
   setOutletHolidayPolicy
 } from './nbm.service.js';
-import { fetchNationalHolidays, holidayLabel } from './holiday-api.js';
+import { fetchNationalHolidays, holidayLabel, parsePastedHolidays, sourceUrl } from './holiday-api.js';
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
 import { formatThousands, formatRupiah, parseNumber, attachThousandsInput } from '../../core/format.js';
 
@@ -336,19 +336,22 @@ async function renderOutletDetail(outletId, businessUnitId) {
     });
     if (!tahun) return;
 
+    const year = Number(tahun.year);
     toast('Menghubungi layanan hari libur…', 'info');
     let hasil;
     try {
-      hasil = await fetchNationalHolidays(Number(tahun.year));
+      hasil = await fetchNationalHolidays(year);
     } catch (error) {
-      toast(error.message ?? 'Gagal menarik hari libur.', 'error');
-      return;
+      // Penarikan otomatis bisa gagal karena CORS / Edge Function belum di-deploy.
+      // Jalur tempel selalu bisa dipakai: MEMBUKA url langsung tidak kena CORS.
+      hasil = await pasteHolidaysFallback(year, error);
+      if (!hasil) return;
     }
 
     // Tanggal yang sudah ada ditandai supaya admin tahu mana yang baru.
     const sudahAda = new Set(holidays.map((h) => h.holiday_date));
     const pilihan = await formDialog({
-      title: `Hari Libur ${tahun.year} (${hasil.holidays.length} tanggal)`,
+      title: `Hari Libur ${year} (${hasil.holidays.length} tanggal)`,
       description: `Sumber: ${hasil.source}. Hilangkan centang untuk tanggal yang tidak dipakai BU ini. Tanggal yang sudah ada akan diperbarui, bukan diduplikasi.`,
       fields: hasil.holidays.map((h) => ({
         name: `d_${h.date}`,
@@ -408,6 +411,48 @@ function tierRowHtml(t) {
       <td><button class="btn-remove-tier" data-tier-id="${t.id}">✕</button></td>
     </tr>
   `;
+}
+
+/**
+ * Jalur darurat saat penarikan otomatis gagal (CORS / Edge Function belum
+ * di-deploy). Admin membuka URL sumber di tab baru — MEMBUKA url langsung tidak
+ * kena CORS, yang diblokir hanya fetch dari halaman lain — lalu menempel isinya.
+ * Return { source, holidays } atau null kalau dibatalkan.
+ */
+async function pasteHolidaysFallback(year, penyebab) {
+  const url = sourceUrl(year);
+  const values = await formDialog({
+    title: `Tempel Data Hari Libur ${year}`,
+    description:
+      'Penarikan otomatis gagal. Cara ini selalu berhasil: klik "Buka sumber" di bawah, ' +
+      'blok semua isi halaman yang terbuka (Ctrl+A lalu Ctrl+C), kembali ke sini, dan tempel di kotak.',
+    fields: [
+      {
+        name: 'raw',
+        label: 'Tempel di sini',
+        type: 'textarea',
+        required: true,
+        rows: 8,
+        placeholder: '[{"tanggal":"2026-01-01","keterangan":"Tahun Baru","is_cuti":false}, ...]',
+        help: 'Bisa juga baris sederhana: 2026-01-01, Tahun Baru — satu per baris.'
+      }
+    ],
+    submitText: 'Proses',
+    onReady: (form, { setError }) => {
+      const p = document.createElement('p');
+      p.innerHTML = `<button type="button" id="hp-open-src" class="btn-ghost">↗ Buka sumber (${year})</button>`;
+      form.prepend(p);
+      p.querySelector('#hp-open-src').addEventListener('click', () => window.open(url, '_blank', 'noopener'));
+      setError(String(penyebab?.message ?? penyebab ?? '').slice(0, 220));
+    }
+  });
+  if (!values) return null;
+  try {
+    return { source: 'tempel manual', holidays: parsePastedHolidays(values.raw) };
+  } catch (error) {
+    toast(error.message ?? 'Data tempelan tidak terbaca.', 'error');
+    return null;
+  }
 }
 
 function holidayRowHtml(h) {
