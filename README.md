@@ -585,18 +585,24 @@ Selisih pemakaian bahan (resep × penjualan vs `stock_movements` — penangkap k
 
 ## Notifikasi Telegram ke grup PIC
 
-Jalankan migration `0041_telegram_notifications.sql`. Langkah setup lengkap ada di **`supabase/functions/notify-telegram/SETUP.md`** — ringkasnya: set secret → deploy → uji koneksi → pasang webhook & cron.
+Jalankan migration `0041_telegram_notifications.sql` dan `0042_telegram_routes.sql`. Langkah setup lengkap ada di **`supabase/functions/notify-telegram/SETUP.md`** — ringkasnya: set secret → deploy → atur tujuan grup & uji → pasang webhook & cron.
 
-**Token bot & ID grup disimpan sebagai secret Edge Function, tidak pernah masuk folder `js/`** — repo ini publik di GitHub Pages, jadi apa pun di frontend bisa dibaca siapa saja.
+**Token bot disimpan sebagai secret Edge Function, tidak pernah masuk folder `js/`** — repo ini publik di GitHub Pages, jadi apa pun di frontend bisa dibaca siapa saja. **ID grup sebaliknya disimpan di database** (`telegram_routes`) supaya bisa diubah/ditambah dari Admin Portal tanpa redeploy; ini aman karena chat ID hanyalah pengenal — tanpa token bot ia tidak bisa dipakai mengirim apa pun. Aksesnya tetap dikunci super admin lewat RLS.
 
-Satu grup untuk semua BU (`TELEGRAM_CHAT_ID`). Empat event:
+**Rute per event, bukan per BU.** Kondisi nyatanya ada dua grup dengan pembagian menurut jenis event:
 
-| Event | Pemicu |
-| --- | --- |
-| 📝 Pengajuan cuti baru | Database Webhook · `INSERT` pada `leave_requests` |
-| ✅ Cuti disetujui / ditolak | Database Webhook · `UPDATE` pada `leave_requests`, **hanya saat status berubah** |
-| 📦 Order stok baru ke CK | Database Webhook · `INSERT` pada `stock_orders` |
-| 🚗 Dokumen kendaraan jatuh tempo | Cron harian · `send-fleet-reminders` |
+| Event | Grup | Pemicu |
+| --- | --- | --- |
+| 📝 Pengajuan cuti baru | Berjaya | Database Webhook · `INSERT` pada `leave_requests` |
+| ✅ Cuti disetujui / ditolak | Berjaya | Database Webhook · `UPDATE` pada `leave_requests`, **hanya saat status berubah** |
+| 🚗 Dokumen kendaraan jatuh tempo | Berjaya | Cron harian · `send-fleet-reminders` |
+| 📦 Order stok baru ke CK | Awal Bermula | Database Webhook · `INSERT` pada `stock_orders` |
+
+Resolusi tujuan: **rute khusus BU → rute global (`business_unit_id` NULL) → secret `TELEGRAM_CHAT_ID`** sebagai cadangan terakhir. Kolom `business_unit_id` nullable memakai pola pewarisan yang sama dengan kebijakan hari libur, jadi kalau nanti satu BU perlu grup berbeda untuk event yang sama, cukup tambah baris *Khusus BU* — tanpa mengubah kode.
+
+Reminder armada mengelompokkan kendaraan **per grup tujuan**, sehingga saat rute per-BU dipakai, tiap grup hanya menerima kendaraan miliknya.
+
+Katalog event ada di `js/modules/notifications/telegram.service.js` (`TELEGRAM_EVENTS`). Menambah event baru = satu entri di situ + penanganan `event_key`-nya di Edge Function; UI kelola rute otomatis ikut. Slot `reservation` disiapkan untuk modul reservasi Awal Bermula.
 
 Dipilih **Database Webhook**, bukan panggilan dari app, supaya notifikasi tetap terkirim walau HP staff mati atau sinyal putus tepat setelah data tersimpan — dan tetap jalan untuk data yang masuk dari luar Staff App.
 

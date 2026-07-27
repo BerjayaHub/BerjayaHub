@@ -22,7 +22,6 @@ pesanmu bukan perintah. Kirim `/start@NamaBotmu` di grup, lalu muat ulang.
 
 ```bash
 supabase secrets set TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
-supabase secrets set TELEGRAM_CHAT_ID=-1001234567890
 supabase secrets set NOTIFY_SECRET=<string-acak-panjang>
 ```
 
@@ -30,7 +29,12 @@ supabase secrets set NOTIFY_SECRET=<string-acak-panjang>
 orang dari internet. `CRON_SECRET` sudah ada dari reminder presensi dan dipakai
 ulang untuk reminder armada.
 
+**ID grup TIDAK diset di sini** — diatur dari Admin Portal (langkah 4), karena
+tiap event bisa menuju grup berbeda. `TELEGRAM_CHAT_ID` boleh diisi sebagai
+cadangan untuk event yang rutenya belum diatur, tapi tidak wajib.
+
 > Token bot **tidak boleh** masuk folder `js/`. Repo ini publik di GitHub Pages.
+> ID grup bukan rahasia — tanpa token, ia tidak bisa dipakai mengirim apa pun.
 
 ---
 
@@ -47,9 +51,23 @@ dijaga oleh `NOTIFY_SECRET` / `CRON_SECRET` di dalam function.
 
 ---
 
-## 4. Uji koneksi
+## 4. Atur tujuan grup & uji
 
-Admin Portal → **📣 Notifikasi Telegram** → **Kirim Pesan Tes**.
+Admin Portal → **📣 Notifikasi Telegram**. Tiap event diatur tujuannya sendiri,
+lalu diuji lewat tombol **Tes** di barisnya.
+
+Konfigurasi saat ini:
+
+| Event | Grup |
+| --- | --- |
+| 📝 Pengajuan cuti baru | **Berjaya** |
+| ✅ Cuti disetujui / ditolak | **Berjaya** |
+| 🚗 Dokumen kendaraan jatuh tempo | **Berjaya** |
+| 📦 Order stok baru ke CK | **Awal Bermula** |
+
+Tombol **+ Khusus BU** dipakai kalau nanti ada BU yang harus mengirim event
+yang sama ke grup lain. Selama tidak dipakai, satu baris utama berlaku untuk
+semua BU.
 
 Pesan error yang sering muncul:
 

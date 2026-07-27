@@ -1,95 +1,220 @@
-import { supabase } from '../../config/supabase-client.js';
-import { toast } from '../../core/ui.js';
+import { toast, confirmDialog, formDialog } from '../../core/ui.js';
+import { listBusinessUnitsBasic } from '../organization/organization.service.js';
+import {
+  TELEGRAM_EVENTS,
+  eventInfo,
+  listTelegramRoutes,
+  saveTelegramRoute,
+  deleteTelegramRoute,
+  sendTelegramTest
+} from './telegram.service.js';
 
 /**
- * Halaman uji & status Notifikasi Telegram (Super Admin).
+ * Halaman Notifikasi Telegram (Super Admin).
  *
- * Halaman ini sengaja TIDAK menyimpan token bot maupun chat ID. Keduanya hidup
- * sebagai secret di Edge Function, karena repo ini publik di GitHub Pages —
- * apa pun yang masuk folder js/ bisa dibaca siapa saja.
+ * Halaman ini sengaja TIDAK menyimpan token bot — token hidup sebagai secret di
+ * Edge Function, karena repo ini publik di GitHub Pages. Yang diatur di sini
+ * hanya **tujuan grup per event**; chat ID bukan rahasia (tanpa token, ia tidak
+ * bisa dipakai mengirim apa pun).
  */
-const EVENTS = [
-  { icon: '📝', label: 'Pengajuan cuti baru', detail: 'Database Webhook · INSERT pada leave_requests' },
-  { icon: '✅', label: 'Cuti disetujui / ditolak', detail: 'Database Webhook · UPDATE pada leave_requests saat status berubah' },
-  { icon: '📦', label: 'Order stok baru ke Central Kitchen', detail: 'Database Webhook · INSERT pada stock_orders' },
-  { icon: '🚗', label: 'Dokumen kendaraan jatuh tempo', detail: 'Cron harian · Edge Function send-fleet-reminders' }
-];
-
 export async function renderTelegramAdminPage(container) {
+  container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat pengaturan notifikasi...</p>`;
+
+  let routes, bus;
+  try {
+    [routes, bus] = await Promise.all([listTelegramRoutes(), listBusinessUnitsBasic().catch(() => [])]);
+  } catch (error) {
+    container.innerHTML = `<p class="error-text">Gagal memuat: ${esc(error.message ?? error)}</p>`;
+    return;
+  }
+
   container.innerHTML = `
     <h1>Notifikasi Telegram</h1>
-    <p style="font-size:0.85rem;color:var(--color-text-muted);margin-top:0;max-width:640px">
-      App mengirim pesan otomatis ke grup Telegram berisi para PIC. Token bot &amp; ID grup disimpan sebagai
-      <strong>secret di Edge Function</strong>, bukan di aplikasi — jadi tidak bisa terbaca dari kode yang di-hosting publik.
+    <p style="font-size:0.85rem;color:var(--color-text-muted);margin-top:0;max-width:660px">
+      Tiap jenis event bisa diarahkan ke grup yang berbeda. Token bot disimpan sebagai
+      <strong>secret di Edge Function</strong> — yang diatur di sini hanya tujuan grupnya.
     </p>
+    <div id="tg-routes"></div>
 
-    <div class="inline-card" style="max-width:640px">
-      <h3 style="margin-top:0">Uji Koneksi</h3>
-      <p style="font-size:0.82rem;color:var(--color-text-muted);margin-top:0">
-        Mengirim satu pesan tes ke grup. Ini cara tercepat memastikan token, ID grup, dan keanggotaan bot sudah benar
-        sebelum menunggu event sungguhan.
-      </p>
-      <button class="primary" id="tg-test" style="max-width:220px">📤 Kirim Pesan Tes</button>
-      <div id="tg-result" style="margin-top:10px"></div>
-    </div>
-
-    <div class="inline-card" style="max-width:640px;margin-top:16px">
-      <h3 style="margin-top:0">Event yang Dikirim</h3>
-      <div class="profile-list">
-        ${EVENTS.map(
-          (e) => `<div class="profile-row">
-            <span class="profile-label">${e.icon} ${esc(e.label)}</span>
-            <span class="profile-value" style="font-size:0.78rem;color:var(--color-text-muted)">${esc(e.detail)}</span>
-          </div>`
-        ).join('')}
-      </div>
-    </div>
-
-    <div class="inline-card" style="max-width:640px;margin-top:16px">
+    <div class="inline-card" style="max-width:660px;margin-top:16px">
       <h3 style="margin-top:0">Kalau Pesan Tidak Sampai</h3>
       <ul style="font-size:0.84rem;color:var(--color-text-muted);padding-left:18px;margin-bottom:0">
-        <li><strong>"chat not found"</strong> — bot belum ditambahkan ke grup, atau ID grup salah. ID grup selalu diawali tanda minus.</li>
-        <li><strong>"bot was kicked"</strong> — bot dikeluarkan dari grup, tambahkan kembali.</li>
-        <li><strong>Tes berhasil tapi event tidak terkirim</strong> — Database Webhook-nya belum didaftarkan di dashboard Supabase. Lihat README.</li>
+        <li><strong>chat not found</strong> — bot belum ditambahkan ke grup, atau ID salah. ID grup <strong>selalu diawali tanda minus</strong>.</li>
+        <li><strong>bot was kicked</strong> — bot dikeluarkan dari grup, tambahkan kembali.</li>
+        <li><strong>Tes berhasil tapi event tidak terkirim</strong> — Database Webhook belum didaftarkan di dashboard Supabase (lihat <code>SETUP.md</code>).</li>
         <li><strong>Reminder armada tidak muncul</strong> — cron harian belum dipasang, atau semua dokumen memang masih aman.</li>
       </ul>
     </div>
   `;
 
-  const result = container.querySelector('#tg-result');
-  const btn = container.querySelector('#tg-test');
+  const host = container.querySelector('#tg-routes');
+  draw();
 
-  btn.addEventListener('click', async () => {
-    btn.disabled = true;
-    result.innerHTML = `<p style="color:var(--color-text-muted)">Mengirim…</p>`;
-    try {
-      const { data, error } = await supabase.functions.invoke('notify-telegram', { body: { test: true } });
-      if (error) {
-        // Badan respons non-2xx tidak dibaca otomatis oleh supabase-js — dibaca
-        // manual supaya pesan Telegram yang sebenarnya (mis. "chat not found")
-        // terlihat, bukan sekadar "non-2xx status code".
-        let detail = error.message ?? String(error);
+  function routeFor(key) {
+    // Rute global (berlaku semua BU) yang dipakai sebagai baris utama.
+    return routes.find((r) => r.event_key === key && !r.business_unit_id) ?? null;
+  }
+  function overridesFor(key) {
+    return routes.filter((r) => r.event_key === key && r.business_unit_id);
+  }
+
+  function draw() {
+    host.innerHTML = `
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead><tr><th>Event</th><th>Grup tujuan</th><th>ID Chat</th><th>Aksi</th></tr></thead>
+          <tbody>
+            ${TELEGRAM_EVENTS.map((e) => {
+              const r = routeFor(e.key);
+              const ov = overridesFor(e.key);
+              return `
+                <tr>
+                  <td>
+                    <strong>${e.icon} ${esc(e.label)}</strong>
+                    <div style="font-size:0.72rem;color:var(--color-text-muted)">${esc(e.detail)}</div>
+                  </td>
+                  <td>${
+                    r
+                      ? `${esc(r.label ?? 'Grup')}${r.is_active ? '' : ' <span class="badge badge-cancelled">nonaktif</span>'}`
+                      : '<span style="color:var(--color-danger)">belum diatur</span>'
+                  }</td>
+                  <td style="font-family:ui-monospace,Menlo,monospace;font-size:0.8rem">${r ? esc(r.chat_id) : '-'}</td>
+                  <td>
+                    <button class="tg-edit" data-key="${e.key}">${r ? 'Ubah' : 'Atur'}</button>
+                    ${r ? `<button class="tg-test" data-key="${e.key}">Tes</button>` : ''}
+                    ${r ? `<button class="tg-del" data-id="${r.id}">Hapus</button>` : ''}
+                    <button class="tg-override" data-key="${e.key}">+ Khusus BU</button>
+                  </td>
+                </tr>
+                ${ov
+                  .map(
+                    (o) => `<tr>
+                      <td style="padding-left:24px;font-size:0.82rem;color:var(--color-text-muted)">↳ khusus ${esc(o.business_units?.name ?? 'BU')}</td>
+                      <td>${esc(o.label ?? 'Grup')}</td>
+                      <td style="font-family:ui-monospace,Menlo,monospace;font-size:0.8rem">${esc(o.chat_id)}</td>
+                      <td>
+                        <button class="tg-edit" data-key="${e.key}" data-bu="${o.business_unit_id}">Ubah</button>
+                        <button class="tg-test" data-key="${e.key}" data-bu="${o.business_unit_id}">Tes</button>
+                        <button class="tg-del" data-id="${o.id}">Hapus</button>
+                      </td>
+                    </tr>`
+                  )
+                  .join('')}
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:0.78rem;color:var(--color-text-muted);margin-top:8px">
+        Baris utama berlaku untuk <strong>semua BU</strong>. Tambahkan <em>Khusus BU</em> hanya kalau ada BU yang
+        harus mengirim ke grup berbeda.
+      </p>
+    `;
+
+    host.querySelectorAll('.tg-edit').forEach((b) =>
+      b.addEventListener('click', () => openRouteDialog(b.dataset.key, b.dataset.bu || null))
+    );
+    host.querySelectorAll('.tg-override').forEach((b) => b.addEventListener('click', () => openRouteDialog(b.dataset.key, '', true)));
+    host.querySelectorAll('.tg-test').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const info = eventInfo(b.dataset.key);
+        b.disabled = true;
+        const label = b.textContent;
+        b.textContent = 'Mengirim…';
         try {
-          const body = await error.context?.json?.();
-          if (body?.error) detail = body.error;
-        } catch {
-          /* pakai pesan aslinya */
+          await sendTelegramTest({ eventKey: b.dataset.key, eventLabel: info.label, businessUnitId: b.dataset.bu || null });
+          toast('Pesan tes terkirim. Cek grupnya.', 'success');
+        } catch (error) {
+          toast(error.message ?? 'Gagal mengirim.', 'error');
+        } finally {
+          b.disabled = false;
+          b.textContent = label;
         }
-        throw new Error(detail);
-      }
-      if (data?.ok) {
-        result.innerHTML = `<p style="color:var(--color-primary);font-weight:600">✅ Terkirim. Cek grup Telegram kamu.</p>`;
-        toast('Pesan tes terkirim.', 'success');
-      } else {
-        throw new Error(data?.error ?? 'Gagal mengirim.');
-      }
-    } catch (e) {
-      result.innerHTML = `<p class="error-text" style="margin:0">❌ ${esc(e.message ?? e)}</p>`;
-      toast('Pesan tes gagal.', 'error');
-    } finally {
-      btn.disabled = false;
+      })
+    );
+    host.querySelectorAll('.tg-del').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const ok = await confirmDialog({
+          title: 'Hapus rute ini?',
+          message: 'Event ini tidak akan mengirim notifikasi sampai rutenya diatur lagi.',
+          confirmText: 'Hapus',
+          danger: true
+        });
+        if (!ok) return;
+        try {
+          await deleteTelegramRoute(b.dataset.id);
+          toast('Rute dihapus.', 'success');
+          await reload();
+        } catch (error) {
+          toast(error.message ?? 'Gagal menghapus.', 'error');
+        }
+      })
+    );
+  }
+
+  async function reload() {
+    routes = await listTelegramRoutes();
+    draw();
+  }
+
+  async function openRouteDialog(eventKey, businessUnitId, isNewOverride = false) {
+    const info = eventInfo(eventKey);
+    const existing = routes.find(
+      (r) => r.event_key === eventKey && (businessUnitId ? r.business_unit_id === businessUnitId : !r.business_unit_id)
+    );
+
+    const values = await formDialog({
+      title: `${info.icon} ${info.label}`,
+      description: isNewOverride
+        ? 'Kirim event ini ke grup berbeda khusus untuk satu BU. Kosongkan pilihan BU untuk mengatur rute umum.'
+        : 'Tujuan grup untuk event ini. ID grup Telegram selalu diawali tanda minus, contoh: -1001234567890.',
+      fields: [
+        ...(isNewOverride || businessUnitId
+          ? [
+              {
+                name: 'business_unit_id',
+                label: 'Berlaku untuk BU',
+                type: 'select',
+                value: businessUnitId ?? '',
+                options: [{ value: '', label: '-- semua BU --' }, ...bus.map((b) => ({ value: b.id, label: b.name }))]
+              }
+            ]
+          : []),
+        { name: 'label', label: 'Nama grup (pengingat saja)', type: 'text', value: existing?.label ?? '', placeholder: 'mis. Grup Berjaya' },
+        {
+          name: 'chat_id',
+          label: 'ID Chat grup',
+          type: 'text',
+          required: true,
+          value: existing?.chat_id ?? '',
+          placeholder: '-1001234567890',
+          help: 'Ambil dari https://api.telegram.org/bot<TOKEN>/getUpdates setelah mengirim pesan di grup.'
+        },
+        { name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing ? existing.is_active : true }
+      ],
+      submitText: 'Simpan'
+    });
+    if (!values) return;
+
+    const chat = String(values.chat_id).trim();
+    if (!/^-?\d+$/.test(chat)) {
+      toast('ID chat harus berupa angka (grup diawali tanda minus).', 'warning');
+      return;
     }
-  });
+    try {
+      await saveTelegramRoute({
+        eventKey,
+        businessUnitId: values.business_unit_id ?? businessUnitId ?? null,
+        chatId: chat,
+        label: values.label,
+        isActive: values.is_active
+      });
+      toast('Rute disimpan.', 'success');
+      await reload();
+    } catch (error) {
+      toast(error.message ?? 'Gagal menyimpan rute.', 'error');
+    }
+  }
 }
 
 function esc(s) {
