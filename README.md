@@ -607,9 +607,44 @@ Kartu notifikasi ada di **Staff App → 👤 Profil → Notifikasi di Perangkat 
 
 Kartunya punya tombol **📨 Kirim Tes** yang mengirim push ke perangkat sendiri lewat Edge Function `send-test-push` — bisa dibuktikan sekarang juga tanpa menunggu jadwal cron atau menunggu ada reservasi masuk. Function itu mengenali pemanggil dari **JWT-nya sendiri** dan hanya mengirim ke langganan milik user itu; tidak ada cara mengirim ke orang lain. Langganan yang sudah mati (404/410) otomatis dibersihkan.
 
+### Rekap reservasi harian (push)
+
+```bash
+supabase functions deploy send-reservation-digest
+```
+
+Cron sekali sehari, mis. 07:00 WIB (= 00:00 UTC):
+
+```sql
+select cron.schedule(
+  'reservation-digest',
+  '0 0 * * *',                         -- 00:00 UTC = 07:00 WIB
+  $$
+  select net.http_post(
+    url     := 'https://<PROJECT-REF>.supabase.co/functions/v1/send-reservation-digest',
+    headers := jsonb_build_object('Content-Type', 'application/json', 'x-cron-secret', '<CRON_SECRET>'),
+    body    := '{}'::jsonb
+  );
+  $$
+);
+```
+
+Untuk rekap **H-1 malam** (dapur bisa siapkan bahan lebih awal), pasang jadwal kedua dengan `body := '{"offset_days":1}'::jsonb`.
+
+**Uji tanpa mengirim** — `{"dry_run":true}` mengembalikan jumlah penerima + contoh isi pesannya.
+
+Aturan penerimanya sengaja mengikuti apa yang orang itu lihat di dalam app:
+
+- hanya BU yang **mengaktifkan modul Reservasi**;
+- isinya dibatasi ke **outlet yang jadi scope** orang itu (scope level BU → semua outlet BU tersebut);
+- **`user_module_access` dihormati** — staff yang modul Reservasi-nya dicabut admin tidak ikut diberi tahu;
+- **hari kosong tidak dikirim**, karena notifikasi "hari ini tidak ada reservasi" setiap pagi hanya melatih orang mengabaikan notifikasi.
+
+Isi pesan: jumlah reservasi + total tamu + berapa yang **belum dikonfirmasi**, lalu daftar `jam nama (pax)` maksimal 6 baris, sisanya diringkas. Nama outlet hanya disertakan kalau orang itu memang membawahi lebih dari satu outlet. Dedupe lewat `telegram_notifications_sent` (`kind='reservation_digest'`).
+
 ### Yang mengirim push
 
-Hanya dua: **`send-attendance-reminders`** (pengingat clock in, butuh cron) dan **`notify-reservation`** (reservasi baru → admin outlet). Modul lain seperti Pengiriman **belum pernah** punya push — bukan rusak, memang belum dibuat.
+Tiga: **`send-attendance-reminders`** (pengingat clock in, butuh cron), **`notify-reservation`** (reservasi baru → admin outlet), dan **`send-reservation-digest`** (rekap harian). Plus **`send-test-push`** untuk uji manual. Modul lain seperti Pengiriman **belum pernah** punya push — bukan rusak, memang belum dibuat.
 
 **Catatan iOS:** Web Push di iPhone hanya bekerja kalau app sudah **ditambahkan ke Home Screen** lewat Safari dan dibuka dari ikon itu — tidak bekerja di tab Safari biasa.
 
