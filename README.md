@@ -583,6 +583,28 @@ Pemilih periode/outlet, render tabel, kartu KPI, dan Export PDF otomatis ikut �
 
 Selisih pemakaian bahan (resep × penjualan vs `stock_movements` — penangkap kebocoran), penjualan per menu & tren harian, arus kas, nilai persediaan, produksi & yield CK, pemenuhan order/pengiriman, utilisasi armada, sisa jatah cuti, kepatuhan ceklis kebersihan.
 
+## Notifikasi Telegram ke grup PIC
+
+Jalankan migration `0041_telegram_notifications.sql`. Langkah setup lengkap ada di **`supabase/functions/notify-telegram/SETUP.md`** — ringkasnya: set secret → deploy → uji koneksi → pasang webhook & cron.
+
+**Token bot & ID grup disimpan sebagai secret Edge Function, tidak pernah masuk folder `js/`** — repo ini publik di GitHub Pages, jadi apa pun di frontend bisa dibaca siapa saja.
+
+Satu grup untuk semua BU (`TELEGRAM_CHAT_ID`). Empat event:
+
+| Event | Pemicu |
+| --- | --- |
+| 📝 Pengajuan cuti baru | Database Webhook · `INSERT` pada `leave_requests` |
+| ✅ Cuti disetujui / ditolak | Database Webhook · `UPDATE` pada `leave_requests`, **hanya saat status berubah** |
+| 📦 Order stok baru ke CK | Database Webhook · `INSERT` pada `stock_orders` |
+| 🚗 Dokumen kendaraan jatuh tempo | Cron harian · `send-fleet-reminders` |
+
+Dipilih **Database Webhook**, bukan panggilan dari app, supaya notifikasi tetap terkirim walau HP staff mati atau sinyal putus tepat setelah data tersimpan — dan tetap jalan untuk data yang masuk dari luar Staff App.
+
+- **Admin Portal → 📣 Notifikasi Telegram** (super admin): tombol **Kirim Pesan Tes** + daftar event + panduan membaca error. Ini cara tercepat memastikan token/ID grup/keanggotaan bot benar sebelum menunggu event sungguhan.
+- Pesan error Telegram yang sebenarnya (mis. `chat not found`) dibaca dari badan respons non-2xx (`error.context.json()`), bukan sekadar "non-2xx status code".
+- Telegram membalas **HTTP 200 dengan `{ok:false}`** kalau chat ID salah atau bot dikeluarkan dari grup — jadi status HTTP saja tidak cukup, `body.ok` ikut diperiksa.
+- Reminder armada memakai **`reminder_lead_days` per BU** (Admin Portal → Armada → Pengaturan), tidak di-hardcode. Dedupe lewat `telegram_notifications_sent` supaya cron yang jalan dua kali tidak mengirim pesan dobel. Mendukung `{"dry_run":true}` untuk pratinjau tanpa mengirim.
+
 ## Izin akses Admin Portal per user
 
 Jalankan migration `0033_admin_tab_access.sql`.

@@ -1,0 +1,233 @@
+// supabase/functions/notify-telegram/index.ts
+// Deploy: supabase functions deploy notify-telegram --no-verify-jwt
+//
+// Satu-satunya pintu kirim pesan Telegram. Token bot HANYA hidup di sini
+// sebagai secret Supabase — tidak pernah masuk folder js/ karena repo ini
+// publik di GitHub Pages.
+//
+// Dipanggil oleh:
+//   1. Database Webhook Supabase (INSERT/UPDATE pada leave_requests & stock_orders)
+//   2. Admin Portal, untuk kirim pesan tes ({"test": true})
+//
+// Secrets yang dibutuhkan:
+//   supabase secrets set TELEGRAM_BOT_TOKEN=...
+//   supabase secrets set TELEGRAM_CHAT_ID=-100xxxxxxxxxx
+//   supabase secrets set NOTIFY_SECRET=...     (opsional tapi disarankan)
+
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN');
+const CHAT_ID = Deno.env.get('TELEGRAM_CHAT_ID');
+// Dipakai Database Webhook lewat custom header `x-notify-secret`.
+// Kalau tidak diset, pemeriksaan dilewati (mis. saat masih uji coba).
+const NOTIFY_SECRET = Deno.env.get('NOTIFY_SECRET');
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-notify-secret',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS'
+};
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS } });
+}
+
+const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+// ---- Telegram ----
+
+/** Escape untuk parse_mode HTML — hanya 3 karakter ini yang wajib. */
+function esc(s: unknown) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+export async function sendTelegram(text: string) {
+  if (!BOT_TOKEN || !CHAT_ID) {
+    return { ok: false, error: 'TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID belum diset sebagai secret.' };
+  }
+  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: CHAT_ID,
+      text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true
+    })
+  });
+  const body = await res.json().catch(() => ({}));
+  // Telegram membalas 200 dengan {ok:false} kalau chat_id salah / bot dikeluarkan
+  // dari grup — jadi status HTTP saja tidak cukup untuk menyimpulkan berhasil.
+  if (!res.ok || body?.ok === false) {
+    return { ok: false, error: body?.description ?? `HTTP ${res.status}`, statusCode: res.status };
+  }
+  return { ok: true };
+}
+
+// ---- Format tanggal ----
+
+const fmtDate = (d: string | null) =>
+  d ? new Date(d + 'T00:00:00').toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' }) : '-';
+
+// ---- Formatter per event ----
+
+async function namaUser(id: string | null) {
+  if (!id) return '-';
+  const { data } = await admin.from('user_profiles').select('full_name').eq('id', id).maybeSingle();
+  return data?.full_name ?? '-';
+}
+
+async function namaBu(id: string | null) {
+  if (!id) return null;
+  const { data } = await admin.from('business_units').select('name').eq('id', id).maybeSingle();
+  return data?.name ?? null;
+}
+
+async function namaOutlet(id: string | null) {
+  if (!id) return null;
+  const { data } = await admin.from('outlets').select('name').eq('id', id).maybeSingle();
+  return data?.name ?? null;
+}
+
+// deno-lint-ignore no-explicit-any
+async function pesanCutiBaru(r: any) {
+  const [nama, jenis, bu, outlet] = await Promise.all([
+    namaUser(r.user_id),
+    admin.from('leave_types').select('name').eq('id', r.leave_type_id).maybeSingle().then((x) => x.data?.name ?? 'Cuti'),
+    namaBu(r.business_unit_id),
+    namaOutlet(r.outlet_id)
+  ]);
+  const lokasi = [bu, outlet].filter(Boolean).join(' · ');
+  return [
+    '📝 <b>Pengajuan Cuti Baru</b>',
+    '',
+    `👤 <b>${esc(nama)}</b>${lokasi ? `\n🏢 ${esc(lokasi)}` : ''}`,
+    `🗂 Jenis: ${esc(jenis)}`,
+    `📅 ${fmtDate(r.start_date)} – ${fmtDate(r.end_date)} (<b>${r.day_count} hari</b>)`,
+    r.reason ? `💬 ${esc(r.reason)}` : '',
+    r.attachment_path ? '📎 Ada lampiran' : '',
+    '',
+    '<i>Menunggu persetujuan PIC di Admin Portal.</i>'
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+// deno-lint-ignore no-explicit-any
+async function pesanCutiDireview(r: any) {
+  const disetujui = r.status === 'approved';
+  const [nama, reviewer, jenis] = await Promise.all([
+    namaUser(r.user_id),
+    namaUser(r.reviewed_by),
+    admin.from('leave_types').select('name').eq('id', r.leave_type_id).maybeSingle().then((x) => x.data?.name ?? 'Cuti')
+  ]);
+  return [
+    disetujui ? '✅ <b>Cuti Disetujui</b>' : '❌ <b>Cuti Ditolak</b>',
+    '',
+    `👤 <b>${esc(nama)}</b>`,
+    `🗂 Jenis: ${esc(jenis)}`,
+    `📅 ${fmtDate(r.start_date)} – ${fmtDate(r.end_date)} (<b>${r.day_count} hari</b>)`,
+    `🧑‍💼 Diputuskan oleh: ${esc(reviewer)}`,
+    r.review_note ? `💬 ${esc(r.review_note)}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+// deno-lint-ignore no-explicit-any
+async function pesanOrderStok(r: any) {
+  const [dari, ke, pemesan, items] = await Promise.all([
+    namaOutlet(r.from_outlet_id),
+    namaOutlet(r.to_outlet_id),
+    namaUser(r.created_by),
+    admin.from('stock_order_items').select('qty, products(name, base_unit)').eq('order_id', r.id)
+  ]);
+  // deno-lint-ignore no-explicit-any
+  const daftar = (items.data ?? []).map((i: any) => `• ${esc(i.products?.name ?? '-')} — ${i.qty} ${esc(i.products?.base_unit ?? '')}`);
+  return [
+    '📦 <b>Order Stok Baru</b>',
+    '',
+    r.code ? `🔖 ${esc(r.code)}` : '',
+    `🏪 Dari: <b>${esc(dari ?? '-')}</b>`,
+    `🏭 Ke: <b>${esc(ke ?? '-')}</b>`,
+    `👤 Pemesan: ${esc(pemesan)}`,
+    daftar.length ? `\n<b>Item (${daftar.length}):</b>\n${daftar.slice(0, 30).join('\n')}` : '',
+    daftar.length > 30 ? `<i>…dan ${daftar.length - 30} item lain</i>` : '',
+    r.notes ? `\n💬 ${esc(r.notes)}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+/**
+ * Ubah payload Database Webhook jadi teks pesan.
+ * Return null = event ini memang tidak perlu dikirim (bukan error).
+ */
+// deno-lint-ignore no-explicit-any
+async function buildMessage(payload: any): Promise<string | null> {
+  const { type, table, record, old_record } = payload ?? {};
+  if (!table || !record) return null;
+
+  if (table === 'leave_requests') {
+    if (type === 'INSERT') return await pesanCutiBaru(record);
+    if (type === 'UPDATE') {
+      // Hanya saat status BERUBAH ke approved/rejected — update lain
+      // (mis. melengkapi lampiran) tidak perlu mengganggu grup.
+      const berubah = old_record && old_record.status !== record.status;
+      if (berubah && (record.status === 'approved' || record.status === 'rejected')) {
+        return await pesanCutiDireview(record);
+      }
+    }
+    return null;
+  }
+
+  if (table === 'stock_orders') {
+    if (type === 'INSERT') return await pesanOrderStok(record);
+    return null;
+  }
+
+  return null;
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+
+  if (NOTIFY_SECRET) {
+    const provided = req.headers.get('x-notify-secret');
+    // Panggilan dari Admin Portal membawa JWT user, bukan secret — itu sudah
+    // dijaga oleh gerbang Supabase, jadi cukup salah satu terpenuhi.
+    const punyaJwt = !!req.headers.get('authorization');
+    if (provided !== NOTIFY_SECRET && !punyaJwt) return json({ error: 'Unauthorized' }, 401);
+  }
+
+  // deno-lint-ignore no-explicit-any
+  let payload: any;
+  try {
+    payload = await req.json();
+  } catch {
+    return json({ error: 'Body harus JSON' }, 400);
+  }
+
+  // Mode tes dari Admin Portal.
+  if (payload?.test) {
+    const hasil = await sendTelegram(
+      [
+        '🔔 <b>Tes Notifikasi Berjaya Hub</b>',
+        '',
+        'Kalau pesan ini muncul, koneksi bot ke grup sudah benar.',
+        `<i>${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} WIB</i>`
+      ].join('\n')
+    );
+    return json(hasil, hasil.ok ? 200 : 502);
+  }
+
+  const text = await buildMessage(payload);
+  if (!text) return json({ ok: true, skipped: true, reason: 'Event tidak perlu dikirim.' });
+
+  const hasil = await sendTelegram(text);
+  // Webhook Supabase akan mencatat kegagalan; balas non-2xx supaya terlihat di log.
+  return json(hasil, hasil.ok ? 200 : 502);
+});

@@ -17,6 +17,7 @@ import { renderShiftAdminPage } from './modules/shift/shift.admin.page.js';
 import { renderFleetAdminPage } from './modules/fleet/fleet.admin.page.js';
 import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
 import { renderReportAdminPage } from './modules/report/report.admin.page.js';
+import { renderTelegramAdminPage } from './modules/notifications/telegram.admin.page.js';
 import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
 import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
 import { listBusinessUnitsBasic } from './modules/organization/organization.service.js';
@@ -31,6 +32,7 @@ const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
 // (beda dengan modul operasional seperti presensi/inventory yang di-toggle per BU)
 registerModule('dashboard', renderAdminDashboard);
 registerModule('report', renderReportAdminPage);
+registerModule('telegram', renderTelegramAdminPage);
 registerModule('organization', renderOrganizationAdminPage);
 registerModule('master_user', renderMasterUserPage);
 registerModule('bu_appearance', renderBuAppearancePage);
@@ -88,7 +90,8 @@ const GROUPED_CODES = new Set(Object.values(GROUPS).flatMap((g) => g.tabs.map((t
 // tapi tetap bisa dibatasi lewat Izin Admin per user.
 const CORE_ADMIN_MENU = [
   { code: 'dashboard', name: 'Dashboard' },
-  { code: 'report', name: 'Laporan' }
+  { code: 'report', name: 'Laporan' },
+  { code: 'telegram', name: 'Notifikasi Telegram' }
 ];
 
 /** Tab dalam sebuah grup yang boleh dilihat user ini di BU aktif. */

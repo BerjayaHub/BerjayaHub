@@ -9,6 +9,7 @@ const ICONS = {
   master_user: '👤',
   dashboard: '🏠',
   report: '📊',
+  telegram: '📣',
   bu_appearance: '🎨',
   organization: '🏢',
   master_product: '📒',
