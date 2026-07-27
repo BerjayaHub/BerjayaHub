@@ -63,7 +63,9 @@ const GROUPS = {
       { code: 'master_user', label: 'Master User', render: renderMasterUserPage, core: true },
       { code: 'staff_data', label: 'Data Staff', render: renderStaffDataPage, core: true },
       { code: 'leave', label: 'Pengajuan Cuti', render: renderLeaveAdminPage },
-      { code: 'cash_ledger', label: 'Kas', render: renderCashAdminPage }
+      // core: true -> kas tidak lagi tergantung toggle modul per BU, karena
+      // saldonya milik user dan lintas BU. Aksesnya dijaga superAdminOnly.
+      { code: 'cash_ledger', label: 'Kas', render: renderCashAdminPage, core: true }
     ]
   },
   grp_inventory: {

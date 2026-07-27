@@ -125,13 +125,13 @@ async function salesProvider({ before, limit }) {
 async function cashProvider({ before, limit }) {
   const rows = await listRecentCashActivity({ before, limit });
   return rows.map((r) => {
-    const bu = r.business_units?.name ? ` · ${r.business_units.name}` : '';
+    // Kas tidak lagi terikat BU/outlet (0040), jadi tidak ada lagi label BU di sini.
     const amt = Number(r.amount) || 0;
     const cat = r.cash_categories?.name ? ` (${r.cash_categories.name})` : '';
     return {
       time: r.created_at,
       icon: '💵',
-      text: `${r.holder?.full_name ?? 'Staff'} — ${ENTRY_LABEL[r.entry_type] ?? r.entry_type} ${formatRupiah(Math.abs(amt))}${cat}${bu}`
+      text: `${r.holder?.full_name ?? 'Staff'} — ${ENTRY_LABEL[r.entry_type] ?? r.entry_type} ${formatRupiah(Math.abs(amt))}${cat}`
     };
   });
 }

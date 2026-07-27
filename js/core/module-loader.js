@@ -46,6 +46,25 @@ export function getModuleRenderer(code) {
  * Aturan: kalau user tidak punya baris user_module_access di BU ini -> boleh
  * semua modul aktif BU (default). Kalau punya -> hanya yang terdaftar.
  */
+/**
+ * Modul yang aktif di SALAH SATU BU milik user.
+ * Dipakai modul yang datanya melekat pada user, bukan pada BU — mis. Kas
+ * (migration 0040): menunya tidak boleh hilang hanya karena user sedang
+ * berpindah ke BU yang tidak mengaktifkan modul itu.
+ */
+export async function getModulesActiveInAnyBu(businessUnitIds) {
+  if (!businessUnitIds?.length) return [];
+  const { data, error } = await supabase
+    .from('bu_modules')
+    .select('is_active, modules(id, code, name, description)')
+    .in('business_unit_id', businessUnitIds)
+    .eq('is_active', true);
+  if (error) return [];
+  const seen = new Map();
+  for (const row of data ?? []) if (row.modules) seen.set(row.modules.code, row.modules);
+  return [...seen.values()];
+}
+
 export async function getMyAllowedModules(businessUnitId, activeModules) {
   const {
     data: { user }

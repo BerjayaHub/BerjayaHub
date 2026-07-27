@@ -336,6 +336,20 @@ Jalankan migration `0026_cash_ledger.sql`, lalu aktifkan modul **Kas** untuk BU 
 - **Admin Portal** (menu Kas), 2 tab: **Saldo & Mutasi** (saldo per pemegang + total BU; mutasi dengan filter pemegang/jenis/tanggal + ringkasan masuk/keluar/net) dan **Kategori** (kelola kategori kas per BU, arah Masuk/Keluar/keduanya).
 - **Kas dicatat manual** — omzet penjualan **tidak** otomatis masuk kas (menghindari dobel-hitung karena ada pembayaran non-tunai). Aktivitas kas muncul di **Dashboard** (💵).
 
+### Revisi: kas melekat pada USER (migration `0040_cash_per_user.sql`)
+
+Sebelumnya saldo dikelompokkan per `(business_unit_id, holder_id)`, sehingga satu orang punya beberapa "dompet" terpisah dan **saldonya berubah setiap berganti BU**. Sekarang **satu user = satu saldo**, apa pun BU/outlet yang sedang aktif.
+
+- `cash_balances` mengelompokkan **hanya per `holder_id`**.
+- Entri baru **tidak lagi menyimpan** `business_unit_id`/`outlet_id`. Kolomnya **tidak di-drop** — dipertahankan supaya riwayat lama tetap utuh dan bisa diaudit (`drop not null` + komentar DEPRECATED).
+- **Akses: hanya Super Admin.** Kas dianggap data tingkat organisasi — admin BU tidak lagi bisa melihat kas siapa pun. Tab `cash_ledger` jadi `superAdminOnly` (tidak bisa diberikan lewat Izin Admin) dan `core: true` (tidak lagi bergantung toggle modul per BU).
+- **Transfer lintas BU** — RPC `transfer_cash(p_to_user, p_amount, p_notes)`; signature lama yang membawa `p_bu`/`p_outlet` di-drop. Penerima cukup anggota organisasi mana pun. Daftar penerima dari RPC security-definer `list_cash_members()` (id + nama saja).
+- **Kategori kas jadi global** (`business_unit_id` nullable, entri baru NULL), dikelola Super Admin. Kategori lama per-BU tetap terbaca supaya entri lama tidak kehilangan namanya.
+- **Bukti kas**: policy storage berubah jadi pemilik + Super Admin (policy lama menempel ke `is_bu_admin(ce.business_unit_id)` yang kini kosong).
+- **Menu Staff App tetap muncul saat pindah BU.** Kalau BU yang sedang aktif tidak mengaktifkan modul Kas, menunya tetap ditampilkan selama **salah satu** BU milik user mengaktifkannya (`getModulesActiveInAnyBu()`). Tanpa ini, saldo pribadi jadi tidak terjangkau hanya karena berpindah BU — persis masalah yang mau diperbaiki.
+
+**Konsekuensi yang perlu diketahui:** karena pengeluaran kas tidak lagi menyimpan outlet penanggungnya, **laporan Laba Rugi kehilangan komponen beban**. Laporannya diubah jadi **Laba Kotor** (Omzet − HPP) — sengaja *tidak* dibiarkan menampilkan "laba bersih" yang salah. Untuk laba bersih, beban perlu punya atribusi outlet sendiri (mis. modul Biaya/Expense terpisah dari kas pribadi).
+
 ## Revisi UI — pengelompokan menu & tema
 
 Tanpa migration (frontend saja).
@@ -536,7 +550,7 @@ Admin Portal → **📊 Laporan**: pilih **jenis laporan**, **outlet**, dan **pe
 
 Laporan yang sudah tersedia:
 
-- **Laba Rugi** (Keuangan) — Omzet penjualan − HPP bahan (dari resep aktif: mode *Standalone*, mundur ke *Dilayani CK*) = **laba kotor**; dikurangi **beban kas keluar per kategori** = **laba bersih (estimasi)**. Kas Masuk & transfer antar pemegang kas sengaja **tidak** dihitung sebagai pendapatan supaya tidak dobel dengan omzet. Menu yang belum punya HPP disebutkan di catatan, bukan diam-diam dianggap nol.
+- **Laba Kotor** (Keuangan) — Omzet penjualan − HPP bahan (dari resep aktif: mode *Standalone*, mundur ke *Dilayani CK*). Menu yang belum punya HPP disebutkan di catatan, bukan diam-diam dianggap nol. **Beban operasional belum termasuk** sejak modul Kas menjadi milik user (`0040`) — pengeluaran kas tidak lagi menyimpan outlet penanggungnya, jadi tidak bisa dibebankan per outlet. Laporan sengaja diberi nama *Laba Kotor*, bukan *Laba Rugi*, supaya angkanya tidak salah dibaca sebagai laba bersih.
 - **Rekap Penggajian (NBM)** (SDM) — satu baris per staff: hari hadir, hari libur, storing, NBM dasar, lembur, bonus storing, **penyesuaian manual** (selisih terhadap hitungan otomatis dari tab Rekap NBM), dan total. Ada baris TOTAL.
 - **Rekap Presensi & Disiplin** (SDM) — satu baris per staff: hadir, tepat waktu, toleransi, terlambat, total menit terlambat, tugas luar, hari cuti (dari pengajuan disetujui yang jatuh di periode), dan sesi belum clock out. Diurutkan dari yang paling sering terlambat, dan **staff dengan 0 hari hadir tetap ditampilkan**.
 - **Hak Cuti Pengganti (PH)** (SDM) — staff yang tetap masuk di tanggal yang terdaftar sebagai hari libur nasional, beserta hak cuti penggantinya (dari `ph_replacement_days` outlet basis) dan daftar tanggalnya.

@@ -21,22 +21,18 @@ async function currentUserId() {
   return user?.id ?? null;
 }
 
-// ---- Kategori ----
+// ---- Kategori (global sejak 0040 — kas ikut user, bukan BU) ----
 
-export async function listCashCategories(businessUnitId, onlyActive = true) {
-  let q = supabase
-    .from('cash_categories')
-    .select('id, name, direction, is_active')
-    .eq('business_unit_id', businessUnitId)
-    .order('name');
+export async function listCashCategories(onlyActive = true) {
+  let q = supabase.from('cash_categories').select('id, name, direction, is_active').order('name');
   if (onlyActive) q = q.eq('is_active', true);
   const { data, error } = await q;
   if (error) throw error;
   return data ?? [];
 }
 
-export async function createCashCategory({ businessUnitId, name, direction }) {
-  const { error } = await supabase.from('cash_categories').insert({ business_unit_id: businessUnitId, name, direction: direction || 'both' });
+export async function createCashCategory({ name, direction }) {
+  const { error } = await supabase.from('cash_categories').insert({ business_unit_id: null, name, direction: direction || 'both' });
   if (error) throw error;
 }
 export async function updateCashCategory(id, { name, direction, is_active }) {
@@ -50,15 +46,17 @@ export async function deleteCashCategory(id) {
 
 // ---- Entri kas ----
 
-export async function recordCashEntry({ businessUnitId, outletId, type, amount, categoryId, notes, date, file }) {
+/**
+ * Catat kas masuk/keluar. TIDAK menyimpan BU/outlet — sejak 0040 kas melekat
+ * pada USER, jadi saldonya sama di BU/outlet mana pun dia login.
+ */
+export async function recordCashEntry({ type, amount, categoryId, notes, date, file }) {
   const uid = await currentUserId();
   if (!uid) throw new Error('Sesi tidak ditemukan, silakan login ulang.');
   const signed = type === 'out' ? -Math.abs(amount) : Math.abs(amount);
   const { data, error } = await supabase
     .from('cash_entries')
     .insert({
-      business_unit_id: businessUnitId,
-      outlet_id: outletId || null,
       holder_id: uid,
       entry_type: type,
       amount: signed,
@@ -82,10 +80,9 @@ export async function recordCashEntry({ businessUnitId, outletId, type, amount, 
   return data;
 }
 
-export async function transferCash({ businessUnitId, outletId, toUserId, amount, notes }) {
+/** Transfer kas ke user lain — boleh lintas BU (kas ikut user). */
+export async function transferCash({ toUserId, amount, notes }) {
   const { error } = await supabase.rpc('transfer_cash', {
-    p_bu: businessUnitId,
-    p_outlet: outletId || null,
     p_to_user: toUserId,
     p_amount: amount,
     p_notes: notes || null
@@ -93,29 +90,31 @@ export async function transferCash({ businessUnitId, outletId, toUserId, amount,
   if (error) throw error;
 }
 
-export async function getMyCashBalance(businessUnitId) {
+/** Saldo kas milikku — satu angka, tidak tergantung BU/outlet yang aktif. */
+export async function getMyCashBalance() {
   const uid = await currentUserId();
   if (!uid) return 0;
-  const { data, error } = await supabase
-    .from('cash_balances')
-    .select('balance')
-    .eq('business_unit_id', businessUnitId)
-    .eq('holder_id', uid)
-    .maybeSingle();
+  const { data, error } = await supabase.from('cash_balances').select('balance').eq('holder_id', uid).maybeSingle();
   if (error) throw error;
   return Number(data?.balance ?? 0);
 }
 
-export async function listMyCashEntries(businessUnitId, limit = 50) {
+export async function listMyCashEntries(limit = 50) {
   const uid = await currentUserId();
   if (!uid) return [];
   const { data, error } = await supabase
     .from('cash_entries')
     .select('id, entry_type, amount, notes, entry_date, proof_path, created_at, cash_categories(name), counterpart:user_profiles!counterpart_id(full_name)')
-    .eq('business_unit_id', businessUnitId)
     .eq('holder_id', uid)
     .order('created_at', { ascending: false })
     .limit(limit);
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Daftar semua anggota (untuk pilihan tujuan transfer & tabel admin). */
+export async function listCashMembers() {
+  const { data, error } = await supabase.rpc('list_cash_members');
   if (error) throw error;
   return data ?? [];
 }
@@ -129,20 +128,17 @@ export async function getCashProofUrl(path) {
 
 // ---- Admin ----
 
-export async function listCashBalances(businessUnitId) {
-  const { data, error } = await supabase
-    .from('cash_balances')
-    .select('holder_id, balance')
-    .eq('business_unit_id', businessUnitId);
+/** Saldo semua pemegang kas (RLS: hanya super admin yang dapat baris orang lain). */
+export async function listCashBalances() {
+  const { data, error } = await supabase.from('cash_balances').select('holder_id, balance');
   if (error) throw error;
   return data ?? [];
 }
 
-export async function listCashEntriesAdmin({ businessUnitId, holderId, entryType, dateFrom, dateTo }) {
+export async function listCashEntriesAdmin({ holderId, entryType, dateFrom, dateTo }) {
   let query = supabase
     .from('cash_entries')
-    .select('id, entry_type, amount, notes, entry_date, proof_path, created_at, holder:user_profiles!holder_id(full_name), counterpart:user_profiles!counterpart_id(full_name), cash_categories(name), outlets(name)')
-    .eq('business_unit_id', businessUnitId)
+    .select('id, entry_type, amount, notes, entry_date, proof_path, created_at, holder:user_profiles!holder_id(full_name), counterpart:user_profiles!counterpart_id(full_name), cash_categories(name)')
     .order('entry_date', { ascending: false })
     .order('created_at', { ascending: false })
     .limit(500);
@@ -158,7 +154,7 @@ export async function listCashEntriesAdmin({ businessUnitId, holderId, entryType
 export async function listRecentCashActivity({ limit = 25, before = null } = {}) {
   let query = supabase
     .from('cash_entries')
-    .select('created_at, entry_type, amount, holder:user_profiles!holder_id(full_name), business_units(name), outlets(name), cash_categories(name)')
+    .select('created_at, entry_type, amount, holder:user_profiles!holder_id(full_name), cash_categories(name)')
     .order('created_at', { ascending: false })
     .limit(limit);
   if (before) query = query.lt('created_at', before);

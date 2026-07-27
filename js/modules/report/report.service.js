@@ -25,9 +25,9 @@ import { LATE_LABEL } from '../shift/shift.service.js';
 export const REPORTS = [
   {
     key: 'profit_loss',
-    label: 'Laba Rugi',
+    label: 'Laba Kotor',
     group: 'Keuangan',
-    description: 'Omzet dikurangi HPP bahan dan beban kas keluar, per outlet.',
+    description: 'Omzet dikurangi HPP bahan, per outlet. Beban operasional belum termasuk — lihat catatan di bawah tabel.',
     build: buildProfitLoss
   },
   {
@@ -117,24 +117,12 @@ async function buildProfitLoss({ businessUnitId, outletId, from, to }) {
     .limit(10000);
   if (outletId) salesQ = salesQ.eq('outlet_id', outletId);
 
-  let cashQ = supabase
-    .from('cash_entries')
-    .select('amount, entry_type, cash_categories(name)')
-    .eq('business_unit_id', businessUnitId)
-    .eq('entry_type', 'out')
-    .gte('entry_date', from)
-    .lte('entry_date', to)
-    .limit(5000);
-  if (outletId) cashQ = cashQ.eq('outlet_id', outletId);
-
-  const [salesRes, cashRes, products, recipes] = await Promise.all([
+  const [salesRes, products, recipes] = await Promise.all([
     salesQ,
-    cashQ,
     listProducts(businessUnitId).catch(() => []),
     listRecipesFull(businessUnitId).catch(() => [])
   ]);
   if (salesRes.error) throw salesRes.error;
-  if (cashRes.error) throw cashRes.error;
 
   const costs = computeCosts(products, recipes);
   const nameOf = new Map(products.map((p) => [p.id, p.name]));
@@ -152,48 +140,32 @@ async function buildProfitLoss({ businessUnitId, outletId, from, to }) {
     else hpp += qty * c;
   }
 
-  // Beban dikelompokkan per kategori kas.
-  const bebanPerKategori = new Map();
-  let beban = 0;
-  for (const c of cashRes.data ?? []) {
-    const nilai = Math.abs(Number(c.amount) || 0);
-    const kat = c.cash_categories?.name ?? 'Tanpa kategori';
-    bebanPerKategori.set(kat, (bebanPerKategori.get(kat) ?? 0) + nilai);
-    beban += nilai;
-  }
-
   const labaKotor = omzet - hpp;
-  const labaBersih = labaKotor - beban;
   const marginKotor = omzet > 0 ? (labaKotor / omzet) * 100 : 0;
 
   const rows = [
     ['Omzet penjualan', rp(omzet)],
     ['HPP — bahan baku terpakai', rpMinus(hpp)],
-    ['Laba kotor', rp(labaKotor)],
-    ['', ''],
-    ...[...bebanPerKategori.entries()].sort((a, b) => b[1] - a[1]).map(([kat, nilai]) => [`Beban — ${kat}`, rpMinus(nilai)]),
-    ['Total beban operasional', rpMinus(beban)],
-    ['', ''],
-    ['Laba bersih (estimasi)', rp(labaBersih)]
+    ['Laba kotor', rp(labaKotor)]
   ];
-  // Indeks baris yang ditebalkan: Laba kotor, Total beban, Laba bersih.
-  const idxTotalBeban = 4 + bebanPerKategori.size;
-  const bold = [2, idxTotalBeban, idxTotalBeban + 2];
 
   return {
     columns: [{ header: 'Keterangan', width: 2.6 }, { header: 'Nilai', width: 1.4, numeric: true }],
     rows,
-    bold,
+    bold: [2],
     summary: [
       { label: 'Omzet', value: rp(omzet) },
+      { label: 'HPP', value: rp(hpp) },
       { label: 'Laba kotor', value: rp(labaKotor) },
-      { label: 'Margin kotor', value: `${formatNum(marginKotor, 1)}%` },
-      { label: 'Laba bersih', value: rp(labaBersih) }
+      { label: 'Margin kotor', value: `${formatNum(marginKotor, 1)}%` }
     ],
     note:
       `Dihitung dari ${formatNum(qtyTerjual)} porsi terjual. HPP memakai resep aktif (mode Standalone, ` +
-      `mundur ke Dilayani CK bila tidak ada). Beban hanya mengambil **Kas Keluar**; transfer antar pemegang kas ` +
-      `dan Kas Masuk sengaja tidak dihitung sebagai pendapatan supaya tidak dobel dengan omzet penjualan.` +
+      `mundur ke Dilayani CK bila tidak ada). ` +
+      `**Beban operasional belum termasuk**, jadi angka ini laba KOTOR — bukan laba bersih. ` +
+      `Sejak modul Kas diubah menjadi milik user (bukan BU/outlet), pengeluaran kas tidak lagi menyimpan ` +
+      `outlet mana yang menanggungnya, sehingga tidak bisa dibebankan ke laporan per outlet. ` +
+      `Untuk laba bersih, beban perlu punya atribusi outlet sendiri — lihat catatan Fase 11 di README.` +
       (tanpaHpp.size
         ? ` Perhatian: ${tanpaHpp.size} menu belum punya HPP sehingga tidak masuk perhitungan — ${[...tanpaHpp].slice(0, 8).join(', ')}${tanpaHpp.size > 8 ? ', …' : ''}.`
         : '')

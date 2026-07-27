@@ -16,7 +16,9 @@ export const ADMIN_TAB_CATALOG = [
   { code: 'master_user', label: 'Master User (role & scope)', group: 'User', superAdminOnly: true },
   { code: 'staff_data', label: 'Data Staff', group: 'User' },
   { code: 'leave', label: 'Pengajuan Cuti', group: 'User' },
-  { code: 'cash_ledger', label: 'Kas', group: 'User' },
+  // Kas melekat pada USER lintas BU (0040) -> data tingkat organisasi,
+  // hanya super admin. Sama seperti Master User, tidak bisa diberikan ke role lain.
+  { code: 'cash_ledger', label: 'Kas (semua pemegang)', group: 'User', superAdminOnly: true },
 
   { code: 'inventory', label: 'Stok & Riwayat', group: 'Inventory' },
   { code: 'master_product', label: 'Master Produk', group: 'Inventory' },

@@ -1,9 +1,9 @@
 import { toast, formDialog } from '../../core/ui.js';
 import { formatRupiah } from '../../core/format.js';
-import { listBuStaff } from '../leave/leave.service.js';
 import {
   ENTRY_LABEL,
   listCashCategories,
+  listCashMembers,
   recordCashEntry,
   transferCash,
   getMyCashBalance,
@@ -12,23 +12,29 @@ import {
   todayWIB
 } from './cash.service.js';
 
-export async function renderCashPage(container, { userId, businessUnitId, outletId }) {
+/**
+ * Kas melekat pada USER (migration 0040): saldo & riwayatnya sama persis
+ * di BU/outlet mana pun dia sedang login, jadi halaman ini sengaja tidak
+ * memakai businessUnitId/outletId sama sekali.
+ */
+export async function renderCashPage(container, { userId }) {
   container.innerHTML = `<p>Memuat kas...</p>`;
 
-  let categories, staff;
+  let categories, members;
   try {
-    [categories, staff] = await Promise.all([listCashCategories(businessUnitId).catch(() => []), listBuStaff(businessUnitId).catch(() => [])]);
+    [categories, members] = await Promise.all([listCashCategories().catch(() => []), listCashMembers().catch(() => [])]);
   } catch (error) {
     container.innerHTML = `<p class="error-text">Gagal memuat: ${error.message ?? error}</p>`;
     return;
   }
-  const others = staff.filter((s) => s.user_id !== userId);
+  const others = members.filter((s) => s.user_id !== userId);
 
   container.innerHTML = `
     <h1>Kas</h1>
     <div class="inline-card" style="max-width:460px">
       <h3 style="margin-top:0;font-size:0.95rem">Saldo Kas Saya</h3>
       <p id="cash-balance" style="font-size:1.6rem;font-weight:700;margin:4px 0">—</p>
+      <p style="font-size:0.76rem;color:var(--color-text-muted);margin:0">Saldo ini milikmu pribadi — tidak berubah saat kamu pindah BU atau outlet.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
         <button class="primary" id="cash-in" style="max-width:130px">+ Kas Masuk</button>
         <button id="cash-out">− Kas Keluar</button>
@@ -46,7 +52,7 @@ export async function renderCashPage(container, { userId, businessUnitId, outlet
 
   async function refresh() {
     try {
-      const [balance, entries] = await Promise.all([getMyCashBalance(businessUnitId), listMyCashEntries(businessUnitId)]);
+      const [balance, entries] = await Promise.all([getMyCashBalance(), listMyCashEntries()]);
       container.querySelector('#cash-balance').textContent = formatRupiah(balance);
       const box = container.querySelector('#cash-history');
       box.innerHTML = entries.length
@@ -106,8 +112,6 @@ export async function renderCashPage(container, { userId, businessUnitId, outlet
     }
     try {
       await recordCashEntry({
-        businessUnitId,
-        outletId,
         type,
         amount: values.amount,
         categoryId: values.category_id,
@@ -126,12 +130,12 @@ export async function renderCashPage(container, { userId, businessUnitId, outlet
   container.querySelector('#cash-out').addEventListener('click', () => openEntry('out'));
   container.querySelector('#cash-transfer').addEventListener('click', async () => {
     if (!others.length) {
-      toast('Tidak ada pengguna lain di BU ini untuk menerima transfer.', 'warning');
+      toast('Belum ada pengguna lain yang bisa menerima transfer.', 'warning');
       return;
     }
     const values = await formDialog({
       title: 'Transfer Kas ke Pengguna Lain',
-      description: 'Saldo kamu berkurang, saldo penerima bertambah.',
+      description: 'Saldo kamu berkurang, saldo penerima bertambah. Penerima boleh dari BU mana pun.',
       fields: [
         { name: 'to_user', label: 'Kirim ke', type: 'searchselect', required: true, options: others.map((s) => ({ value: s.user_id, label: s.full_name })) },
         { name: 'amount', label: 'Jumlah', type: 'money', required: true },
@@ -145,7 +149,7 @@ export async function renderCashPage(container, { userId, businessUnitId, outlet
       return;
     }
     try {
-      await transferCash({ businessUnitId, outletId, toUserId: values.to_user, amount: values.amount, notes: values.notes });
+      await transferCash({ toUserId: values.to_user, amount: values.amount, notes: values.notes });
       toast('Transfer kas berhasil.', 'success');
       await refresh();
     } catch (error) {

@@ -1,9 +1,9 @@
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
 import { formatRupiah } from '../../core/format.js';
-import { listBuStaff } from '../leave/leave.service.js';
 import {
   ENTRY_LABEL,
   listCashCategories,
+  listCashMembers,
   createCashCategory,
   updateCashCategory,
   deleteCashCategory,
@@ -24,9 +24,17 @@ const TABS = [
   { key: 'categories', label: 'Kategori' }
 ];
 
-export async function renderCashAdminPage(container, { businessUnitId }) {
+/**
+ * Kas melekat pada USER (migration 0040), jadi halaman ini lintas BU:
+ * menampilkan SEMUA pemegang kas di organisasi. Aksesnya dibatasi Super Admin
+ * lewat `admin-tabs.js` + RLS `cash_entries_select_super`.
+ */
+export async function renderCashAdminPage(container) {
   container.innerHTML = `
     <h1>Kas</h1>
+    <p style="font-size:0.82rem;color:var(--color-text-muted);margin-top:0">
+      Kas melekat pada orang, bukan BU/outlet — daftar di bawah mencakup seluruh pemegang kas di organisasi.
+    </p>
     <div class="tab-bar">
       ${TABS.map((t, i) => `<button class="tab-btn ${i === 0 ? 'active' : ''}" data-tab="${t.key}">${t.label}</button>`).join('')}
     </div>
@@ -35,8 +43,8 @@ export async function renderCashAdminPage(container, { businessUnitId }) {
   const content = document.getElementById('cash-admin-content');
   async function showTab(key) {
     container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));
-    if (key === 'balances') await renderBalancesTab(content, businessUnitId);
-    if (key === 'categories') await renderCategoriesTab(content, businessUnitId);
+    if (key === 'balances') await renderBalancesTab(content);
+    if (key === 'categories') await renderCategoriesTab(content);
   }
   container.querySelectorAll('.tab-btn').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
   await showTab('balances');
@@ -44,11 +52,11 @@ export async function renderCashAdminPage(container, { businessUnitId }) {
 
 // ---- Tab: Saldo & Mutasi ----
 
-async function renderBalancesTab(content, businessUnitId) {
+async function renderBalancesTab(content) {
   content.innerHTML = `<p>Memuat...</p>`;
   let balances, staff;
   try {
-    [balances, staff] = await Promise.all([listCashBalances(businessUnitId), listBuStaff(businessUnitId)]);
+    [balances, staff] = await Promise.all([listCashBalances(), listCashMembers()]);
   } catch (error) {
     content.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
     return;
@@ -66,7 +74,7 @@ async function renderBalancesTab(content, businessUnitId) {
         ${rows.map((b) => `<tr><td>${esc(nameById.get(b.holder_id) ?? '-')}</td><td>${formatRupiah(b.balance)}</td></tr>`).join('') || '<tr><td colspan="2">Belum ada data kas.</td></tr>'}
       </tbody>
     </table>
-    <p style="font-weight:600;margin-top:8px">Total kas BU: ${formatRupiah(total)}</p>
+    <p style="font-weight:600;margin-top:8px">Total kas seluruh pemegang: ${formatRupiah(total)}</p>
 
     <h2 style="font-size:1.05rem;margin-top:20px">Mutasi Kas</h2>
     <div class="inline-card" style="max-width:640px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
@@ -82,12 +90,12 @@ async function renderBalancesTab(content, businessUnitId) {
     </div>
     <div id="cm-result"></div>
   `;
-  const go = () => loadMutasi(content, businessUnitId);
+  const go = () => loadMutasi(content);
   content.querySelector('#cm-go').addEventListener('click', go);
   await go();
 }
 
-async function loadMutasi(content, businessUnitId) {
+async function loadMutasi(content) {
   const holderId = content.querySelector('#cm-holder').value || '';
   const entryType = content.querySelector('#cm-type').value || '';
   const from = content.querySelector('#cm-from').value;
@@ -96,7 +104,7 @@ async function loadMutasi(content, businessUnitId) {
   result.innerHTML = `<p>Memuat...</p>`;
   let rows;
   try {
-    rows = await listCashEntriesAdmin({ businessUnitId, holderId, entryType, dateFrom: from || '', dateTo: to || '' });
+    rows = await listCashEntriesAdmin({ holderId, entryType, dateFrom: from || '', dateTo: to || '' });
   } catch (error) {
     result.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
     return;
@@ -144,11 +152,11 @@ async function loadMutasi(content, businessUnitId) {
 
 // ---- Tab: Kategori ----
 
-async function renderCategoriesTab(content, businessUnitId) {
+async function renderCategoriesTab(content) {
   content.innerHTML = `<p>Memuat...</p>`;
   let cats;
   try {
-    cats = await listCashCategories(businessUnitId, false);
+    cats = await listCashCategories(false);
   } catch (error) {
     content.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
     return;
@@ -177,8 +185,8 @@ async function renderCategoriesTab(content, businessUnitId) {
       </tbody>
     </table>
   `;
-  document.getElementById('btn-new-cat').addEventListener('click', () => openCatDialog(content, businessUnitId, null));
-  content.querySelectorAll('.btn-edit-cat').forEach((btn) => btn.addEventListener('click', () => openCatDialog(content, businessUnitId, JSON.parse(btn.dataset.json))));
+  document.getElementById('btn-new-cat').addEventListener('click', () => openCatDialog(content, null));
+  content.querySelectorAll('.btn-edit-cat').forEach((btn) => btn.addEventListener('click', () => openCatDialog(content, JSON.parse(btn.dataset.json))));
   content.querySelectorAll('.btn-del-cat').forEach((btn) =>
     btn.addEventListener('click', async () => {
       const ok = await confirmDialog({ title: 'Hapus kategori?', confirmText: 'Hapus', danger: true });
@@ -186,7 +194,7 @@ async function renderCategoriesTab(content, businessUnitId) {
       try {
         await deleteCashCategory(btn.dataset.id);
         toast('Kategori dihapus.', 'success');
-        await renderCategoriesTab(content, businessUnitId);
+        await renderCategoriesTab(content);
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus.', 'error');
       }
@@ -194,7 +202,7 @@ async function renderCategoriesTab(content, businessUnitId) {
   );
 }
 
-async function openCatDialog(content, businessUnitId, existing) {
+async function openCatDialog(content, existing) {
   const isEdit = !!existing;
   const values = await formDialog({
     title: isEdit ? 'Edit Kategori Kas' : 'Tambah Kategori Kas',
@@ -208,9 +216,9 @@ async function openCatDialog(content, businessUnitId, existing) {
   if (!values) return;
   try {
     if (isEdit) await updateCashCategory(existing.id, { name: values.name, direction: values.direction, is_active: values.is_active });
-    else await createCashCategory({ businessUnitId, name: values.name, direction: values.direction });
+    else await createCashCategory({ name: values.name, direction: values.direction });
     toast(isEdit ? 'Kategori diperbarui.' : 'Kategori ditambahkan.', 'success');
-    await renderCategoriesTab(content, businessUnitId);
+    await renderCategoriesTab(content);
   } catch (error) {
     toast(error.message ?? 'Gagal menyimpan.', 'error');
   }

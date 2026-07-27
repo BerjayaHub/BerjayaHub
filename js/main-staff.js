@@ -1,5 +1,5 @@
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
-import { getActiveModules, getModuleRenderer, registerModule, getMyAllowedModules } from './core/module-loader.js';
+import { getActiveModules, getModuleRenderer, registerModule, getMyAllowedModules, getModulesActiveInAnyBu } from './core/module-loader.js';
 import { getModuleIcon } from './core/module-icons.js';
 import { toast, confirmDialog, formDialog } from './core/ui.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
@@ -145,6 +145,16 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
   app.innerHTML = `<p style="padding:24px">Memuat modul...</p>`;
   // Modul aktif BU, lalu disaring lagi oleh akses per user (kalau diatur admin).
   const modules = await getMyAllowedModules(activeBuId, await getActiveModules(activeBuId)).catch(() => []);
+
+  // Kas melekat pada USER, bukan BU (migration 0040) — menunya harus tetap ada
+  // walau BU yang sedang aktif tidak mengaktifkan modul Kas, asalkan salah satu
+  // BU milik user mengaktifkannya. Kalau tidak, saldo pribadi jadi tidak
+  // terjangkau hanya karena berpindah BU.
+  if (!modules.some((m) => m.code === 'cash_ledger')) {
+    const lintasBu = await getModulesActiveInAnyBu(availableBUs.map((b) => b.id)).catch(() => []);
+    const kas = lintasBu.find((m) => m.code === 'cash_ledger');
+    if (kas) modules.push(kas);
+  }
   const moduleCtx = {
     userId: context.profile.id,
     businessUnitId: activeBuId,
