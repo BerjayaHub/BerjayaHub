@@ -1,7 +1,7 @@
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
 import { getActiveModules, getModuleRenderer, registerModule, getMyAllowedModules, getModulesActiveInAnyBu } from './core/module-loader.js';
 import { getModuleIcon } from './core/module-icons.js';
-import { toast, confirmDialog, formDialog } from './core/ui.js';
+import { toast, confirmDialog, formDialog, escapeHtml } from './core/ui.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
 import { renderLeavePage } from './modules/leave/leave.page.js';
 import { renderCleaningPage } from './modules/cleaning/cleaning.page.js';
@@ -172,7 +172,7 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
   const buLine =
     availableBUs.length > 1
       ? `<select class="topbar-bu-select" id="bu-switcher-staff">
-           ${availableBUs.map((b) => `<option value="${b.id}"${b.id === activeBuId ? ' selected' : ''}>${b.name}</option>`).join('')}
+           ${availableBUs.map((b) => `<option value="${b.id}"${b.id === activeBuId ? ' selected' : ''}>${escapeHtml(b.name)}</option>`).join('')}
          </select>`
       : `<div class="topbar-bu">${activeBu?.name ?? ''}</div>`;
 
@@ -311,7 +311,7 @@ async function renderHome(context, modules, moduleCtx) {
             (mod) => `
           <button class="module-card" data-module="${mod.code}">
             <span class="module-card-icon">${getModuleIcon(mod.code)}</span>
-            <span class="module-card-label">${mod.name}</span>
+            <span class="module-card-label">${escapeHtml(mod.name)}</span>
           </button>`
           )
           .join('') || '<p>Belum ada modul aktif untuk BU kamu. Hubungi admin.</p>'

@@ -40,7 +40,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     <h1>Inventory</h1>
     <div class="field" style="max-width:280px">
       <label>Outlet</label>
-      <select id="inv-outlet">${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${o.name}</option>`).join('')}</select>
+      <select id="inv-outlet">${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${escapeHtml(o.name)}</option>`).join('')}</select>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
       <button class="primary" id="inv-receive" style="max-width:220px">📥 Terima dari Supplier</button>

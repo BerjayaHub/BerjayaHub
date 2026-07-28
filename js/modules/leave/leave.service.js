@@ -71,11 +71,26 @@ async function usedDaysByType(userId, year) {
   return map;
 }
 
+/**
+ * Tahun berjalan menurut WIB, bukan jam perangkat.
+ *
+ * Jatah cuti TIDAK disimpan sebagai angka sisa — yang disimpan hanya
+ * `quota_days`, sedangkan pemakaian dihitung ulang dari cuti disetujui pada
+ * tahun berjalan. Jadi jatah otomatis penuh lagi setiap 1 Januari, tanpa proses
+ * reset apa pun. Yang penting tahunnya konsisten WIB: kalau memakai jam
+ * perangkat, HP yang zona waktunya di belakang WIB masih menghitung tahun lama
+ * di dini hari 1 Januari.
+ */
+function tahunBerjalanWIB() {
+  const w = new Date(Date.now() + 7 * 3600000);
+  return w.getUTCFullYear();
+}
+
 /** Ringkasan hak & sisa jatah per jenis untuk staff yang login (tahun berjalan). */
 export async function getMyEntitlementSummary() {
   const uid = await currentUserId();
   if (!uid) return [];
-  const year = new Date().getFullYear();
+  const year = tahunBerjalanWIB();
   const [{ data, error }, used] = await Promise.all([
     supabase.from('leave_entitlements').select('leave_type_id, quota_days, leave_types(name, deducts_quota)').eq('user_id', uid),
     usedDaysByType(uid, year)

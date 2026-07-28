@@ -603,6 +603,25 @@ node tools/audit-owner-filter.cjs
 
 Fungsi yang memang bukan milik satu orang (mis. `listMyOrders`, yang di-scope per **outlet**) didaftarkan di `PENGECUALIAN` beserta alasannya. Jalankan tiap menambah fungsi baru — kelas bug ini sulit terlihat saat uji coba karena staff biasa selalu melihat hasil yang benar.
 
+## Perbaikan: data dari database di-escape sebelum masuk HTML
+
+Seluruh UI dibangun dengan template literal + `innerHTML`. Nama outlet/BU/produk diketik manusia, jadi cepat atau lambat ada yang mengandung kutip atau `<`. Nama seperti `Cafe "Awal" Bermula` akan **merusak dropdown** kalau disisipkan mentah — dan karena hanya muncul pada data tertentu, bug seperti ini lolos dari uji coba biasa.
+
+**31 interpolasi di 20 file** kini dibungkus `esc()`/`escapeHtml()`. `escapeHtml` diekspor dari `js/core/ui.js` supaya modul yang belum punya helper sendiri tidak perlu menyalin ulang.
+
+```bash
+node tools/audit-html-escape.cjs
+```
+
+Bukan celah keamanan dari luar (semua input berasal dari akun yang login), tapi tetap bug tampilan yang nyata.
+
+### Menjalankan semua pemeriksaan
+
+```bash
+node tools/audit-owner-filter.cjs   # query "milik saya" tanpa filter pemilik
+node tools/audit-html-escape.cjs    # data DB masuk HTML tanpa escape
+```
+
 ## PWA & Push Notification
 
 ### Ikon Home Screen
@@ -659,6 +678,16 @@ Aturan penerimanya sengaja mengikuti apa yang orang itu lihat di dalam app:
 - **hari kosong tidak dikirim**, karena notifikasi "hari ini tidak ada reservasi" setiap pagi hanya melatih orang mengabaikan notifikasi.
 
 Isi pesan: jumlah reservasi + total tamu + berapa yang **belum dikonfirmasi**, lalu daftar `jam nama (pax)` maksimal 6 baris, sisanya diringkas. Nama outlet hanya disertakan kalau orang itu memang membawahi lebih dari satu outlet. Dedupe lewat `telegram_notifications_sent` (`kind='reservation_digest'`).
+
+### Bug penting: penanda dedupe ditulis sebelum pengiriman
+
+**Gejala:** tombol *Kirim Tes* berhasil, tapi begitu `send-fleet-reminders` / `send-reservation-digest` dijalankan lewat cron atau manual, **tidak ada notifikasi apa pun** dan responsnya `skipped`.
+
+**Penyebab:** kedua function menulis penanda `telegram_notifications_sent` **di awal**, sebelum tahu ada yang benar-benar dikirim. Jadi satu kali jalan yang belum menemukan data (atau gagal) langsung **mengunci sisa hari itu** — semua percobaan berikutnya membaca penanda itu dan berhenti.
+
+**Perbaikan:** penandanya kini ditulis **setelah** ada pengiriman yang berhasil. Kalau tidak ada data, penanda tidak ditulis sama sekali, sehingga cron berikutnya masih bisa mengirim ketika datanya baru diisi siang hari.
+
+`send-attendance-reminders` tidak kena — ia memang sudah menulis penandanya per-staff setelah pengiriman.
 
 ### Yang mengirim push
 

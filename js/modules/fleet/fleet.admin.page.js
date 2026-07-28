@@ -101,7 +101,7 @@ async function renderVehiclesTab(content, ctx) {
 
     <div class="inline-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
       <div class="field" style="margin:0;max-width:180px"><label>Status</label>
-        <select id="fl-status"><option value="">Semua</option>${STATUS_OPTIONS.map((s) => `<option value="${s.value}">${s.label}</option>`).join('')}</select>
+        <select id="fl-status"><option value="">Semua</option>${STATUS_OPTIONS.map((s) => `<option value="${s.value}">${esc(s.label)}</option>`).join('')}</select>
       </div>
       <div class="field" style="margin:0;max-width:200px"><label>Area Rental</label>
         <select id="fl-area">${areaFilterOptions(ctx.masters, vehicles)}</select>
@@ -275,7 +275,7 @@ function areaFilterOptions(masters, vehicles) {
 
 function docCell(dateStr, st) {
   if (!dateStr) return '<span style="color:var(--color-text-muted)">-</span>';
-  return `${fmtDate(dateStr)}<div><span class="badge ${DOC_BADGE[st.level]}">${st.label}</span></div>`;
+  return `${fmtDate(dateStr)}<div><span class="badge ${DOC_BADGE[st.level]}">${esc(st.label)}</span></div>`;
 }
 
 async function showDetail(v, settings) {

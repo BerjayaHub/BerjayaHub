@@ -35,6 +35,24 @@ export const TELEGRAM_EVENTS = [
     icon: '📅',
     label: 'Reservasi baru (staff & website)',
     detail: 'Trigger DB · INSERT pada reservations → notify-reservation'
+  },
+  {
+    key: 'reservation_digest',
+    icon: '🗒️',
+    label: 'Rekap reservasi harian (per outlet)',
+    detail: 'Cron harian · send-reservation-digest. Kalau kosong, jatuh ke rute "Reservasi baru".'
+  },
+  {
+    key: 'dispatch_sent',
+    icon: '🚚',
+    label: 'Barang dikirim dari Central Kitchen',
+    detail: 'Trigger DB · INSERT pada dispatches'
+  },
+  {
+    key: 'dispatch_received',
+    icon: '📥',
+    label: 'Kiriman diterima outlet',
+    detail: 'Trigger DB · UPDATE dispatches saat status jadi diterima'
   }
 ];
 

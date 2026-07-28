@@ -18,7 +18,7 @@ import {
 import { GRANTABLE_TABS } from '../../core/admin-tabs.js';
 import { amISuperAdmin } from '../inventory/inventory.service.js';
 import { listRegisteredFaceUserIds, resetFaceDescriptor } from '../attendance/attendance.service.js';
-import { toast, confirmDialog, formDialog } from '../../core/ui.js';
+import { toast, confirmDialog, formDialog, escapeHtml } from '../../core/ui.js';
 
 const ROLE_LABEL = {
   super_admin: 'Super Admin',
@@ -132,7 +132,7 @@ function renderNewStaffForm(container, businessUnits) {
         <label>Business Unit</label>
         <select name="business_unit_id" required>
           <option value="">-- pilih BU --</option>
-          ${businessUnits.map((bu) => `<option value="${bu.id}">${bu.name}</option>`).join('')}
+          ${businessUnits.map((bu) => `<option value="${bu.id}">${escapeHtml(bu.name)}</option>`).join('')}
         </select>
       </div>
       <div class="field">
@@ -160,7 +160,7 @@ function renderNewStaffForm(container, businessUnits) {
     const outlets = e.target.value ? await listOutlets(e.target.value) : [];
     form.outlet_id.innerHTML =
       `<option value="">-- semua outlet / level BU --</option>` +
-      outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('');
+      outlets.map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('');
   });
 
   document.getElementById('btn-cancel-new-staff').addEventListener('click', () => {
@@ -476,7 +476,7 @@ async function openScopeDialog(container, businessUnits, { userId, scope = null 
           outletSelect.innerHTML =
             '<option value="">-- semua outlet / level BU --</option>' +
             outlets
-              .map((o) => `<option value="${o.id}"${o.id === selectedOutletId ? ' selected' : ''}>${o.name}</option>`)
+              .map((o) => `<option value="${o.id}"${o.id === selectedOutletId ? ' selected' : ''}>${escapeHtml(o.name)}</option>`)
               .join('');
         } catch {
           // biarkan default kalau gagal ambil outlet

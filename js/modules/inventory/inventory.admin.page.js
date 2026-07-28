@@ -64,7 +64,7 @@ async function renderStockTab(content, businessUnitId, outlets) {
   content.innerHTML = `
     <div class="field" style="max-width:280px">
       <label>Outlet</label>
-      <select id="stock-outlet"><option value="">Semua outlet (gabungan)</option>${outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('')}</select>
+      <select id="stock-outlet"><option value="">Semua outlet (gabungan)</option>${outlets.map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('')}</select>
     </div>
     <div id="stock-result"><p>Memuat...</p></div>
   `;
@@ -130,7 +130,7 @@ async function renderHistoryTab(content, businessUnitId, outlets) {
   content.innerHTML = `
     <div class="inline-card" style="max-width:640px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
       <div class="field" style="margin:0"><label>Outlet</label>
-        <select id="hist-outlet"><option value="">Semua</option>${outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('')}</select>
+        <select id="hist-outlet"><option value="">Semua</option>${outlets.map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('')}</select>
       </div>
       <div class="field" style="margin:0"><label>Jenis</label>
         <select id="hist-type"><option value="">Semua</option>${Object.entries(MOVEMENT_LABEL).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>

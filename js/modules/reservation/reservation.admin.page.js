@@ -200,7 +200,7 @@ async function renderAll(content, ctx) {
         <select id="ra-outlet"><option value="">Semua outlet</option>${ctx.outlets.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}</select>
       </div>
       <div class="field" style="margin:0;max-width:180px"><label>Status</label>
-        <select id="ra-status"><option value="">Semua status</option>${RES_STATUS_OPTIONS.map((s) => `<option value="${s.value}">${s.label}</option>`).join('')}</select>
+        <select id="ra-status"><option value="">Semua status</option>${RES_STATUS_OPTIONS.map((s) => `<option value="${s.value}">${esc(s.label)}</option>`).join('')}</select>
       </div>
       <div class="field" style="margin:0;max-width:165px"><label>Dari tanggal</label><input type="date" id="ra-from" value="${range.from}" /></div>
       <div class="field" style="margin:0;max-width:165px"><label>Sampai tanggal</label><input type="date" id="ra-to" value="${range.to}" /></div>
@@ -258,7 +258,7 @@ async function renderAll(content, ctx) {
                     <td style="font-size:0.78rem">${esc(SOURCE_LABEL[r.source] ?? r.source)}</td>
                     <td>
                       <select class="rv-status" data-id="${r.id}">
-                        ${RES_STATUS_OPTIONS.map((s) => `<option value="${s.value}"${s.value === r.status ? ' selected' : ''}>${s.label}</option>`).join('')}
+                        ${RES_STATUS_OPTIONS.map((s) => `<option value="${s.value}"${s.value === r.status ? ' selected' : ''}>${esc(s.label)}</option>`).join('')}
                       </select>
                       <div><span class="badge ${RES_BADGE[r.status] ?? ''}" style="font-size:0.65rem">${RES_STATUS[r.status] ?? r.status}</span></div>
                     </td>

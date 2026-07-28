@@ -77,12 +77,16 @@ Deno.serve(async (req) => {
   const dryRun = body?.dry_run === true; // untuk uji tanpa benar-benar mengirim
   const today = todayWIB();
 
-  // Cegah dobel kirim kalau cron kebetulan jalan lebih dari sekali sehari.
+  // Sudah pernah dikirim hari ini? (dicek saja — penandanya ditulis SETELAH
+  // pengiriman berhasil, lihat catatan di bawah.)
   if (!dryRun) {
-    const { error: dupErr } = await admin.from('telegram_notifications_sent').insert({ kind: 'fleet_docs', ref: today });
-    // 23505 = unique_violation -> sudah pernah dikirim hari ini.
-    if (dupErr?.code === '23505') return json({ ok: true, skipped: true, reason: `Sudah dikirim untuk ${today}.` });
-    if (dupErr) return json({ error: dupErr.message }, 500);
+    const { data: sudah } = await admin
+      .from('telegram_notifications_sent')
+      .select('id')
+      .eq('kind', 'fleet_docs')
+      .eq('ref', today)
+      .maybeSingle();
+    if (sudah) return json({ ok: true, skipped: true, reason: `Sudah dikirim untuk ${today}.` });
   }
 
   const [{ data: vehicles, error: vErr }, { data: settings }, { data: routes }] = await Promise.all([
@@ -122,6 +126,8 @@ Deno.serve(async (req) => {
   }
 
   if (!perlu.length) {
+    // Sengaja TIDAK menulis penanda dedupe: kalau dokumen jatuh tempo baru
+    // diisi admin siang harinya, jalannya cron berikutnya masih bisa mengirim.
     return json({ ok: true, sent: false, reason: 'Tidak ada dokumen yang mendekati jatuh tempo.' });
   }
 
@@ -173,5 +179,13 @@ Deno.serve(async (req) => {
     hasil.push({ chat_id: chat, count: docs.length, ...(await sendTelegram(buatTeks(docs), chat)) });
   }
   const semuaOk = hasil.every((h) => h.ok);
+
+  // Penanda dedupe ditulis DI SINI, bukan di awal. Kalau ditulis di awal, satu
+  // kali jalan yang gagal / tidak menemukan apa pun akan mengunci sisa hari itu
+  // dan pengiriman berikutnya selalu "skipped" — persis gejala
+  // "tes masuk, tapi saat di-run tidak ada notifikasi".
+  if (semuaOk) {
+    await admin.from('telegram_notifications_sent').insert({ kind: 'fleet_docs', ref: today });
+  }
   return json({ ok: semuaOk, count: perlu.length, results: hasil }, semuaOk ? 200 : 502);
 });

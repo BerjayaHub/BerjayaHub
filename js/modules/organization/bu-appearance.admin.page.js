@@ -1,5 +1,5 @@
 import { getBusinessUnit, updateBuTheme, uploadBuLogo } from './organization.service.js';
-import { toast } from '../../core/ui.js';
+import { toast, escapeHtml } from '../../core/ui.js';
 
 export async function renderBuAppearancePage(container, { businessUnitId }) {
   container.innerHTML = `<p>Memuat...</p>`;
@@ -7,7 +7,7 @@ export async function renderBuAppearancePage(container, { businessUnitId }) {
 
   container.innerHTML = `
     <h1>Tampilan Business Unit</h1>
-    <p style="color:var(--color-text-muted)">Pengaturan ini berlaku untuk <strong>${bu.name}</strong> — warna & logo akan otomatis dipakai di Staff App untuk staff BU ini.</p>
+    <p style="color:var(--color-text-muted)">Pengaturan ini berlaku untuk <strong>${escapeHtml(bu.name)}</strong> — warna & logo akan otomatis dipakai di Staff App untuk staff BU ini.</p>
 
     <div class="inline-card" style="max-width:420px">
       <h3 style="margin-top:0">Warna Tema</h3>

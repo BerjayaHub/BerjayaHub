@@ -42,7 +42,7 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
     <p style="color:var(--color-text-muted);font-size:0.85rem;margin:0 0 10px">Isi jumlah menu yang tersedia hari ini (${fmtDate(date)}) sebagai panduan POS. Mengisi jumlah <strong>tidak</strong> mengurangi stok — stok berkurang saat penjualan.</p>
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
       <div class="field" style="margin:0"><label>Outlet</label>
-        <select id="menu-outlet">${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${o.name}</option>`).join('')}</select>
+        <select id="menu-outlet">${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${esc(o.name)}</option>`).join('')}</select>
       </div>
       <div class="field" style="margin:0"><label>Kategori</label>
         <select id="menu-cat"><option value="">Semua</option>${categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>

@@ -167,7 +167,7 @@ async function renderPresensiTab(container, businessUnitId) {
         <label>Outlet</label>
         <select id="filter-outlet">
           <option value="">Semua outlet</option>
-          ${(outlets ?? []).map((o) => `<option value="${o.id}">${o.name}</option>`).join('')}
+          ${(outlets ?? []).map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('')}
         </select>
       </div>
       <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="filter-from" value="${range.from}" /></div>
@@ -205,7 +205,7 @@ async function renderPresensiTab(container, businessUnitId) {
       const otp = await generateExitOtp(businessUnitId);
       document.getElementById('otp-result').innerHTML = `
         <div class="scope-badge" style="font-size:1rem;padding:6px 12px">
-          Kode: <strong>${otp.code}</strong> — berlaku sampai ${formatTime(otp.expires_at)}
+          Kode: <strong>${escapeHtml(otp.code)}</strong> — berlaku sampai ${formatTime(otp.expires_at)}
         </div>
       `;
       await refreshOtpList();
@@ -221,7 +221,7 @@ async function renderPresensiTab(container, businessUnitId) {
         .map(
           (c) => `
         <tr>
-          <td>${c.code}</td>
+          <td>${escapeHtml(c.code)}</td>
           <td>${formatTime(c.expires_at)}</td>
           <td>${c.used_at ? (c.user_profiles?.full_name ?? 'Ya') : '-'}</td>
         </tr>`
@@ -342,7 +342,7 @@ function outletGeofenceRowHtml(o) {
   const coord = o.latitude != null ? `${o.latitude.toFixed(5)}, ${o.longitude.toFixed(5)}` : 'Belum diset';
   return `
     <tr data-outlet-id="${o.id}">
-      <td>${o.name}</td>
+      <td>${escapeHtml(o.name)}</td>
       <td style="font-size:0.8rem">${coord}</td>
       <td>${o.geofence_radius_m}m</td>
       <td><button class="btn-set-geofence" data-outlet-id="${o.id}">Atur Lokasi</button></td>
@@ -384,7 +384,7 @@ function wireOutletGeofenceButtons(container, businessUnitId) {
 function outletWorkHoursRowHtml(o) {
   return `
     <tr data-outlet-id="${o.id}">
-      <td>${o.name}</td>
+      <td>${escapeHtml(o.name)}</td>
       <td>${o.clock_in_time ? o.clock_in_time.slice(0, 5) : 'Belum diset'}</td>
       <td>${o.clock_out_time ? o.clock_out_time.slice(0, 5) : '-'}</td>
       <td>${o.clock_in_time ? (o.reminder_enabled ? 'Aktif' : 'Nonaktif') : '-'}</td>

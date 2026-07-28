@@ -32,7 +32,7 @@ export async function renderNbmReportTab(container, businessUnitId) {
         <label>Outlet basis (tempat kerja utama)</label>
         <select id="nbm-report-outlet">
           <option value="">Semua outlet</option>
-          ${outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('')}
+          ${outlets.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}
         </select>
       </div>
       <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="nbm-report-from" value="${range.from}" /></div>

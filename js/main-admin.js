@@ -1,3 +1,4 @@
+import { escapeHtml } from './core/ui.js';
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
 import { getActiveModules, getModuleRenderer, registerModule } from './core/module-loader.js';
 import { getModuleIcon } from './core/module-icons.js';
@@ -252,7 +253,7 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
         <div class="field" style="margin:0 0 12px">
           <label style="font-size:0.72rem">Business Unit aktif</label>
           <select id="bu-switcher">
-            ${availableBUs.map((b) => `<option value="${b.id}"${b.id === activeBuId ? ' selected' : ''}>${b.name}</option>`).join('')}
+            ${availableBUs.map((b) => `<option value="${b.id}"${b.id === activeBuId ? ' selected' : ''}>${escapeHtml(b.name)}</option>`).join('')}
           </select>
         </div>`
       : '';

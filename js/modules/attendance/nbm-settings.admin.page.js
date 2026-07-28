@@ -15,7 +15,7 @@ import {
   setOutletHolidayPolicy
 } from './nbm.service.js';
 import { fetchNationalHolidays, holidayLabel, parsePastedHolidays, sourceLinks } from './holiday-api.js';
-import { toast, confirmDialog, formDialog } from '../../core/ui.js';
+import { toast, confirmDialog, formDialog, escapeHtml } from '../../core/ui.js';
 import { formatThousands, formatRupiah, parseNumber, attachThousandsInput } from '../../core/format.js';
 
 const DAY_NAMES = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -36,7 +36,7 @@ export async function renderNbmSettingsTab(container, businessUnitId) {
         ? `<div class="field" style="max-width:280px;margin-top:16px">
              <label>Pilih Outlet</label>
              <select id="nbm-outlet-select">
-               ${outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('')}
+               ${outlets.map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('')}
              </select>
            </div>
            <div id="nbm-outlet-detail"></div>`
@@ -411,7 +411,7 @@ async function renderOutletDetail(outletId, businessUnitId) {
 function tierRowHtml(t) {
   return `
     <tr>
-      <td>${t.label ?? formatThreshold(t.threshold_minutes)}</td>
+      <td>${escapeHtml(t.label ?? formatThreshold(t.threshold_minutes))}</td>
       <td>${formatRupiah(t.bonus_amount)}</td>
       <td><button class="btn-remove-tier" data-tier-id="${t.id}">✕</button></td>
     </tr>
@@ -471,7 +471,7 @@ function holidayRowHtml(h) {
   return `
     <tr>
       <td>${h.holiday_date}<div style="font-size:0.72rem;color:var(--color-text-muted)">${hari}</div></td>
-      <td>${h.name}
+      <td>${escapeHtml(h.name)}
         ${h.is_joint_leave ? '<span class="badge badge-pending" style="font-size:0.65rem">cuti bersama</span>' : ''}
         ${h.source === 'api' ? '<div style="font-size:0.7rem;color:var(--color-text-muted)">dari kalender nasional</div>' : ''}
       </td>

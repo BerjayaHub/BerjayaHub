@@ -58,7 +58,7 @@ async function render(container, { businessUnitId }, isAdmin) {
         </select>
       </div>
       <div class="field" style="margin:0;max-width:180px"><label>Kondisi</label>
-        <select id="as-cond"><option value="">Semua</option>${ASSET_CONDITION_OPTIONS.map((c) => `<option value="${c.value}">${c.label}</option>`).join('')}</select>
+        <select id="as-cond"><option value="">Semua</option>${ASSET_CONDITION_OPTIONS.map((c) => `<option value="${c.value}">${esc(c.label)}</option>`).join('')}</select>
       </div>
       <div class="field" style="margin:0;max-width:220px"><label>Cari nama barang</label><input type="text" id="as-q" placeholder="mis. kursi" /></div>
     </div>

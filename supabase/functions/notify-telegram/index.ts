@@ -186,6 +186,44 @@ async function pesanOrderStok(r: any) {
     .join('\n');
 }
 
+// deno-lint-ignore no-explicit-any
+async function pesanDispatch(r: any, diterima: boolean) {
+  const [dari, ke, orang, items] = await Promise.all([
+    namaOutlet(r.from_outlet_id),
+    namaOutlet(r.to_outlet_id),
+    namaUser(diterima ? r.received_by : r.created_by),
+    admin.from('dispatch_items').select('sent_qty, received_qty, products(name, base_unit)').eq('dispatch_id', r.id)
+  ]);
+  // deno-lint-ignore no-explicit-any
+  const daftar = (items.data ?? []).map((i: any) => {
+    const nama = esc(i.products?.name ?? '-');
+    const satuan = esc(i.products?.base_unit ?? '');
+    // Saat penerimaan, selisih kirim vs terima adalah info paling penting.
+    if (diterima && i.received_qty != null && Number(i.received_qty) !== Number(i.sent_qty)) {
+      return `• ${nama} — dikirim ${i.sent_qty}, diterima <b>${i.received_qty}</b> ${satuan} ⚠️`;
+    }
+    return `• ${nama} — ${diterima ? i.received_qty ?? i.sent_qty : i.sent_qty} ${satuan}`;
+  });
+  const selisih = (items.data ?? []).filter(
+    // deno-lint-ignore no-explicit-any
+    (i: any) => diterima && i.received_qty != null && Number(i.received_qty) !== Number(i.sent_qty)
+  ).length;
+
+  return [
+    diterima ? '📥 <b>Kiriman Diterima</b>' : '🚚 <b>Barang Dikirim</b>',
+    '',
+    `🏭 Dari: <b>${esc(dari ?? '-')}</b>`,
+    `🏪 Ke: <b>${esc(ke ?? '-')}</b>`,
+    `👤 ${diterima ? 'Diterima' : 'Dikirim'} oleh: ${esc(orang)}`,
+    daftar.length ? `\n<b>Item (${daftar.length}):</b>\n${daftar.slice(0, 30).join('\n')}` : '',
+    daftar.length > 30 ? `<i>…dan ${daftar.length - 30} item lain</i>` : '',
+    selisih ? `\n⚠️ <b>${selisih} item selisih</b> antara dikirim dan diterima.` : '',
+    r.notes ? `\n💬 ${esc(r.notes)}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 type Built = { text: string; eventKey: string; buId: string | null };
 
 /**
@@ -214,6 +252,22 @@ async function buildMessage(payload: any): Promise<Built | null> {
   if (table === 'stock_orders') {
     if (type === 'INSERT') {
       return { text: await pesanOrderStok(record), eventKey: 'stock_order', buId: record.business_unit_id ?? null };
+    }
+    return null;
+  }
+
+  if (table === 'dispatches') {
+    const buId = record.business_unit_id ?? null;
+    if (type === 'INSERT') {
+      return { text: await pesanDispatch(record, false), eventKey: 'dispatch_sent', buId };
+    }
+    if (type === 'UPDATE') {
+      // Hanya saat status BERUBAH jadi 'received' — update lain tidak perlu
+      // mengganggu grup.
+      const berubah = old_record && old_record.status !== record.status;
+      if (berubah && record.status === 'received') {
+        return { text: await pesanDispatch(record, true), eventKey: 'dispatch_received', buId };
+      }
     }
     return null;
   }

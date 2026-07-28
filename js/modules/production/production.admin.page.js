@@ -10,7 +10,7 @@ export async function renderProductionAdminPage(container, { businessUnitId }) {
     <h1>Produksi</h1>
     <div class="inline-card" style="max-width:600px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
       <div class="field" style="margin:0"><label>Outlet</label>
-        <select id="pr-outlet"><option value="">Semua</option>${outlets.map((o) => `<option value="${o.id}">${o.name}</option>`).join('')}</select>
+        <select id="pr-outlet"><option value="">Semua</option>${outlets.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}</select>
       </div>
       <div class="field" style="margin:0"><label>Dari</label><input type="date" id="pr-from" value="${range.from}" /></div>
       <div class="field" style="margin:0"><label>Sampai</label><input type="date" id="pr-to" value="${range.to}" /></div>

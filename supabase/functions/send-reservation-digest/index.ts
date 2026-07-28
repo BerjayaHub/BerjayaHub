@@ -1,18 +1,16 @@
 // supabase/functions/send-reservation-digest/index.ts
 // Deploy: supabase functions deploy send-reservation-digest
 //
-// Rekap harian reservasi lewat Web Push (PWA). Dijalankan cron sekali sehari.
+// Rekap harian reservasi, dikirim ke DUA kanal sekaligus:
+//   1. Web Push (PWA) ke staff/admin yang berhak
+//   2. Telegram, dikelompokkan PER OUTLET, ke grup sesuai rute 'reservation_digest'
+//      (kalau rutenya belum diatur, jatuh ke rute 'reservation')
 //
-// Siapa yang menerima: staff/admin di BU yang MENGAKTIFKAN modul Reservasi,
+// Siapa yang menerima push: staff/admin di BU yang MENGAKTIFKAN modul Reservasi,
 // dan isinya dibatasi ke outlet yang memang jadi scope orang itu. Prinsipnya:
-// cakupan notifikasi = cakupan yang orang itu lihat di dalam app. Pembatasan
-// per-user lewat `user_module_access` juga dihormati, supaya orang yang modul
-// Reservasi-nya dicabut admin tidak ikut diberi tahu.
+// cakupan notifikasi = cakupan yang orang itu lihat di dalam app.
 //
-// Reservasi kosong TIDAK dikirim — pemberitahuan "hari ini tidak ada reservasi"
-// setiap pagi hanya melatih orang mengabaikan notifikasi.
-//
-// Secrets: VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, CRON_SECRET
+// Secrets: VAPID_*, TELEGRAM_BOT_TOKEN, CRON_SECRET
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import webpush from 'npm:web-push@3.6.7';
@@ -22,20 +20,36 @@ const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const VAPID_PUBLIC_KEY = Deno.env.get('VAPID_PUBLIC_KEY');
 const VAPID_PRIVATE_KEY = Deno.env.get('VAPID_PRIVATE_KEY');
 const VAPID_SUBJECT = Deno.env.get('VAPID_SUBJECT') ?? 'mailto:admin@example.com';
+const BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN');
+const CHAT_ID = Deno.env.get('TELEGRAM_CHAT_ID');
 const CRON_SECRET = Deno.env.get('CRON_SECRET');
 
 const TIMEZONE = 'Asia/Jakarta';
-const MAX_BARIS = 6; // sisanya diringkas "…dan N lainnya" — body notifikasi pendek
+const MAX_BARIS_PUSH = 6; // body notifikasi pendek; sisanya diringkas
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'Content-Type': 'application/json' } });
+const esc = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/** 'YYYY-MM-DD' di WIB, plus/minus sejumlah hari. */
 function dateWIB(offsetDays = 0) {
   const base = new Date(Date.now() + offsetDays * 86400000);
   return new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(base);
+}
+const fmtTanggal = (d: string) =>
+  new Date(d + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+
+async function sendTelegram(text: string, chatId: string | null) {
+  if (!BOT_TOKEN || !chatId) return { ok: false, error: 'Bot/chat belum diatur.' };
+  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true })
+  });
+  const b = await res.json().catch(() => ({}));
+  if (!res.ok || b?.ok === false) return { ok: false, error: b?.description ?? `HTTP ${res.status}` };
+  return { ok: true };
 }
 
 Deno.serve(async (req) => {
@@ -43,115 +57,158 @@ Deno.serve(async (req) => {
     const provided = req.headers.get('x-cron-secret');
     if (provided !== CRON_SECRET) return json({ error: 'Unauthorized' }, 401);
   }
-  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return json({ error: 'VAPID belum diset.' }, 500);
 
   const body = await req.json().catch(() => ({}));
   const dryRun = body?.dry_run === true;
-  // offset_days: 0 = hari ini (default), 1 = besok — untuk rekap H-1 malam hari.
   const offset = Number.isInteger(body?.offset_days) ? body.offset_days : 0;
   const tanggal = body?.date ?? dateWIB(offset);
   const untukBesok = offset === 1;
+  const refDedupe = `${tanggal}:${offset}`;
 
-  // Cegah dobel kirim kalau cron tidak sengaja jalan dua kali.
+  // Dicek saja di sini. Penandanya ditulis SETELAH pengiriman berhasil — kalau
+  // ditulis di awal, satu kali jalan yang gagal / belum ada data akan mengunci
+  // sisa hari itu dan semua percobaan berikutnya jadi "skipped". Itu persis
+  // gejala "tes masuk, tapi saat di-run tidak ada notifikasi".
   if (!dryRun) {
-    const { error: dupErr } = await admin
+    const { data: sudah } = await admin
       .from('telegram_notifications_sent')
-      .insert({ kind: 'reservation_digest', ref: `${tanggal}:${offset}` });
-    if (dupErr?.code === '23505') return json({ ok: true, skipped: true, reason: `Sudah dikirim untuk ${tanggal}.` });
-    if (dupErr) return json({ error: dupErr.message }, 500);
+      .select('id')
+      .eq('kind', 'reservation_digest')
+      .eq('ref', refDedupe)
+      .maybeSingle();
+    if (sudah) return json({ ok: true, skipped: true, reason: `Sudah dikirim untuk ${tanggal}.` });
   }
 
   // ---- BU yang mengaktifkan modul Reservasi ----
   const { data: modRow } = await admin.from('modules').select('id').eq('code', 'reservation').maybeSingle();
   if (!modRow) return json({ error: "Modul 'reservation' belum ada di tabel modules." }, 500);
 
-  const { data: buMods } = await admin
-    .from('bu_modules')
-    .select('business_unit_id')
-    .eq('module_id', modRow.id)
-    .eq('is_active', true);
+  const { data: buMods } = await admin.from('bu_modules').select('business_unit_id').eq('module_id', modRow.id).eq('is_active', true);
   const buIds = (buMods ?? []).map((b) => b.business_unit_id);
   if (!buIds.length) return json({ ok: true, sent: 0, reason: 'Tidak ada BU yang mengaktifkan modul Reservasi.' });
 
-  // ---- Reservasi pada tanggal itu ----
-  const { data: reservasi } = await admin
-    .from('reservations')
-    .select('outlet_id, business_unit_id, customer_name, reserve_time, pax, status')
-    .in('business_unit_id', buIds)
-    .eq('reserve_date', tanggal)
-    .in('status', ['pending', 'confirmed'])
-    .order('reserve_time');
-  if (!reservasi?.length) return json({ ok: true, sent: 0, reason: `Tidak ada reservasi pada ${tanggal}.` });
+  const [{ data: reservasi }, { data: outlets }, { data: scopes }] = await Promise.all([
+    admin
+      .from('reservations')
+      .select('outlet_id, business_unit_id, customer_name, phone, reserve_time, pax, status, notes')
+      .in('business_unit_id', buIds)
+      .eq('reserve_date', tanggal)
+      .in('status', ['pending', 'confirmed'])
+      .order('reserve_time'),
+    admin.from('outlets').select('id, name, business_unit_id, outlet_role, is_active').in('business_unit_id', buIds),
+    admin.from('membership_scopes').select('user_id, business_unit_id, outlet_id').in('business_unit_id', buIds)
+  ]);
 
-  const { data: outlets } = await admin.from('outlets').select('id, name').in('business_unit_id', buIds);
+  const daftarReservasi = reservasi ?? [];
   const namaOutlet = new Map((outlets ?? []).map((o) => [o.id, o.name]));
+  // Central Kitchen tidak menerima tamu, jadi tidak perlu ikut direkap.
+  const outletTamu = (outlets ?? []).filter((o) => o.is_active !== false && o.outlet_role !== 'central_kitchen');
 
-  // ---- Penerima: scope + hormati pembatasan modul per user ----
-  const { data: scopes } = await admin.from('membership_scopes').select('user_id, business_unit_id, outlet_id').in('business_unit_id', buIds);
+  // ================= TELEGRAM: per outlet =================
+  const { data: routeDigest } = await admin
+    .from('telegram_routes')
+    .select('chat_id, business_unit_id')
+    .in('event_key', ['reservation_digest', 'reservation'])
+    .eq('is_active', true);
+
+  const chatUntukBu = (buId: string) =>
+    (routeDigest ?? []).find((r) => r.business_unit_id === buId)?.chat_id ??
+    (routeDigest ?? []).find((r) => !r.business_unit_id)?.chat_id ??
+    CHAT_ID ??
+    null;
+
+  const teksOutlet = (outletId: string) => {
+    const punya = daftarReservasi.filter((r) => r.outlet_id === outletId);
+    const nama = namaOutlet.get(outletId) ?? '-';
+    if (!punya.length) {
+      // Diminta eksplisit: hari kosong tetap dikabari, supaya tim tahu
+      // rekapnya memang jalan dan hari itu benar-benar kosong.
+      return `📅 <b>Reservasi ${untukBesok ? 'Besok' : 'Hari Ini'} — ${esc(nama)}</b>\n<i>${fmtTanggal(tanggal)}</i>\n\nTidak ada reservasi.`;
+    }
+    const tamu = punya.reduce((t, r) => t + (Number(r.pax) || 0), 0);
+    const belumOk = punya.filter((r) => r.status === 'pending').length;
+    const baris = punya
+      .map(
+        (r) =>
+          `• <b>${String(r.reserve_time).slice(0, 5)}</b> — ${esc(r.customer_name)} (${r.pax} tamu)` +
+          (r.status === 'pending' ? ' ⏳' : '') +
+          (r.notes ? `\n   <i>${esc(r.notes)}</i>` : '')
+      )
+      .join('\n');
+    return [
+      `📅 <b>Reservasi ${untukBesok ? 'Besok' : 'Hari Ini'} — ${esc(nama)}</b>`,
+      `<i>${fmtTanggal(tanggal)}</i>`,
+      '',
+      `${punya.length} reservasi · <b>${tamu} tamu</b>${belumOk ? ` · ⏳ ${belumOk} belum dikonfirmasi` : ''}`,
+      '',
+      baris
+    ].join('\n');
+  };
+
+  const tgTugas = outletTamu.map((o) => ({ outlet: o.name, chat: chatUntukBu(o.business_unit_id), text: teksOutlet(o.id) }));
+
+  // ================= WEB PUSH: per user =================
   const userIds = [...new Set((scopes ?? []).map((s) => s.user_id))];
-  if (!userIds.length) return json({ ok: true, sent: 0, reason: 'Tidak ada anggota di BU tersebut.' });
-
-  const { data: akses } = await admin
-    .from('user_module_access')
-    .select('user_id, business_unit_id, module_id')
-    .in('user_id', userIds)
-    .in('business_unit_id', buIds);
-  // Punya baris akses tapi tidak memuat modul Reservasi -> dikecualikan.
+  const { data: akses } = userIds.length
+    ? await admin.from('user_module_access').select('user_id, business_unit_id, module_id').in('user_id', userIds).in('business_unit_id', buIds)
+    : { data: [] };
   const punyaWhitelist = new Set((akses ?? []).map((a) => `${a.user_id}|${a.business_unit_id}`));
-  const bolehReservasi = new Set(
-    (akses ?? []).filter((a) => a.module_id === modRow.id).map((a) => `${a.user_id}|${a.business_unit_id}`)
-  );
+  const bolehReservasi = new Set((akses ?? []).filter((a) => a.module_id === modRow.id).map((a) => `${a.user_id}|${a.business_unit_id}`));
 
-  const { data: subs } = await admin.from('push_subscriptions').select('user_id, endpoint, p256dh, auth_key').in('user_id', userIds);
-  if (!subs?.length) return json({ ok: true, sent: 0, reason: 'Belum ada perangkat yang berlangganan notifikasi.' });
-  const subsByUser = new Map<string, typeof subs>();
-  for (const s of subs) {
-    if (!subsByUser.has(s.user_id)) subsByUser.set(s.user_id, [] as typeof subs);
+  const { data: subs } = userIds.length
+    ? await admin.from('push_subscriptions').select('user_id, endpoint, p256dh, auth_key').in('user_id', userIds)
+    : { data: [] };
+  const subsByUser = new Map<string, NonNullable<typeof subs>>();
+  for (const s of subs ?? []) {
+    if (!subsByUser.has(s.user_id)) subsByUser.set(s.user_id, []);
     subsByUser.get(s.user_id)!.push(s);
   }
 
-  // ---- Susun pesan per user ----
   type Msg = { userId: string; title: string; body: string };
   const pesan: Msg[] = [];
 
   for (const uid of userIds) {
     if (!subsByUser.has(uid)) continue;
-    const scopeUser = (scopes ?? []).filter((s) => s.user_id === uid);
-
-    // Outlet yang boleh dilihat user ini, per BU yang modulnya aktif.
     const outletBoleh = new Set<string>();
     let semuaOutletBu = false;
     const buUser = new Set<string>();
-    for (const sc of scopeUser) {
+    for (const sc of (scopes ?? []).filter((s) => s.user_id === uid)) {
       const key = `${uid}|${sc.business_unit_id}`;
       if (punyaWhitelist.has(key) && !bolehReservasi.has(key)) continue; // modul dicabut untuk user ini
       buUser.add(sc.business_unit_id);
       if (sc.outlet_id) outletBoleh.add(sc.outlet_id);
-      else semuaOutletBu = true; // scope level BU -> semua outlet BU itu
+      else semuaOutletBu = true;
     }
     if (!buUser.size) continue;
 
-    const milikDia = reservasi.filter(
-      (r) => buUser.has(r.business_unit_id) && (semuaOutletBu || outletBoleh.has(r.outlet_id))
-    );
-    if (!milikDia.length) continue;
+    const outletDia = outletTamu.filter((o) => buUser.has(o.business_unit_id) && (semuaOutletBu || outletBoleh.has(o.id)));
+    if (!outletDia.length) continue;
+
+    const idDia = new Set(outletDia.map((o) => o.id));
+    const milikDia = daftarReservasi.filter((r) => idDia.has(r.outlet_id));
+    const judulTempat = outletDia.length === 1 ? ` — ${outletDia[0].name}` : '';
+
+    if (!milikDia.length) {
+      pesan.push({
+        userId: uid,
+        title: `📅 Reservasi ${untukBesok ? 'besok' : 'hari ini'}${judulTempat}`,
+        body:
+          outletDia.length === 1
+            ? `Tidak ada reservasi di ${outletDia[0].name} ${untukBesok ? 'besok' : 'hari ini'}.`
+            : `Tidak ada reservasi ${untukBesok ? 'besok' : 'hari ini'} di outlet kamu.`
+      });
+      continue;
+    }
 
     const totalTamu = milikDia.reduce((t, r) => t + (Number(r.pax) || 0), 0);
     const belumOk = milikDia.filter((r) => r.status === 'pending').length;
-
-    // Kalau lintas outlet, nama outlet disertakan supaya tidak membingungkan.
-    const outletSet = new Set(milikDia.map((r) => r.outlet_id));
+    const banyakOutlet = new Set(milikDia.map((r) => r.outlet_id)).size > 1;
     const baris = milikDia
-      .slice(0, MAX_BARIS)
-      .map((r) => {
-        const jam = String(r.reserve_time).slice(0, 5);
-        const tempat = outletSet.size > 1 ? ` @${namaOutlet.get(r.outlet_id) ?? '-'}` : '';
-        return `${jam} ${r.customer_name} (${r.pax})${tempat}`;
-      })
+      .slice(0, MAX_BARIS_PUSH)
+      .map((r) => `${String(r.reserve_time).slice(0, 5)} ${r.customer_name} (${r.pax})${banyakOutlet ? ` @${namaOutlet.get(r.outlet_id) ?? '-'}` : ''}`)
       .join('\n');
-    const sisa = milikDia.length - MAX_BARIS;
+    const sisa = milikDia.length - MAX_BARIS_PUSH;
 
-    const judulTempat = outletSet.size === 1 ? ` — ${namaOutlet.get([...outletSet][0]) ?? ''}` : '';
     pesan.push({
       userId: uid,
       title: `📅 Reservasi ${untukBesok ? 'besok' : 'hari ini'}${judulTempat}`,
@@ -163,18 +220,29 @@ Deno.serve(async (req) => {
     });
   }
 
-  if (dryRun) return json({ ok: true, dry_run: true, tanggal, penerima: pesan.length, contoh: pesan.slice(0, 3) });
+  if (dryRun) {
+    return json({
+      ok: true,
+      dry_run: true,
+      tanggal,
+      total_reservasi: daftarReservasi.length,
+      telegram: tgTugas.map((t) => ({ outlet: t.outlet, chat_id: t.chat, preview: t.text })),
+      push_penerima: pesan.length,
+      push_contoh: pesan.slice(0, 3)
+    });
+  }
 
-  // ---- Kirim ----
+  // ---- Kirim Telegram ----
+  const tgHasil = [];
+  for (const t of tgTugas) {
+    tgHasil.push({ outlet: t.outlet, ...(await sendTelegram(t.text, t.chat)) });
+  }
+
+  // ---- Kirim Push ----
   let terkirim = 0;
   const gagal: Array<Record<string, unknown>> = [];
   for (const m of pesan) {
-    const payload = JSON.stringify({
-      title: m.title,
-      body: m.body,
-      url: './index.html',
-      tag: `reservation-digest-${tanggal}`
-    });
+    const payload = JSON.stringify({ title: m.title, body: m.body, url: './index.html', tag: `reservation-digest-${tanggal}` });
     for (const sub of subsByUser.get(m.userId) ?? []) {
       try {
         await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } }, payload);
@@ -189,5 +257,17 @@ Deno.serve(async (req) => {
     }
   }
 
-  return json({ ok: true, tanggal, penerima: pesan.length, terkirim, gagal: gagal.length, detail_gagal: gagal.slice(0, 10) });
+  // Penanda dedupe hanya kalau memang ada yang berhasil terkirim.
+  const adaBerhasil = terkirim > 0 || tgHasil.some((t) => t.ok);
+  if (adaBerhasil) {
+    await admin.from('telegram_notifications_sent').insert({ kind: 'reservation_digest', ref: refDedupe });
+  }
+
+  return json({
+    ok: adaBerhasil,
+    tanggal,
+    total_reservasi: daftarReservasi.length,
+    telegram: tgHasil,
+    push: { penerima: pesan.length, terkirim, gagal: gagal.length, detail_gagal: gagal.slice(0, 10) }
+  });
 });

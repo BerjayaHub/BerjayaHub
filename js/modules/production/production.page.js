@@ -37,7 +37,7 @@ export async function renderProductionPage(container, { businessUnitId, outletId
     <h1>Produksi</h1>
     <div class="inline-card" style="max-width:560px">
       <div class="field"><label>Outlet</label>
-        <select id="prod-outlet">${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${o.name}</option>`).join('')}</select>
+        <select id="prod-outlet">${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${esc(o.name)}</option>`).join('')}</select>
       </div>
       <div class="field"><label>Produk yang dibuat</label>
         ${renderSearchSelect({ name: 'prod-product', options: productOptions, placeholder: 'cari produk…' })}

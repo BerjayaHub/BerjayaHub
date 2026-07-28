@@ -30,7 +30,7 @@ export async function renderProductStaffPage(container, { businessUnitId, outlet
     ${
       outlets.length
         ? `<div class="field" style="max-width:280px"><label>Outlet (untuk lihat stok)</label>
-            <select id="pv-outlet">${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${o.name}</option>`).join('')}</select></div>`
+            <select id="pv-outlet">${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${esc(o.name)}</option>`).join('')}</select></div>`
         : ''
     }
     <div id="pv-body"></div>

@@ -101,7 +101,7 @@ function reqRowHtml(r) {
       <td>${range}</td>
       <td>${r.day_count}</td>
       <td>${escapeHtml(r.reason ?? '-')}${r.review_note ? `<div style="font-size:0.72rem;color:var(--color-text-muted)">Catatan: ${escapeHtml(r.review_note)}</div>` : ''}</td>
-      <td><span class="badge ${badge.cls}">${badge.label}</span></td>
+      <td><span class="badge ${badge.cls}">${escapeHtml(badge.label)}</span></td>
       <td>
         ${r.attachment_path ? `<button class="btn-view-attach" data-path="${r.attachment_path}">Lampiran</button>` : ''}
         ${isPending ? `<button class="btn-approve" data-id="${r.id}">Setujui</button> <button class="btn-reject" data-id="${r.id}">Tolak</button>` : ''}

@@ -39,7 +39,7 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
     <div class="field" style="max-width:280px">
       <label>Outlet</label>
       <select id="clean-outlet">
-        ${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${o.name}</option>`).join('')}
+        ${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${escapeHtml(o.name)}</option>`).join('')}
       </select>
     </div>
     <p style="color:var(--color-text-muted);font-size:0.85rem">Sesi hari ini — ${fmtDate(todayWIB())}</p>

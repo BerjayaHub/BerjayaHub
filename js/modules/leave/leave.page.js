@@ -15,12 +15,16 @@ const STATUS_BADGE = {
   cancelled: { label: 'Dibatalkan', cls: 'badge-cancelled' }
 };
 
+import { todayWIB } from '../../core/dates.js';
+
 export async function renderLeavePage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = `<p>Memuat data cuti...</p>`;
   container.dataset.userId = userId ?? '';
   container.dataset.buId = businessUnitId ?? '';
   container.dataset.outletId = outletId ?? '';
-  const year = new Date().getFullYear();
+  // Ikut WIB supaya label tahunnya sama dengan tahun yang dipakai menghitung
+  // pemakaian jatah di service (kalau berbeda, angkanya terlihat tidak nyambung).
+  const year = Number(todayWIB().slice(0, 4));
 
   const [entitlements, types, requests] = await Promise.all([
     getMyEntitlementSummary(),
@@ -77,7 +81,7 @@ function rowHtml(r) {
       <td>${range}</td>
       <td>${r.day_count}</td>
       <td>
-        <span class="badge ${badge.cls}">${badge.label}</span>
+        <span class="badge ${badge.cls}">${escapeHtml(badge.label)}</span>
         ${r.review_note ? `<div style="font-size:0.75rem;color:var(--color-text-muted);margin-top:2px">Catatan: ${escapeHtml(r.review_note)}</div>` : ''}
       </td>
       <td>

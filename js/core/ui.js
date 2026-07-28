@@ -461,7 +461,12 @@ function fieldHtml(f) {
     </div>`;
 }
 
-function escapeHtml(s) {
+/**
+ * Escape teks sebelum masuk HTML. Diekspor supaya modul yang belum punya
+ * helper sendiri tidak perlu menyalin ulang — nama outlet/BU yang mengandung
+ * kutip atau < akan merusak markup kalau tidak di-escape.
+ */
+export function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 function escapeAttr(s) {
