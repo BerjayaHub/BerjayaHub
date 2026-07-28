@@ -60,11 +60,30 @@ export async function setOutletWorkHours(outletId, { clock_in_time, clock_out_ti
   if (error) throw error;
 }
 
+/**
+ * ID user yang sedang login.
+ *
+ * PENTING: query "milik saya" WAJIB menyaring user_id secara eksplisit dan
+ * TIDAK boleh menggantungkan diri pada RLS. RLS presensi sengaja mengizinkan
+ * ADMIN membaca baris staff lain (untuk rekap & koreksi), jadi query tanpa
+ * filter akan mengembalikan baris ORANG LAIN untuk akun ber-role admin —
+ * persis penyebab bug "admin terlihat sudah clock in padahal belum".
+ */
+async function currentUserId() {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  return user?.id ?? null;
+}
+
 /** Sesi presensi yang masih terbuka (belum clock out) milik user yang login, kalau ada. */
 export async function getMyOpenSession() {
+  const uid = await currentUserId();
+  if (!uid) return null;
   const { data, error } = await supabase
     .from('attendance_records')
     .select('*')
+    .eq('user_id', uid)
     .is('clock_out_at', null)
     .order('clock_in_at', { ascending: false })
     .limit(1)
@@ -79,6 +98,8 @@ export async function getMyOpenSession() {
  * ada baris (walau sudah clock out), staff tidak boleh clock-in lagi.
  */
 export async function getMyTodaySession() {
+  const uid = await currentUserId();
+  if (!uid) return null;
   // Awal hari waktu Jakarta (WIB, UTC+7), dihitung tanpa bergantung timezone device.
   const now = new Date();
   const wib = new Date(now.getTime() + 7 * 3600 * 1000);
@@ -86,6 +107,7 @@ export async function getMyTodaySession() {
   const { data, error } = await supabase
     .from('attendance_records')
     .select('*')
+    .eq('user_id', uid)
     .gte('clock_in_at', startWibUtc.toISOString())
     .order('clock_in_at', { ascending: false })
     .limit(1)
@@ -95,11 +117,14 @@ export async function getMyTodaySession() {
 }
 
 export async function getMyRecentAttendance(limit = 10) {
+  const uid = await currentUserId();
+  if (!uid) return [];
   const { data, error } = await supabase
     .from('attendance_records')
     // Nama outlet diresolusi di UI (list_attendance_outlets), karena outlet BU lain
     // tidak terbaca lewat RLS `outlets_select`.
     .select('id, clock_in_at, clock_out_at, outlet_id')
+    .eq('user_id', uid)
     .order('clock_in_at', { ascending: false })
     .limit(limit);
   if (error) throw error;

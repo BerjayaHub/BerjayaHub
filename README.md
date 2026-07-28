@@ -585,6 +585,24 @@ Pemilih periode/outlet, render tabel, kartu KPI, dan Export PDF otomatis ikut �
 
 Selisih pemakaian bahan (resep × penjualan vs `stock_movements` — penangkap kebocoran), penjualan per menu & tren harian, arus kas, nilai persediaan, produksi & yield CK, pemenuhan order/pengiriman, utilisasi armada, sisa jatah cuti, kepatuhan ceklis kebersihan.
 
+## Perbaikan: query "milik saya" wajib menyaring pemiliknya
+
+**Gejala:** akun ber-role **super admin / admin BU** melihat "sudah clock in" di Staff App padahal belum absen. Dicek di Admin Portal, yang clock in ternyata **staff lain**. Akun staff biasa normal.
+
+**Penyebab:** `getMyOpenSession()`, `getMyTodaySession()`, `getMyRecentAttendance()`, dan `listMyLeaveRequests()` menggantungkan pembatasan "milik saya" pada **RLS**, bukan menyaringnya sendiri. Padahal RLS presensi & cuti **sengaja** mengizinkan admin membaca baris staff lain (untuk rekap, koreksi, approval). Jadi untuk staff biasa hanya barisnya sendiri yang lolos — benar; tapi untuk admin, query `.limit(1)` mengambil baris **terbaru milik siapa pun**.
+
+Karena itu bug ini hanya muncul pada akun admin, dan **bukan** karena role-nya salah.
+
+**Perbaikan:** keempat fungsi kini menyaring `user_id` secara eksplisit.
+
+**Pencegahan:** ada `tools/audit-owner-filter.cjs` — memindai semua fungsi ber-nama `*My*` yang menyentuh tabel dan memastikan pemiliknya disaring eksplisit (atau lewat RPC security-definer).
+
+```bash
+node tools/audit-owner-filter.cjs
+```
+
+Fungsi yang memang bukan milik satu orang (mis. `listMyOrders`, yang di-scope per **outlet**) didaftarkan di `PENGECUALIAN` beserta alasannya. Jalankan tiap menambah fungsi baru — kelas bug ini sulit terlihat saat uji coba karena staff biasa selalu melihat hasil yang benar.
+
 ## PWA & Push Notification
 
 ### Ikon Home Screen

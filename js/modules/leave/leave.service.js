@@ -130,9 +130,15 @@ export async function removeStaffEntitlement(userId, leaveTypeId) {
 // ---- Pengajuan (staff) ----
 
 export async function listMyLeaveRequests() {
+  // Wajib disaring eksplisit: RLS cuti mengizinkan ADMIN membaca pengajuan
+  // staff lain, jadi tanpa filter ini akun admin akan melihat pengajuan orang
+  // lain di daftar "riwayat pengajuan saya" pada Staff App.
+  const uid = await currentUserId();
+  if (!uid) return [];
   const { data, error } = await supabase
     .from('leave_requests')
     .select('id, start_date, end_date, day_count, reason, status, review_note, attachment_path, created_at, leave_types(name)')
+    .eq('user_id', uid)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data ?? [];

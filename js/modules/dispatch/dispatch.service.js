@@ -86,6 +86,11 @@ export async function listIncomingOrders(outletIds) {
 }
 
 /** Order yang dibuat outlet ini (untuk memantau statusnya). */
+/**
+ * Order milik OUTLET (bukan milik satu orang) — sengaja di-scope lewat
+ * `from_outlet_id`, karena order stok adalah dokumen outlet yang boleh dilihat
+ * seluruh staff outlet itu, bukan hanya pembuatnya.
+ */
 export async function listMyOrders(outletIds, limit = 30) {
   if (!outletIds?.length) return [];
   const { data, error } = await supabase
