@@ -870,7 +870,31 @@ Ini kelas kegagalan yang sama seperti bug lain di dokumen ini: query-nya sukses,
 
 **Semua staff outlet ditampilkan, bukan hanya yang sudah dijadwalkan** — justru baris kosonglah yang berguna: dari situ terlihat siapa yang belum dapat jadwal minggu ini. Staff ber-scope level BU (mis. admin BU, yang otomatis mencakup semua outlet) hanya ikut tampil kalau memang punya jadwal di sana; kalau tidak, tabel outlet kecil akan penuh nama orang yang tidak pernah masuk ke situ. Kolom `tingkat` dari RPC itu yang membedakannya.
 
-⚠️ **`listBuStaff()` hanya untuk layar admin.** Sudah diberi peringatan di docstring-nya. Masih dipakai di Laporan, Jatah Cuti, dan Jadwal Shift Admin Portal — semuanya layar admin, jadi aman.
+### ⚠️ RLS `membership_scopes` buta terhadap `outlet_admin` (migration `0053_bu_staff_for_admin.sql`)
+
+`membership_scopes_select_admin` memakai `is_bu_admin()`, yang hanya mencakup **super_admin** dan **bu_admin**. Seorang **outlet_admin** jatuh ke `membership_scopes_select_own` dan hanya membaca baris scope-nya sendiri.
+
+Jadi "hanya untuk layar admin" **bukan jaminan** — admin bukan satu kelompok yang seragam. Setiap select langsung ke `membership_scopes` yang bermaksud "daftar staff" akan mengembalikan **satu nama** untuk outlet_admin: bukan daftar kosong yang mencurigakan, melainkan daftar berisi satu orang yang terlihat masuk akal.
+
+Dampak nyatanya berbeda-beda tergantung cara datanya dipakai — dan ini yang membuatnya sulit dilihat:
+
+| Tempat | Gejala untuk outlet_admin |
+|---|---|
+| Jadwal Shift (Staff App & Admin Portal) | tabel hanya berisi satu baris |
+| **Rekap Presensi & Disiplin** | laporan **iterasi `staff`** → hanya satu baris, terlihat seperti laporan sah |
+| Payroll NBM & Pengganti PH | baris tetap lengkap (dari `attendance_records`), tapi namanya jadi "(staff tidak dikenal)" |
+| Jatah Cuti | hanya satu staff yang bisa diatur jatahnya |
+
+**Perbaikan.** Dua RPC security-definer yang menentukan cakupannya sendiri sesuai peran pemanggil, bukan menumpang RLS tabel yang aturannya dibuat untuk tujuan berbeda:
+
+- `list_outlet_staff(p_outlet_id)` — staff satu outlet, untuk Jadwal Shift (kedua sisi).
+- `list_bu_staff_for_admin(p_business_unit_id)` — super/bu_admin dapat seluruh BU, **outlet_admin dapat outlet yang diadminkan saja**. `listBuStaff()` kini hanya membungkus RPC ini, jadi Jatah Cuti dan seluruh Laporan ikut benar tanpa mengubah pemanggilnya.
+
+Tabel lain **tidak** kena masalah ini: `attendance_records`, `leave_requests`, dan `shift_schedules` semuanya sudah memakai `is_admin_of_outlet()`, yang benar mencakup outlet_admin. `membership_scopes` satu-satunya yang menyimpang.
+
+Sisa select langsung ke `membership_scopes` di `js/` semuanya membaca scope **milik sendiri** (`auth.js`, `base-scope.js`, `dispatch.service.js`, `inventory.service.js`) atau berada di Master User yang khusus super admin — aman.
+
+**Aturan turunannya:** kalau butuh "daftar orang" untuk layar admin, pakai RPC security-definer. Jangan mengandalkan RLS `membership_scopes`.
 
 ## Modul yang menempel pada ORANG, bukan pada BU aktif (`js/core/base-scope.js`)
 

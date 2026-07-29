@@ -1,6 +1,5 @@
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
-import { listBuStaff } from '../leave/leave.service.js';
 import { amISuperAdmin } from '../inventory/inventory.service.js';
 import {
   getShiftSettings,
@@ -10,6 +9,7 @@ import {
   deleteOutletShift,
   setOutletShiftEnabled,
   listSchedules,
+  listOutletStaff,
   setSchedule,
   clearSchedule,
   weekRange,
@@ -101,7 +101,16 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
     let staff, shifts, schedules, policy, holidays;
     try {
       [staff, shifts, schedules, policy, holidays] = await Promise.all([
-        listBuStaff(businessUnitId),
+        // BUKAN listBuStaff(): policy `membership_scopes_select_admin` memakai
+        // is_bu_admin(), yang TIDAK mencakup outlet_admin. Admin outlet karena
+        // itu hanya bisa membaca baris scope-nya SENDIRI, dan tabel jadwalnya
+        // cuma berisi satu nama — padahal RLS `shift_schedules_modify` memakai
+        // is_admin_of_outlet() dan memang mengizinkan dia menjadwalkan seluruh
+        // stafnya. Izinnya benar; yang salah cara UI mengambil daftar namanya.
+        //
+        // RPC ini juga membuat daftarnya sesuai OUTLET YANG DIPILIH, bukan
+        // seluruh BU — admin outlet Serpong tidak perlu melihat staf Gading.
+        listOutletStaff(state.outletId),
         listOutletShifts(state.outletId),
         listSchedules({ outletId: state.outletId, from: wk.from, to: wk.to }),
         getHolidayPolicy(businessUnitId, state.outletId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] })),
@@ -121,6 +130,12 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
     }
     const map = new Map(); // `${user}|${date}` -> row
     for (const s of schedules) map.set(`${s.user_id}|${s.work_date}`, s);
+
+    // Staff nonaktif disembunyikan — kecuali dia sudah punya jadwal minggu ini.
+    // Menyembunyikan baris yang PUNYA data berarti jadwalnya jadi tidak bisa
+    // dilihat maupun dibatalkan, dan admin tidak akan pernah tahu itu ada.
+    const adaJadwal = new Set(schedules.map((s) => s.user_id));
+    staff = staff.filter((s) => s.is_active !== false || adaJadwal.has(s.user_id));
 
     const opts = (sel) =>
       `<option value=""${!sel ? ' selected' : ''}>–</option>` +
@@ -143,7 +158,12 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
               staff
                 .map(
                   (st) => `<tr>
-                    <td>${esc(st.full_name)}${st.is_active === false ? ' <span style="font-size:0.7rem;color:var(--color-danger)">(nonaktif)</span>' : ''}</td>
+                    <td>${esc(st.full_name)}${st.is_active === false ? ' <span style="font-size:0.7rem;color:var(--color-danger)">(nonaktif)</span>' : ''}${
+                      // Scope level BU (mis. admin BU) mencakup semua outlet, jadi
+                      // orangnya muncul di setiap outlet. Diberi tanda supaya admin
+                      // tahu dia bukan staf tetap outlet ini.
+                      st.tingkat === 'bu' ? ' <span class="badge" style="font-size:0.62rem">level BU</span>' : ''
+                    }</td>
                     ${wk.days
                       .map((d) => {
                         const cur = map.get(`${st.user_id}|${d}`);
@@ -157,7 +177,8 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
                       .join('')}
                   </tr>`
                 )
-                .join('') || `<tr><td colspan="8">Belum ada staff di BU ini.</td></tr>`
+                .join('') ||
+              `<tr><td colspan="8" style="color:var(--color-text-muted)">Belum ada staff yang terdaftar di outlet ini. Tambahkan scope outlet-nya di <strong>Master User</strong>.</td></tr>`
             }
           </tbody>
         </table>

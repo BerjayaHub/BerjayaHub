@@ -194,14 +194,39 @@ export async function setSchedule({ businessUnitId, outletId, userId, workDate, 
   if (error) throw error;
 }
 
+/**
+ * Kosongkan satu sel jadwal.
+ *
+ * `.select()` wajib: RLS `shift_schedules_modify` membatasi ke admin outlet,
+ * dan PostgREST TIDAK menganggap penolakan RLS sebagai error — ia membalas
+ * sukses dengan 0 baris. Tanpa pemeriksaan ini, admin yang tidak berwenang
+ * melihat selnya kembali ke "–", mengira jadwalnya batal, padahal di database
+ * masih utuh. Staff-nya lalu tetap dijadwalkan masuk.
+ *
+ * Menghapus sel yang memang sudah kosong bukan kesalahan — 0 baris hanya
+ * dianggap penolakan kalau barisnya memang ada tapi tidak boleh disentuh, jadi
+ * keberadaannya dicek dulu.
+ */
 export async function clearSchedule(outletId, userId, workDate) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('shift_schedules')
     .delete()
     .eq('outlet_id', outletId)
     .eq('user_id', userId)
-    .eq('work_date', workDate);
+    .eq('work_date', workDate)
+    .select('id');
   if (error) throw error;
+
+  if (!data?.length) {
+    const { data: masihAda } = await supabase
+      .from('shift_schedules')
+      .select('id')
+      .eq('outlet_id', outletId)
+      .eq('user_id', userId)
+      .eq('work_date', workDate)
+      .maybeSingle();
+    if (masihAda) throw new Error('Tidak bisa mengubah jadwal di outlet ini — kamu bukan adminnya.');
+  }
 }
 
 /** Jadwal staff yang login untuk rentang tanggal (dipakai Staff App). */

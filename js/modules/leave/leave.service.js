@@ -270,27 +270,25 @@ export async function listLeaveTypesForAdmin(businessUnitId) {
 }
 
 /**
- * Daftar staff (distinct) yang punya scope di BU ini — untuk tab Jatah Cuti.
+ * Daftar staff di sebuah BU, untuk layar admin (Jatah Cuti, Laporan).
  *
- * ⚠️ HANYA UNTUK LAYAR ADMIN. RLS `membership_scopes` cuma membuka baris milik
- * sendiri untuk staff biasa (`membership_scopes_select_own`), jadi dipanggil
- * dari Staff App fungsi ini "berhasil" tapi mengembalikan SATU baris: si
- * pemanggil sendiri. Kegagalan yang menipu — tidak ada error, hasilnya cuma
- * kebetulan berisi satu orang. Untuk Staff App pakai
- * `listOutletStaff()` (RPC security-definer) di shift.service.js.
+ * Lewat RPC security-definer, BUKAN select langsung ke `membership_scopes`.
+ * Alasannya penting dan sempat salah dua kali:
+ *
+ *   1. Untuk STAFF BIASA, RLS hanya membuka baris milik sendiri
+ *      (`membership_scopes_select_own`).
+ *   2. Untuk ADMIN OUTLET juga — karena `membership_scopes_select_admin`
+ *      memakai `is_bu_admin()`, yang HANYA mencakup super_admin dan bu_admin.
+ *
+ * Jadi select langsung "berhasil" tapi mengembalikan SATU baris: si pemanggil.
+ * Bukan daftar kosong yang mencurigakan, melainkan daftar berisi satu nama yang
+ * terlihat masuk akal — laporan penggajian yang terpotong tetap terlihat sah.
+ *
+ * RPC `list_bu_staff_for_admin` menentukan cakupannya sendiri sesuai peran:
+ * super/bu_admin dapat seluruh BU, outlet_admin dapat outlet yang diadminkan.
  */
 export async function listBuStaff(businessUnitId) {
-  const { data, error } = await supabase
-    .from('membership_scopes')
-    .select('user_id, user_profiles(full_name, is_active)')
-    .eq('business_unit_id', businessUnitId);
+  const { data, error } = await supabase.rpc('list_bu_staff_for_admin', { p_business_unit_id: businessUnitId });
   if (error) throw error;
-  const seen = new Map();
-  for (const row of data ?? []) {
-    if (!row.user_profiles) continue;
-    if (!seen.has(row.user_id)) {
-      seen.set(row.user_id, { user_id: row.user_id, full_name: row.user_profiles.full_name, is_active: row.user_profiles.is_active });
-    }
-  }
-  return Array.from(seen.values()).sort((a, b) => a.full_name.localeCompare(b.full_name));
+  return (data ?? []).sort((a, b) => String(a.full_name).localeCompare(String(b.full_name)));
 }
