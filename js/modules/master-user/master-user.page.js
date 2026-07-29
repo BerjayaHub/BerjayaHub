@@ -51,6 +51,26 @@ export async function renderMasterUserPage(container, ctx = {}) {
       <button class="primary" id="btn-new-staff" style="max-width:180px">+ Tambah Staff</button>
     </div>
     <div id="new-staff-form-wrap"></div>
+
+    <div class="inline-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+      <div class="field" style="margin:0;max-width:240px">
+        <label>Cari nama / email / telp</label>
+        <input type="text" id="mu-q" placeholder="mis. iko atau @gmail" />
+      </div>
+      <div class="field" style="margin:0;max-width:200px">
+        <label>Business Unit</label>
+        <select id="mu-bu"><option value="">Semua BU</option>
+          ${businessUnits.map((b) => `<option value="${escapeHtml(b.id)}">${escapeHtml(b.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field" style="margin:0;max-width:200px">
+        <label>Outlet</label>
+        <select id="mu-outlet"><option value="">Semua outlet</option></select>
+      </div>
+      <button id="mu-reset">Reset</button>
+      <span id="mu-count" style="font-size:0.8rem;color:var(--color-text-muted)"></span>
+    </div>
+
     <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 10px">
       Tanda ★ = tempat kerja utama (basis perhitungan NBM). Klik ☆ pada salah satu scope untuk menetapkannya.
     </p>
@@ -58,6 +78,7 @@ export async function renderMasterUserPage(container, ctx = {}) {
       <thead>
         <tr>
           <th>Nama</th>
+          <th>Email</th>
           <th>Telp</th>
           <th>Scope (BU / Outlet / Role)</th>
           <th>Status</th>
@@ -65,9 +86,7 @@ export async function renderMasterUserPage(container, ctx = {}) {
           <th>Aksi</th>
         </tr>
       </thead>
-      <tbody>
-        ${staffList.map((s) => staffRowHtml(s, registeredFaceIds)).join('') || '<tr><td colspan="6">Belum ada staff.</td></tr>'}
-      </tbody>
+      <tbody id="staff-tbody"></tbody>
     </table>
   `;
 
@@ -75,7 +94,115 @@ export async function renderMasterUserPage(container, ctx = {}) {
     renderNewStaffForm(container, businessUnits);
   });
 
-  wireRowActions(container, businessUnits);
+  // wireRowActions dipanggil DI DALAM wireFilters setiap kali baris digambar
+  // ulang. Jangan dipanggil lagi di sini — tombolnya akan tersambung dua kali
+  // dan setiap klik dieksekusi dobel (dialog muncul dua kali, aksi jalan dua kali).
+  wireFilters(container, staffList, businessUnits, registeredFaceIds);
+}
+
+/**
+ * Filter nama/email/telp + BU + Outlet.
+ *
+ * Disaring DI SISI KLIEN, bukan query ulang ke server: seluruh daftar staff
+ * memang sudah dimuat (RLS yang membatasi cakupannya), jumlahnya puluhan bukan
+ * ribuan, dan menyaring lokal membuat hasilnya muncul seketika saat mengetik.
+ *
+ * Pencocokan scope memakai logika "punya SALAH SATU scope yang cocok" — user
+ * dengan banyak scope tetap muncul selama satu di antaranya sesuai filter.
+ */
+function wireFilters(container, staffList, businessUnits, registeredFaceIds) {
+  const tbody = container.querySelector('#staff-tbody');
+  const inputQ = container.querySelector('#mu-q');
+  const selBu = container.querySelector('#mu-bu');
+  const selOutlet = container.querySelector('#mu-outlet');
+  const hitung = container.querySelector('#mu-count');
+
+  // Daftar outlet diambil dari scope yang ADA di data, bukan query terpisah:
+  // outlet yang tidak dipakai siapa pun hanya akan jadi pilihan yang selalu
+  // menghasilkan tabel kosong.
+  function isiOutlet() {
+    const buId = selBu.value;
+    const outlets = new Map();
+    for (const s of staffList) {
+      for (const sc of s.scopes) {
+        if (!sc.outlet_id) continue;
+        if (buId && sc.business_unit_id !== buId) continue;
+        outlets.set(sc.outlet_id, sc.outlets?.name ?? 'Outlet');
+      }
+    }
+    const sebelumnya = selOutlet.value;
+    selOutlet.innerHTML =
+      '<option value="">Semua outlet</option>' +
+      [...outlets.entries()]
+        .sort((a, b) => a[1].localeCompare(b[1]))
+        .map(([id, nama]) => `<option value="${escapeHtml(id)}">${escapeHtml(nama)}</option>`)
+        .join('');
+    // Pertahankan pilihan lama kalau masih relevan setelah BU berganti.
+    if ([...outlets.keys()].includes(sebelumnya)) selOutlet.value = sebelumnya;
+  }
+
+  function cocok(s) {
+    const q = inputQ.value.trim().toLowerCase();
+    if (q) {
+      const bahan = [s.profile.full_name, s.profile.email, s.profile.phone].filter(Boolean).join(' ').toLowerCase();
+      if (!bahan.includes(q)) return false;
+    }
+    if (selBu.value && !s.scopes.some((sc) => sc.business_unit_id === selBu.value)) return false;
+    if (selOutlet.value && !s.scopes.some((sc) => sc.outlet_id === selOutlet.value)) return false;
+    return true;
+  }
+
+  function gambar() {
+    const hasil = staffList.filter(cocok);
+    tbody.innerHTML =
+      hasil.map((s) => staffRowHtml(s, registeredFaceIds)).join('') ||
+      `<tr><td colspan="7" style="color:var(--color-text-muted)">Tidak ada staff yang cocok dengan filter ini.</td></tr>`;
+    hitung.textContent = `${hasil.length} dari ${staffList.length} user`;
+    // Baris digambar ulang -> tombol-tombolnya baru, jadi harus disambungkan lagi.
+    wireRowActions(container, businessUnits);
+  }
+
+  // Simpan filter di dataset container supaya TIDAK hilang saat halaman
+  // digambar ulang setelah aksi (nonaktifkan user, ubah scope, reset password).
+  // Tanpa ini admin harus mengetik ulang filternya untuk setiap orang yang
+  // disentuh — friksi kecil yang membuat fitur filter jadi tidak terpakai.
+  function simpan() {
+    container.dataset.muQ = inputQ.value;
+    container.dataset.muBu = selBu.value;
+    container.dataset.muOutlet = selOutlet.value;
+  }
+  inputQ.value = container.dataset.muQ ?? '';
+  selBu.value = container.dataset.muBu ?? '';
+
+  let timer;
+  inputQ.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      simpan();
+      gambar();
+    }, 200);
+  });
+  selBu.addEventListener('change', () => {
+    isiOutlet();
+    simpan();
+    gambar();
+  });
+  selOutlet.addEventListener('change', () => {
+    simpan();
+    gambar();
+  });
+  container.querySelector('#mu-reset').addEventListener('click', () => {
+    inputQ.value = '';
+    selBu.value = '';
+    isiOutlet();
+    selOutlet.value = '';
+    simpan();
+    gambar();
+  });
+
+  isiOutlet();
+  selOutlet.value = container.dataset.muOutlet ?? '';
+  gambar();
 }
 
 function staffRowHtml(s, registeredFaceIds) {
@@ -99,7 +226,12 @@ function staffRowHtml(s, registeredFaceIds) {
   return `
     <tr data-user-id="${s.profile.id}">
       <td>${escapeHtml(s.profile.full_name)}</td>
-      <td>${s.profile.phone ?? '-'}</td>
+      <td style="font-size:0.82rem">${
+        s.profile.email
+          ? escapeHtml(s.profile.email)
+          : '<span style="color:var(--color-text-muted)" title="Jalankan migration 0049_user_email.sql kalau kolom ini kosong untuk semua orang">-</span>'
+      }</td>
+      <td>${escapeHtml(s.profile.phone ?? '-')}</td>
       <td>${scopeBadges} <button class="btn-add-scope" data-user-id="${s.profile.id}">+ scope</button></td>
       <td>${s.profile.is_active ? 'Aktif' : 'Nonaktif'}</td>
       <td>

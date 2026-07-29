@@ -12,7 +12,7 @@ export async function listStaffWithScopes() {
       id, role, business_unit_id, outlet_id, is_primary,
       business_units(name),
       outlets(name),
-      user_profiles(id, full_name, phone, is_active)
+      user_profiles(id, full_name, phone, email, is_active)
     `)
     .order('business_unit_id');
 

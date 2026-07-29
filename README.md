@@ -860,6 +860,20 @@ Semua filter periode di Admin Portal kini **default: tanggal 1 bulan berjalan s/
 
 Berlaku di: **Presensi**, **Rekap NBM**, **Inventory → Riwayat**, **Produksi**, **Pengiriman**, **Penjualan**, **Kas → Mutasi**, dan **Ceklis → Rekap** (yang tadinya filter satu tanggal, kini rentang Dari–Sampai).
 
+## Master User — email & filter (migration `0049_user_email.sql`)
+
+Tabel Master User menampilkan **email** dan punya filter **nama/email/telp**, **BU**, dan **outlet**.
+
+**Email disalin ke `user_profiles`, tidak dibaca langsung dari `auth.users`.** Skema `auth` sengaja tidak bisa dibaca klien lewat PostgREST — tabel itu juga memuat hash password dan token. Salinannya dijaga trigger `trg_sync_user_profile_email` pada `auth.users` (insert + update email), bukan diisi dari Edge Function: kalau pengisiannya diserahkan ke `create-staff-user`, user yang dibuat lewat dashboard Supabase atau yang mengganti emailnya sendiri akan punya email basi — dan yang paling menyesatkan, tabelnya tetap terlihat normal, cuma isinya salah.
+
+Kalau kolom Email kosong untuk **semua** orang, migration-nya belum dijalankan.
+
+**Filternya bekerja di sisi klien**, bukan query ulang: daftarnya memang sudah dimuat seluruhnya (RLS yang membatasi cakupan), jumlahnya puluhan bukan ribuan, dan menyaring lokal membuat hasil muncul seketika saat mengetik. Pilihan outlet dibangun dari scope yang benar-benar ada di data — outlet yang tidak dipakai siapa pun hanya akan jadi pilihan yang selalu menghasilkan tabel kosong.
+
+Filter **disimpan di `container.dataset`** supaya tidak hilang saat halaman digambar ulang setelah aksi (nonaktifkan user, ubah scope, reset password). Tanpa itu admin harus mengetik ulang filternya untuk setiap orang yang disentuh.
+
+⚠️ `wireRowActions()` dipanggil **di dalam** fungsi penggambar baris, dan **tidak boleh** dipanggil lagi dari `renderMasterUserPage` — kalau dobel, setiap klik dieksekusi dua kali (dialog muncul dua kali, aksi jalan dua kali).
+
 ## Alat audit (jalankan sebelum push)
 
 ```
