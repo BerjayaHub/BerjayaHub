@@ -9,6 +9,9 @@ export const ADMIN_TAB_CATALOG = [
   { code: 'report', label: 'Laporan', group: 'Umum' },
   // Berisi tombol uji koneksi bot -> data tingkat organisasi, super admin saja.
   { code: 'telegram', label: 'Notifikasi Telegram', group: 'Umum', superAdminOnly: true },
+  // Video tutorial berlaku lintas BU (global) -> pengaturan tingkat organisasi,
+  // super admin saja. Sejajar dengan Telegram dan Master User.
+  { code: 'tutorial', label: 'Video Tutorial', group: 'Umum', superAdminOnly: true },
 
   // Struktur organisasi & tampilan BU = pengaturan tingkat organisasi -> super admin.
   { code: 'organization', label: 'Organisasi & Outlet', group: 'BU & Outlet', superAdminOnly: true },

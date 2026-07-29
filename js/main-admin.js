@@ -1,4 +1,5 @@
 import { escapeHtml } from './core/ui.js';
+import { mountTutorialButton, clearFloatingTutorialButton } from './core/tutorial-button.js';
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
 import { getActiveModules, getModuleRenderer, registerModule } from './core/module-loader.js';
 import { getModuleIcon } from './core/module-icons.js';
@@ -21,6 +22,7 @@ import { renderAssetAdminPage } from './modules/asset/asset.page.js';
 import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
 import { renderReportAdminPage } from './modules/report/report.admin.page.js';
 import { renderTelegramAdminPage } from './modules/notifications/telegram.admin.page.js';
+import { renderTutorialAdminPage } from './modules/tutorial/tutorial.admin.page.js';
 import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
 import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
 import { listBusinessUnitsBasic } from './modules/organization/organization.service.js';
@@ -36,6 +38,7 @@ const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
 registerModule('dashboard', renderAdminDashboard);
 registerModule('report', renderReportAdminPage);
 registerModule('telegram', renderTelegramAdminPage);
+registerModule('tutorial', renderTutorialAdminPage);
 registerModule('organization', renderOrganizationAdminPage);
 registerModule('master_user', renderMasterUserPage);
 registerModule('bu_appearance', renderBuAppearancePage);
@@ -95,7 +98,8 @@ const GROUPED_CODES = new Set(Object.values(GROUPS).flatMap((g) => g.tabs.map((t
 const CORE_ADMIN_MENU = [
   { code: 'dashboard', name: 'Dashboard' },
   { code: 'report', name: 'Laporan' },
-  { code: 'telegram', name: 'Notifikasi Telegram' }
+  { code: 'telegram', name: 'Notifikasi Telegram' },
+  { code: 'tutorial', name: 'Video Tutorial' }
 ];
 
 /** Tab dalam sebuah grup yang boleh dilihat user ini di BU aktif. */
@@ -365,6 +369,12 @@ function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = fal
   void content.offsetWidth; // restart animasi transisi halaman
   content.classList.add('fade-in');
 
+  // Lepas tombol tutorial halaman sebelumnya SEKARANG (sinkron). Kalau
+  // diserahkan ke mount asinkron di bawah, perpindahan halaman yang cepat bisa
+  // membuat pembersihan datang setelah pemasangan dan justru menghapus tombol
+  // yang baru benar.
+  clearFloatingTutorialButton();
+
   const group = GROUPS[code];
   if (group) {
     const activeCodes = new Set(activeModules.map((m) => m.code));
@@ -384,6 +394,11 @@ function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = fal
   } else {
     content.innerHTML = `<p>Modul admin "${code}" belum dibangun.</p>`;
   }
+
+  // Admin Portal merender tiap halaman dengan header-nya sendiri, jadi tidak ada
+  // satu tempat tetap untuk menyisipkan tombol -- dipakai mode melayang di pojok
+  // kanan bawah. Tombol lama dibersihkan sendiri di dalam mountTutorialButton.
+  mountTutorialButton(null, code, businessUnitId, { floating: true });
 }
 
 function applyBuTheme(businessUnit) {

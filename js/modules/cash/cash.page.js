@@ -101,7 +101,9 @@ export async function renderCashPage(container, { userId }) {
         { name: 'category_id', label: 'Kategori', type: 'select', options: catOptions(type) },
         { name: 'date', label: 'Tanggal', type: 'date', value: todayWIB() },
         { name: 'notes', label: 'Keterangan (opsional)', type: 'text' },
-        { name: 'file', label: 'Foto bukti (opsional)', type: 'file', accept: 'image/*' }
+        // Bukti kas hampir selalu difoto di tempat (nota, struk), bukan diambil
+        // dari galeri — jadi kamera didahulukan, galeri tetap tersedia.
+        { name: 'file', label: 'Foto bukti (opsional)', type: 'photo', facing: 'environment' }
       ],
       submitText: 'Simpan'
     });

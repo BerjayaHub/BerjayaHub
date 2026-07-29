@@ -199,8 +199,11 @@ async function render(container, { businessUnitId }, isAdmin) {
         {
           name: 'file',
           label: existing?.photo_path ? 'Ganti foto (opsional)' : 'Foto barang (opsional)',
-          type: 'file',
-          accept: 'image/*'
+          // Kamera belakang: barang difoto langsung di tempat, bukan dicari-cari
+          // di galeri. Galeri tetap tersedia sebagai tombol kedua.
+          type: 'photo',
+          facing: 'environment',
+          help: 'Ambil Foto membuka kamera langsung. Kalau fotonya sudah ada, pakai Dari Galeri.'
         }
       ],
       submitText: 'Simpan',

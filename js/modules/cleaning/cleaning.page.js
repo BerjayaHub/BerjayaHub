@@ -1,4 +1,5 @@
 import { toast } from '../../core/ui.js';
+import { photoInputHtml, wirePhotoInput } from '../../core/photo-input.js';
 import {
   listBuOutlets,
   listActiveSessions,
@@ -99,9 +100,13 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
             )
             .join('')}
         </div>
-        <div class="field" style="margin-top:12px">
-          <label>Foto bukti (wajib)</label>
-          <input type="file" accept="image/*" capture="environment" id="clean-photo" />
+        <div style="margin-top:12px">
+          ${photoInputHtml({
+            name: 'clean-photo',
+            label: 'Foto bukti (wajib)',
+            facing: 'environment',
+            help: 'Ambil Foto membuka kamera langsung — itu yang biasa dipakai. Dari Galeri untuk foto yang sudah diambil sebelumnya.'
+          })}
         </div>
         <div class="field">
           <label>Catatan (opsional)</label>
@@ -112,10 +117,11 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
       </div>
     `;
     body.querySelector('#clean-back').addEventListener('click', renderSessionList);
+    const bacaFoto = wirePhotoInput(body, 'clean-photo');
     body.querySelector('#clean-submit').addEventListener('click', async (e) => {
       const errorEl = body.querySelector('#clean-error');
       errorEl.textContent = '';
-      const file = body.querySelector('#clean-photo').files[0];
+      const file = bacaFoto();
       if (!file) {
         errorEl.textContent = 'Foto bukti wajib diisi.';
         return;

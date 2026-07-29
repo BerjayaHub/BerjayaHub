@@ -2,6 +2,7 @@ import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, 
 import { getActiveModules, getModuleRenderer, registerModule, getMyAllowedModules, getModulesActiveInAnyBu } from './core/module-loader.js';
 import { getModuleIcon } from './core/module-icons.js';
 import { toast, confirmDialog, formDialog, escapeHtml } from './core/ui.js';
+import { mountTutorialButton } from './core/tutorial-button.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
 import { renderLeavePage } from './modules/leave/leave.page.js';
 import { renderCleaningPage } from './modules/cleaning/cleaning.page.js';
@@ -366,10 +367,16 @@ function openModule(code, context, modules, moduleCtx) {
     <div class="module-header">
       <button class="btn-home" id="btn-back-home">🏠 Beranda</button>
       <span class="module-header-title">${escapeHtml(mod?.name ?? '')}</span>
+      <span id="module-help-slot" style="margin-left:auto"></span>
     </div>
     <div id="module-body"></div>
   `;
   document.getElementById('btn-back-home').addEventListener('click', () => renderHome(context, modules, moduleCtx));
+
+  // Tombol ❓ menyusul secara asinkron dan hanya muncul kalau modul ini punya
+  // video. Sengaja tidak di-await: modulnya harus tampil sekarang, bukan
+  // menunggu satu query tutorial selesai.
+  mountTutorialButton(document.getElementById('module-help-slot'), code, moduleCtx?.businessUnitId);
 
   const renderer = getModuleRenderer(code);
   const body = document.getElementById('module-body');

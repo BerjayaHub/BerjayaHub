@@ -860,6 +860,42 @@ Semua filter periode di Admin Portal kini **default: tanggal 1 bulan berjalan s/
 
 Berlaku di: **Presensi**, **Rekap NBM**, **Inventory → Riwayat**, **Produksi**, **Pengiriman**, **Penjualan**, **Kas → Mutasi**, dan **Ceklis → Rekap** (yang tadinya filter satu tanggal, kini rentang Dari–Sampai).
 
+## Ambil foto: kamera diutamakan, galeri tetap ada
+
+Komponen bersama `js/core/photo-input.js` — dua tombol berdampingan: **📷 Ambil Foto** (utama) dan **🖼️ Dari Galeri**, plus pratinjau gambar sebelum disimpan.
+
+**Kenapa dua tombol, bukan satu input.** Atribut `capture` pada `<input type="file">` memang membuka kamera langsung — tapi efek sampingnya, opsi "pilih dari galeri" **hilang sama sekali** di kebanyakan browser HP. Tidak ada satu input pun yang bisa memberi keduanya. Karena itu dipakai dua input tersembunyi: satu ber-`capture`, satu polos.
+
+`facing: 'environment'` = kamera belakang (barang, nota, kebersihan). `facing: 'user'` = kamera depan (foto profil). Nilai ini hanya saran — di desktop browser jatuh ke pemilih berkas biasa, jadi aman.
+
+**Jangan pisahkan pemilihan dengan dialog asinkron.** `input.click()` harus dipanggil langsung di dalam handler klik, tanpa `await` apa pun sebelumnya. Kalau ada `await` di tengah, Safari iOS menganggap gestur penggunanya sudah habis dan **memblokir kamera tanpa pesan apa pun** — gagal sunyi yang sulit dilacak karena di Android dan desktop tetap jalan.
+
+Dipakai di: **Inventaris Aset**, **Foto Profil**, **Daily Activities**, **Kas (foto bukti)**. Di `formDialog` tinggal `{ type: 'photo', facing: 'environment' }`.
+
+Catatan: **Lampiran Cuti** sengaja tetap `type: 'file'` biasa, karena menerima PDF (surat dokter) — bukan hanya gambar.
+
+## Video Tutorial per modul (migration `0048_module_tutorials.sql`)
+
+Tombol **❓ Tutorial** di header modul membuka video cara pakai modul itu — di Staff App maupun Admin Portal. Dikelola super admin lewat menu **Video Tutorial** di Admin Portal.
+
+**Tombolnya hanya muncul kalau modulnya punya video.** Tombol bantuan yang membuka daftar kosong lebih merugikan daripada tidak ada tombol sama sekali: sekali orang menekannya dan tidak menemukan apa-apa, dia berhenti mencoba.
+
+**Pakai video Unlisted di YouTube.** Private tidak bisa di-embed sama sekali; Public membuat SOP internal muncul di hasil pencarian. Unlisted pas — hanya yang punya link.
+
+**Yang disimpan adalah ID video, bukan URL mentah.** YouTube punya banyak bentuk link, dan yang disalin dari tombol Share di HP (`youtu.be/`) berbeda dari address bar desktop (`watch?v=`), Shorts (`/shorts/`), maupun kode embed (`/embed/`). Kalau URL disimpan apa adanya, bentuk embed-nya harus ditebak ulang setiap render dan tebakan yang meleset baru ketahuan saat staff melihat pemutar kosong. `parseYoutubeId()` mengurainya sekali saat menyimpan, sehingga link yang salah **ditolak di depan mata admin**. Formatnya dijaga dua lapis — regex di JS dan `CHECK` di database, supaya baris yang masuk lewat SQL Editor pun tetap valid.
+
+Parser itu diuji tersendiri karena kegagalannya sunyi (tombol tidak muncul, bukan error):
+```
+node tools/test-youtube-parser.mjs
+```
+27 kasus, termasuk penolakan domain menyamar seperti `youtu.be.evil.com` dan `evil.com/watch?v=…`.
+
+**Cakupan.** `business_unit_id` NULL = berlaku semua BU. Terisi = khusus BU itu dan **menimpa** yang global untuk modul yang sama — bukan ditambahkan di sebelahnya. Kalau satu BU sampai perlu video sendiri, biasanya justru karena alurnya berbeda; menampilkan keduanya membuat staff tidak tahu mana yang berlaku. Pola pewarisan ini sama dengan kebijakan hari libur (outlet mewarisi BU).
+
+**Hak akses.** Baca: semua yang login (global + BU tempat dia punya scope). Tulis: super admin saja, sejajar dengan Master User dan Notifikasi Telegram.
+
+**Pemutarannya di dalam aplikasi** (`youtube-nocookie.com`), bukan membuka tab YouTube — di PWA, membuka tab baru berarti orangnya keluar dari aplikasi dan sering tidak kembali, padahal dia membuka tutorial justru karena sedang di tengah mengerjakan sesuatu. Tetap ada tautan "Buka di YouTube" sebagai cadangan, karena sebagian jaringan memblokir iframe embed sementara aplikasi YouTube-nya jalan.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
@@ -877,3 +913,4 @@ Berlaku di: **Presensi**, **Rekap NBM**, **Inventory → Riwayat**, **Produksi**
 - [ ] **Fase 11** — Report/Laporan lintas modul
 - [x] **Modul Inventaris Aset** — nama, jumlah, ukuran, foto, kondisi (Normal/Rusak/Lain-lain)
 - [x] **Modul Reservasi** — input Staff App + halaman publik `reservasi.html`, kuota per slot, approval Admin Portal, notifikasi Telegram & Web Push
+- [x] **Video Tutorial per modul** — tombol ❓ di header modul (Staff App + Admin Portal), video YouTube Unlisted, global atau khusus BU, dikelola super admin

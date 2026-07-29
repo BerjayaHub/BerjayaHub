@@ -5,6 +5,7 @@
 // =========================================================
 
 import { formatThousands, parseNumber, attachThousandsInput } from './format.js';
+import { photoInputHtml, wirePhotoInput } from './photo-input.js';
 
 // ---- Toast / pop up notifikasi ----
 
@@ -137,6 +138,12 @@ export function formDialog({
       .filter((f) => f.type === 'searchselect')
       .forEach((f) => wireSearchSelect(form.querySelector(`.search-select[data-name="${f.name}"]`), f.options ?? [], f.onChange));
 
+    // Field foto: dua tombol (Kamera diutamakan, lalu Galeri). Pembaca file-nya
+    // disimpan supaya submit() bisa mengambil hasilnya — tidak bisa lewat
+    // form.elements karena ada DUA input untuk satu nama field.
+    const bacaFoto = new Map();
+    fields.filter((f) => f.type === 'photo').forEach((f) => bacaFoto.set(f.name, wirePhotoInput(form, f.name)));
+
     const errorEl = overlay.querySelector('.modal-error');
     const close = (result) => {
       overlay.classList.remove('show');
@@ -147,6 +154,16 @@ export function formDialog({
     const submit = () => {
       const values = {};
       for (const f of fields) {
+        // Field foto punya dua input (kamera + galeri) dengan satu nama logis,
+        // jadi form.elements tidak bisa dipakai — dibaca lewat pembacanya sendiri.
+        if (f.type === 'photo') {
+          values[f.name] = bacaFoto.get(f.name)?.() ?? null;
+          if (f.required && !values[f.name]) {
+            errorEl.textContent = `"${f.label}" wajib diisi.`;
+            return;
+          }
+          continue;
+        }
         const input = form.elements[f.name];
         if (!input) continue;
         let rawEmpty = false;
@@ -378,6 +395,16 @@ function fieldHtml(f) {
   const id = `f-${f.name}`;
   const req = f.required ? 'required' : '';
   const help = f.help ? `<span class="field-help">${escapeHtml(f.help)}</span>` : '';
+
+  if (f.type === 'photo') {
+    return photoInputHtml({
+      name: f.name,
+      label: f.label,
+      help: f.help,
+      facing: f.facing ?? 'environment',
+      currentUrl: f.currentUrl ?? ''
+    });
+  }
 
   if (f.type === 'select') {
     const opts = (f.options ?? [])

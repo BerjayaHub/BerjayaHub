@@ -42,12 +42,20 @@ export async function renderProfilePage(container, ctx = {}) {
       <div class="profile-head">
         <div class="profile-avatar-wrap">
           ${photoUrl ? `<img src="${photoUrl}" alt="Foto" class="profile-avatar" />` : `<div class="profile-avatar profile-avatar-empty">${escapeHtml(initials(profile.full_name))}</div>`}
-          <button id="btn-photo" class="profile-photo-btn" title="Ganti foto">📷</button>
+          <button id="btn-photo-camera" class="profile-photo-btn" title="Ambil foto dengan kamera">📷</button>
+          <!-- Dua input: `capture` memaksa kamera terbuka tapi MENGHILANGKAN opsi
+               galeri, jadi tidak ada satu input yang bisa memberi keduanya.
+               capture="user" = kamera depan, karena ini foto profil. -->
+          <input type="file" id="photo-camera" accept="image/*" capture="user" hidden />
           <input type="file" id="photo-input" accept="image/*" hidden />
         </div>
         <div>
           <div style="font-weight:700;font-size:1.05rem">${esc(profile.full_name ?? '-')}</div>
           <div style="font-size:0.82rem;color:var(--color-text-muted)">${esc(profile.phone ?? 'No. telp belum diisi')}</div>
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+            <button class="primary" id="btn-photo-camera-2" style="max-width:none;font-size:0.78rem;padding:4px 10px">📷 Ambil Foto</button>
+            <button id="btn-photo-gallery" style="max-width:none;font-size:0.78rem;padding:4px 10px">🖼️ Dari Galeri</button>
+          </div>
         </div>
       </div>
 
@@ -79,11 +87,13 @@ export async function renderProfilePage(container, ctx = {}) {
   // yang kebetulan membuka halaman Presensi.
   wirePushCard(container, profile.id);
 
-  // Ganti foto
-  const fileInput = container.querySelector('#photo-input');
-  container.querySelector('#btn-photo').addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', async () => {
-    const file = fileInput.files[0];
+  // Ganti foto — tombol 📷 menawarkan Kamera lebih dulu, Galeri sebagai
+  // alternatif. Kamera diutamakan karena mayoritas staff mengaksesnya dari HP
+  // dan belum punya pas foto tersimpan di galeri.
+  const inputKamera = container.querySelector('#photo-camera');
+  const inputGaleri = container.querySelector('#photo-input');
+
+  async function unggah(file) {
     if (!file) return;
     try {
       await uploadStaffPhoto(profile.id, file);
@@ -93,7 +103,19 @@ export async function renderProfilePage(container, ctx = {}) {
     } catch (error) {
       toast(error.message ?? 'Gagal mengunggah foto.', 'error');
     }
-  });
+  }
+
+  inputKamera.addEventListener('change', () => unggah(inputKamera.files[0]));
+  inputGaleri.addEventListener('change', () => unggah(inputGaleri.files[0]));
+
+  // PENTING: kedua tombol memanggil .click() LANGSUNG di dalam handler, tanpa
+  // await apa pun sebelumnya. Kalau dipisahkan lewat dialog pilihan yang
+  // asinkron, Safari iOS menganggap gestur penggunanya sudah habis dan diam-diam
+  // memblokir pembukaan kamera — gagal tanpa pesan apa pun.
+  container.querySelectorAll('#btn-photo-camera, #btn-photo-camera-2').forEach((b) =>
+    b.addEventListener('click', () => inputKamera.click())
+  );
+  container.querySelector('#btn-photo-gallery').addEventListener('click', () => inputGaleri.click());
 
   container.querySelector('#btn-edit-profile').addEventListener('click', async () => {
     const values = await formDialog({

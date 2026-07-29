@@ -3,6 +3,8 @@
 // sebagai sub-tab. Tab yang muncul hanya yang modulnya aktif untuk BU.
 // =========================================================
 
+import { mountTutorialButton } from './tutorial-button.js';
+
 /**
  * @param container elemen konten
  * @param ctx       { businessUnitId, isAdmin }
@@ -17,6 +19,7 @@ export async function renderGroupPage(container, ctx, title, tabs) {
   if (tabs.length === 1) {
     // Satu tab saja -> render langsung tanpa tab bar.
     await tabs[0].render(container, ctx);
+    mountTutorialButton(null, tabs[0].code, ctx.businessUnitId, { floating: true });
     return;
   }
 
@@ -41,6 +44,9 @@ export async function renderGroupPage(container, ctx, title, tabs) {
     } catch (error) {
       content.innerHTML = `<p class="error-text">${error?.message ?? error}</p>`;
     }
+    // Tutorial mengikuti TAB yang aktif, bukan grupnya: satu menu grup bisa
+    // berisi beberapa modul yang videonya berbeda-beda.
+    mountTutorialButton(null, tab.code, ctx.businessUnitId, { floating: true });
   }
 
   container.querySelectorAll('[data-gtab]').forEach((btn) => btn.addEventListener('click', () => show(btn.dataset.gtab)));
