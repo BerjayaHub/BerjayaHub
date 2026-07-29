@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { compressImage } from '../../core/image-compress.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 
 export function todayWIB() {
@@ -135,10 +136,11 @@ export async function submitChecklistRun({ businessUnitId, outletId, sessionId, 
   }
 
   if (file) {
-    const path = `${outletId}/${run.id}.jpg`;
+    const kecil = await compressImage(file, { preset: 'bukti' });
+    const path = `${outletId}/${run.id}.${kecil.type === 'image/webp' ? 'webp' : 'jpg'}`;
     const { error: upErr } = await supabase.storage
       .from('checklist-photos')
-      .upload(path, file, { upsert: true, contentType: file.type || 'image/jpeg' });
+      .upload(path, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
     if (upErr) throw upErr;
     const { error: updErr } = await supabase.from('checklist_runs').update({ photo_path: path }).eq('id', run.id);
     if (updErr) throw updErr;

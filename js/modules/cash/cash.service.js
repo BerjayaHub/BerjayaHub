@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { compressImage } from '../../core/image-compress.js';
 
 export const ENTRY_LABEL = {
   in: 'Kas Masuk',
@@ -70,9 +71,10 @@ export async function recordCashEntry({ type, amount, categoryId, notes, date, f
   if (error) throw error;
 
   if (file) {
-    const ext = (file.name?.split('.').pop() || 'jpg').toLowerCase();
+    const kecil = await compressImage(file, { preset: 'bukti' });
+    const ext = (kecil.name?.split('.').pop() || 'jpg').toLowerCase();
     const path = `${uid}/${data.id}.${ext}`;
-    const { error: upErr } = await supabase.storage.from('cash-proofs').upload(path, file, { upsert: true, contentType: file.type || 'image/jpeg' });
+    const { error: upErr } = await supabase.storage.from('cash-proofs').upload(path, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
     if (upErr) throw upErr;
     const { error: updErr } = await supabase.from('cash_entries').update({ proof_path: path }).eq('id', data.id);
     if (updErr) throw updErr;

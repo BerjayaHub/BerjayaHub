@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { compressImage } from '../../core/image-compress.js';
 
 // ---- Util ----
 
@@ -181,11 +182,14 @@ export async function submitLeaveRequest({ businessUnitId, outletId, leaveTypeId
   if (error) throw error;
 
   if (file) {
-    const ext = (file.name?.split('.').pop() || 'dat').toLowerCase();
+    // compressImage mengembalikan file APA ADANYA kalau bukan gambar, jadi PDF
+    // surat dokter lewat tanpa disentuh sama sekali.
+    const kecil = await compressImage(file, { preset: 'bukti' });
+    const ext = (kecil.name?.split('.').pop() || 'dat').toLowerCase();
     const path = `${uid}/${record.id}.${ext}`;
     const { error: upErr } = await supabase.storage
       .from('leave-attachments')
-      .upload(path, file, { upsert: true, contentType: file.type || 'application/octet-stream' });
+      .upload(path, kecil, { upsert: true, contentType: kecil.type || 'application/octet-stream' });
     if (upErr) throw upErr;
     const { error: updErr } = await supabase.from('leave_requests').update({ attachment_path: path }).eq('id', record.id);
     if (updErr) throw updErr;

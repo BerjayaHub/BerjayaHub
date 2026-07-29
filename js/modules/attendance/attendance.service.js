@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { compressImage } from '../../core/image-compress.js';
 
 export function getGeolocation() {
   return new Promise((resolve) => {
@@ -269,10 +270,17 @@ export async function resetFaceDescriptor(userId) {
  */
 export async function uploadAttendanceSelfie({ outletId, recordId, key, kind, file }) {
   const id = key ?? recordId ?? (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()));
-  const path = `${outletId}/${id}_${kind}.jpg`;
-  const { error } = await supabase.storage.from('attendance-selfies').upload(path, file, {
+  // Selfie presensi adalah penyumbang storage TERBESAR: 2 foto/orang/hari, dan
+  // tumbuh setiap hari selamanya. Tanpa kompresi, 20 staff sudah menghabiskan
+  // free tier 1 GB dalam hitungan hari.
+  const kecil = await compressImage(file, { preset: 'selfie' });
+  const ext = kecil.type === 'image/webp' ? 'webp' : 'jpg';
+  // Bagian `{id}_{kind}` HARUS dipertahankan — policy RLS bucket ini membaca
+  // id record lewat split_part(..., '_', 1). Ekstensinya bebas.
+  const path = `${outletId}/${id}_${kind}.${ext}`;
+  const { error } = await supabase.storage.from('attendance-selfies').upload(path, kecil, {
     upsert: false,
-    contentType: file.type || 'image/jpeg'
+    contentType: kecil.type || 'image/jpeg'
   });
   if (error) throw error;
   return path;

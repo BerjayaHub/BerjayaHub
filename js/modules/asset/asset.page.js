@@ -1,6 +1,6 @@
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
-import { exportTablePDF } from '../../core/pdf.js';
+import { exportTablePDF, imageToDataUrl } from '../../core/pdf.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { getMyScopedOutlets } from '../dispatch/dispatch.service.js';
 import {
@@ -11,7 +11,8 @@ import {
   listAssets,
   saveAsset,
   deleteAsset,
-  getAssetPhotoUrl
+  getAssetPhotoUrl,
+  getAssetPhotoUrls
 } from './asset.service.js';
 
 /**
@@ -40,6 +41,8 @@ async function render(container, { businessUnitId }, isAdmin) {
 
   const state = { outletId: isAdmin ? '' : outlets[0].id, condition: '', q: '' };
   let rows = [];
+  /** photo_path -> signed URL, diisi ulang tiap refresh. */
+  let fotoUrl = new Map();
 
   container.innerHTML = `
     <div class="page-header">
@@ -92,6 +95,11 @@ async function render(container, { businessUnitId }, isAdmin) {
       list.innerHTML = `<p class="error-text">${esc(error.message ?? error)}</p>`;
       return;
     }
+    // Semua signed URL diambil sekali untuk seluruh halaman. Satu permintaan
+    // per baris akan menembakkan puluhan koneksi berbarengan dan sebagian
+    // tertunda lama — tabelnya lalu tampak "sebagian fotonya rusak".
+    fotoUrl = await getAssetPhotoUrls(rows.map((a) => a.photo_path));
+
     const rusak = rows.filter((a) => a.condition === 'rusak').length;
     const totalUnit = rows.reduce((t, a) => t + (Number(a.qty) || 0), 0);
 
@@ -102,17 +110,17 @@ async function render(container, { businessUnitId }, isAdmin) {
       </p>
       <div class="table-scroll">
         <table class="data-table">
-          <thead><tr><th>Nama Barang</th><th>Jumlah</th><th>Ukuran</th><th>Kondisi</th><th>Foto</th>${isAdmin ? '<th>Outlet</th>' : ''}<th>Aksi</th></tr></thead>
+          <thead><tr><th>Foto</th><th>Nama Barang</th><th>Jumlah</th><th>Ukuran</th><th>Kondisi</th>${isAdmin ? '<th>Outlet</th>' : ''}<th>Aksi</th></tr></thead>
           <tbody>
             ${
               rows
                 .map(
                   (a) => `<tr>
+                    <td>${fotoSel(a, fotoUrl)}</td>
                     <td><strong>${esc(a.name)}</strong>${a.notes ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${esc(a.notes)}</div>` : ''}</td>
                     <td style="text-align:right">${formatNum(a.qty)}</td>
                     <td style="font-size:0.85rem">${esc(a.size ?? '-')}</td>
                     <td><span class="badge ${ASSET_CONDITION_BADGE[a.condition] ?? ''}">${esc(conditionText(a))}</span></td>
-                    <td>${a.photo_path ? `<button class="as-photo" data-path="${esc(a.photo_path)}">Lihat</button>` : '<span style="color:var(--color-text-muted)">-</span>'}</td>
                     ${isAdmin ? `<td style="font-size:0.82rem">${esc(a.outlets?.name ?? '-')}</td>` : ''}
                     <td>
                       <button class="as-edit" data-id="${a.id}">Edit</button>
@@ -127,6 +135,9 @@ async function render(container, { businessUnitId }, isAdmin) {
       </div>
     `;
 
+    list.querySelectorAll('.as-thumb').forEach((img) =>
+      img.addEventListener('click', () => window.open(img.src, '_blank'))
+    );
     list.querySelectorAll('.as-photo').forEach((b) =>
       b.addEventListener('click', async () => {
         try {
@@ -246,10 +257,26 @@ async function render(container, { businessUnitId }, isAdmin) {
     if (!rows.length) return toast('Tidak ada data untuk diexport.', 'warning');
     const nama = state.outletId ? outlets.find((o) => o.id === state.outletId)?.name ?? '-' : 'Semua outlet';
     try {
+      toast('Menyiapkan foto untuk PDF…', 'info');
+
+      // Foto diubah jadi data URL kecil. jsPDF memuat gambar secara SINKRON,
+      // jadi URL jaringan menghasilkan halaman kosong tanpa error apa pun.
+      // Dikerjakan berurutan (bukan Promise.all) supaya ratusan gambar tidak
+      // dimuat serentak dan membuat tab menggantung.
+      const fotoPdf = new Map();
+      for (const a of rows) {
+        if (!a.photo_path) continue;
+        const url = fotoUrl.get(a.photo_path);
+        if (!url) continue;
+        const dataUrl = await imageToDataUrl(url, 160, 0.7);
+        if (dataUrl) fotoPdf.set(a.id, dataUrl);
+      }
+
       await exportTablePDF({
         title: 'Inventaris Aset',
         subtitle: `${nama}${state.condition ? ` · Kondisi: ${ASSET_CONDITION[state.condition]}` : ''} · ${rows.length} jenis barang`,
         columns: [
+          { header: 'Foto', width: 0.9 },
           { header: 'Nama Barang', width: 2 },
           { header: 'Jumlah', width: 0.7 },
           { header: 'Ukuran', width: 1.2 },
@@ -257,7 +284,15 @@ async function render(container, { businessUnitId }, isAdmin) {
           { header: 'Outlet', width: 1.3 },
           { header: 'Catatan', width: 1.6 }
         ],
-        rows: rows.map((a) => [a.name, formatNum(a.qty), a.size ?? '-', conditionText(a), a.outlets?.name ?? '-', a.notes ?? '-']),
+        rows: rows.map((a) => [
+          fotoPdf.has(a.id) ? { image: fotoPdf.get(a.id), w: 46, h: 34 } : '-',
+          a.name,
+          formatNum(a.qty),
+          a.size ?? '-',
+          conditionText(a),
+          a.outlets?.name ?? '-',
+          a.notes ?? '-'
+        ]),
         filename: 'inventaris-aset'
       });
       toast('PDF inventaris terunduh.', 'success');
@@ -267,6 +302,20 @@ async function render(container, { businessUnitId }, isAdmin) {
   }
 
   await refresh();
+}
+
+/**
+ * Sel foto: thumbnail langsung, diklik membuka ukuran penuh.
+ * Kalau signed URL-nya gagal dibuat, tetap sediakan tombol "Lihat" — gagalnya
+ * bisa jadi hanya sementara, dan lebih baik user bisa mencoba lagi daripada
+ * melihat "-" yang seolah berarti fotonya memang tidak ada.
+ */
+function fotoSel(a, fotoUrl) {
+  if (!a.photo_path) return '<span style="color:var(--color-text-muted)">-</span>';
+  const url = fotoUrl.get(a.photo_path);
+  if (!url) return `<button class="as-photo" data-path="${esc(a.photo_path)}">Lihat</button>`;
+  return `<img src="${esc(url)}" alt="" loading="lazy" class="as-thumb" data-path="${esc(a.photo_path)}"
+    style="width:52px;height:52px;object-fit:cover;border-radius:6px;background:#eee;cursor:zoom-in;border:1px solid var(--color-border,#e3e3e3)" />`;
 }
 
 function esc(s) {

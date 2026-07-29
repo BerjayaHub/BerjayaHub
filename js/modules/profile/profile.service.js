@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { compressImage } from '../../core/image-compress.js';
 
 export const GENDER_OPTIONS = [
   { value: '', label: '-- pilih --' },
@@ -79,15 +80,27 @@ export async function updateProfileData(userId, values) {
 
 /** Upload foto staff (bucket privat 'staff-photos'), simpan path-nya. */
 export async function uploadStaffPhoto(userId, file) {
-  const ext = (file.type === 'image/png' ? 'png' : 'jpg');
+  // Avatar selalu ditampilkan kecil, jadi 512px sudah lebih dari cukup.
+  const kecil = await compressImage(file, { preset: 'avatar' });
+  const ext = kecil.type === 'image/webp' ? 'webp' : kecil.type === 'image/png' ? 'png' : 'jpg';
   const path = `${userId}/photo.${ext}`;
-  const { error: upErr } = await supabase.storage.from('staff-photos').upload(path, file, {
+  const { error: upErr } = await supabase.storage.from('staff-photos').upload(path, kecil, {
     upsert: true,
-    contentType: file.type || 'image/jpeg'
+    contentType: kecil.type || 'image/jpeg'
   });
   if (upErr) throw upErr;
   const { error } = await supabase.from('user_profiles').update({ photo_path: path }).eq('id', userId);
   if (error) throw error;
+
+  // `upsert` hanya menimpa path yang PERSIS sama. Kalau ekstensinya berubah
+  // (foto lama .jpg, foto baru .webp), file lama jadi yatim dan tetap memakan
+  // kuota. Kegagalan dibiarkan diam — fotonya sendiri sudah tersimpan benar.
+  try {
+    const sisa = ['jpg', 'jpeg', 'png', 'webp'].map((e) => `${userId}/photo.${e}`).filter((p) => p !== path);
+    await supabase.storage.from('staff-photos').remove(sisa);
+  } catch (err) {
+    console.warn('[profil] sisa foto lama tidak terhapus:', err?.message ?? err);
+  }
   return path;
 }
 

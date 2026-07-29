@@ -860,6 +860,93 @@ Semua filter periode di Admin Portal kini **default: tanggal 1 bulan berjalan s/
 
 Berlaku di: **Presensi**, **Rekap NBM**, **Inventory → Riwayat**, **Produksi**, **Pengiriman**, **Penjualan**, **Kas → Mutasi**, dan **Ceklis → Rekap** (yang tadinya filter satu tanggal, kini rentang Dari–Sampai).
 
+## Kebijakan storage: kompresi foto & retensi selfie
+
+Free tier Supabase = **1 GB**. Foto mentah kamera HP 2–4 MB, jadi ~300 foto sudah menghabiskan seluruh kuota.
+
+### Kompresi di sisi klien (`js/core/image-compress.js`)
+
+Semua foto diperkecil ke **1280 px** (avatar 512 px) dan diubah ke **WebP**, dengan **cadangan JPEG**. Hasilnya ~200 KB — **13–15× lebih kecil**.
+
+Dikompres di **klien**, bukan server: tidak ada biaya komputasi server, yang melintasi jaringan sudah kecil (staff di sinyal lemah tidak perlu mengunggah 3 MB), dan tidak ada jendela waktu di mana file mentah sempat tersimpan.
+
+Tiga jebakan yang ditangani, semuanya gagal **tanpa error**:
+
+- **Dukungan WebP tidak boleh ditebak dari user-agent.** Safari lama bisa *menampilkan* WebP tapi tidak bisa *membuatnya* — dan `toDataURL('image/webp')` di sana diam-diam mengembalikan **PNG**, bukan error. Jadi hasilnya diperiksa, bukan dipercaya.
+- **Orientasi EXIF.** Canvas mengabaikan EXIF, jadi foto potret dari HP tersimpan **miring** setelah digambar ulang. Dipakai `createImageBitmap(file, { imageOrientation: 'from-image' })`. Masalah ini hanya muncul *setelah* kompresi diaktifkan dan gampang disalahartikan sebagai bug kamera.
+- **Jangan memperbesar, jangan membengkak.** Skala dibatasi maksimal 1, dan kalau hasilnya justru lebih besar dari aslinya, yang diunggah tetap yang asli.
+
+`compressImage()` **tidak pernah melempar error** — kalau gagal, file aslinya yang diunggah. Kompresi adalah optimasi; menggagalkan pekerjaan staff yang sedang berdiri di depan outlet demi optimasi jelas salah prioritas. File non-gambar (PDF surat dokter) lewat tanpa disentuh.
+
+**Logo BU sengaja TIDAK dikompres** — logo sering PNG transparan, dan WebP/JPEG di sini digambar di atas latar putih. Jumlahnya sedikit dan ukurannya kecil, jadi tidak sepadan.
+
+**Sisa file berekstensi lain dihapus.** `upsert` hanya menimpa path yang *persis* sama; begitu ekstensinya berubah (`.jpg` → `.webp`), file lama jadi yatim dan tetap memakan kuota — ironis kalau muncul dari perubahan yang tujuannya menghemat. Aset dan foto profil membersihkannya sendiri setelah unggah berhasil.
+
+```
+node tools/test-image-compress.mjs
+```
+
+### Retensi selfie presensi — 90 hari (`purge-old-selfies`)
+
+Selfie presensi adalah **satu-satunya foto yang tumbuh setiap hari selamanya**: 2 foto × jumlah staff × 365 hari. Aset bertambah sesekali; presensi tidak pernah berhenti. Tanpa pembersihan, kuota pasti habis — pertanyaannya hanya kapan.
+
+**Foto dihapus, baris presensinya TIDAK.** Jam masuk/pulang adalah dasar perhitungan gaji dan disimpan permanen. Yang nilainya habis seiring waktu hanya bukti visualnya.
+
+**Kenapa tidak dihapus sama sekali sejak awal:** face recognition memverifikasi *kemiripan dengan descriptor tersimpan*, dan descriptor **tidak bisa dibalik menjadi gambar**. Kalau ada sengketa ("saya tidak absen jam segitu") atau kecurigaan seseorang memotret foto orang lain, foto itu satu-satunya bukti yang tersisa. Retensi 90 hari menahannya selama sengketa masih mungkin terjadi, lalu melepaskannya.
+
+Urutannya penting: **file dihapus dulu, kolom path dikosongkan belakangan**. Kalau dibalik, file yang gagal dihapus kehilangan satu-satunya penunjuknya dan jadi sampah permanen yang tidak bisa ditemukan lagi.
+
+```bash
+supabase functions deploy purge-old-selfies
+```
+
+Uji tanpa menghapus apa pun: `{"dry_run": true}` mengembalikan jumlah + contoh path. Masa simpan bisa ditimpa dengan `{"days": 180}`.
+
+Cron harian (jangan lupa header `Authorization` — lihat bagian *Push Notification Reminder* langkah 5):
+
+```sql
+select cron.schedule(
+  'purge-old-selfies',
+  '30 18 * * *',                       -- 18:30 UTC = 01:30 WIB, saat sepi
+  $$
+  select net.http_post(
+    url     := 'https://<PROJECT-REF>.supabase.co/functions/v1/purge-old-selfies',
+    headers := jsonb_build_object(
+      'Content-Type',  'application/json',
+      'Authorization', 'Bearer <anon key>',
+      'x-cron-secret', '<CRON_SECRET>'
+    ),
+    body    := '{}'::jsonb,
+    timeout_milliseconds := 30000
+  );
+  $$
+);
+```
+
+Sekali jalan membersihkan maksimal 500 baris; sisanya menyusul di jalan berikutnya. Sengaja dibatasi supaya pembersihan pertama (yang bisa jadi ribuan file) tidak kadaluwarsa di tengah jalan.
+
+## Bug: policy Storage yang bergantung pada kolom yang baru diisi kemudian (migration `0050_asset_photo_rls_fix.sql`)
+
+**Gejala:** menambah foto di Inventaris Aset selalu gagal.
+
+**Penyebab.** Policy SELECT di `0045` berbunyi *"objek ini boleh dibaca kalau ada baris `assets` yang `photo_path`-nya sama dengan namanya"*. Tapi urutan penyimpanannya: simpan baris aset → unggah foto → **baru** isi `photo_path`. Pada detik file diunggah, `photo_path` masih NULL, tidak ada baris yang cocok, dan objek yang baru saja ditulis tidak bisa dibaca oleh pengunggahnya sendiri — Storage menggagalkan operasinya. Ketergantungan melingkar.
+
+**Yang BUKAN perbaikan:** membalik urutan (isi `photo_path` dulu). Kalau unggahannya gagal, database menyimpan path ke file yang tidak pernah ada, dan tabelnya terlihat wajar sampai ada yang menekan "Lihat".
+
+**Perbaikannya:** izin ditentukan oleh **prefix path**, bukan kolom yang ditulis kemudian — sama seperti seluruh bucket lain di repo ini (`attendance-selfies`, `bu-logos`). Path foto aset `{outlet_id}/{asset_id}.{ext}`, jadi folder pertamanya persis outlet pemiliknya dan izinnya bisa dinilai sebelum baris apa pun diperbarui.
+
+Helper `asset_photo_outlet(text)` menjaga bentuk path sebelum di-cast ke uuid: tanpa itu, satu objek dengan nama folder non-UUID membuat cast **gagal total** dan errornya menjatuhkan seluruh query, bukan sekadar menolak satu baris.
+
+**Aturan umum:** policy Storage tidak boleh bergantung pada kolom aplikasi yang diisi *setelah* unggahan. Pakai prefix path.
+
+## Foto di tabel & PDF (Inventaris Aset)
+
+Kolom **Foto** kini menampilkan thumbnail (klik = ukuran penuh), dan foto ikut tercetak di **export PDF**.
+
+Signed URL diambil **sekali untuk seluruh halaman** lewat `getAssetPhotoUrls()` (`createSignedUrls`, jamak). Satu permintaan per baris akan menembakkan puluhan koneksi berbarengan dan sebagian tertunda lama — tabelnya lalu tampak "sebagian fotonya rusak" padahal hanya kena antrean.
+
+Untuk PDF, `exportTablePDF` menerima sel berbentuk `{ image: dataUrl, w, h }`. **Harus data URL, bukan URL http**: jsPDF memuat gambar secara sinkron, jadi URL jaringan menghasilkan halaman kosong **tanpa error apa pun**. `imageToDataUrl()` mengurusnya sekaligus memperkecil ke 160 px / JPEG 0.7 — foto kamera HP berukuran 2–4 MB, dan 50 foto mentah menghasilkan PDF ratusan MB yang menggantungkan browser alih-alih memberi error. Konversinya dijalankan **berurutan**, bukan `Promise.all`, dengan alasan yang sama.
+
 ## Master User — email & filter (migration `0049_user_email.sql`)
 
 Tabel Master User menampilkan **email** dan punya filter **nama/email/telp**, **BU**, dan **outlet**.
@@ -881,6 +968,7 @@ node --experimental-vm-modules tools/audit-syntax.cjs   # sintaks ES module
 node tools/audit-html-escape.cjs                        # data DB masuk HTML tanpa escape
 node tools/audit-owner-filter.cjs                       # query "milik saya" tanpa filter pemilik
 node tools/test-youtube-parser.mjs                      # parser link YouTube
+node tools/test-image-compress.mjs                      # skala & format kompresi foto
 ```
 
 **`audit-syntax` adalah yang paling penting.** Satu SyntaxError di file mana pun membuat SELURUH aplikasi berhenti di layar "Memuat..." — browser membatalkan seluruh graf impor, dan gejalanya sama persis apa pun penyebabnya.

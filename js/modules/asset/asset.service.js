@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { compressImage } from '../../core/image-compress.js';
 
 export const ASSET_CONDITION = { normal: 'Normal', rusak: 'Rusak', lainnya: 'Lain-lain' };
 export const ASSET_CONDITION_BADGE = { normal: 'badge-approved', rusak: 'badge-rejected', lainnya: 'badge-pending' };
@@ -72,16 +73,42 @@ export async function saveAsset({ id, businessUnitId, outletId, name, qty, size,
   }
 
   if (file) {
-    const ext = (file.name?.split('.').pop() || 'jpg').toLowerCase();
+    // Dikompres SEBELUM path dihitung, karena ekstensinya ikut berubah
+    // (webp/jpg). Foto kamera 3 MB jadi ~200 KB — free tier Supabase cuma 1 GB.
+    const kecil = await compressImage(file, { preset: 'asset' });
+    const ext = (kecil.name?.split('.').pop() || 'jpg').toLowerCase();
     const path = `${outletId}/${assetId}.${ext}`;
     const { error: upErr } = await supabase.storage
       .from('asset-photos')
-      .upload(path, file, { upsert: true, contentType: file.type || 'image/jpeg' });
+      .upload(path, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
     if (upErr) throw upErr;
     const { error: updErr } = await supabase.from('assets').update({ photo_path: path }).eq('id', assetId);
     if (updErr) throw updErr;
+    await hapusFotoSisa(`${outletId}/${assetId}`, path);
   }
   return assetId;
+}
+
+/**
+ * Hapus foto aset yang sama tapi berekstensi lain.
+ *
+ * KENAPA PERLU: `upsert` hanya menimpa path yang PERSIS sama. Begitu kompresi
+ * mengubah ekstensinya (mis. foto lama `.jpg`, foto baru `.webp`), file lama
+ * tidak tertimpa — ia menjadi yatim dan tetap memakan kuota selamanya. Ironis
+ * kalau justru muncul dari perubahan yang tujuannya menghemat storage.
+ *
+ * Kegagalan diabaikan: fotonya sudah tersimpan dengan benar, dan menggagalkan
+ * penyimpanan aset hanya karena sisa file lama tidak terhapus jelas berlebihan.
+ */
+async function hapusFotoSisa(basePath, pathTerpakai) {
+  const kandidat = ['jpg', 'jpeg', 'png', 'webp']
+    .map((e) => `${basePath}.${e}`)
+    .filter((p) => p !== pathTerpakai);
+  try {
+    await supabase.storage.from('asset-photos').remove(kandidat);
+  } catch (error) {
+    console.warn('[aset] sisa foto lama tidak terhapus:', error?.message ?? error);
+  }
 }
 
 export async function deleteAsset(id) {
@@ -94,4 +121,26 @@ export async function getAssetPhotoUrl(path) {
   const { data, error } = await supabase.storage.from('asset-photos').createSignedUrl(path, 600);
   if (error) throw error;
   return data?.signedUrl ?? null;
+}
+
+/**
+ * Signed URL untuk BANYAK foto sekaligus.
+ *
+ * Satu panggilan untuk semua, bukan satu per baris: tabel dengan 100 aset akan
+ * menembakkan 100 permintaan jaringan berbarengan, dan sebagian akan ditolak
+ * atau tertunda lama — tabelnya lalu tampak "sebagian fotonya rusak" padahal
+ * hanya kena antrean.
+ *
+ * Gagal = Map kosong, bukan lempar error. Foto adalah pelengkap; daftar aset
+ * harus tetap tampil meski fotonya tidak bisa diambil.
+ */
+export async function getAssetPhotoUrls(paths, expiresIn = 3600) {
+  const bersih = [...new Set((paths ?? []).filter(Boolean))];
+  if (!bersih.length) return new Map();
+  const { data, error } = await supabase.storage.from('asset-photos').createSignedUrls(bersih, expiresIn);
+  if (error) {
+    console.warn('[aset] gagal membuat signed URL foto:', error.message);
+    return new Map();
+  }
+  return new Map((data ?? []).filter((d) => d.signedUrl && !d.error).map((d) => [d.path, d.signedUrl]));
 }
