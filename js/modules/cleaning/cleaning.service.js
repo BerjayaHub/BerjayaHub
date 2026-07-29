@@ -111,7 +111,18 @@ export async function getTodayDoneSessions(outletId) {
   return new Set((data ?? []).map((r) => r.session_id));
 }
 
-export async function submitChecklistRun({ businessUnitId, outletId, sessionId, itemStates, notes, file }) {
+/**
+ * Kirim satu sesi Daily Activities.
+ *
+ * `itemStates`: [{ item_id, checked, note, file }] — foto ada PER ITEM sejak
+ * migration 0052. Satu foto tidak pernah bisa membuktikan sepuluh pekerjaan
+ * berbeda; foto sesi yang lama praktis hanya membuktikan "seseorang hadir".
+ *
+ * @param {(pesan: string) => void} [onProgress] dipanggil saat mengunggah tiap
+ *   foto. Mengunggah 10 foto butuh waktu, dan layar yang diam tanpa kabar
+ *   membuat staff menekan tombolnya berkali-kali atau menutup aplikasi.
+ */
+export async function submitChecklistRun({ businessUnitId, outletId, sessionId, itemStates, notes }, onProgress) {
   const uid = await currentUserId();
   if (!uid) throw new Error('Sesi tidak ditemukan, silakan login ulang.');
 
@@ -129,22 +140,42 @@ export async function submitChecklistRun({ businessUnitId, outletId, sessionId, 
     .single();
   if (error) throw error;
 
-  if (itemStates?.length) {
-    const rows = itemStates.map((s) => ({ run_id: run.id, item_id: s.item_id, checked: !!s.checked, note: s.note || null }));
-    const { error: itemErr } = await supabase.from('checklist_run_items').insert(rows);
-    if (itemErr) throw itemErr;
+  // Foto diunggah SEBELUM baris item dibuat, supaya path-nya bisa langsung ikut
+  // tersimpan dalam satu insert. Kalau ada unggahan yang gagal, seluruh
+  // pengiriman dibatalkan dan run-nya dihapus — lebih baik staff mengulang
+  // daripada tersimpan sesi yang itemnya kehilangan bukti tanpa ketahuan.
+  const rows = [];
+  try {
+    const berfoto = (itemStates ?? []).filter((s) => s.file);
+    let ke = 0;
+    for (const s of itemStates ?? []) {
+      let photoPath = null;
+      if (s.file) {
+        ke++;
+        onProgress?.(`Mengunggah foto ${ke} dari ${berfoto.length}…`);
+        const kecil = await compressImage(s.file, { preset: 'aktivitas' });
+        const ext = kecil.type === 'image/webp' ? 'webp' : 'jpg';
+        photoPath = `${outletId}/${run.id}/${s.item_id}.${ext}`;
+        const { error: upErr } = await supabase.storage
+          .from('checklist-photos')
+          .upload(photoPath, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
+        if (upErr) throw upErr;
+      }
+      rows.push({ run_id: run.id, item_id: s.item_id, checked: !!s.checked, note: s.note || null, photo_path: photoPath });
+    }
+
+    if (rows.length) {
+      const { error: itemErr } = await supabase.from('checklist_run_items').insert(rows);
+      if (itemErr) throw itemErr;
+    }
+  } catch (err) {
+    // Bersihkan run yang terlanjur dibuat. Kalau dibiarkan, `unique (outlet_id,
+    // session_id, run_date)` akan MENOLAK percobaan ulang hari itu — staff
+    // terjebak: gagal kirim, dan tidak bisa mencoba lagi sampai besok.
+    await supabase.from('checklist_runs').delete().eq('id', run.id);
+    throw err;
   }
 
-  if (file) {
-    const kecil = await compressImage(file, { preset: 'bukti' });
-    const path = `${outletId}/${run.id}.${kecil.type === 'image/webp' ? 'webp' : 'jpg'}`;
-    const { error: upErr } = await supabase.storage
-      .from('checklist-photos')
-      .upload(path, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
-    if (upErr) throw upErr;
-    const { error: updErr } = await supabase.from('checklist_runs').update({ photo_path: path }).eq('id', run.id);
-    if (updErr) throw updErr;
-  }
   return run;
 }
 
@@ -169,7 +200,7 @@ export async function listRunsForAdmin({ businessUnitId, outletId, dateFrom, dat
 export async function getRunItems(runId) {
   const { data, error } = await supabase
     .from('checklist_run_items')
-    .select('checked, note, item_id, checklist_items(label)')
+    .select('checked, note, item_id, photo_path, checklist_items(label)')
     .eq('run_id', runId);
   if (error) throw error;
   return data ?? [];
@@ -180,6 +211,24 @@ export async function getChecklistPhotoUrl(path) {
   const { data, error } = await supabase.storage.from('checklist-photos').createSignedUrl(path, 600);
   if (error) throw error;
   return data?.signedUrl ?? null;
+}
+
+/**
+ * Signed URL untuk banyak foto sekaligus — satu run bisa punya 10-15 foto item.
+ * Satu permintaan per foto akan menembakkan belasan koneksi berbarengan dan
+ * sebagian tertunda, membuat dialog detail tampak "sebagian fotonya rusak".
+ *
+ * Gagal = Map kosong; detail item tetap harus bisa dibaca tanpa fotonya.
+ */
+export async function getChecklistPhotoUrls(paths, expiresIn = 3600) {
+  const bersih = [...new Set((paths ?? []).filter(Boolean))];
+  if (!bersih.length) return new Map();
+  const { data, error } = await supabase.storage.from('checklist-photos').createSignedUrls(bersih, expiresIn);
+  if (error) {
+    console.warn('[daily activities] gagal membuat signed URL foto:', error.message);
+    return new Map();
+  }
+  return new Map((data ?? []).filter((d) => d.signedUrl && !d.error).map((d) => [d.path, d.signedUrl]));
 }
 
 // ---- Dashboard ----

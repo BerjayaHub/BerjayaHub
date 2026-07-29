@@ -11,7 +11,8 @@ import {
   deleteSession,
   listRunsForAdmin,
   getRunItems,
-  getChecklistPhotoUrl
+  getChecklistPhotoUrl,
+  getChecklistPhotoUrls
 } from './cleaning.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
 
@@ -279,10 +280,26 @@ async function loadReport(content, businessUnitId) {
     btn.addEventListener('click', async () => {
       try {
         const items = await getRunItems(btn.dataset.id);
+        // Foto per item (sejak migration 0052). Semua signed URL diambil sekali.
+        const fotoUrl = await getChecklistPhotoUrls(items.map((i) => i.photo_path));
         const bodyHtml = items.length
-          ? `<ul style="margin:0;padding-left:18px">${items
-              .map((i) => `<li>${i.checked ? '✅' : '⬜'} ${escapeHtml(i.checklist_items?.label ?? '-')}${i.note ? ` <span style="color:var(--color-text-muted)">(${escapeHtml(i.note)})</span>` : ''}</li>`)
-              .join('')}</ul>`
+          ? `<div style="display:flex;flex-direction:column;gap:8px">${items
+              .map((i) => {
+                const url = i.photo_path ? fotoUrl.get(i.photo_path) : null;
+                return `<div style="display:flex;gap:10px;align-items:flex-start">
+                  ${
+                    url
+                      ? `<a href="${escapeAttr(url)}" target="_blank" rel="noopener"><img src="${escapeAttr(url)}" alt="" loading="lazy"
+                          style="width:64px;height:64px;object-fit:cover;border-radius:8px;background:#eee;border:1px solid var(--color-border,#e3e3e3)" /></a>`
+                      : `<span style="width:64px;height:64px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:#f2f2f2;color:var(--color-text-muted);font-size:0.68rem;flex-shrink:0">tanpa foto</span>`
+                  }
+                  <span style="flex:1;min-width:0">
+                    <span style="font-weight:600">${i.checked ? '✅' : '⬜'} ${escapeHtml(i.checklist_items?.label ?? '-')}</span>
+                    ${i.note ? `<div style="font-size:0.76rem;color:var(--color-text-muted)">${escapeHtml(i.note)}</div>` : ''}
+                  </span>
+                </div>`;
+              })
+              .join('')}</div>`
           : '<p>Tidak ada item.</p>';
         await infoDialog({ title: 'Detail Aktivitas', bodyHtml });
       } catch (error) {

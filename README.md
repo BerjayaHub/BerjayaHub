@@ -957,7 +957,24 @@ Tiga jebakan yang ditangani, semuanya gagal **tanpa error**:
 node tools/test-image-compress.mjs
 ```
 
-### Retensi selfie presensi — 90 hari (`purge-old-selfies`)
+### Daily Activities: foto per ITEM (migration `0052_checklist_photo_per_item.sql`)
+
+Foto bukti kini **per item aktivitas**, bukan satu foto untuk seluruh sesi — satu foto tidak bisa membuktikan sepuluh pekerjaan berbeda; foto sesi yang lama praktis hanya membuktikan "seseorang hadir". **Wajib** untuk setiap item yang dicentang.
+
+Path: `{outlet_id}/{run_id}/{item_id}.{ext}`. Preset `aktivitas` (**900 px**, lebih kecil dari modul lain) karena jumlahnya ~10× lipat, dan pertanyaan yang dijawab foto ini cuma satu: bersih atau tidak.
+
+Policy storage-nya sekalian diperbaiki — pola lamanya sama persis dengan bug foto aset di `0050` (izin bergantung pada kolom yang baru diisi setelah unggah). Sekarang berbasis prefix path.
+
+Keputusan UI yang penting:
+
+- **Bagian foto disembunyikan sampai itemnya dicentang.** Menampilkan 10–15 tombol kamera sekaligus membuat form terasa mustahil dikerjakan.
+- **Ada indikator progres** saat mengunggah ("Mengunggah foto 3 dari 8"). Mengunggah 10 foto butuh waktu, dan layar diam tanpa kabar membuat staff menekan tombolnya berkali-kali atau menutup aplikasi.
+- **Validasi menyebut berapa item yang kurang dan menggulir ke item pertamanya.** Daftar 15 item terlalu panjang untuk dicari sendiri oleh orang yang sedang berdiri sambil memegang alat pel.
+- **Kalau ada unggahan yang gagal, `checklist_runs` yang terlanjur dibuat DIHAPUS.** Tanpa itu, `unique (outlet_id, session_id, run_date)` akan menolak percobaan ulang hari itu — staff terjebak: gagal kirim, dan tidak bisa mencoba lagi sampai besok.
+
+`checklist_runs.photo_path` **tidak dihapus** dari skema — tidak dipakai lagi untuk pengisian baru, tapi data lama tetap harus bisa dibuka di rekap.
+
+### Retensi 90 hari (`purge-old-selfies`) — selfie presensi **dan** foto Daily Activities
 
 Selfie presensi adalah **satu-satunya foto yang tumbuh setiap hari selamanya**: 2 foto × jumlah staff × 365 hari. Aset bertambah sesekali; presensi tidak pernah berhenti. Tanpa pembersihan, kuota pasti habis — pertanyaannya hanya kapan.
 
@@ -994,7 +1011,9 @@ select cron.schedule(
 );
 ```
 
-Sekali jalan membersihkan maksimal 500 baris; sisanya menyusul di jalan berikutnya. Sengaja dibatasi supaya pembersihan pertama (yang bisa jadi ribuan file) tidak kadaluwarsa di tengah jalan.
+Sekali jalan membersihkan maksimal 500 baris presensi + 200 run aktivitas; sisanya menyusul di jalan berikutnya. Sengaja dibatasi supaya pembersihan pertama (yang bisa jadi ribuan file) tidak kadaluwarsa di tengah jalan.
+
+⚠️ Pembersihan foto Daily Activities **wajib berjalan tanpa syarat**, bukan setelah `return` awal bagian selfie. Versi pertama function ini menaruhnya sesudah dua `return` (tidak ada selfie lama / mode dry run), sehingga begitu selfie sudah bersih, foto aktivitas **tidak pernah tersentuh** — dan responsnya tetap `ok: true`, jadi tidak ada yang curiga. Kalau nanti ada bucket ketiga yang ikut dibersihkan, jaga polanya tetap begini.
 
 ## Bug: policy Storage yang bergantung pada kolom yang baru diisi kemudian (migration `0050_asset_photo_rls_fix.sql`)
 

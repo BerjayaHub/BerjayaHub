@@ -21,8 +21,12 @@ export const PRESET = {
   asset: { maxPx: 1280, quality: 0.8 },
   // Selfie presensi: cukup untuk mengenali wajah, dan jumlahnya paling banyak.
   selfie: { maxPx: 1280, quality: 0.75 },
-  // Bukti kas & kebersihan: sering berisi tulisan nota, jadi jangan terlalu kecil.
+  // Bukti kas: sering berisi tulisan nota, jadi jangan terlalu kecil.
   bukti: { maxPx: 1280, quality: 0.78 },
+  // Daily Activities: satu foto PER ITEM, jadi jumlahnya ~10x lipat sesi.
+  // Pertanyaan yang dijawab foto ini cuma satu — bersih atau tidak — dan 900px
+  // sudah lebih dari cukup untuk itu.
+  aktivitas: { maxPx: 900, quality: 0.72 },
   // Foto profil selalu ditampilkan kecil (avatar), tidak perlu besar.
   avatar: { maxPx: 512, quality: 0.82 }
 };
