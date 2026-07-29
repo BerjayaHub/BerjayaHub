@@ -1,11 +1,11 @@
 import { toast, confirmDialog, formDialog, infoDialog } from '../../core/ui.js';
 import {
   listBuOutlets,
-  listItems,
+  listAllItems,
   createItem,
   updateItem,
   deleteItem,
-  listSessions,
+  listAllSessions,
   createSession,
   updateSession,
   deleteSession,
@@ -31,10 +31,12 @@ export async function renderCleaningAdminPage(container, { businessUnitId }) {
     <div id="clean-admin-content"></div>
   `;
   const content = document.getElementById('clean-admin-content');
+  // Daftar outlet dipakai tab Item & Sesi untuk memilih cakupan (BU vs outlet).
+  const outlets = await listBuOutlets(businessUnitId).catch(() => []);
   async function showTab(key) {
     container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));
-    if (key === 'items') await renderItemsTab(content, businessUnitId);
-    if (key === 'sessions') await renderSessionsTab(content, businessUnitId);
+    if (key === 'items') await renderItemsTab(content, businessUnitId, outlets);
+    if (key === 'sessions') await renderSessionsTab(content, businessUnitId, outlets);
     if (key === 'report') await renderReportTab(content, businessUnitId);
   }
   container.querySelectorAll('.tab-btn').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
@@ -43,22 +45,28 @@ export async function renderCleaningAdminPage(container, { businessUnitId }) {
 
 // ---- Tab: Item ----
 
-async function renderItemsTab(content, businessUnitId) {
+async function renderItemsTab(content, businessUnitId, outlets = []) {
   content.innerHTML = `<p>Memuat...</p>`;
   let items;
   try {
-    items = await listItems(businessUnitId);
+    // Item BU + item SEMUA outlet, supaya tidak ada yang "hilang" karena filter.
+    items = await listAllItems(businessUnitId);
   } catch (error) {
     content.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
     return;
   }
   content.innerHTML = `
     <div class="page-header">
-      <h2 style="font-size:1.05rem;margin:0">Item Aktivitas (berlaku semua outlet BU)</h2>
+      <h2 style="font-size:1.05rem;margin:0">Item Aktivitas</h2>
       <button class="primary" id="btn-new-item" style="max-width:180px">+ Tambah Item</button>
     </div>
+    <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 10px;max-width:70ch">
+      Item <strong>Semua outlet</strong> adalah standar BU dan hanya bisa diubah Admin BU.
+      Admin outlet bisa menambah item <strong>khusus outletnya</strong> — item itu
+      <em>ditambahkan</em> di atas standar BU, bukan menggantikannya.
+    </p>
     <table class="data-table">
-      <thead><tr><th>Urutan</th><th>Item</th><th>Status</th><th>Aksi</th></tr></thead>
+      <thead><tr><th>Urutan</th><th>Item</th><th>Berlaku di</th><th>Status</th><th>Aksi</th></tr></thead>
       <tbody>
         ${items
           .map(
@@ -66,6 +74,11 @@ async function renderItemsTab(content, businessUnitId) {
           <tr>
             <td>${it.sort_order}</td>
             <td>${escapeHtml(it.label)}</td>
+            <td style="font-size:0.82rem">${
+              it.outlet_id
+                ? escapeHtml(outlets.find((o) => o.id === it.outlet_id)?.name ?? 'Outlet')
+                : '<span class="badge badge-approved" style="font-size:0.68rem">Semua outlet</span>'
+            }</td>
             <td>${it.is_active ? 'Aktif' : 'Nonaktif'}</td>
             <td>
               <button class="btn-edit-item" data-json='${escapeAttr(JSON.stringify(it))}'>Edit</button>
@@ -73,13 +86,13 @@ async function renderItemsTab(content, businessUnitId) {
             </td>
           </tr>`
           )
-          .join('') || '<tr><td colspan="4">Belum ada item.</td></tr>'}
+          .join('') || '<tr><td colspan="5">Belum ada item.</td></tr>'}
       </tbody>
     </table>
   `;
-  document.getElementById('btn-new-item').addEventListener('click', () => openItemDialog(content, businessUnitId, null));
+  document.getElementById('btn-new-item').addEventListener('click', () => openItemDialog(content, businessUnitId, null, outlets));
   content.querySelectorAll('.btn-edit-item').forEach((btn) =>
-    btn.addEventListener('click', () => openItemDialog(content, businessUnitId, JSON.parse(btn.dataset.json)))
+    btn.addEventListener('click', () => openItemDialog(content, businessUnitId, JSON.parse(btn.dataset.json), outlets))
   );
   content.querySelectorAll('.btn-del-item').forEach((btn) =>
     btn.addEventListener('click', async () => {
@@ -88,7 +101,7 @@ async function renderItemsTab(content, businessUnitId) {
       try {
         await deleteItem(btn.dataset.id);
         toast('Item dihapus.', 'success');
-        await renderItemsTab(content, businessUnitId);
+        await renderItemsTab(content, businessUnitId, outlets);
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus.', 'error');
       }
@@ -96,12 +109,27 @@ async function renderItemsTab(content, businessUnitId) {
   );
 }
 
-async function openItemDialog(content, businessUnitId, existing) {
+async function openItemDialog(content, businessUnitId, existing, outlets = []) {
   const isEdit = !!existing;
   const values = await formDialog({
     title: isEdit ? 'Edit Item' : 'Tambah Item',
     fields: [
       { name: 'label', label: 'Nama Item', type: 'text', required: true, value: existing?.label ?? '' },
+      // Cakupan hanya bisa dipilih saat MEMBUAT. Memindahkan item BU jadi milik
+      // outlet (atau sebaliknya) diam-diam mengubah ceklis outlet lain, jadi
+      // sengaja tidak disediakan — buat baru saja kalau memang perlu.
+      ...(existing
+        ? []
+        : [
+            {
+              name: 'outlet_id',
+              label: 'Berlaku di',
+              type: 'select',
+              value: '',
+              help: 'Admin outlet hanya bisa membuat item khusus outletnya sendiri.',
+              options: [{ value: '', label: 'Semua outlet BU (standar)' }, ...outlets.map((o) => ({ value: o.id, label: `Khusus ${o.name}` }))]
+            }
+          ]),
       { name: 'sort_order', label: 'Urutan', type: 'number', min: 0, value: existing?.sort_order ?? 0 },
       ...(isEdit ? [{ name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing.is_active }] : [])
     ],
@@ -113,10 +141,15 @@ async function openItemDialog(content, businessUnitId, existing) {
       await updateItem(existing.id, { label: values.label, sort_order: Number(values.sort_order) || 0, is_active: values.is_active });
       toast('Item diperbarui.', 'success');
     } else {
-      await createItem({ businessUnitId, label: values.label, sort_order: Number(values.sort_order) || 0 });
+      await createItem({
+        businessUnitId,
+        outletId: values.outlet_id || null,
+        label: values.label,
+        sort_order: Number(values.sort_order) || 0
+      });
       toast('Item ditambahkan.', 'success');
     }
-    await renderItemsTab(content, businessUnitId);
+    await renderItemsTab(content, businessUnitId, outlets);
   } catch (error) {
     toast(error.message ?? 'Gagal menyimpan item.', 'error');
   }
@@ -124,11 +157,11 @@ async function openItemDialog(content, businessUnitId, existing) {
 
 // ---- Tab: Sesi ----
 
-async function renderSessionsTab(content, businessUnitId) {
+async function renderSessionsTab(content, businessUnitId, outlets = []) {
   content.innerHTML = `<p>Memuat...</p>`;
   let sessions;
   try {
-    sessions = await listSessions(businessUnitId);
+    sessions = await listAllSessions(businessUnitId);
   } catch (error) {
     content.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
     return;
@@ -139,7 +172,7 @@ async function renderSessionsTab(content, businessUnitId) {
       <button class="primary" id="btn-new-session" style="max-width:180px">+ Tambah Sesi</button>
     </div>
     <table class="data-table">
-      <thead><tr><th>Urutan</th><th>Sesi</th><th>Status</th><th>Aksi</th></tr></thead>
+      <thead><tr><th>Urutan</th><th>Sesi</th><th>Berlaku di</th><th>Status</th><th>Aksi</th></tr></thead>
       <tbody>
         ${sessions
           .map(
@@ -147,6 +180,11 @@ async function renderSessionsTab(content, businessUnitId) {
           <tr>
             <td>${s.sort_order}</td>
             <td>${escapeHtml(s.name)}</td>
+            <td style="font-size:0.82rem">${
+              s.outlet_id
+                ? escapeHtml(outlets.find((o) => o.id === s.outlet_id)?.name ?? 'Outlet')
+                : '<span class="badge badge-approved" style="font-size:0.68rem">Semua outlet</span>'
+            }</td>
             <td>${s.is_active ? 'Aktif' : 'Nonaktif'}</td>
             <td>
               <button class="btn-edit-session" data-json='${escapeAttr(JSON.stringify(s))}'>Edit</button>
@@ -154,13 +192,13 @@ async function renderSessionsTab(content, businessUnitId) {
             </td>
           </tr>`
           )
-          .join('') || '<tr><td colspan="4">Belum ada sesi.</td></tr>'}
+          .join('') || '<tr><td colspan="5">Belum ada sesi.</td></tr>'}
       </tbody>
     </table>
   `;
-  document.getElementById('btn-new-session').addEventListener('click', () => openSessionDialog(content, businessUnitId, null));
+  document.getElementById('btn-new-session').addEventListener('click', () => openSessionDialog(content, businessUnitId, null, outlets));
   content.querySelectorAll('.btn-edit-session').forEach((btn) =>
-    btn.addEventListener('click', () => openSessionDialog(content, businessUnitId, JSON.parse(btn.dataset.json)))
+    btn.addEventListener('click', () => openSessionDialog(content, businessUnitId, JSON.parse(btn.dataset.json), outlets))
   );
   content.querySelectorAll('.btn-del-session').forEach((btn) =>
     btn.addEventListener('click', async () => {
@@ -169,7 +207,7 @@ async function renderSessionsTab(content, businessUnitId) {
       try {
         await deleteSession(btn.dataset.id);
         toast('Sesi dihapus.', 'success');
-        await renderSessionsTab(content, businessUnitId);
+        await renderSessionsTab(content, businessUnitId, outlets);
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus.', 'error');
       }
@@ -177,12 +215,24 @@ async function renderSessionsTab(content, businessUnitId) {
   );
 }
 
-async function openSessionDialog(content, businessUnitId, existing) {
+async function openSessionDialog(content, businessUnitId, existing, outlets = []) {
   const isEdit = !!existing;
   const values = await formDialog({
     title: isEdit ? 'Edit Sesi' : 'Tambah Sesi',
     fields: [
       { name: 'name', label: 'Nama Sesi', type: 'text', required: true, value: existing?.name ?? '', placeholder: 'mis. Buka' },
+      ...(existing
+        ? []
+        : [
+            {
+              name: 'outlet_id',
+              label: 'Berlaku di',
+              type: 'select',
+              value: '',
+              help: 'Admin outlet hanya bisa membuat sesi khusus outletnya sendiri.',
+              options: [{ value: '', label: 'Semua outlet BU (standar)' }, ...outlets.map((o) => ({ value: o.id, label: `Khusus ${o.name}` }))]
+            }
+          ]),
       { name: 'sort_order', label: 'Urutan', type: 'number', min: 0, value: existing?.sort_order ?? 0 },
       ...(isEdit ? [{ name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing.is_active }] : [])
     ],
@@ -194,10 +244,15 @@ async function openSessionDialog(content, businessUnitId, existing) {
       await updateSession(existing.id, { name: values.name, sort_order: Number(values.sort_order) || 0, is_active: values.is_active });
       toast('Sesi diperbarui.', 'success');
     } else {
-      await createSession({ businessUnitId, name: values.name, sort_order: Number(values.sort_order) || 0 });
+      await createSession({
+        businessUnitId,
+        outletId: values.outlet_id || null,
+        name: values.name,
+        sort_order: Number(values.sort_order) || 0
+      });
       toast('Sesi ditambahkan.', 'success');
     }
-    await renderSessionsTab(content, businessUnitId);
+    await renderSessionsTab(content, businessUnitId, outlets);
   } catch (error) {
     toast(error.message ?? 'Gagal menyimpan sesi.', 'error');
   }

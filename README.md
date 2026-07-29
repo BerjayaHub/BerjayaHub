@@ -981,6 +981,33 @@ Tiga jebakan yang ditangani, semuanya gagal **tanpa error**:
 node tools/test-image-compress.mjs
 ```
 
+### Daily Activities: item & sesi bisa khusus outlet (migration `0054_checklist_outlet_scope.sql`)
+
+**Gejala:** admin outlet tidak bisa mengisi Item/Sesi Aktivitas.
+
+**Dua sebab yang bertumpuk**, dan yang kedua membuat yang pertama sulit dikenali:
+
+1. `checklist_items_modify` & `checklist_sessions_modify` memakai `is_bu_admin()` — tidak mencakup `outlet_admin`. Pola yang sama dengan `0053`.
+2. `updateItem`/`deleteItem`/`updateSession`/`deleteSession` memakai `.update()`/`.delete()` **tanpa `.select()`**, jadi penolakan RLS tidak menghasilkan error. Admin outlet menekan Hapus, melihat "Item dihapus", lalu itemnya masih ada. Hanya *Tambah* yang gagal dengan pesan jelas, karena INSERT memang melempar error — itulah kenapa perilakunya terasa tidak konsisten.
+
+**Kenapa tidak sekadar ganti ke `is_admin_of_outlet()`:** item & sesi bersifat BU-wide, satu daftar dipakai seluruh outlet. Admin outlet Serpong akan bisa menghapus item yang dipakai Gading, dan admin Gading tidak akan pernah tahu kenapa ceklisnya berubah.
+
+**Perbaikannya** — cakupan opsional:
+
+```
+outlet_id NULL   = milik BU, berlaku semua outlet   -> dikelola Admin BU
+outlet_id terisi = khusus outlet itu                -> dikelola admin outletnya
+```
+
+**DIGABUNG, bukan menimpa** — ceklis sebuah outlet = standar BU + tambahan khusus outlet itu. Kalau menimpa, outlet yang menambah satu item akan kehilangan seluruh standar BU-nya. (Beda dengan video tutorial, yang memang menimpa: di sana perbedaan alur berarti video BU-nya justru menyesatkan.)
+
+Detail yang mudah terlewat:
+
+- Policy memakai `using` **dan** `with check` yang sama-sama ketat, supaya admin outlet tidak bisa **memindahkan** item BU jadi miliknya (update `outlet_id` dari NULL ke outletnya). `using` menjaga baris asal, `with check` menjaga baris hasil.
+- Trigger `checklist_outlet_cocok_bu()` memastikan `outlet_id` benar-benar milik BU yang sama — tanpa itu, panggilan API langsung bisa menempelkan item ke outlet BU lain, dan itu tidak akan terlihat di UI mana pun.
+- **Cakupan hanya bisa dipilih saat MEMBUAT**, tidak saat mengedit. Memindahkan item antar cakupan diam-diam mengubah ceklis outlet lain.
+- Staff App memuat sesi & item **per outlet**, bukan sekali di awal — kalau tidak, berpindah outlet menampilkan ceklis outlet sebelumnya tanpa tanda apa pun.
+
 ### Daily Activities: foto per ITEM (migration `0052_checklist_photo_per_item.sql`)
 
 Foto bukti kini **per item aktivitas**, bukan satu foto untuk seluruh sesi — satu foto tidak bisa membuktikan sepuluh pekerjaan berbeda; foto sesi yang lama praktis hanya membuktikan "seseorang hadir". **Wajib** untuk setiap item yang dicentang.

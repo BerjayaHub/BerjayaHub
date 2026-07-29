@@ -12,13 +12,9 @@ import {
 export async function renderCleaningPage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = `<p>Memuat daily activities...</p>`;
 
-  let outlets, sessions, items;
+  let outlets;
   try {
-    [outlets, sessions, items] = await Promise.all([
-      listBuOutlets(businessUnitId),
-      listActiveSessions(businessUnitId),
-      listActiveItems(businessUnitId)
-    ]);
+    outlets = await listBuOutlets(businessUnitId);
   } catch (error) {
     container.innerHTML = `<p class="error-text">Gagal memuat: ${error.message ?? error}</p>`;
     return;
@@ -28,12 +24,21 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
     container.innerHTML = `<h1>Daily Activities</h1><p>Belum ada outlet untukmu di BU ini.</p>`;
     return;
   }
-  if (!sessions.length || !items.length) {
-    container.innerHTML = `<h1>Daily Activities</h1><p style="color:var(--color-text-muted)">Admin belum mengatur ${!sessions.length ? 'sesi' : 'item'} aktivitas untuk BU ini.</p>`;
-    return;
-  }
 
   const state = { outletId: outlets.some((o) => o.id === outletId) ? outletId : outlets[0].id };
+
+  // Sesi & item dimuat PER OUTLET, bukan sekali di awal: sejak migration 0054
+  // tiap outlet bisa punya tambahan sendiri di atas standar BU. Kalau dimuat
+  // sekali saja, berpindah outlet akan menampilkan ceklis outlet sebelumnya —
+  // salah tanpa tanda apa pun.
+  let sessions = [];
+  let items = [];
+  async function muatTemplate() {
+    [sessions, items] = await Promise.all([
+      listActiveSessions(businessUnitId, state.outletId),
+      listActiveItems(businessUnitId, state.outletId)
+    ]);
+  }
 
   container.innerHTML = `
     <h1>Daily Activities</h1>
@@ -58,9 +63,16 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
     body.innerHTML = `<p>Memuat...</p>`;
     let done;
     try {
+      await muatTemplate();
       done = await getTodayDoneSessions(state.outletId);
     } catch (error) {
       body.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
+      return;
+    }
+    if (!sessions.length || !items.length) {
+      body.innerHTML = `<p style="color:var(--color-text-muted)">Admin belum mengatur ${
+        !sessions.length ? 'sesi' : 'item'
+      } aktivitas untuk outlet ini.</p>`;
       return;
     }
     body.innerHTML = `

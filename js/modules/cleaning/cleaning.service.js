@@ -22,80 +22,164 @@ export async function listBuOutlets(businessUnitId) {
   return all.filter((o) => o.business_unit_id === businessUnitId).map((o) => ({ id: o.id, name: o.name }));
 }
 
-// ---- Item & sesi (template per BU) ----
+// ---- Item & sesi ----
+//
+// Sejak migration 0054, item & sesi punya cakupan:
+//   outlet_id NULL   = milik BU, berlaku semua outlet (dikelola admin BU)
+//   outlet_id terisi = khusus outlet itu (dikelola admin outletnya)
+//
+// Keduanya DIGABUNG, bukan saling menimpa: ceklis sebuah outlet = standar BU +
+// tambahan khusus outlet itu. Kalau menimpa, outlet yang menambah satu item
+// akan kehilangan seluruh standar BU-nya — hampir pasti bukan yang dimaksud.
 
-export async function listActiveItems(businessUnitId) {
-  const { data, error } = await supabase
-    .from('checklist_items')
-    .select('id, label, sort_order')
-    .eq('business_unit_id', businessUnitId)
-    .eq('is_active', true)
+/** Filter "milik BU ATAU milik outlet ini". */
+const cakupan = (q, outletId) =>
+  outletId ? q.or(`outlet_id.is.null,outlet_id.eq.${outletId}`) : q.is('outlet_id', null);
+
+export async function listActiveItems(businessUnitId, outletId = null) {
+  const { data, error } = await cakupan(
+    supabase
+      .from('checklist_items')
+      .select('id, label, sort_order, outlet_id')
+      .eq('business_unit_id', businessUnitId)
+      .eq('is_active', true),
+    outletId
+  )
     .order('sort_order')
     .order('created_at');
   if (error) throw error;
   return data ?? [];
 }
 
-export async function listActiveSessions(businessUnitId) {
-  const { data, error } = await supabase
-    .from('checklist_sessions')
-    .select('id, name, sort_order')
-    .eq('business_unit_id', businessUnitId)
-    .eq('is_active', true)
+export async function listActiveSessions(businessUnitId, outletId = null) {
+  const { data, error } = await cakupan(
+    supabase
+      .from('checklist_sessions')
+      .select('id, name, sort_order, outlet_id')
+      .eq('business_unit_id', businessUnitId)
+      .eq('is_active', true),
+    outletId
+  )
     .order('sort_order')
     .order('created_at');
   if (error) throw error;
   return data ?? [];
+}
+
+/**
+ * Pastikan operasi tulis benar-benar mengenai satu baris.
+ *
+ * RLS menolak dengan cara yang MENIPU: PostgREST tidak menganggap "tidak ada
+ * baris yang boleh disentuh" sebagai error, ia membalas sukses dengan 0 baris.
+ * Tanpa pemeriksaan ini, admin outlet menekan Hapus pada item milik BU, melihat
+ * "Item dihapus", lalu itemnya masih ada. Hanya INSERT yang gagal dengan pesan
+ * jelas — itulah kenapa perilakunya terasa tidak konsisten.
+ */
+function pastikanKena(data, jenis) {
+  if (!data?.length) {
+    throw new Error(
+      `Tidak bisa mengubah ${jenis} ini — ${jenis} milik BU hanya boleh dikelola Admin BU. ` +
+        `Kamu bisa membuat ${jenis} khusus outletmu sendiri.`
+    );
+  }
 }
 
 // ---- Admin CRUD item ----
 
-export async function listItems(businessUnitId) {
+/**
+ * SEMUA item BU — milik BU maupun khusus outlet mana pun. Untuk tab Item di
+ * Admin Portal, supaya tidak ada item yang "hilang" hanya karena filter.
+ *
+ * Satu query, bukan satu per outlet: policy baca `checklist_items_select`
+ * memakai has_bu_scope, jadi seluruhnya memang sudah boleh dibaca.
+ */
+export async function listAllItems(businessUnitId) {
   const { data, error } = await supabase
     .from('checklist_items')
-    .select('id, label, sort_order, is_active')
+    .select('id, label, sort_order, is_active, outlet_id')
     .eq('business_unit_id', businessUnitId)
+    .order('outlet_id', { nullsFirst: true })
     .order('sort_order')
     .order('created_at');
   if (error) throw error;
   return data ?? [];
 }
-export async function createItem({ businessUnitId, label, sort_order }) {
-  const { error } = await supabase.from('checklist_items').insert({ business_unit_id: businessUnitId, label, sort_order: sort_order ?? 0 });
+
+export async function listItems(businessUnitId, outletId = null) {
+  const { data, error } = await cakupan(
+    supabase.from('checklist_items').select('id, label, sort_order, is_active, outlet_id').eq('business_unit_id', businessUnitId),
+    outletId
+  )
+    .order('sort_order')
+    .order('created_at');
+  if (error) throw error;
+  return data ?? [];
+}
+export async function createItem({ businessUnitId, outletId, label, sort_order }) {
+  const { error } = await supabase
+    .from('checklist_items')
+    .insert({ business_unit_id: businessUnitId, outlet_id: outletId || null, label, sort_order: sort_order ?? 0 });
   if (error) throw error;
 }
 export async function updateItem(id, { label, sort_order, is_active }) {
-  const { error } = await supabase.from('checklist_items').update({ label, sort_order, is_active }).eq('id', id);
+  const { data, error } = await supabase
+    .from('checklist_items')
+    .update({ label, sort_order, is_active })
+    .eq('id', id)
+    .select('id');
   if (error) throw error;
+  pastikanKena(data, 'item');
 }
 export async function deleteItem(id) {
-  const { error } = await supabase.from('checklist_items').delete().eq('id', id);
+  const { data, error } = await supabase.from('checklist_items').delete().eq('id', id).select('id');
   if (error) throw error;
+  pastikanKena(data, 'item');
 }
 
 // ---- Admin CRUD sesi ----
 
-export async function listSessions(businessUnitId) {
+/** SEMUA sesi BU — milik BU maupun khusus outlet mana pun. Lihat listAllItems. */
+export async function listAllSessions(businessUnitId) {
   const { data, error } = await supabase
     .from('checklist_sessions')
-    .select('id, name, sort_order, is_active')
+    .select('id, name, sort_order, is_active, outlet_id')
     .eq('business_unit_id', businessUnitId)
+    .order('outlet_id', { nullsFirst: true })
     .order('sort_order')
     .order('created_at');
   if (error) throw error;
   return data ?? [];
 }
-export async function createSession({ businessUnitId, name, sort_order }) {
-  const { error } = await supabase.from('checklist_sessions').insert({ business_unit_id: businessUnitId, name, sort_order: sort_order ?? 0 });
+
+export async function listSessions(businessUnitId, outletId = null) {
+  const { data, error } = await cakupan(
+    supabase.from('checklist_sessions').select('id, name, sort_order, is_active, outlet_id').eq('business_unit_id', businessUnitId),
+    outletId
+  )
+    .order('sort_order')
+    .order('created_at');
+  if (error) throw error;
+  return data ?? [];
+}
+export async function createSession({ businessUnitId, outletId, name, sort_order }) {
+  const { error } = await supabase
+    .from('checklist_sessions')
+    .insert({ business_unit_id: businessUnitId, outlet_id: outletId || null, name, sort_order: sort_order ?? 0 });
   if (error) throw error;
 }
 export async function updateSession(id, { name, sort_order, is_active }) {
-  const { error } = await supabase.from('checklist_sessions').update({ name, sort_order, is_active }).eq('id', id);
+  const { data, error } = await supabase
+    .from('checklist_sessions')
+    .update({ name, sort_order, is_active })
+    .eq('id', id)
+    .select('id');
   if (error) throw error;
+  pastikanKena(data, 'sesi');
 }
 export async function deleteSession(id) {
-  const { error } = await supabase.from('checklist_sessions').delete().eq('id', id);
+  const { data, error } = await supabase.from('checklist_sessions').delete().eq('id', id).select('id');
   if (error) throw error;
+  pastikanKena(data, 'sesi');
 }
 
 // ---- Staff: run ----
