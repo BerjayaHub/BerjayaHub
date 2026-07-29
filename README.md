@@ -860,6 +860,21 @@ Semua filter periode di Admin Portal kini **default: tanggal 1 bulan berjalan s/
 
 Berlaku di: **Presensi**, **Rekap NBM**, **Inventory → Riwayat**, **Produksi**, **Pengiriman**, **Penjualan**, **Kas → Mutasi**, dan **Ceklis → Rekap** (yang tadinya filter satu tanggal, kini rentang Dari–Sampai).
 
+## Alat audit (jalankan sebelum push)
+
+```
+node --experimental-vm-modules tools/audit-syntax.cjs   # sintaks ES module
+node tools/audit-html-escape.cjs                        # data DB masuk HTML tanpa escape
+node tools/audit-owner-filter.cjs                       # query "milik saya" tanpa filter pemilik
+node tools/test-youtube-parser.mjs                      # parser link YouTube
+```
+
+**`audit-syntax` adalah yang paling penting.** Satu SyntaxError di file mana pun membuat SELURUH aplikasi berhenti di layar "Memuat..." — browser membatalkan seluruh graf impor, dan gejalanya sama persis apa pun penyebabnya.
+
+Jangan mengandalkan `node --check` untuk ini: ia mem-parse sebagai CommonJS, bukan ES module, sehingga bisa **lolos** padahal ada kesalahan nyata. Itu benar-benar terjadi — sebuah backtick di dalam komentar HTML memotong template literal, `--check` diam saja, dan Staff App mati total.
+
+Jebakan paling sering: **backtick atau `${...}` liar di dalam template literal**, termasuk di dalam komentar HTML — secara visual terlihat seperti komentar, tapi bagi JavaScript tetap bagian dari string.
+
 ## Ambil foto: kamera diutamakan, galeri tetap ada
 
 Komponen bersama `js/core/photo-input.js` — dua tombol berdampingan: **📷 Ambil Foto** (utama) dan **🖼️ Dari Galeri**, plus pratinjau gambar sebelum disimpan.

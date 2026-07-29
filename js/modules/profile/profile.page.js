@@ -43,9 +43,9 @@ export async function renderProfilePage(container, ctx = {}) {
         <div class="profile-avatar-wrap">
           ${photoUrl ? `<img src="${photoUrl}" alt="Foto" class="profile-avatar" />` : `<div class="profile-avatar profile-avatar-empty">${escapeHtml(initials(profile.full_name))}</div>`}
           <button id="btn-photo-camera" class="profile-photo-btn" title="Ambil foto dengan kamera">📷</button>
-          <!-- Dua input: `capture` memaksa kamera terbuka tapi MENGHILANGKAN opsi
-               galeri, jadi tidak ada satu input yang bisa memberi keduanya.
-               capture="user" = kamera depan, karena ini foto profil. -->
+          <!-- Dua input: atribut capture memaksa kamera terbuka tapi MENGHILANGKAN
+               opsi galeri, jadi tidak ada satu input yang bisa memberi keduanya.
+               capture=user = kamera depan, karena ini foto profil. -->
           <input type="file" id="photo-camera" accept="image/*" capture="user" hidden />
           <input type="file" id="photo-input" accept="image/*" hidden />
         </div>
