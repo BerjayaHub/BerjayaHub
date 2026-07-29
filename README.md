@@ -860,6 +860,18 @@ Semua filter periode di Admin Portal kini **default: tanggal 1 bulan berjalan s/
 
 Berlaku di: **Presensi**, **Rekap NBM**, **Inventory → Riwayat**, **Produksi**, **Pengiriman**, **Penjualan**, **Kas → Mutasi**, dan **Ceklis → Rekap** (yang tadinya filter satu tanggal, kini rentang Dari–Sampai).
 
+## Bug: tabel Jadwal Shift di Staff App hanya menampilkan diri sendiri (migration `0051_list_outlet_staff.sql`)
+
+**Penyebab bukan di logika filternya, tapi di RLS.** `membership_scopes_select_own` hanya membuka baris **milik sendiri**, dan `membership_scopes_select_admin` hanya berlaku untuk admin BU. Jadi `listBuStaff()` yang dipanggil dari Staff App memang cuma mengembalikan satu baris: si pemanggil. Filter di halamannya lalu **terlihat seolah sengaja membatasi**, padahal datanya memang tidak pernah sampai.
+
+Ini kelas kegagalan yang sama seperti bug lain di dokumen ini: query-nya sukses, tidak ada error, hasilnya cuma "kebetulan" berisi satu orang — dan terlihat wajar bagi siapa pun yang membaca kodenya.
+
+**Perbaikan:** RPC security-definer `list_outlet_staff(p_outlet_id)` yang mengembalikan **nama + status aktif saja** — tanpa email, telepon, atau role. Jadwal shift memang dokumen bersama (Admin Portal sudah menampilkannya); yang tidak boleh bocor adalah data pribadi lain, dan itu tetap tertutup. Pemanggil wajib anggota BU pemilik outlet, supaya uuid outlet organisasi lain tidak bisa ditebak untuk memanen daftar nama.
+
+**Semua staff outlet ditampilkan, bukan hanya yang sudah dijadwalkan** — justru baris kosonglah yang berguna: dari situ terlihat siapa yang belum dapat jadwal minggu ini. Staff ber-scope level BU (mis. admin BU, yang otomatis mencakup semua outlet) hanya ikut tampil kalau memang punya jadwal di sana; kalau tidak, tabel outlet kecil akan penuh nama orang yang tidak pernah masuk ke situ. Kolom `tingkat` dari RPC itu yang membedakannya.
+
+⚠️ **`listBuStaff()` hanya untuk layar admin.** Sudah diberi peringatan di docstring-nya. Masih dipakai di Laporan, Jatah Cuti, dan Jadwal Shift Admin Portal — semuanya layar admin, jadi aman.
+
 ## Modul yang menempel pada ORANG, bukan pada BU aktif (`js/core/base-scope.js`)
 
 Satu orang bisa punya scope di banyak BU/outlet, dan shell aplikasi punya pemilih BU di pojok atas. Untuk sebagian modul, BU yang **sedang dipilih** memang yang benar (mis. melihat stok outlet mana). Tapi untuk modul yang menempel pada orangnya, yang benar selalu **tempat kerja utama** — scope bertanda ★ di Master User.

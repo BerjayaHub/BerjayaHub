@@ -269,7 +269,16 @@ export async function listLeaveTypesForAdmin(businessUnitId) {
   return data ?? [];
 }
 
-/** Daftar staff (distinct) yang punya scope di BU ini — untuk tab Jatah Cuti. */
+/**
+ * Daftar staff (distinct) yang punya scope di BU ini — untuk tab Jatah Cuti.
+ *
+ * ⚠️ HANYA UNTUK LAYAR ADMIN. RLS `membership_scopes` cuma membuka baris milik
+ * sendiri untuk staff biasa (`membership_scopes_select_own`), jadi dipanggil
+ * dari Staff App fungsi ini "berhasil" tapi mengembalikan SATU baris: si
+ * pemanggil sendiri. Kegagalan yang menipu — tidak ada error, hasilnya cuma
+ * kebetulan berisi satu orang. Untuk Staff App pakai
+ * `listOutletStaff()` (RPC security-definer) di shift.service.js.
+ */
 export async function listBuStaff(businessUnitId) {
   const { data, error } = await supabase
     .from('membership_scopes')

@@ -1,6 +1,15 @@
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
-import { listBuStaff } from '../leave/leave.service.js';
-import { listOutletShifts, listSchedules, weekRange, addDays, todayWIB, shiftCrossesMidnight, resolveAutoOff, holidayMapOf } from './shift.service.js';
+import {
+  listOutletShifts,
+  listSchedules,
+  listOutletStaff,
+  weekRange,
+  addDays,
+  todayWIB,
+  shiftCrossesMidnight,
+  resolveAutoOff,
+  holidayMapOf
+} from './shift.service.js';
 import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
 import { getMyBaseScope } from '../../core/base-scope.js';
 
@@ -83,7 +92,7 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
     let staff, shifts, schedules, policy, holidays;
     try {
       [staff, shifts, schedules, policy, holidays] = await Promise.all([
-        listBuStaff(buShift),
+        listOutletStaff(state.outletId),
         listOutletShifts(state.outletId),
         listSchedules({ outletId: state.outletId, from: wk.from, to: wk.to }),
         getHolidayPolicy(buShift, state.outletId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] })),
@@ -97,9 +106,15 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
     const autoOff = new Map(wk.days.map((d) => [d, resolveAutoOff(d, policy, holidayMap)]));
     const map = new Map();
     for (const s of schedules) map.set(`${s.user_id}|${s.work_date}`, s);
-    // Tampilkan staff yang punya jadwal minggu ini + diri sendiri (biar ringkas).
+    // SEMUA staff outlet ini ditampilkan, bukan hanya yang sudah dijadwalkan —
+    // justru baris kosonglah yang berguna: dari situ terlihat siapa yang belum
+    // dapat jadwal minggu ini.
+    //
+    // Staff ber-scope level BU (mis. admin BU, yang otomatis mencakup semua
+    // outlet) hanya ikut tampil kalau memang punya jadwal di sini. Kalau tidak,
+    // tabel outlet kecil akan penuh nama orang yang tidak pernah masuk ke situ.
     const scheduled = new Set(schedules.map((s) => s.user_id));
-    const rows = staff.filter((s) => scheduled.has(s.user_id) || s.user_id === userId);
+    const rows = staff.filter((s) => s.tingkat === 'outlet' || scheduled.has(s.user_id) || s.user_id === userId);
     const today = todayWIB();
 
     grid.innerHTML = `
@@ -139,7 +154,8 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
                       .join('')}
                   </tr>`
                 )
-                .join('') || `<tr><td colspan="8">Belum ada jadwal minggu ini.</td></tr>`
+                .join('') ||
+              `<tr><td colspan="8" style="color:var(--color-text-muted)">Belum ada staff yang terdaftar di outlet ini. Minta admin menambahkan scope outlet di Master User.</td></tr>`
             }
           </tbody>
         </table>

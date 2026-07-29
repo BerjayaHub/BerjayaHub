@@ -237,6 +237,22 @@ export async function getMyScheduleFor(dateStr) {
   return data;
 }
 
+/**
+ * Semua staff yang terdaftar di satu outlet — untuk tabel Jadwal Shift.
+ *
+ * Lewat RPC security-definer, BUKAN select ke membership_scopes: RLS tabel itu
+ * hanya membuka baris milik sendiri untuk staff biasa, sehingga select langsung
+ * "berhasil" tapi mengembalikan satu orang saja. RPC-nya sengaja hanya
+ * mengembalikan nama + status aktif, bukan seluruh profil.
+ *
+ * `tingkat`: 'outlet' = ditugaskan di outlet ini; 'bu' = scope level BU.
+ */
+export async function listOutletStaff(outletId) {
+  const { data, error } = await supabase.rpc('list_outlet_staff', { p_outlet_id: outletId });
+  if (error) throw error;
+  return (data ?? []).sort((a, b) => String(a.full_name).localeCompare(String(b.full_name)));
+}
+
 /** Apakah outlet ini mengaktifkan modul shift? */
 export function isShiftEnabled(outlet) {
   return !!outlet?.shift_enabled;
