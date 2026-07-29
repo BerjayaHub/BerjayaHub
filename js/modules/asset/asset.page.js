@@ -124,7 +124,7 @@ async function render(container, { businessUnitId }, isAdmin) {
                     ${isAdmin ? `<td style="font-size:0.82rem">${esc(a.outlets?.name ?? '-')}</td>` : ''}
                     <td>
                       <button class="as-edit" data-id="${a.id}">Edit</button>
-                      ${isAdmin ? `<button class="as-del" data-id="${a.id}">Hapus</button>` : ''}
+                      <button class="as-del" data-id="${a.id}">Hapus</button>
                     </td>
                   </tr>`
                 )

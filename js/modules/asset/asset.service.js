@@ -111,9 +111,34 @@ async function hapusFotoSisa(basePath, pathTerpakai) {
   }
 }
 
+/**
+ * Hapus aset beserta fotonya.
+ *
+ * `.select()` di akhir BUKAN hiasan. RLS `assets_delete` hanya mengizinkan
+ * admin outlet, dan PostgREST TIDAK menganggap "tidak ada baris yang boleh
+ * dihapus" sebagai error — ia membalas sukses dengan 0 baris. Tanpa pemeriksaan
+ * ini, staff biasa menekan Hapus, melihat notifikasi "Aset dihapus", lalu
+ * bingung karena barangnya masih ada. Kebohongan yang meyakinkan jauh lebih
+ * buruk daripada pesan penolakan yang jujur.
+ */
 export async function deleteAsset(id) {
-  const { error } = await supabase.from('assets').delete().eq('id', id);
+  // Path fotonya dibaca DULU: setelah barisnya hilang, tidak ada lagi cara
+  // menemukan file itu dan ia jadi sampah permanen di storage.
+  const { data: aset } = await supabase.from('assets').select('photo_path').eq('id', id).maybeSingle();
+
+  const { data, error } = await supabase.from('assets').delete().eq('id', id).select('id');
   if (error) throw error;
+  if (!data?.length) {
+    throw new Error('Tidak bisa dihapus — hanya admin outlet yang boleh menghapus aset.');
+  }
+
+  if (aset?.photo_path) {
+    try {
+      await supabase.storage.from('asset-photos').remove([aset.photo_path]);
+    } catch (err) {
+      console.warn('[aset] foto tidak ikut terhapus:', err?.message ?? err);
+    }
+  }
 }
 
 export async function getAssetPhotoUrl(path) {

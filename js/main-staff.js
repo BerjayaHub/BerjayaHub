@@ -272,11 +272,48 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
     }
   });
 
-  // Beranda card-based sebagai tampilan awal
-  renderHome(context, modules, moduleCtx);
+  // Kembali ke modul terakhir, bukan selalu ke Beranda.
+  //
+  // KENAPA: membuka kamera dari <input type="file"> membuat Android/iOS
+  // MEMBUANG halaman web dari memori kalau RAM sedang sempit. Saat kamera
+  // ditutup, halamannya dimuat ULANG — dan tanpa ini staff selalu terlempar ke
+  // Beranda, seolah aplikasi "keluar sendiri" setelah memotret. Berlaku juga
+  // untuk refresh biasa dan saat PWA dibuka kembali dari layar depan.
+  const terakhir = modulTerakhir();
+  if (terakhir && modules.some((m) => m.code === terakhir) && getModuleRenderer(terakhir)) {
+    openModule(terakhir, context, modules, moduleCtx);
+  } else {
+    renderHome(context, modules, moduleCtx);
+  }
+}
+
+/**
+ * Modul yang terakhir dibuka. sessionStorage, bukan localStorage: ingatan ini
+ * hanya relevan untuk tab/sesi yang sedang berjalan. Kalau dipakai localStorage,
+ * staff yang besok membuka aplikasi akan langsung mendarat di modul kemarin
+ * tanpa pernah melihat Beranda — bukan itu yang diinginkan.
+ */
+const KUNCI_MODUL = 'staff_modul_terakhir';
+function simpanModulTerakhir(code) {
+  try {
+    if (code) sessionStorage.setItem(KUNCI_MODUL, code);
+    else sessionStorage.removeItem(KUNCI_MODUL);
+  } catch {
+    // sessionStorage bisa diblokir (mode privat) -> fitur ini sekadar tidak aktif
+  }
+}
+function modulTerakhir() {
+  try {
+    return sessionStorage.getItem(KUNCI_MODUL);
+  } catch {
+    return null;
+  }
 }
 
 async function renderHome(context, modules, moduleCtx) {
+  // Kembali ke Beranda secara sengaja -> lupakan modul terakhir, supaya
+  // refresh berikutnya tetap di Beranda seperti yang orangnya harapkan.
+  simpanModulTerakhir(null);
   const content = document.getElementById('module-content');
   const firstName = (context.profile.full_name || '').split(' ')[0] || 'Halo';
   // Hanya tampilkan modul yang punya halaman Staff App + sesuai peran outlet:
@@ -361,6 +398,7 @@ function fmtClock(iso) {
 }
 
 function openModule(code, context, modules, moduleCtx) {
+  simpanModulTerakhir(code);
   const content = document.getElementById('module-content');
   const mod = modules.find((m) => m.code === code);
   content.innerHTML = `

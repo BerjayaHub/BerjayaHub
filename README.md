@@ -860,6 +860,48 @@ Semua filter periode di Admin Portal kini **default: tanggal 1 bulan berjalan s/
 
 Berlaku di: **Presensi**, **Rekap NBM**, **Inventory → Riwayat**, **Produksi**, **Pengiriman**, **Penjualan**, **Kas → Mutasi**, dan **Ceklis → Rekap** (yang tadinya filter satu tanggal, kini rentang Dari–Sampai).
 
+## Aplikasi "keluar sendiri" ke Beranda setelah memotret
+
+**Gejala:** selesai mengisi form (mis. Inventaris Aset), aplikasi melompat ke Beranda / Dashboard.
+
+**Penyebab:** membuka kamera dari `<input type="file">` menyerahkan layar ke aplikasi kamera bawaan. Kalau RAM sedang sempit, Android/iOS **membuang halaman web dari memori**. Saat kamera ditutup, halamannya dimuat **ulang** — dan karena aplikasi ini tidak menyimpan posisi navigasi, semuanya kembali ke titik awal. Bukan bug penyimpanan data: datanya tersimpan, yang hilang cuma posisi layarnya.
+
+**Perbaikan:** modul/menu terakhir disimpan di `sessionStorage`, dan dipulihkan saat aplikasi dimuat. Berlaku untuk **seluruh modul sekaligus** di Staff App maupun Admin Portal — bukan hanya Inventaris Aset — karena penyebabnya di lapisan navigasi, bukan di modulnya.
+
+`sessionStorage`, **bukan** `localStorage`: ingatan ini hanya relevan untuk sesi yang sedang berjalan. Kalau permanen, staff yang besok membuka aplikasi akan langsung mendarat di modul kemarin dan tidak pernah melihat Beranda. Menekan 🏠 Beranda menghapus ingatannya, supaya refresh setelah itu tetap di Beranda seperti yang diharapkan.
+
+Di Admin Portal, menu tersimpan diabaikan kalau tidak ada di sidebar (mis. izinnya dicabut sejak sesi lalu) — supaya tidak mendarat di halaman "tidak punya izin".
+
+## Jebakan: `delete()` yang ditolak RLS TIDAK menghasilkan error
+
+PostgREST tidak menganggap "tidak ada baris yang boleh dihapus" sebagai kesalahan — ia membalas **sukses dengan 0 baris**. Jadi pola ini berbohong:
+
+```js
+const { error } = await supabase.from('assets').delete().eq('id', id);
+if (error) throw error;                  // tidak pernah kena
+toast('Aset dihapus.', 'success');       // padahal tidak terhapus apa pun
+```
+
+Yang benar — periksa berapa baris yang benar-benar terhapus:
+
+```js
+const { data, error } = await supabase.from('assets').delete().eq('id', id).select('id');
+if (error) throw error;
+if (!data?.length) throw new Error('Tidak bisa dihapus — hanya admin outlet yang boleh menghapus aset.');
+```
+
+Kebohongan yang meyakinkan jauh lebih buruk daripada penolakan yang jujur: user melihat "berhasil", lalu bingung karena datanya masih ada, dan menyalahkan aplikasinya secara umum alih-alih tahu bahwa ia memang tidak punya izin.
+
+Sudah diterapkan di `deleteAsset()` (tombol Hapus kini tampil untuk semua, tapi RLS tetap membatasi ke admin outlet — dan penolakannya sekarang terlihat). **Masih ada ±24 pemanggilan `delete()` lain tanpa pemeriksaan ini**, semuanya di layar Admin Portal sehingga jarang kena; cari dengan:
+
+```
+grep -rn "\.delete()" js/modules/*/*.service.js | grep -v "\.select("
+```
+
+⚠️ Sebagian di antaranya **memang** boleh menghapus 0 baris (`recipe_items`, `nbm_adjustments`, `leave_entitlements` — pola hapus-lalu-isi-ulang). Jangan diperbaiki secara borongan.
+
+Aturan turunannya: **baca path file SEBELUM menghapus barisnya.** Setelah barisnya hilang, tidak ada lagi cara menemukan file di Storage dan ia jadi sampah permanen.
+
 ## Kebijakan storage: kompresi foto & retensi selfie
 
 Free tier Supabase = **1 GB**. Foto mentah kamera HP 2–4 MB, jadi ~300 foto sudah menghabiskan seluruh kuota.

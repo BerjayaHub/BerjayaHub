@@ -357,12 +357,45 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
     });
   });
 
-  // Dashboard sebagai tampilan awal begitu login
-  document.querySelector('[data-module="dashboard"]')?.classList.add('active');
-  openModule('dashboard', activeBuId, modules, isSuperAdmin, allowedTabs);
+  // Kembali ke menu terakhir, bukan selalu Dashboard.
+  //
+  // KENAPA: membuka kamera dari <input type="file"> bisa membuat HP MEMBUANG
+  // halaman web dari memori; saat kembali, halamannya dimuat ulang dan admin
+  // terlempar ke Dashboard — terasa seperti aplikasi "keluar sendiri". Berlaku
+  // juga untuk refresh biasa.
+  //
+  // Menu yang tidak ada di sidebar (mis. izinnya dicabut sejak sesi lalu)
+  // diabaikan, supaya tidak mendarat di halaman "tidak punya izin".
+  const terakhir = menuTerakhir();
+  const awal = terakhir && document.querySelector(`[data-module="${CSS.escape(terakhir)}"]`) ? terakhir : 'dashboard';
+  document.querySelector(`[data-module="${CSS.escape(awal)}"]`)?.classList.add('active');
+  openModule(awal, activeBuId, modules, isSuperAdmin, allowedTabs);
+}
+
+/**
+ * Menu Admin Portal yang terakhir dibuka. sessionStorage, bukan localStorage:
+ * ingatan ini hanya untuk sesi yang sedang berjalan. Kalau permanen, admin yang
+ * besok login akan langsung mendarat di halaman kemarin dan tidak pernah
+ * melihat Dashboard.
+ */
+const KUNCI_MENU = 'admin_menu_terakhir';
+function simpanMenuTerakhir(code) {
+  try {
+    sessionStorage.setItem(KUNCI_MENU, code);
+  } catch {
+    // sessionStorage bisa diblokir (mode privat) -> fitur ini sekadar tidak aktif
+  }
+}
+function menuTerakhir() {
+  try {
+    return sessionStorage.getItem(KUNCI_MENU);
+  } catch {
+    return null;
+  }
 }
 
 function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = false, allowedTabs = new Set()) {
+  simpanMenuTerakhir(code);
   const content = document.getElementById('module-content');
   const ctx = { businessUnitId, isAdmin: true };
   content.classList.remove('fade-in');
