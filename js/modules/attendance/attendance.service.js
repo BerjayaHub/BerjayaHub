@@ -1,5 +1,6 @@
 import { supabase } from '../../config/supabase-client.js';
 import { compressImage } from '../../core/image-compress.js';
+import { getMyBaseScope } from '../../core/base-scope.js';
 
 export function getGeolocation() {
   return new Promise((resolve) => {
@@ -144,18 +145,10 @@ export async function listAttendanceOutlets() {
  * Kalau belum ada yang ditandai, pakai fallback (BU/outlet aktif dari shell).
  */
 export async function getMyNbmBase(fallback = {}) {
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-  if (!user) return fallback;
-  const { data, error } = await supabase
-    .from('membership_scopes')
-    .select('business_unit_id, outlet_id, is_primary')
-    .eq('user_id', user.id);
-  if (error) throw error;
-  const primary = (data ?? []).find((s) => s.is_primary);
-  if (primary) return { business_unit_id: primary.business_unit_id, outlet_id: primary.outlet_id };
-  return fallback;
+  // Alias. Logikanya pindah ke core/base-scope.js karena kini dipakai tiga
+  // modul (presensi, cuti, shift) — bukan lagi khusus NBM. Nama lama
+  // dipertahankan supaya pemanggil lama tidak perlu diubah serentak.
+  return getMyBaseScope(fallback);
 }
 
 export async function clockIn({

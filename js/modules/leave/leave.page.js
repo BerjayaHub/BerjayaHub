@@ -16,24 +16,53 @@ const STATUS_BADGE = {
 };
 
 import { todayWIB } from '../../core/dates.js';
+import { getMyBaseScope, punyaBasisTertandai } from '../../core/base-scope.js';
+import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 
 export async function renderLeavePage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = `<p>Memuat data cuti...</p>`;
   container.dataset.userId = userId ?? '';
-  container.dataset.buId = businessUnitId ?? '';
-  container.dataset.outletId = outletId ?? '';
+
+  // Cuti MENEMPEL PADA ORANGNYA, bukan pada BU yang kebetulan sedang dibuka.
+  //
+  // Tanpa ini, staff yang sedang melihat BU lain lalu mengajukan cuti akan
+  // mengirim pengajuannya ke admin BU yang SALAH — dan atasannya sendiri tidak
+  // pernah melihatnya, tanpa ada pesan error apa pun. Sama seperti presensi,
+  // acuannya adalah tempat kerja utama (★ di Master User).
+  const fallbackBase = { business_unit_id: businessUnitId, outlet_id: outletId };
+  const base = await getMyBaseScope(fallbackBase).catch(() => fallbackBase);
+  const buCuti = base.business_unit_id ?? businessUnitId;
+  const outletCuti = base.outlet_id ?? outletId;
+
+  container.dataset.buId = buCuti ?? '';
+  container.dataset.outletId = outletCuti ?? '';
+
   // Ikut WIB supaya label tahunnya sama dengan tahun yang dipakai menghitung
   // pemakaian jatah di service (kalau berbeda, angkanya terlihat tidak nyambung).
   const year = Number(todayWIB().slice(0, 4));
 
-  const [entitlements, types, requests] = await Promise.all([
+  const [entitlements, types, requests, semuaOutlet, adaBasis] = await Promise.all([
     getMyEntitlementSummary(),
     listAllowedLeaveTypes(),
-    listMyLeaveRequests()
+    listMyLeaveRequests(),
+    listAttendanceOutlets().catch(() => []),
+    punyaBasisTertandai().catch(() => false)
   ]);
+  const namaBasis = semuaOutlet.find((o) => o.id === outletCuti);
 
   container.innerHTML = `
     <h1>Pengajuan Cuti</h1>
+    <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 12px">
+      ${
+        namaBasis
+          ? `Pengajuanmu masuk ke <strong>${escapeHtml(namaBasis.name)}</strong>${
+              namaBasis.business_unit_name ? ` — ${escapeHtml(namaBasis.business_unit_name)}` : ''
+            }, sesuai tempat kerja utamamu (★). Berpindah BU di menu atas tidak mengubah tujuannya.`
+          : adaBasis
+            ? 'Pengajuanmu mengikuti tempat kerja utamamu (★), bukan BU yang sedang dibuka.'
+            : '⚠️ Tempat kerja utamamu (★) belum ditetapkan, jadi pengajuan mengikuti BU yang sedang dibuka. Minta admin menandainya di Master User supaya tidak salah tujuan.'
+      }
+    </p>
     <div class="inline-card">
       <h3 style="margin-top:0">Hak &amp; Sisa Jatah Cuti ${year}</h3>
       ${
@@ -65,7 +94,7 @@ export async function renderLeavePage(container, { userId, businessUnitId, outle
   `;
 
   document.getElementById('btn-new-leave').addEventListener('click', () =>
-    openLeaveForm(container, { businessUnitId, outletId }, types)
+    openLeaveForm(container, { businessUnitId: buCuti, outletId: outletCuti }, types)
   );
 
   wireRows(container);

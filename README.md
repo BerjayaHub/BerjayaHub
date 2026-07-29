@@ -860,6 +860,23 @@ Semua filter periode di Admin Portal kini **default: tanggal 1 bulan berjalan s/
 
 Berlaku di: **Presensi**, **Rekap NBM**, **Inventory → Riwayat**, **Produksi**, **Pengiriman**, **Penjualan**, **Kas → Mutasi**, dan **Ceklis → Rekap** (yang tadinya filter satu tanggal, kini rentang Dari–Sampai).
 
+## Modul yang menempel pada ORANG, bukan pada BU aktif (`js/core/base-scope.js`)
+
+Satu orang bisa punya scope di banyak BU/outlet, dan shell aplikasi punya pemilih BU di pojok atas. Untuk sebagian modul, BU yang **sedang dipilih** memang yang benar (mis. melihat stok outlet mana). Tapi untuk modul yang menempel pada orangnya, yang benar selalu **tempat kerja utama** — scope bertanda ★ di Master User.
+
+Sekarang ada tiga: **Presensi**, **Pengajuan Cuti**, **Jadwal Shift**.
+
+**Kenapa ini penting.** Kalau tidak dibedakan, akibatnya halus dan sulit dilacak:
+
+- Staff yang sedang melihat BU lain lalu mengajukan cuti akan mengirimnya ke **admin BU yang salah** — dan atasannya sendiri tidak pernah melihat pengajuan itu, tanpa ada pesan error apa pun. Yang terjadi berikutnya: staff merasa sudah mengajukan, atasan merasa tidak pernah menerima.
+- Jadwal shift terlihat **lenyap** hanya karena BU di menu atas sedang berpindah.
+
+`getMyBaseScope(fallback)` adalah sumber tunggal jawaban itu. `getMyNbmBase()` di `attendance.service.js` kini hanya alias — namanya dipertahankan supaya pemanggil lama tidak perlu diubah serentak, tapi logikanya satu.
+
+**Kalau ★ belum ditetapkan**, fungsi ini mengembalikan konteks aktif apa adanya — **tidak menebak** scope pertama yang kebetulan terbaca, karena tebakan membuat perilaku aplikasi berubah-ubah tanpa sebab yang bisa dijelaskan. Halaman Cuti menampilkan **peringatan** dalam kondisi itu, supaya admin tahu harus menandai ★ di Master User.
+
+Halaman Cuti juga menyebut tujuan pengajuannya secara eksplisit ("Pengajuanmu masuk ke *outlet X*"), supaya staff tidak perlu menebak ke mana permintaannya pergi. Jadwal Shift tetap punya pemilih outlet — outlet basis hanya jadi pilihan **awal**, bukan satu-satunya.
+
 ## Aplikasi "keluar sendiri" ke Beranda setelah memotret
 
 **Gejala:** selesai mengisi form (mis. Inventaris Aset), aplikasi melompat ke Beranda / Dashboard.
