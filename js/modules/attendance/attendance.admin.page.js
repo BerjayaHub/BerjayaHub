@@ -315,9 +315,13 @@ function rowHtml(r, outlet, pushAktif) {
   // 🔕 = staff ini belum mengaktifkan notifikasi di device mana pun, jadi
   // reminder clock in tidak akan pernah sampai padanya. Bukan error, tapi harus
   // terlihat — kalau tidak, admin baru sadar setelah orangnya telat berkali-kali.
-  // `null` = status tidak diketahui (RPC gagal / migration belum jalan) -> jangan
-  // tampilkan apa-apa, daripada menuduh semua orang belum mengaktifkan.
-  const tanpaPush = pushAktif instanceof Map && !pushAktif.get(r.user_id);
+  // Dua hal yang berarti "tidak tahu", dan keduanya HARUS diam, bukan menuduh:
+  //   - pushAktif null  -> RPC gagal / migration 0047 belum dijalankan
+  //   - r.user_id kosong -> query rekap lupa mengambil kolomnya
+  // Kesalahan kedua itu pernah benar-benar terjadi dan membuat SEMUA staff
+  // ditandai 🔕 padahal notifikasinya aktif. Penanda yang salah lebih merusak
+  // daripada tidak ada penanda: admin jadi tidak mempercayainya lagi.
+  const tanpaPush = pushAktif instanceof Map && !!r.user_id && !pushAktif.get(r.user_id);
   const pushTag = tanpaPush
     ? ` <span title="Belum mengaktifkan notifikasi — tidak akan menerima pengingat clock in" style="cursor:help">🔕</span>`
     : '';

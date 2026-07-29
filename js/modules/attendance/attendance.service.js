@@ -373,7 +373,10 @@ export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFro
     // & `business_units_select` hanya mengizinkan baris dalam scope user, jadi
     // untuk presensi di outlet BU lain embed-nya akan balik null ("-").
     // Nama outlet diresolusi di UI lewat RPC `list_attendance_outlets` (security definer).
-    .select('id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, shift_name, late_minutes, late_status, business_unit_id, nbm_business_unit_id, outlet_id, user_profiles(full_name)')
+    // `user_id` WAJIB ikut: dipakai UI untuk mencocokkan penanda 🔕 (status
+    // langganan push). Tanpa kolom ini pencocokannya meleset diam-diam dan
+    // SEMUA staff ditandai belum mengaktifkan notifikasi.
+    .select('id, user_id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, shift_name, late_minutes, late_status, business_unit_id, nbm_business_unit_id, outlet_id, user_profiles(full_name)')
     .or(`nbm_business_unit_id.eq.${businessUnitId},and(nbm_business_unit_id.is.null,business_unit_id.eq.${businessUnitId})`)
     .order('clock_in_at', { ascending: false })
     .limit(200);
