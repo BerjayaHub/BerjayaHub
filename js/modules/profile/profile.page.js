@@ -1,4 +1,4 @@
-import { toast, formDialog } from '../../core/ui.js';
+import { toast, formDialog, escapeHtml } from '../../core/ui.js';
 import { pushCardHtml, wirePushCard } from '../../core/push-card.js';
 import {
   GENDER_OPTIONS,
@@ -41,7 +41,7 @@ export async function renderProfilePage(container, ctx = {}) {
     <div class="inline-card" style="max-width:560px">
       <div class="profile-head">
         <div class="profile-avatar-wrap">
-          ${photoUrl ? `<img src="${photoUrl}" alt="Foto" class="profile-avatar" />` : `<div class="profile-avatar profile-avatar-empty">${initials(profile.full_name)}</div>`}
+          ${photoUrl ? `<img src="${photoUrl}" alt="Foto" class="profile-avatar" />` : `<div class="profile-avatar profile-avatar-empty">${escapeHtml(initials(profile.full_name))}</div>`}
           <button id="btn-photo" class="profile-photo-btn" title="Ganti foto">📷</button>
           <input type="file" id="photo-input" accept="image/*" hidden />
         </div>

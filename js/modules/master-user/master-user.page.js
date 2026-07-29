@@ -98,7 +98,7 @@ function staffRowHtml(s, registeredFaceIds) {
 
   return `
     <tr data-user-id="${s.profile.id}">
-      <td>${s.profile.full_name}</td>
+      <td>${escapeHtml(s.profile.full_name)}</td>
       <td>${s.profile.phone ?? '-'}</td>
       <td>${scopeBadges} <button class="btn-add-scope" data-user-id="${s.profile.id}">+ scope</button></td>
       <td>${s.profile.is_active ? 'Aktif' : 'Nonaktif'}</td>

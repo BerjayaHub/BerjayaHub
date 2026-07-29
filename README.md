@@ -145,9 +145,12 @@ Jalankan migration `0008_shift_schedule_push.sql`. Fitur ini butuh setup manual 
 
 5. **Jadwalkan pemanggilan otomatis** (Edge Function perlu dipanggil tiap ±5–10 menit sepanjang hari — pakai `pg_cron` + `pg_net`, gratis, sudah diaktifkan lewat migration `0008`). Di **SQL Editor** dashboard Supabase, jalankan (ganti bagian `<...>` sesuai project kamu):
    ```sql
-   -- Simpan URL & secret dengan aman di Vault (sekali saja)
+   -- Simpan URL & secret dengan aman di Vault (sekali saja).
+   -- PENTING: jangan sisakan kurung '<' '>' dari contoh ini di dalam URL-nya.
    select vault.create_secret('https://<project-ref>.supabase.co/functions/v1/send-attendance-reminders', 'reminder_function_url');
    select vault.create_secret('<isi CRON_SECRET yang sama seperti langkah 4>', 'reminder_cron_secret');
+   -- anon key (Project Settings → API). Bukan rahasia, tapi WAJIB ada -- lihat catatan di bawah.
+   select vault.create_secret('<anon key>', 'supabase_anon_key');
 
    -- Jadwalkan tiap 10 menit
    select cron.schedule(
@@ -158,17 +161,42 @@ Jalankan migration `0008_shift_schedule_push.sql`. Fitur ini butuh setup manual 
        url := (select decrypted_secret from vault.decrypted_secrets where name = 'reminder_function_url'),
        headers := jsonb_build_object(
          'Content-Type', 'application/json',
+         'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'supabase_anon_key'),
          'x-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'reminder_cron_secret')
        ),
-       body := '{}'::jsonb
+       body := '{}'::jsonb,
+       timeout_milliseconds := 30000   -- default 5 detik terlalu pendek untuk cold start
      );
      $$
    );
    ```
 
-6. **Catatan zona waktu**: Edge Function mengasumsikan semua outlet di zona waktu **WIB (Asia/Jakarta)**. Kalau ada outlet di WITA/WIT, perlu penyesuaian logic (tambah kolom timezone per outlet) — belum didukung di versi ini.
+   **Kenapa perlu header `Authorization`.** Gerbang Edge Function memeriksa JWT **sebelum** kode function-nya jalan. Tanpa header itu panggilan dibalas `401 UNAUTHORIZED_NO_AUTH_HEADER` dan function-mu tidak pernah dieksekusi — sementara `cron.job_run_details` tetap melaporkan `succeeded`, karena dari sudut pandang pg_net permintaannya memang berhasil terkirim. `x-cron-secret` sama sekali tidak menggantikan ini: ia dicek di dalam function, yaitu setelah gerbang dilewati.
 
-7. Kalau suatu saat mau ganti VAPID key (misal key lama bocor), staff yang sudah subscribe pakai key lama otomatis berhenti dapat notifikasi (subscription lama jadi tidak valid) — mereka perlu klik ulang tombol aktivasi.
+   **Cara membaca kegagalannya** (dua tempat, jangan hanya melihat salah satu):
+   ```sql
+   -- Apakah cron-nya berhasil MENGIRIM permintaan?
+   select j.jobname, d.status, d.start_time, d.return_message
+   from cron.job_run_details d join cron.job j on j.jobid = d.jobid
+   order by d.start_time desc limit 10;
+
+   -- Apa JAWABAN dari Edge Function-nya? (401 di sini = header Authorization hilang)
+   select id, status_code, timed_out, error_msg, left(content, 500), created
+   from net._http_response order by id desc limit 5;
+   ```
+
+   Kalau `timed_out = true` dan `status_code` kosong, **jangan disimpulkan function-nya tidak jalan**. Yang kadaluwarsa hanya penantian pg_net; function-nya di Supabase tetap dieksekusi sampai selesai dan tetap menulis penanda `attendance_reminders_sent`. Efek sampingnya membingungkan saat menguji: percobaan berikutnya di hari yang sama akan menjawab `sent: 0` karena penandanya sudah ada. Untuk menguji ulang, hapus dulu penandanya:
+   ```sql
+   delete from attendance_reminders_sent where reminder_date = current_date;
+   ```
+
+6. **Penanda 🔕 di rekap presensi** (migration `0047_push_status_for_admin.sql`). Staff yang belum pernah menekan *Aktifkan Notifikasi* tidak akan pernah menerima reminder — dan `send-attendance-reminders` melewatinya **diam-diam**. Sekarang namanya diberi 🔕 di tabel rekap presensi Admin Portal, jadi kondisinya terlihat tanpa perlu query manual.
+
+   Datanya lewat RPC security-definer `list_push_enabled_user_ids()`, bukan select langsung: RLS `push_subscriptions` sengaja hanya membuka baris milik sendiri, karena endpoint push itu rahasia — siapa pun yang memegangnya bisa mengirim notifikasi ke device tersebut. RPC-nya hanya mengembalikan `user_id` + jumlah langganan, tidak pernah endpoint maupun kuncinya. Kalau RPC gagal (mis. migration belum dijalankan) UI **tidak menampilkan penanda apa pun**, bukan menandai semua orang — alarm palsu lebih buruk daripada tidak ada penanda.
+
+7. **Catatan zona waktu**: Edge Function mengasumsikan semua outlet di zona waktu **WIB (Asia/Jakarta)**. Kalau ada outlet di WITA/WIT, perlu penyesuaian logic (tambah kolom timezone per outlet) — belum didukung di versi ini.
+
+8. Kalau suatu saat mau ganti VAPID key (misal key lama bocor), staff yang sudah subscribe pakai key lama otomatis berhenti dapat notifikasi (subscription lama jadi tidak valid) — mereka perlu klik ulang tombol aktivasi.
 
 ## Bagian 2 — Dashboard, Beranda Card, Tema per BU
 
@@ -659,12 +687,19 @@ select cron.schedule(
   $$
   select net.http_post(
     url     := 'https://<PROJECT-REF>.supabase.co/functions/v1/send-reservation-digest',
-    headers := jsonb_build_object('Content-Type', 'application/json', 'x-cron-secret', '<CRON_SECRET>'),
-    body    := '{}'::jsonb
+    headers := jsonb_build_object(
+      'Content-Type',  'application/json',
+      'Authorization', 'Bearer <anon key>',   -- WAJIB, kalau tidak: 401 sebelum function jalan
+      'x-cron-secret', '<CRON_SECRET>'
+    ),
+    body    := '{}'::jsonb,
+    timeout_milliseconds := 30000
   );
   $$
 );
 ```
+
+Header `Authorization` itu bukan opsional — lihat penjelasannya di bagian *Push Notification Reminder* langkah 5. Berlaku untuk **semua** cron yang memanggil Edge Function (`send-attendance-reminders`, `send-reservation-digest`, `send-fleet-reminders`).
 
 Untuk rekap **H-1 malam** (dapur bisa siapkan bahan lebih awal), pasang jadwal kedua dengan `body := '{"offset_days":1}'::jsonb`.
 

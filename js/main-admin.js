@@ -265,9 +265,9 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
         <div class="nav-brand">
           <img src="${logoSrc}" alt="" class="nav-logo" onerror="this.style.display='none'" />
           <div>
-            <div style="font-weight:600">${context.profile.full_name}</div>
+            <div style="font-weight:600">${escapeHtml(context.profile.full_name)}</div>
             <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0">
-              ${role} — ${activeBu?.name ?? 'Semua BU'}
+              ${role} — ${escapeHtml(activeBu?.name ?? 'Semua BU')}
             </p>
           </div>
         </div>
@@ -279,7 +279,7 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
       </nav>
       <div class="app-body">
         <header class="admin-topbar">
-          <div class="admin-topbar-title">${activeBu?.name ?? 'Admin Portal'}</div>
+          <div class="admin-topbar-title">${escapeHtml(activeBu?.name ?? 'Admin Portal')}</div>
           <div class="app-switch" role="tablist" aria-label="Mode aplikasi">
             <button id="btn-to-staff"><span>📱</span> Staff App</button>
             <button class="active" aria-current="page"><span>🛠️</span> Admin Portal</button>

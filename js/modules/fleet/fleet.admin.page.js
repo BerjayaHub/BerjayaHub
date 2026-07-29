@@ -698,7 +698,7 @@ async function renderDocsTab(content, ctx) {
                          <td style="font-size:0.82rem">${esc(d.v.rental_area ?? '-')}</td>
                          <td>${d.jenis}</td>
                          <td>${fmtDate(d.tanggal)}</td>
-                         <td><span class="badge ${DOC_BADGE[d.st.level]}">${d.st.level === 'expired' ? 'Kedaluwarsa' : 'Segera'} · ${d.st.label}</span></td>
+                         <td><span class="badge ${DOC_BADGE[d.st.level]}">${d.st.level === 'expired' ? 'Kedaluwarsa' : 'Segera'} · ${esc(d.st.label)}</span></td>
                        </tr>`
                      )
                      .join('')}
@@ -722,7 +722,7 @@ async function renderDocsTab(content, ctx) {
                   <td>${d.jenis}</td>
                   <td style="font-size:0.8rem">${esc(d.jenis === 'KIR' ? d.v.kir_number ?? '-' : d.v.stnk_number ?? '-')}</td>
                   <td>${fmtDate(d.tanggal)}</td>
-                  <td><span class="badge ${DOC_BADGE[d.st.level]}">${d.st.label}</span></td>
+                  <td><span class="badge ${DOC_BADGE[d.st.level]}">${esc(d.st.label)}</span></td>
                 </tr>`
               )
               .join('') || '<tr><td colspan="5">Belum ada tanggal dokumen yang diisi.</td></tr>'

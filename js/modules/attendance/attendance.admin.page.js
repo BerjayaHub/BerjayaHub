@@ -1,4 +1,5 @@
 import {
+  listPushEnabledUserIds,
   listAttendanceForAdmin,
   correctAttendanceRecord,
   listOutletsWithGeofence,
@@ -66,6 +67,10 @@ async function renderPresensiTab(container, businessUnitId) {
   // kolom Outlet akan kosong ("-") untuk presensi lintas BU.
   const allOutlets = await listAttendanceOutlets().catch(() => []);
   const outletInfo = new Map(allOutlets.map((o) => [o.id, o]));
+  // Siapa yang sudah mengaktifkan notifikasi. Dipakai untuk penanda 🔕 — staff
+  // tanpa langganan tidak akan pernah menerima reminder clock in, dan sebelum
+  // ini tidak ada satu pun tempat di aplikasi yang memperlihatkannya.
+  const pushAktif = await listPushEnabledUserIds();
   // Nama outlet untuk filter/PDF.
   const outletNames = new Map((outlets ?? []).map((o) => [o.id, o.name]));
 
@@ -89,7 +94,8 @@ async function renderPresensiTab(container, businessUnitId) {
       return;
     }
     lastRecords = records;
-    body.innerHTML = records.map((r) => rowHtml(r, outletOf(r))).join('') || '<tr><td colspan="11">Tidak ada data.</td></tr>';
+    body.innerHTML =
+      records.map((r) => rowHtml(r, outletOf(r), pushAktif)).join('') || '<tr><td colspan="11">Tidak ada data.</td></tr>';
 
     // Lengkapi pilihan filter outlet dengan outlet lain yang terpakai di data.
     const sel = container.querySelector('#filter-outlet');
@@ -182,6 +188,11 @@ async function renderPresensiTab(container, businessUnitId) {
       </thead>
       <tbody id="attendance-table-body"></tbody>
     </table>
+    <p style="font-size:0.78rem;color:var(--color-text-muted);margin:8px 0 0">
+      🔕 di sebelah nama = staff itu belum mengaktifkan notifikasi di perangkat mana pun,
+      jadi <strong>pengingat clock in tidak akan sampai padanya</strong>. Minta dia membuka
+      Profil di Staff App lalu menekan <em>Aktifkan Notifikasi</em>.
+    </p>
   `;
 
   wireOutletGeofenceButtons(container, businessUnitId);
@@ -223,7 +234,7 @@ async function renderPresensiTab(container, businessUnitId) {
         <tr>
           <td>${escapeHtml(c.code)}</td>
           <td>${formatTime(c.expires_at)}</td>
-          <td>${c.used_at ? (c.user_profiles?.full_name ?? 'Ya') : '-'}</td>
+          <td>${c.used_at ? escapeHtml(c.user_profiles?.full_name ?? 'Ya') : '-'}</td>
         </tr>`
         )
         .join('') || '<tr><td colspan="3">Belum ada kode.</td></tr>';
@@ -299,8 +310,17 @@ function shiftText(r) {
   return `${r.shift_name ? r.shift_name + ' — ' : ''}${label}${r.late_minutes ? ` (${r.late_minutes} mnt)` : ''}`;
 }
 
-function rowHtml(r, outlet) {
+function rowHtml(r, outlet, pushAktif) {
   const storingTag = '';
+  // 🔕 = staff ini belum mengaktifkan notifikasi di device mana pun, jadi
+  // reminder clock in tidak akan pernah sampai padanya. Bukan error, tapi harus
+  // terlihat — kalau tidak, admin baru sadar setelah orangnya telat berkali-kali.
+  // `null` = status tidak diketahui (RPC gagal / migration belum jalan) -> jangan
+  // tampilkan apa-apa, daripada menuduh semua orang belum mengaktifkan.
+  const tanpaPush = pushAktif instanceof Map && !pushAktif.get(r.user_id);
+  const pushTag = tanpaPush
+    ? ` <span title="Belum mengaktifkan notifikasi — tidak akan menerima pengingat clock in" style="cursor:help">🔕</span>`
+    : '';
   const fotoButtons = [
     r.clock_in_photo_path ? `<button class="btn-view-photo" data-path="${r.clock_in_photo_path}">In</button>` : '',
     r.clock_out_photo_path ? `<button class="btn-view-photo" data-path="${r.clock_out_photo_path}">Out</button>` : ''
@@ -310,7 +330,7 @@ function rowHtml(r, outlet) {
 
   return `
     <tr data-record-id="${r.id}" data-lat="${r.clock_in_lat ?? ''}" data-lng="${r.clock_in_lng ?? ''}">
-      <td>${r.user_profiles?.full_name ?? '-'}</td>
+      <td>${escapeHtml(r.user_profiles?.full_name ?? '-')}${pushTag}</td>
       <td>${escapeHtml(outlet.name)}${storingTag}${
         // Kalau absen di outlet milik BU lain, tampilkan BU lokasinya agar jelas.
         outlet.isOtherBu && outlet.buName
@@ -318,7 +338,7 @@ function rowHtml(r, outlet) {
           : ''
       }</td>
       <td>${r.is_storing ? `<span class="badge badge-pending">${tipeOf(r)}</span>` : '<span class="badge badge-approved">Normal</span>'}</td>
-      <td style="font-size:0.8rem;max-width:180px">${r.is_storing ? (r.exit_reason ? String(r.exit_reason) : '<span style="color:var(--color-text-muted)">tanpa keterangan</span>') : '-'}</td>
+      <td style="font-size:0.8rem;max-width:180px">${r.is_storing ? (r.exit_reason ? escapeHtml(r.exit_reason) : '<span style="color:var(--color-text-muted)">tanpa keterangan</span>') : '-'}</td>
       <td style="font-size:0.8rem">${shiftCell(r)}</td>
       <td>${formatTime(r.clock_in_at)}</td>
       <td>${faceMatchBadgeHtml(r.clock_in_face_match)}${r.clock_out_at ? '<br>' + faceMatchBadgeHtml(r.clock_out_face_match) : ''}</td>

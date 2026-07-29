@@ -77,7 +77,7 @@ function rowHtml(r) {
   const canCancel = r.status === 'pending';
   return `
     <tr>
-      <td>${r.leave_types?.name ?? '-'}</td>
+      <td>${escapeHtml(r.leave_types?.name ?? '-')}</td>
       <td>${range}</td>
       <td>${r.day_count}</td>
       <td>

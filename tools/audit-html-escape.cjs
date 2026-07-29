@@ -30,10 +30,15 @@ function daftarFile(dir, out = []) {
 }
 
 // Bidang yang isinya teks bebas dari manusia.
-const FIELDS = '(name|full_name|customer_name|notes|reason|label|title|plate_number|code)';
-const POLA = new RegExp('\\$\\{\\s*[a-z]\\w*\\.' + FIELDS + '\\b[^}]*\\}', 'i');
+const FIELDS = '(name|full_name|customer_name|notes|reason|exit_reason|label|title|plate_number|code)';
+// Jalur propertinya boleh bersarang dan boleh memakai optional chaining, karena
+// data dari PostgREST sering datang sebagai embed: r.user_profiles?.full_name.
+// Versi lama regex ini hanya mengenali SATU tingkat (r.full_name) sehingga
+// justru melewatkan bentuk yang paling sering dipakai di repo ini.
+const JALUR = '[a-z]\\w*(?:\\s*\\??\\.\\s*\\w+)*';
+const POLA = new RegExp('\\$\\{[^}]*\\b' + JALUR + '\\s*\\??\\.\\s*' + FIELDS + '\\b[^}]*\\}', 'i');
 const TAG = /<(td|th|option|div|span|p|strong|h\d)\b/;
-const SUDAH_AMAN = /esc\(|escapeHtml\(|escAttr\(/;
+const SUDAH_AMAN = /esc\(|escapeHtml\(|escAttr\(|escapeAttr\(|getModuleIcon\(/;
 
 let masalah = 0;
 for (const file of daftarFile(ROOT)) {

@@ -450,6 +450,29 @@ export async function getMyPushSubscriptionEndpoints() {
   return (data ?? []).map((r) => r.endpoint);
 }
 
+/**
+ * Admin: siapa saja yang sudah punya langganan push (untuk penanda 🔕 di rekap).
+ *
+ * Lewat RPC security-definer, bukan select langsung: RLS `push_subscriptions`
+ * sengaja hanya membuka baris milik sendiri, karena endpoint push itu rahasia.
+ * RPC-nya hanya mengembalikan id + jumlah, tidak pernah endpoint-nya.
+ *
+ * Gagal = kembalikan `null`, BUKAN Map kosong. Bedanya penting: Map kosong
+ * berarti "sudah dicek, memang belum ada yang mengaktifkan" — dan UI akan
+ * menandai semua orang 🔕. Kalau RPC-nya sendiri yang gagal (misal migration
+ * 0047 belum dijalankan), menampilkan 🔕 untuk semua orang adalah alarm palsu.
+ * `null` menyuruh UI diam saja. Rekap presensi juga tidak boleh ikut gagal
+ * tampil hanya karena penanda pelengkap ini bermasalah.
+ */
+export async function listPushEnabledUserIds() {
+  const { data, error } = await supabase.rpc('list_push_enabled_user_ids');
+  if (error) {
+    console.warn('[presensi] status langganan push tidak bisa dibaca:', error.message);
+    return null;
+  }
+  return new Map((data ?? []).map((r) => [r.user_id, r.subscription_count]));
+}
+
 export async function savePushSubscription(userId, subscription) {
   const json = subscription.toJSON();
   const { error } = await supabase.from('push_subscriptions').upsert(

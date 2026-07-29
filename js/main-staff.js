@@ -174,7 +174,7 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
       ? `<select class="topbar-bu-select" id="bu-switcher-staff">
            ${availableBUs.map((b) => `<option value="${b.id}"${b.id === activeBuId ? ' selected' : ''}>${escapeHtml(b.name)}</option>`).join('')}
          </select>`
-      : `<div class="topbar-bu">${activeBu?.name ?? ''}</div>`;
+      : `<div class="topbar-bu">${escapeHtml(activeBu?.name ?? '')}</div>`;
 
   // Pintasan mode (Staff App ↔ Admin Portal) hanya untuk akun ber-peran admin.
   const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
@@ -186,7 +186,7 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
       <div class="topbar-main">
         <img src="${logoSrc}" alt="" class="topbar-logo" onerror="this.style.display='none'" />
         <div class="topbar-info">
-          <div class="topbar-name">${context.profile.full_name}</div>
+          <div class="topbar-name">${escapeHtml(context.profile.full_name)}</div>
           ${buLine}
         </div>
         <button class="topbar-btn" id="btn-home-top" title="Beranda" aria-label="Beranda">🏠</button>
@@ -296,7 +296,7 @@ async function renderHome(context, modules, moduleCtx) {
   content.innerHTML = `
     <div class="home-hero">
       <div class="staff-greeting">
-        <div class="hero-avatar" id="hero-avatar">${initials(context.profile.full_name)}</div>
+        <div class="hero-avatar" id="hero-avatar">${escapeHtml(initials(context.profile.full_name))}</div>
         <div>
           <h1>Halo, ${firstName} 👋</h1>
           <p>Pilih menu di bawah untuk mulai.</p>
@@ -365,7 +365,7 @@ function openModule(code, context, modules, moduleCtx) {
   content.innerHTML = `
     <div class="module-header">
       <button class="btn-home" id="btn-back-home">🏠 Beranda</button>
-      <span class="module-header-title">${mod?.name ?? ''}</span>
+      <span class="module-header-title">${escapeHtml(mod?.name ?? '')}</span>
     </div>
     <div id="module-body"></div>
   `;
