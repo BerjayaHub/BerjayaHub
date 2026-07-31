@@ -61,6 +61,17 @@ Deno.serve(async (req) => {
   }
   if (!Number.isInteger(pax) || pax < 1 || pax > 200) return json({ error: 'Jumlah tamu tidak valid.' }, 400);
 
+  // Outlet bermode HOTEL tidak menerima booking lewat website sama sekali —
+  // sesuai keputusan, booking kamar hanya diisi admin di Admin Portal.
+  // Diperiksa DI SINI supaya penolakannya jelas ("tidak menerima booking
+  // online") alih-alih gagal jauh di dalam dengan pesan constraint database.
+  // Lapisan kedua tetap ada: constraint `reservations_hotel_bukan_dari_web`
+  // di migration 0055 — kalau pemeriksaan ini terlewat, database yang menolak.
+  const { data: outletMode } = await admin.from('outlets').select('reservation_mode').eq('id', outletId).maybeSingle();
+  if (outletMode?.reservation_mode === 'hotel') {
+    return json({ error: 'Outlet ini tidak menerima booking online. Silakan hubungi kami langsung.' }, 400);
+  }
+
   // Outlet harus benar-benar membuka reservasi publik.
   const { data: setting } = await admin
     .from('reservation_settings')

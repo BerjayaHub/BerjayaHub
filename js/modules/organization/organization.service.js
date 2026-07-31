@@ -70,14 +70,14 @@ export async function deleteBusinessUnit(id) {
 export async function listOutletsForBu(businessUnitId) {
   const { data, error } = await supabase
     .from('outlets')
-    .select('id, name, address, outlet_role, served_by_outlet_id, is_active, allow_sales')
+    .select('id, name, address, outlet_role, served_by_outlet_id, is_active, allow_sales, reservation_mode')
     .eq('business_unit_id', businessUnitId)
     .order('name');
   if (error) throw error;
   return data ?? [];
 }
 
-export async function createOutlet({ business_unit_id, name, address, outlet_role, served_by_outlet_id, is_active, allow_sales }) {
+export async function createOutlet({ business_unit_id, name, address, outlet_role, served_by_outlet_id, is_active, allow_sales, reservation_mode }) {
   const { error } = await supabase.from('outlets').insert({
     business_unit_id,
     name,
@@ -85,12 +85,13 @@ export async function createOutlet({ business_unit_id, name, address, outlet_rol
     outlet_role: outlet_role || 'standalone',
     served_by_outlet_id: outlet_role === 'served_by_ck' ? served_by_outlet_id || null : null,
     is_active: is_active ?? true,
-    allow_sales: allow_sales ?? true
+    allow_sales: allow_sales ?? true,
+    reservation_mode: reservation_mode || 'cafe'
   });
   if (error) throw error;
 }
 
-export async function updateOutlet(id, { name, address, outlet_role, served_by_outlet_id, is_active, allow_sales }) {
+export async function updateOutlet(id, { name, address, outlet_role, served_by_outlet_id, is_active, allow_sales, reservation_mode }) {
   const { error } = await supabase
     .from('outlets')
     .update({
@@ -99,7 +100,8 @@ export async function updateOutlet(id, { name, address, outlet_role, served_by_o
       outlet_role,
       served_by_outlet_id: outlet_role === 'served_by_ck' ? served_by_outlet_id || null : null,
       is_active,
-      allow_sales
+      allow_sales,
+      reservation_mode
     })
     .eq('id', id);
   if (error) throw error;

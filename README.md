@@ -1102,6 +1102,43 @@ Filter **disimpan di `container.dataset`** supaya tidak hilang saat halaman diga
 
 ⚠️ `wireRowActions()` dipanggil **di dalam** fungsi penggambar baris, dan **tidak boleh** dipanggil lagi dari `renderMasterUserPage` — kalau dobel, setiap klik dieksekusi dua kali (dialog muncul dua kali, aksi jalan dua kali).
 
+## Mode Reservasi HOTEL (migration `0055_reservation_hotel_mode.sql`)
+
+Modul Reservasi punya dua mode, diatur **per outlet** di menu **BU & Outlet → Edit Outlet → Mode Reservasi**:
+
+| | Cafe | Hotel |
+|---|---|---|
+| Yang dipesan | meja, satu jam | kamar, rentang tanggal |
+| Kuota | jumlah **pax** per slot | jumlah **unit** per tipe kamar |
+| Persetujuan | ada (Menunggu → Dikonfirmasi) | **tidak ada** — admin isi langsung, status `confirmed` |
+| Jalur website | ada (`reservasi.html`) | **tidak ada** |
+| Staff App | bisa input | **hanya informasi + pengingat** |
+| Status | Menunggu/Dikonfirmasi/Selesai/No-show | + **Check-in** & **Check-out** |
+
+Mode di **outlet**, bukan BU: satu BU boleh punya hotel dan cafe sebagai dua outlet. Untuk BU yang seluruhnya hotel, semua outletnya diset `hotel` dan seluruh halaman Reservasi otomatis berganti.
+
+### Anti double-booking dijaga DATABASE
+
+`EXCLUDE USING gist` **tidak dipakai** — constraint itu melarang tabrakan sama sekali, sedangkan yang dibutuhkan "maksimal N yang bertabrakan" (Deluxe = 2 unit). Jadi dipakai trigger `cek_kuota_kamar()` dengan **`pg_advisory_xact_lock` per tipe kamar**: dua admin yang menekan Simpan di detik yang sama tidak bisa sama-sama lolos pemeriksaan lalu sama-sama menulis.
+
+Aturannya sengaja di database, bukan di aplikasi: **double-booking baru ketahuan saat tamu sudah berdiri di depan meja resepsionis dengan koper.** Dengan trigger, aturannya tetap berlaku walau nanti ada bug di kode, atau ada yang menulis lewat SQL Editor.
+
+**Rentang `[check_in, check_out)`** — tanggal check-out tidak dihitung bertabrakan. Tamu A keluar tanggal 5 dan tamu B masuk tanggal 5 memakai kamar yang sama itu normal. Constraint `reservations_menginap_minimal_semalam` mencegah `check_in = check_out`; tanpa itu rentangnya kosong, tidak pernah bertabrakan dengan apa pun, dan kuota bisa ditembus tanpa batas.
+
+`room_availability()` menampilkan sisa unit **sebelum** admin menekan Simpan — supaya penolakan trigger jadi jaring pengaman, bukan cara utama memberi tahu bahwa kamarnya penuh. Kedua tempat itu harus dijaga tetap sama; kalau berbeda, yang menang selalu database dan gejalanya "kelihatan tersedia tapi ditolak".
+
+### Keputusan lain yang perlu diingat
+
+**`reserve_date` jadi tanggal acuan.** Untuk hotel diisi otomatis = `check_in` lewat trigger. Dengan begitu penomoran kode `RSV-YYMMDD-XXX`, index tanggal, rekap harian, dan digest Telegram yang sudah ada **tidak perlu diubah sama sekali**.
+
+**Kolom cafe jadi nullable, tapi dijaga CHECK per mode** (`reservations_isi_sesuai_mode`). Tanpa CHECK itu, kolom nullable berubah jadi undangan menyimpan baris setengah jadi yang baru ketahuan salah saat ditampilkan.
+
+**Nomor kamar TIDAK divalidasi.** Sesuai keputusan, kuota dijaga per **tipe** dan nomor kamar diketik saat check-in. Sistem menjamin tidak lebih dari 2 tamu Deluxe menginap bersamaan, tapi tidak bisa mencegah resepsionis mengetik "201" untuk dua tamu. Kalau nanti perlu, tinggal tambah tabel kamar dan `qty` berubah jadi hasil hitungan — strukturnya tidak perlu dibongkar.
+
+**Jalur website ditutup dua lapis:** Edge Function `submit-reservation` menolak outlet hotel dengan pesan yang ramah, dan constraint `reservations_hotel_bukan_dari_web` menolaknya di database kalau pemeriksaan itu terlewat.
+
+`list_attendance_outlets()` didefinisikan ulang untuk ikut membawa `reservation_mode` — kalau tidak, tiap halaman terpaksa query outlet lagi hanya untuk tahu modenya, dan cepat atau lambat ada yang lupa lalu menampilkan form yang salah.
+
 ## Dropdown outlet wajib menghormati scope user (`js/core/my-outlets.js`)
 
 Sumber kebenaran "outlet siapa" adalah `membership_scopes` — yang diatur super admin di **Master User**. Seluruh modul memakai satu fungsi: **`listMyOutlets(businessUnitId)`**.
@@ -1195,4 +1232,5 @@ node tools/test-youtube-parser.mjs
 - [ ] **Fase 11** — Report/Laporan lintas modul
 - [x] **Modul Inventaris Aset** — nama, jumlah, ukuran, foto, kondisi (Normal/Rusak/Lain-lain)
 - [x] **Modul Reservasi** — input Staff App + halaman publik `reservasi.html`, kuota per slot, approval Admin Portal, notifikasi Telegram & Web Push
+- [x] **Mode Reservasi Hotel** — booking kamar (rentang tanggal + tipe kamar), kuota per tipe dijaga trigger database, check-in/check-out, tanpa persetujuan & tanpa jalur website
 - [x] **Video Tutorial per modul** — tombol ❓ di header modul (Staff App + Admin Portal), video YouTube Unlisted, global atau khusus BU, dikelola super admin

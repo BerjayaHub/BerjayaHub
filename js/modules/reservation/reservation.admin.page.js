@@ -1,4 +1,5 @@
 import { listMyOutlets } from '../../core/my-outlets.js';
+import { renderReservationHotelAdmin } from './reservation.hotel.admin.page.js';
 import { toast, confirmDialog, formDialog, shareDialog } from '../../core/ui.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { exportTablePDF } from '../../core/pdf.js';
@@ -27,16 +28,40 @@ const TABS = [
 ];
 
 export async function renderReservationAdminPage(container, { businessUnitId }) {
+  const outlets = await listMyOutlets(businessUnitId).catch(() => []);
+
+  // Mode ditentukan per OUTLET (kolom `reservation_mode`, migration 0055).
+  // Kalau SEMUA outlet yang bisa diakses bermode hotel, seluruh halaman diganti
+  // — bukan sekadar menyembunyikan tombol. Alur hotel berbeda secara mendasar:
+  // tidak ada antrean persetujuan, dan yang ditanyakan tiap hari adalah siapa
+  // datang / keluar / masih menginap, bukan "mana yang perlu di-approve".
+  const outletHotel = outlets.filter((o) => o.reservation_mode === 'hotel');
+  if (outlets.length && outletHotel.length === outlets.length) {
+    return renderReservationHotelAdmin(container, { businessUnitId, outlets: outletHotel });
+  }
+  // Campuran (satu BU punya hotel DAN cafe): halaman cafe tetap dipakai, tapi
+  // outlet hotel dikeluarkan supaya tidak ada form slot/pax yang muncul untuk
+  // outlet yang tidak mengenal konsep itu. Hotelnya diakses lewat BU/outlet
+  // yang bersangkutan.
+  const outletsCafe = outlets.filter((o) => o.reservation_mode !== 'hotel');
+
   container.innerHTML = `
     <h1>Reservasi</h1>
+    ${
+      outletHotel.length
+        ? `<p style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 8px">
+             ${outletHotel.length} outlet bermode <strong>hotel</strong> tidak ditampilkan di sini —
+             alurnya berbeda. Pilih BU/outlet hotelnya untuk membuka layar booking kamar.
+           </p>`
+        : ''
+    }
     <div class="tab-bar">
       ${TABS.map((t, i) => `<button class="tab-btn ${i === 0 ? 'active' : ''}" data-tab="${t.key}">${t.label}</button>`).join('')}
     </div>
     <div id="rv-admin"></div>
   `;
   const content = container.querySelector('#rv-admin');
-  const outlets = await listMyOutlets(businessUnitId).catch(() => []);
-  const ctx = { businessUnitId, outlets };
+  const ctx = { businessUnitId, outlets: outletsCafe };
 
   async function showTab(key) {
     container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));
@@ -54,7 +79,9 @@ async function renderInbox(content, ctx) {
   content.innerHTML = `<p style="color:var(--color-text-muted)">Memuat…</p>`;
   let rows;
   try {
-    rows = await listReservations({ businessUnitId: ctx.businessUnitId, status: 'pending' });
+    // mode: 'cafe' WAJIB — booking hotel tidak pernah berstatus pending, tapi
+    // menyaring eksplisit lebih aman daripada bergantung pada asumsi itu.
+    rows = await listReservations({ businessUnitId: ctx.businessUnitId, status: 'pending', mode: 'cafe' });
   } catch (error) {
     content.innerHTML = `<p class="error-text">${esc(error.message ?? error)}</p>`;
     return;
@@ -229,7 +256,8 @@ async function renderAll(content, ctx) {
         outletId: state.outletId,
         status: state.status,
         dateFrom: state.from,
-        dateTo: state.to
+        dateTo: state.to,
+        mode: 'cafe' // booking hotel punya halamannya sendiri; kolomnya berbeda
       });
     } catch (error) {
       result.innerHTML = `<p class="error-text">${esc(error.message ?? error)}</p>`;

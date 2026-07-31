@@ -1,4 +1,5 @@
 import { listMyOutlets } from '../../core/my-outlets.js';
+import { renderReservationHotelPage } from './reservation.hotel.page.js';
 import { toast, formDialog } from '../../core/ui.js';
 import { todayWIB } from '../../core/dates.js';
 import {
@@ -23,10 +24,19 @@ export async function renderReservationPage(container, { businessUnitId }) {
   const semua = await listMyOutlets(businessUnitId).catch(() => []);
   // `semua` sudah hasil listMyOutlets() -> jangan disaring dua kali, dan JANGAN
   // fallback ke `semua` saat gagal (itu justru membuka yang seharusnya tertutup).
-  const outlets = semua;
-  if (!outlets.length) {
+  if (!semua.length) {
     container.innerHTML = `<h1>Reservasi</h1><p style="color:var(--color-text-muted)">Belum ada outlet yang bisa kamu akses di BU ini.</p>`;
     return;
+  }
+
+  // Outlet bermode hotel memakai halaman lain: hanya informasi, tanpa input.
+  // Booking hotel diisi admin di Admin Portal — menampilkan form slot/pax untuk
+  // outlet hotel akan salah, dan menampilkan tombol simpan yang pasti ditolak
+  // RLS hanya melatih staff mengabaikan pesan error.
+  const outletHotel = semua.filter((o) => o.reservation_mode === 'hotel');
+  const outlets = semua.filter((o) => o.reservation_mode !== 'hotel');
+  if (outletHotel.length && !outlets.length) {
+    return renderReservationHotelPage(container, { businessUnitId, outlets: outletHotel });
   }
 
   // Default HARI INI, bukan sebulan penuh: yang dibutuhkan staff saat membuka
@@ -92,7 +102,7 @@ export async function renderReservationPage(container, { businessUnitId }) {
     list.innerHTML = `<p style="color:var(--color-text-muted)">Memuat…</p>`;
     let rows;
     try {
-      rows = await listReservations({ businessUnitId, outletId: state.outletId, dateFrom: state.from, dateTo: state.to });
+      rows = await listReservations({ businessUnitId, outletId: state.outletId, dateFrom: state.from, dateTo: state.to, mode: 'cafe' });
     } catch (error) {
       list.innerHTML = `<p class="error-text">${esc(error.message ?? error)}</p>`;
       return;

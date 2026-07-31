@@ -91,7 +91,11 @@ function buCardHtml(bu, outlets) {
         (o) => `
         <tr>
           <td>${escapeHtml(o.name)}</td>
-          <td>${OUTLET_ROLE_LABEL[o.outlet_role] ?? o.outlet_role}</td>
+          <td>${OUTLET_ROLE_LABEL[o.outlet_role] ?? o.outlet_role}${
+            o.reservation_mode === 'hotel'
+              ? ' <span class="badge badge-pending" style="font-size:0.62rem">Hotel</span>'
+              : ''
+          }</td>
           <td>${o.is_active ? 'Aktif' : 'Nonaktif'}</td>
           <td>
             <button class="btn-edit-outlet" data-bu="${bu.id}" data-outlet="${o.id}">Edit</button>
@@ -316,6 +320,21 @@ async function openOutletDialog(container, businessUnitId, siblingOutlets, exist
         options: [{ value: '', label: '-- pilih Central Kitchen --' }, ...ckOptions]
       },
       { name: 'allow_sales', label: 'Bisa melakukan penjualan (sales)', type: 'checkbox', value: existing ? existing.allow_sales !== false : true },
+      {
+        name: 'reservation_mode',
+        label: 'Mode Reservasi',
+        type: 'select',
+        value: existing?.reservation_mode ?? 'cafe',
+        // Mode menentukan SELURUH tampilan modul Reservasi di outlet ini, bukan
+        // sekadar label — cafe memakai slot jam + pax, hotel memakai rentang
+        // tanggal + tipe kamar. Karena itu ditaruh di master outlet, bukan di
+        // pengaturan modul: ini sifat outletnya, bukan preferensi tampilan.
+        help: 'Cafe = reservasi meja (jam + jumlah tamu). Hotel = booking kamar (check-in/check-out, tanpa persetujuan).',
+        options: [
+          { value: 'cafe', label: 'Cafe — reservasi meja' },
+          { value: 'hotel', label: 'Hotel — booking kamar' }
+        ]
+      },
       { name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing ? existing.is_active : true }
     ],
     submitText: 'Simpan',

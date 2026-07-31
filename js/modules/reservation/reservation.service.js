@@ -3,6 +3,8 @@ import { supabase } from '../../config/supabase-client.js';
 export const RES_STATUS = {
   pending: 'Menunggu',
   confirmed: 'Dikonfirmasi',
+  checked_in: 'Check-in',
+  checked_out: 'Check-out',
   done: 'Selesai',
   no_show: 'Tidak datang',
   cancelled: 'Dibatalkan',
@@ -11,12 +13,27 @@ export const RES_STATUS = {
 export const RES_BADGE = {
   pending: 'badge-pending',
   confirmed: 'badge-approved',
+  checked_in: 'badge-approved',
+  checked_out: 'badge-cancelled',
   done: 'badge-approved',
   no_show: 'badge-rejected',
   cancelled: 'badge-cancelled',
   rejected: 'badge-rejected'
 };
 export const RES_STATUS_OPTIONS = Object.entries(RES_STATUS).map(([value, label]) => ({ value, label }));
+
+/**
+ * Status yang masuk akal per mode. Hotel tidak mengenal "Selesai" (diganti
+ * Check-out) dan tidak mengenal "Menunggu"/"Ditolak" — booking hotel diisi
+ * langsung oleh admin, tanpa antrean persetujuan.
+ */
+export const RES_STATUS_OPTIONS_HOTEL = ['confirmed', 'checked_in', 'checked_out', 'no_show', 'cancelled'].map((v) => ({
+  value: v,
+  label: RES_STATUS[v]
+}));
+
+/** Status yang masih MEMAKAN kuota kamar (harus sama dengan trigger cek_kuota_kamar di 0055). */
+export const STATUS_MENAHAN_KAMAR = ['pending', 'confirmed', 'checked_in'];
 
 export const SOURCE_LABEL = { staff: 'Staff App', web: 'Website' };
 
@@ -92,24 +109,211 @@ export async function createReservation({ outletId, name, phone, date, time, pax
   return data;
 }
 
-/** Riwayat reservasi — dipakai Staff App maupun Admin Portal. */
-export async function listReservations({ businessUnitId, outletId, status, dateFrom, dateTo, limit = 300 }) {
+// =========================================================
+// MODE HOTEL
+// =========================================================
+
+/** Mode reservasi sebuah outlet: 'cafe' | 'hotel'. */
+export function modeOutlet(outlet) {
+  return outlet?.reservation_mode === 'hotel' ? 'hotel' : 'cafe';
+}
+
+// ---- Master tipe kamar ----
+
+export async function listRoomTypes(outletId, onlyActive = true) {
+  let q = supabase
+    .from('room_types')
+    .select('id, name, qty, capacity, notes, sort_order, is_active')
+    .eq('outlet_id', outletId)
+    .order('sort_order')
+    .order('name');
+  if (onlyActive) q = q.eq('is_active', true);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function saveRoomType({ id, outletId, name, qty, capacity, notes, sort_order, is_active }) {
+  const baris = {
+    outlet_id: outletId,
+    name: String(name ?? '').trim(),
+    qty: Number(qty) || 1,
+    capacity: capacity ? Number(capacity) : null,
+    notes: notes?.trim() || null,
+    sort_order: Number(sort_order) || 0,
+    is_active: is_active !== false
+  };
+  if (id) {
+    const { data, error } = await supabase.from('room_types').update(baris).eq('id', id).select('id');
+    if (error) throw error;
+    if (!data?.length) throw new Error('Tidak bisa mengubah tipe kamar ini — kamu bukan admin outletnya.');
+    return;
+  }
+  const { error } = await supabase.from('room_types').insert(baris);
+  if (error) throw error;
+}
+
+export async function deleteRoomType(id) {
+  const { data, error } = await supabase.from('room_types').delete().eq('id', id).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('Tidak bisa menghapus tipe kamar ini — kamu bukan admin outletnya.');
+}
+
+/**
+ * Sisa unit tiap tipe kamar untuk sebuah rentang tanggal.
+ *
+ * Dipakai untuk menampilkan ketersediaan SEBELUM admin menekan Simpan. Trigger
+ * `cek_kuota_kamar` di database tetap jadi penentu akhir — fungsi ini hanya
+ * supaya penolakannya tidak jadi kejutan. Aturan yang dijaga di dua tempat
+ * seperti ini harus dijaga tetap sama; kalau berbeda, yang menang selalu
+ * database, dan gejalanya adalah "kelihatan tersedia tapi ditolak".
+ */
+export async function getRoomAvailability(outletId, checkIn, checkOut) {
+  const { data, error } = await supabase.rpc('room_availability', {
+    p_outlet: outletId,
+    p_check_in: checkIn,
+    p_check_out: checkOut
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Jumlah malam antara dua tanggal (check-out tidak dihitung sebagai malam). */
+export function jumlahMalam(checkIn, checkOut) {
+  if (!checkIn || !checkOut) return 0;
+  const a = new Date(checkIn + 'T00:00:00');
+  const b = new Date(checkOut + 'T00:00:00');
+  return Math.max(0, Math.round((b - a) / 86400000));
+}
+
+/**
+ * Buat booking hotel. Langsung berstatus `confirmed` — mode hotel tidak punya
+ * antrean persetujuan; yang mengisi adalah admin sendiri lewat Admin Portal.
+ *
+ * Insert biasa, bukan RPC: seluruh aturan kritisnya (kuota, minimal semalam,
+ * tanggal acuan) sudah dijaga trigger di database, jadi tidak ada perhitungan
+ * yang perlu diamankan di lapisan aplikasi.
+ */
+export async function createHotelBooking({
+  outletId,
+  businessUnitId,
+  name,
+  phone,
+  email,
+  roomTypeId,
+  checkIn,
+  checkOut,
+  adults,
+  children,
+  roomNo,
+  notes,
+  referral
+}) {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  const { data, error } = await supabase
+    .from('reservations')
+    .insert({
+      mode: 'hotel',
+      business_unit_id: businessUnitId,
+      outlet_id: outletId,
+      customer_name: String(name ?? '').trim(),
+      phone: String(phone ?? '').trim(),
+      email: email?.trim() || null,
+      room_type_id: roomTypeId,
+      check_in: checkIn,
+      check_out: checkOut,
+      reserve_date: checkIn, // trigger juga mengisinya; ditulis di sini agar NOT NULL terpenuhi
+      adults: Number(adults) || 1,
+      children: Number(children) || 0,
+      room_no: roomNo?.trim() || null,
+      notes: notes?.trim() || null,
+      referral_source: referral?.trim() || null,
+      source: 'staff',
+      status: 'confirmed',
+      created_by: user?.id ?? null
+    })
+    .select('id, code')
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function updateHotelBooking(id, patch) {
+  const { data, error } = await supabase.from('reservations').update(patch).eq('id', id).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('Tidak bisa mengubah booking ini — kamu bukan admin outletnya.');
+}
+
+/** Check-in: catat waktunya + nomor kamar yang diberikan. */
+export async function checkInBooking(id, roomNo) {
+  return updateHotelBooking(id, {
+    status: 'checked_in',
+    room_no: roomNo?.trim() || null,
+    checked_in_at: new Date().toISOString()
+  });
+}
+
+export async function checkOutBooking(id) {
+  return updateHotelBooking(id, { status: 'checked_out', checked_out_at: new Date().toISOString() });
+}
+
+/** Riwayat reservasi — dipakai Staff App maupun Admin Portal, kedua mode. */
+export async function listReservations({ businessUnitId, outletId, status, dateFrom, dateTo, mode, limit = 300 }) {
   let q = supabase
     .from('reservations')
     .select(
-      'id, code, outlet_id, customer_name, phone, email, reserve_date, reserve_time, pax, notes, referral_source, source, status, review_note, reviewed_at, created_at, reservation_areas(name), outlets(name), creator:user_profiles!created_by(full_name), reviewer:user_profiles!reviewed_by(full_name)'
+      'id, code, outlet_id, mode, customer_name, phone, email, reserve_date, reserve_time, pax, check_in, check_out, adults, children, room_no, room_type_id, checked_in_at, checked_out_at, notes, referral_source, source, status, review_note, reviewed_at, created_at, room_types(name), reservation_areas(name), outlets(name), creator:user_profiles!created_by(full_name), reviewer:user_profiles!reviewed_by(full_name)'
     )
     .eq('business_unit_id', businessUnitId)
     .order('reserve_date', { ascending: false })
-    .order('reserve_time', { ascending: false })
+    .order('reserve_time', { ascending: false, nullsFirst: false })
     .limit(limit);
   if (outletId) q = q.eq('outlet_id', outletId);
   if (status) q = q.eq('status', status);
+  if (mode) q = q.eq('mode', mode);
   if (dateFrom) q = q.gte('reserve_date', dateFrom);
   if (dateTo) q = q.lte('reserve_date', dateTo);
   const { data, error } = await q;
   if (error) throw error;
   return data ?? [];
+}
+
+/**
+ * Tiga daftar harian resepsionis untuk satu tanggal.
+ *
+ * Dipisah begini, bukan satu daftar yang difilter di UI, karena pertanyaan
+ * hariannya memang tiga hal berbeda: siapa datang, siapa keluar, siapa masih
+ * di dalam. Rentangnya sengaja lebar (semua booking yang menyentuh tanggal itu)
+ * lalu dipilah — satu query, bukan tiga.
+ */
+export async function getHotelHarian({ businessUnitId, outletId, date }) {
+  let q = supabase
+    .from('reservations')
+    .select(
+      'id, code, outlet_id, customer_name, phone, check_in, check_out, adults, children, room_no, status, notes, room_types(name), outlets(name)'
+    )
+    .eq('business_unit_id', businessUnitId)
+    .eq('mode', 'hotel')
+    .lte('check_in', date)
+    .gte('check_out', date)
+    .not('status', 'in', '("cancelled","rejected","no_show")')
+    .order('check_in');
+  if (outletId) q = q.eq('outlet_id', outletId);
+  const { data, error } = await q;
+  if (error) throw error;
+
+  const rows = data ?? [];
+  return {
+    datang: rows.filter((r) => r.check_in === date),
+    keluar: rows.filter((r) => r.check_out === date),
+    // "Menginap" = sedang di dalam pada tanggal itu; tanggal check-out tidak
+    // dihitung sebagai malam menginap, sesuai rentang [check_in, check_out).
+    menginap: rows.filter((r) => r.check_in < date && r.check_out > date)
+  };
 }
 
 export async function setReservationStatus(id, status, reviewNote) {
@@ -133,8 +337,31 @@ export async function setReservationStatus(id, status, reviewNote) {
 const fmtTanggal = (d) =>
   new Date(d + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
 
+/** Pesan konfirmasi booking hotel. */
+export function buildHotelConfirmMessage(r) {
+  const malam = jumlahMalam(r.check_in, r.check_out);
+  return [
+    `Halo ${r.customer_name}, booking Anda *DIKONFIRMASI* ✅`,
+    '',
+    `No. Booking   : ${r.code ?? '-'}`,
+    `Hotel         : ${r.outlets?.name ?? '-'}`,
+    `Tipe kamar    : ${r.room_types?.name ?? '-'}`,
+    `Check-in      : ${fmtTanggal(r.check_in)}`,
+    `Check-out     : ${fmtTanggal(r.check_out)}`,
+    `Lama menginap : ${malam} malam`,
+    `Tamu          : ${r.adults ?? 1} dewasa${r.children ? ` + ${r.children} anak` : ''}`,
+    r.room_no ? `No. kamar     : ${r.room_no}` : '',
+    r.notes ? `Catatan       : ${r.notes}` : '',
+    '',
+    'Sampai jumpa di hari kedatangan Anda. Terima kasih 🙏'
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 /** Pesan konfirmasi untuk customer — dikirim manual lewat wa.me (tanpa API). */
 export function buildConfirmMessage(r) {
+  if (r.mode === 'hotel') return buildHotelConfirmMessage(r);
   return [
     `Halo ${r.customer_name}, reservasi Anda *DIKONFIRMASI* ✅`,
     '',
