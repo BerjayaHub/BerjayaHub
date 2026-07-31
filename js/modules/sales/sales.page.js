@@ -1,9 +1,8 @@
 import { toast, shareDialog } from '../../core/ui.js';
 import { formatNum, formatRupiah } from '../../core/format.js';
-import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProducts } from '../product/product.service.js';
-import { getMyScopedOutlets } from '../dispatch/dispatch.service.js';
 import { recordSales, getSalesSummary, todayWIB } from './sales.service.js';
+import { listMyOutlets } from '../../core/my-outlets.js';
 
 export async function renderSalesPage(container, { businessUnitId, outletId }) {
   container.innerHTML = `<p>Memuat penjualan...</p>`;
@@ -12,14 +11,15 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
   let allOutlets, products;
   try {
     [allOutlets, products] = await Promise.all([
-      listAttendanceOutlets().then((all) => all.filter((o) => o.business_unit_id === businessUnitId)),
+      listMyOutlets(businessUnitId),
       listProducts(businessUnitId)
     ]);
   } catch (error) {
     container.innerHTML = `<p class="error-text">Gagal memuat: ${error.message ?? error}</p>`;
     return;
   }
-  const myOutlets = (await getMyScopedOutlets(businessUnitId, allOutlets)).filter((o) => o.allow_sales !== false);
+  // allOutlets sudah hasil listMyOutlets() -> tidak perlu disaring dua kali.
+  const myOutlets = allOutlets.filter((o) => o.allow_sales !== false);
   const menus = products.filter((p) => p.product_type === 'finished' && p.is_active !== false);
   if (!myOutlets.length) {
     container.innerHTML = `<h1>Penjualan</h1><p style="color:var(--color-text-muted)">Penjualan belum diaktifkan untuk outletmu. (Diatur admin di Master BU & Outlet.)</p>`;

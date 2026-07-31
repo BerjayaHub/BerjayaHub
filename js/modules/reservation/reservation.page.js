@@ -1,7 +1,6 @@
+import { listMyOutlets } from '../../core/my-outlets.js';
 import { toast, formDialog } from '../../core/ui.js';
 import { todayWIB } from '../../core/dates.js';
-import { listAttendanceOutlets } from '../attendance/attendance.service.js';
-import { getMyScopedOutlets } from '../dispatch/dispatch.service.js';
 import {
   RES_STATUS,
   RES_BADGE,
@@ -21,8 +20,10 @@ import {
 export async function renderReservationPage(container, { businessUnitId }) {
   container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat reservasi...</p>`;
 
-  const semua = (await listAttendanceOutlets().catch(() => [])).filter((o) => o.business_unit_id === businessUnitId);
-  const outlets = await getMyScopedOutlets(businessUnitId, semua).catch(() => semua);
+  const semua = await listMyOutlets(businessUnitId).catch(() => []);
+  // `semua` sudah hasil listMyOutlets() -> jangan disaring dua kali, dan JANGAN
+  // fallback ke `semua` saat gagal (itu justru membuka yang seharusnya tertutup).
+  const outlets = semua;
   if (!outlets.length) {
     container.innerHTML = `<h1>Reservasi</h1><p style="color:var(--color-text-muted)">Belum ada outlet yang bisa kamu akses di BU ini.</p>`;
     return;

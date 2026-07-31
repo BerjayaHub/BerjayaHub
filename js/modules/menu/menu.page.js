@@ -1,9 +1,9 @@
 import { toast } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
-import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProducts, getRecipeForProduct } from '../product/product.service.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { getMenuPlans, upsertMenuPlan, todayWIB } from './menu.service.js';
+import { listMyOutlets } from '../../core/my-outlets.js';
 
 export async function renderMenuPage(container, { businessUnitId, outletId }) {
   container.innerHTML = `<p>Memuat menu...</p>`;
@@ -12,7 +12,7 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
   let outlets, products;
   try {
     [outlets, products] = await Promise.all([
-      listAttendanceOutlets().then((all) => all.filter((o) => o.business_unit_id === businessUnitId)),
+      listMyOutlets(businessUnitId),
       listProducts(businessUnitId)
     ]);
   } catch (error) {

@@ -1,6 +1,6 @@
+import { listMyOutlets } from '../../core/my-outlets.js';
 import { toast, renderSearchSelect, wireSearchSelect } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
-import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { listManufacturable, computeNeeds, recordProduction } from './production.service.js';
 
@@ -10,9 +10,9 @@ export async function renderProductionPage(container, { businessUnitId, outletId
   let outlets, products;
   try {
     [outlets, products] = await Promise.all([
-      // Produksi hanya di outlet Central Kitchen.
-      listAttendanceOutlets().then((all) =>
-        all.filter((o) => o.business_unit_id === businessUnitId && o.outlet_role === 'central_kitchen').map((o) => ({ id: o.id, name: o.name }))
+      // Produksi hanya di outlet Central Kitchen, dan hanya CK yang boleh diakses akun ini.
+      listMyOutlets(businessUnitId).then((all) =>
+        all.filter((o) => o.outlet_role === 'central_kitchen').map((o) => ({ id: o.id, name: o.name }))
       ),
       listManufacturable(businessUnitId)
     ]);

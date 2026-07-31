@@ -1,7 +1,7 @@
+import { listMyOutlets } from '../../core/my-outlets.js';
 import { toast, confirmDialog, formDialog, shareDialog } from '../../core/ui.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { exportTablePDF } from '../../core/pdf.js';
-import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import {
   RES_STATUS,
   RES_BADGE,
@@ -35,7 +35,7 @@ export async function renderReservationAdminPage(container, { businessUnitId }) 
     <div id="rv-admin"></div>
   `;
   const content = container.querySelector('#rv-admin');
-  const outlets = (await listAttendanceOutlets().catch(() => [])).filter((o) => o.business_unit_id === businessUnitId);
+  const outlets = await listMyOutlets(businessUnitId).catch(() => []);
   const ctx = { businessUnitId, outlets };
 
   async function showTab(key) {

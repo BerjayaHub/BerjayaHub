@@ -1,7 +1,7 @@
 import { listProducts, TYPE_LABEL } from './product.service.js';
-import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { formatNum } from '../../core/format.js';
+import { listMyOutlets } from '../../core/my-outlets.js';
 
 // Halaman "Produk" di Staff App — LIHAT SAJA: nama produk & jumlah stok.
 // Tidak ada edit (master produk dikelola admin di Admin Portal).
@@ -11,7 +11,7 @@ export async function renderProductStaffPage(container, { businessUnitId, outlet
   let outlets, products;
   try {
     [outlets, products] = await Promise.all([
-      listAttendanceOutlets().then((all) => all.filter((o) => o.business_unit_id === businessUnitId).map((o) => ({ id: o.id, name: o.name }))),
+      listMyOutlets(businessUnitId).then((all) => all.map((o) => ({ id: o.id, name: o.name }))),
       listProducts(businessUnitId)
     ]);
   } catch (error) {

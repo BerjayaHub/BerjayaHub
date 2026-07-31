@@ -1,9 +1,9 @@
 import { toast } from '../../core/ui.js';
 import { formatNum, formatRupiah } from '../../core/format.js';
-import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProducts, listRecipesFull, computeCosts, TYPE_LABEL } from '../product/product.service.js';
 import { listStockBalances, listMovements, MOVEMENT_LABEL, amISuperAdmin, getAllowStaffOpname, setAllowStaffOpname } from './inventory.service.js';
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
+import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
 
 const TABS = [
   { key: 'stock', label: 'Stok' },
@@ -21,7 +21,11 @@ export async function renderInventoryAdminPage(container, { businessUnitId }) {
   `;
   const content = document.getElementById('inv-admin-content');
   renderOpnameSetting(container.querySelector('#inv-opname-setting'), businessUnitId);
-  const outlets = (await listAttendanceOutlets().catch(() => [])).filter((o) => o.business_unit_id === businessUnitId).map((o) => ({ id: o.id, name: o.name }));
+  const outlets = (await listMyOutlets(businessUnitId).catch(() => [])).map((o) => ({ id: o.id, name: o.name }));
+  if (!outlets.length) {
+    container.innerHTML = `<h1>Stok</h1><p style="color:var(--color-text-muted)">${PESAN_TANPA_OUTLET}</p>`;
+    return;
+  }
 
   async function showTab(key) {
     container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));

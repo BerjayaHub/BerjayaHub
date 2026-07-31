@@ -1,4 +1,3 @@
-import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import {
   listOutletShifts,
   listSchedules,
@@ -12,6 +11,7 @@ import {
 } from './shift.service.js';
 import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
 import { getMyBaseScope } from '../../core/base-scope.js';
+import { listMyOutlets } from '../../core/my-outlets.js';
 
 /**
  * Jadwal Shift (Staff App): tabel jadwal satu minggu — baris staff, kolom tanggal.
@@ -31,7 +31,7 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
 
   let outlets;
   try {
-    outlets = (await listAttendanceOutlets()).filter((o) => o.business_unit_id === buShift && o.shift_enabled);
+    outlets = (await listMyOutlets(buShift)).filter((o) => o.shift_enabled);
   } catch (error) {
     container.innerHTML = `<p class="error-text">Gagal memuat: ${error.message ?? error}</p>`;
     return;

@@ -1,6 +1,6 @@
 import { supabase } from '../../config/supabase-client.js';
 import { compressImage } from '../../core/image-compress.js';
-import { listAttendanceOutlets } from '../attendance/attendance.service.js';
+import { listMyOutlets } from '../../core/my-outlets.js';
 
 export function todayWIB() {
   const now = new Date();
@@ -16,10 +16,10 @@ async function currentUserId() {
   return user?.id ?? null;
 }
 
-/** Outlet aktif di sebuah BU (lewat RPC security-definer, agar staff level-BU pun bisa lihat). */
+/** Outlet yang boleh diakses akun ini di sebuah BU (lihat core/my-outlets.js). */
 export async function listBuOutlets(businessUnitId) {
-  const all = await listAttendanceOutlets();
-  return all.filter((o) => o.business_unit_id === businessUnitId).map((o) => ({ id: o.id, name: o.name }));
+  const mine = await listMyOutlets(businessUnitId);
+  return mine.map((o) => ({ id: o.id, name: o.name }));
 }
 
 // ---- Item & sesi ----

@@ -1,5 +1,4 @@
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
-import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { amISuperAdmin } from '../inventory/inventory.service.js';
 import {
   getShiftSettings,
@@ -20,6 +19,7 @@ import {
   holidayMapOf
 } from './shift.service.js';
 import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
+import { listMyOutlets } from '../../core/my-outlets.js';
 
 const TABS = [
   { key: 'schedule', label: 'Jadwal' },
@@ -36,7 +36,7 @@ export async function renderShiftAdminPage(container, { businessUnitId }) {
     <div id="shift-content"></div>
   `;
   const content = container.querySelector('#shift-content');
-  const outlets = (await listAttendanceOutlets().catch(() => [])).filter((o) => o.business_unit_id === businessUnitId);
+  const outlets = await listMyOutlets(businessUnitId).catch(() => []);
 
   async function showTab(key) {
     container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));

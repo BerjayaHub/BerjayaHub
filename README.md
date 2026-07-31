@@ -1102,12 +1102,36 @@ Filter **disimpan di `container.dataset`** supaya tidak hilang saat halaman diga
 
 ⚠️ `wireRowActions()` dipanggil **di dalam** fungsi penggambar baris, dan **tidak boleh** dipanggil lagi dari `renderMasterUserPage` — kalau dobel, setiap klik dieksekusi dua kali (dialog muncul dua kali, aksi jalan dua kali).
 
+## Dropdown outlet wajib menghormati scope user (`js/core/my-outlets.js`)
+
+Sumber kebenaran "outlet siapa" adalah `membership_scopes` — yang diatur super admin di **Master User**. Seluruh modul memakai satu fungsi: **`listMyOutlets(businessUnitId)`**.
+
+```
+super_admin                      -> semua outlet BU
+bu_admin di BU ini               -> semua outlet BU
+scope level BU (outlet_id null)  -> semua outlet BU (memang tidak terikat satu outlet)
+scope per outlet                 -> hanya outlet itu (boleh lebih dari satu)
+tidak punya scope di BU ini      -> KOSONG
+```
+
+**Masalah sebelumnya.** Tiap modul memanggil `listAttendanceOutlets()` — RPC security-definer yang mengembalikan **seluruh outlet aktif lintas BU** — lalu menyaring sendiri hanya berdasarkan BU. Akibatnya staf satu outlet melihat, dan bisa memilih, outlet tetangganya. Datanya tetap dibatasi RLS, jadi yang muncul cuma daftar kosong atau angka nol — user hanya bingung kenapa ada outlet yang tidak bisa dibuka. Yang benar: outlet itu tidak boleh muncul sejak awal.
+
+**GAGAL TERTUTUP, bukan terbuka.** `getMyScopedOutlets()` yang lama mengembalikan **seluruh outlet BU** di tiga jalur kegagalan — scope kosong, query error, dan outlet tidak ketemu di daftar — dengan logika "kalau ragu, tampilkan semua". Untuk pertanyaan hak akses default itu terbalik: keraguan harus menutup. Daftar kosong yang jelas jauh lebih mudah dilaporkan user daripada kebocoran diam-diam. Fungsi lama kini hanya alias.
+
+**Dua pengecualian yang sah**, keduanya bukan dropdown pilihan:
+
+- **Presensi** memang lintas BU — staff bisa absen di outlet BU lain (tugas luar/storing).
+- **Pengiriman**: daftar outlet **tujuan** tetap seluruh BU, karena staf outlet cabang harus bisa memilih Central Kitchen sebagai tujuan order padahal CK bukan scope-nya. Kalau ikut disaring, seluruh alur order stok mati. Outlet **pengirim** tetap dari `listMyOutlets()`.
+
+Sisanya (peta id → nama untuk rekap, dan menu khusus super admin) terdaftar sebagai pengecualian beralasan di alat auditnya.
+
 ## Alat audit (jalankan sebelum push)
 
 ```
 node --experimental-vm-modules tools/audit-syntax.cjs   # sintaks ES module
 node tools/audit-html-escape.cjs                        # data DB masuk HTML tanpa escape
 node tools/audit-owner-filter.cjs                       # query "milik saya" tanpa filter pemilik
+node tools/audit-outlet-scope.cjs                       # dropdown outlet menembus scope
 node tools/test-youtube-parser.mjs                      # parser link YouTube
 node tools/test-image-compress.mjs                      # skala & format kompresi foto
 ```

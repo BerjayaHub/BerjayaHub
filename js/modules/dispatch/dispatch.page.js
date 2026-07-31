@@ -1,6 +1,6 @@
+import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { toast, shareDialog, formDialog, confirmDialog } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
-import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProducts } from '../product/product.service.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { createItemPicker } from './item-picker.js';
@@ -10,7 +10,6 @@ import {
   listIncomingDispatches,
   getDispatchItems,
   getDispatchForPdf,
-  getMyScopedOutlets,
   ORDER_STATUS,
   createStockOrder,
   updateStockOrder,
@@ -22,12 +21,20 @@ import {
   getOrderItems
 } from './dispatch.service.js';
 import { buildSuratJalanPDF, suratJalanWaText } from './dispatch-pdf.js';
+import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
 
 const ORDER_BADGE = { open: 'badge-pending', fulfilled: 'badge-approved', rejected: 'badge-rejected', cancelled: 'badge-cancelled' };
 
 export async function renderDispatchPage(container, { businessUnitId, outletId }) {
   container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat pengiriman...</p>`;
 
+  // DUA daftar yang berbeda, dan bedanya penting:
+  //   allOutlets = seluruh outlet BU -> dipakai sebagai TUJUAN kiriman dan untuk
+  //                menerjemahkan nama outlet di riwayat. Staff outlet cabang
+  //                HARUS bisa memilih Central Kitchen sebagai tujuan order,
+  //                padahal CK itu bukan scope-nya. Kalau daftar ini ikut
+  //                disaring, seluruh alur order stok mati.
+  //   myOutlets  = outlet yang boleh dia WAKILI sebagai pengirim/pemilik order.
   let allOutlets, products;
   try {
     [allOutlets, products] = await Promise.all([
@@ -48,7 +55,11 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
   const stockProducts = products.filter((p) => p.is_active !== false && p.product_type !== 'finished');
   const outletsById = new Map(allOutlets.map((o) => [o.id, o]));
   const ckOutlets = allOutlets.filter((o) => o.outlet_role === 'central_kitchen');
-  const myOutlets = await getMyScopedOutlets(businessUnitId, allOutlets);
+  const myOutlets = await listMyOutlets(businessUnitId, allOutlets);
+  if (!myOutlets.length) {
+    container.innerHTML = `<h1>Pengiriman</h1><p style="color:var(--color-text-muted)">${PESAN_TANPA_OUTLET}</p>`;
+    return;
+  }
   const state = { outletId: myOutlets.some((o) => o.id === outletId) ? outletId : myOutlets[0].id, tab: null, stockMap: new Map() };
 
   container.innerHTML = `

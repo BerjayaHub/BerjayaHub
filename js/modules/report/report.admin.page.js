@@ -1,8 +1,8 @@
 import { toast } from '../../core/ui.js';
 import { exportTablePDF } from '../../core/pdf.js';
 import { monthRangeWIB } from '../../core/dates.js';
-import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { REPORTS, getReport } from './report.service.js';
+import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
 
 /**
  * Halaman Laporan (Fase 11) — kerangka generik.
@@ -17,7 +17,11 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
   const state = { key: REPORTS[0].key, outletId: '', from: range.from, to: range.to };
   let last = null; // { report, data, subtitle }
 
-  const outlets = (await listAttendanceOutlets().catch(() => [])).filter((o) => o.business_unit_id === businessUnitId);
+  const outlets = await listMyOutlets(businessUnitId).catch(() => []);
+  if (!outlets.length) {
+    container.innerHTML = `<h1>Laporan</h1><p style="color:var(--color-text-muted)">${PESAN_TANPA_OUTLET}</p>`;
+    return;
+  }
   const outletNames = new Map(outlets.map((o) => [o.id, o.name]));
 
   // Laporan dikelompokkan supaya daftar tetap terbaca saat jumlahnya bertambah.

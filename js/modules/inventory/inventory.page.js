@@ -1,8 +1,8 @@
 import { toast, formDialog, confirmDialog, fuzzyMatch } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
-import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
 import { getOutletStockMap, recordMovement, transferStock, getAllowStaffOpname, recordMenuWaste } from './inventory.service.js';
+import { listMyOutlets } from '../../core/my-outlets.js';
 
 export async function renderInventoryPage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = `<p>Memuat inventory...</p>`;
@@ -10,7 +10,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   let outlets, products, recipes, allowOpname;
   try {
     [outlets, products, recipes, allowOpname] = await Promise.all([
-      listAttendanceOutlets().then((all) => all.filter((o) => o.business_unit_id === businessUnitId).map((o) => ({ id: o.id, name: o.name }))),
+      listMyOutlets(businessUnitId).then((all) => all.map((o) => ({ id: o.id, name: o.name }))),
       listProducts(businessUnitId),
       listRecipesFull(businessUnitId),
       getAllowStaffOpname(businessUnitId).catch(() => false)

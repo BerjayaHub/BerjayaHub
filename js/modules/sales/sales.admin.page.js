@@ -1,10 +1,14 @@
 import { formatNum, formatRupiah } from '../../core/format.js';
-import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listSalesReport } from './sales.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
+import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
 
 export async function renderSalesAdminPage(container, { businessUnitId }) {
-  const outlets = (await listAttendanceOutlets().catch(() => [])).filter((o) => o.business_unit_id === businessUnitId).map((o) => ({ id: o.id, name: o.name }));
+  const outlets = (await listMyOutlets(businessUnitId).catch(() => [])).map((o) => ({ id: o.id, name: o.name }));
+  if (!outlets.length) {
+    container.innerHTML = `<h1>Penjualan</h1><p style="color:var(--color-text-muted)">${PESAN_TANPA_OUTLET}</p>`;
+    return;
+  }
   const range = monthRangeWIB();
   container.innerHTML = `
     <h1>Penjualan</h1>

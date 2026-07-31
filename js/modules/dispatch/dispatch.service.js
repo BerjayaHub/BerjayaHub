@@ -1,30 +1,19 @@
 import { supabase } from '../../config/supabase-client.js';
+import { listMyOutlets } from '../../core/my-outlets.js';
 
 export const DISPATCH_STATUS = { sent: 'Dikirim (belum diterima)', received: 'Diterima', cancelled: 'Dibatalkan' };
 
 /**
- * Outlet milik AKUN yang login di sebuah BU (dari membership scope-nya).
- * - Punya scope level-BU (outlet_id null) / super_admin / tak ada scope di BU ini
- *   -> anggap manajer, kembalikan SEMUA outlet BU (allOutlets).
- * - Selain itu -> hanya outlet yang di-assign ke akun ini.
+ * Outlet milik AKUN yang login di sebuah BU.
+ *
+ * Kini hanya alias ke `listMyOutlets()` di core/my-outlets.js. Versi lama di
+ * sini GAGAL TERBUKA di tiga tempat — scope kosong, query error, dan outlet
+ * tidak ketemu di daftar — semuanya mengembalikan SELURUH outlet BU dengan
+ * alasan "kalau ragu, tampilkan semua". Untuk pertanyaan hak akses, default itu
+ * terbalik. Nama lama dipertahankan supaya pemanggil lama tidak perlu berubah.
  */
 export async function getMyScopedOutlets(businessUnitId, allOutlets) {
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-  if (!user) return allOutlets;
-  const { data, error } = await supabase
-    .from('membership_scopes')
-    .select('outlet_id')
-    .eq('user_id', user.id)
-    .eq('business_unit_id', businessUnitId);
-  if (error) return allOutlets;
-  const scopes = data ?? [];
-  if (!scopes.length) return allOutlets;
-  if (scopes.some((s) => s.outlet_id == null)) return allOutlets;
-  const ids = new Set(scopes.map((s) => s.outlet_id));
-  const mine = allOutlets.filter((o) => ids.has(o.id));
-  return mine.length ? mine : allOutlets;
+  return listMyOutlets(businessUnitId, allOutlets);
 }
 
 export const ORDER_STATUS = { open: 'Menunggu diproses', fulfilled: 'Dikirim', rejected: 'Ditolak', cancelled: 'Dibatalkan' };

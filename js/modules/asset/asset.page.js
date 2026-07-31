@@ -1,8 +1,7 @@
+import { listMyOutlets } from '../../core/my-outlets.js';
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
 import { exportTablePDF, imageToDataUrl } from '../../core/pdf.js';
-import { listAttendanceOutlets } from '../attendance/attendance.service.js';
-import { getMyScopedOutlets } from '../dispatch/dispatch.service.js';
 import {
   ASSET_CONDITION,
   ASSET_CONDITION_BADGE,
@@ -32,8 +31,9 @@ export function renderAssetAdminPage(container, ctx) {
 async function render(container, { businessUnitId }, isAdmin) {
   container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat inventaris…</p>`;
 
-  const semua = (await listAttendanceOutlets().catch(() => [])).filter((o) => o.business_unit_id === businessUnitId);
-  const outlets = isAdmin ? semua : await getMyScopedOutlets(businessUnitId, semua).catch(() => semua);
+  // Admin maupun staff sama-sama dibatasi scope-nya. Sebelumnya `isAdmin` melewati
+  // penyaringan sama sekali, sehingga admin outlet melihat seluruh outlet BU.
+  const outlets = await listMyOutlets(businessUnitId).catch(() => []);
   if (!outlets.length) {
     container.innerHTML = `<h1>Inventaris Aset</h1><p style="color:var(--color-text-muted)">Belum ada outlet yang bisa kamu akses di BU ini.</p>`;
     return;
