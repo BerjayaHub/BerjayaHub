@@ -1127,6 +1127,20 @@ Aturannya sengaja di database, bukan di aplikasi: **double-booking baru ketahuan
 
 `room_availability()` menampilkan sisa unit **sebelum** admin menekan Simpan — supaya penolakan trigger jadi jaring pengaman, bukan cara utama memberi tahu bahwa kamarnya penuh. Kedua tempat itu harus dijaga tetap sama; kalau berbeda, yang menang selalu database dan gejalanya "kelihatan tersedia tapi ditolak".
 
+### Ceklis check-in oleh STAFF (migration `0056_staff_check_in.sql`)
+
+Di Staff App, tiap tamu di daftar "Datang hari ini" punya **kotak centang**. Staff biasa (bukan admin) mencentangnya untuk menandai tamu sudah datang, mengisi nomor kamar sekalian.
+
+**Kenapa lewat RPC, bukan melonggarkan policy UPDATE.** RLS bekerja **per baris, bukan per kolom**. Sekali staff diizinkan meng-update baris booking, dia juga bisa mengubah tanggal menginap, tipe kamar, nama tamu, bahkan membatalkan booking — dan tidak ada cara menahannya di policy tanpa trigger pembanding OLD/NEW yang rumit dan mudah salah. `staff_check_in_booking()` hanya bisa melakukan satu hal karena memang tidak ada kolom lain yang ditulis di dalamnya. Izinnya jadi bisa dibaca sekali lihat.
+
+**Check-out sengaja tidak diberikan ke staff.** Check-out melepas kamar sehingga bisa dipesan orang lain; kalau salah tekan, kamar tamu yang masih menginap bisa terjual.
+
+Detail perilaku yang disengaja:
+
+- **Menekan dua kali bukan error.** Kalau tamunya sudah `checked_in`, RPC mengembalikan keadaan apa adanya. Dua staff yang mencentang bersamaan tidak sedang melakukan kesalahan, dan pesan merah untuk hal yang sudah beres cuma membuat orang ragu.
+- **Centang dibatalkan dulu sampai server menerima.** Kalau dibiarkan tercentang lalu gagal, staff terlanjur mengira tamunya sudah tercatat.
+- **Tidak bisa di-uncheck.** Membatalkan check-in berarti mengembalikan status; itu tindakan admin. Setelah tercentang, kotaknya terkunci dan diganti keterangan **siapa** yang menandai (`checked_in_by`) dan **jam berapa**.
+
 ### Keputusan lain yang perlu diingat
 
 **`reserve_date` jadi tanggal acuan.** Untuk hotel diisi otomatis = `check_in` lewat trigger. Dengan begitu penomoran kode `RSV-YYMMDD-XXX`, index tanggal, rekap harian, dan digest Telegram yang sudah ada **tidak perlu diubah sama sekali**.

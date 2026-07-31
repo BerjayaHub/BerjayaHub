@@ -248,13 +248,34 @@ export async function updateHotelBooking(id, patch) {
   if (!data?.length) throw new Error('Tidak bisa mengubah booking ini — kamu bukan admin outletnya.');
 }
 
-/** Check-in: catat waktunya + nomor kamar yang diberikan. */
+/** Check-in dari Admin Portal: catat waktunya + nomor kamar yang diberikan. */
 export async function checkInBooking(id, roomNo) {
   return updateHotelBooking(id, {
     status: 'checked_in',
     room_no: roomNo?.trim() || null,
     checked_in_at: new Date().toISOString()
   });
+}
+
+/**
+ * Check-in dari Staff App — lewat RPC, bukan update langsung.
+ *
+ * RLS bekerja per BARIS, bukan per KOLOM: sekali staff diizinkan meng-update
+ * baris booking, dia juga bisa mengubah tanggal menginap, tipe kamar, nama
+ * tamu, bahkan membatalkannya. RPC `staff_check_in_booking` hanya bisa
+ * melakukan satu hal — memindahkan confirmed -> checked_in dan mengisi nomor
+ * kamar — karena memang tidak ada kolom lain yang ditulis di dalamnya.
+ *
+ * Menekan dua kali TIDAK menghasilkan error: RPC-nya mengembalikan keadaan apa
+ * adanya kalau tamunya memang sudah check-in.
+ */
+export async function staffCheckIn(id, roomNo) {
+  const { data, error } = await supabase.rpc('staff_check_in_booking', {
+    p_reservation: id,
+    p_room_no: roomNo?.trim() || null
+  });
+  if (error) throw error;
+  return Array.isArray(data) ? data[0] : data;
 }
 
 export async function checkOutBooking(id) {
@@ -294,7 +315,7 @@ export async function getHotelHarian({ businessUnitId, outletId, date }) {
   let q = supabase
     .from('reservations')
     .select(
-      'id, code, outlet_id, customer_name, phone, check_in, check_out, adults, children, room_no, status, notes, room_types(name), outlets(name)'
+      'id, code, outlet_id, customer_name, phone, check_in, check_out, adults, children, room_no, status, notes, checked_in_at, room_types(name), outlets(name), penanda:user_profiles!checked_in_by(full_name)'
     )
     .eq('business_unit_id', businessUnitId)
     .eq('mode', 'hotel')
