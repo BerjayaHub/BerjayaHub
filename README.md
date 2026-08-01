@@ -1092,9 +1092,23 @@ Untuk PDF, `exportTablePDF` menerima sel berbentuk `{ image: dataUrl, w, h }`. *
 
 Tabel Master User menampilkan **email** dan punya filter **nama/email/telp**, **BU**, dan **outlet**.
 
-**Email disalin ke `user_profiles`, tidak dibaca langsung dari `auth.users`.** Skema `auth` sengaja tidak bisa dibaca klien lewat PostgREST — tabel itu juga memuat hash password dan token. Salinannya dijaga trigger `trg_sync_user_profile_email` pada `auth.users` (insert + update email), bukan diisi dari Edge Function: kalau pengisiannya diserahkan ke `create-staff-user`, user yang dibuat lewat dashboard Supabase atau yang mengganti emailnya sendiri akan punya email basi — dan yang paling menyesatkan, tabelnya tetap terlihat normal, cuma isinya salah.
+**Email disalin ke `user_profiles`, tidak dibaca langsung dari `auth.users`.** Skema `auth` sengaja tidak bisa dibaca klien lewat PostgREST — tabel itu juga memuat hash password dan token.
 
 Kalau kolom Email kosong untuk **semua** orang, migration-nya belum dijalankan.
+
+### Bug lanjutan: email user BARU kosong, user lama terisi (migration `0057`)
+
+Trigger di `0049` dipasang pada `auth.users` dan melakukan `update user_profiles ... where id = new.id`. Tapi `create-staff-user` membuat akun auth **dulu**, baru barisnya di `user_profiles`. Pada detik trigger berjalan, baris profilnya **belum ada** — UPDATE mengenai **nol baris**, dan UPDATE yang tidak mengenai apa pun **bukan error**.
+
+User lama punya email bukan karena trigger itu bekerja, melainkan karena diisi backfill saat `0049` dijalankan. Jadi trigger tersebut **tidak pernah sekali pun berhasil** untuk user baru — dan tidak ada satu tanda pun yang menunjukkannya.
+
+**Perbaikan:** trigger kedua, `BEFORE INSERT` pada **`user_profiles`**, yang mengambil email langsung dari `auth.users`. Urutan langkah di aplikasi jadi tidak lagi berpengaruh, dan jalur pembuatan lain (dashboard Supabase, SQL manual) ikut tercakup tanpa perlu diingat.
+
+Keduanya dipertahankan dan pembagiannya jelas: **`user_profiles` BEFORE INSERT** mengisi saat lahir, **`auth.users` AFTER UPDATE** menjaga tetap sinkron saat emailnya diganti.
+
+`auth.users` selalu jadi sumber kebenaran — nilai yang dikirim pemanggil sengaja diabaikan. Kalau dipercaya, email di sini bisa berbeda dari email yang dipakai login, dan perbedaan itu tidak akan ketahuan sampai ada yang mencoba menghubungi orangnya.
+
+**Pelajaran umum:** trigger yang meng-UPDATE tabel lain diam-diam gagal kalau barisnya belum ada. Kalau urutannya tidak bisa dijamin, isi dari sisi tabel yang menerima — bukan dari sisi yang mengirim.
 
 **Filternya bekerja di sisi klien**, bukan query ulang: daftarnya memang sudah dimuat seluruhnya (RLS yang membatasi cakupan), jumlahnya puluhan bukan ribuan, dan menyaring lokal membuat hasil muncul seketika saat mengetik. Pilihan outlet dibangun dari scope yang benar-benar ada di data — outlet yang tidak dipakai siapa pun hanya akan jadi pilihan yang selalu menghasilkan tabel kosong.
 
