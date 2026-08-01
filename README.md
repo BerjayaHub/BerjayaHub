@@ -1141,6 +1141,40 @@ Detail perilaku yang disengaja:
 - **Centang dibatalkan dulu sampai server menerima.** Kalau dibiarkan tercentang lalu gagal, staff terlanjur mengira tamunya sudah tercatat.
 - **Tidak bisa di-uncheck.** Membatalkan check-in berarti mengembalikan status; itu tindakan admin. Setelah tercentang, kotaknya terkunci dan diganti keterangan **siapa** yang menandai (`checked_in_by`) dan **jam berapa**.
 
+### Notifikasi mode hotel — dua bug yang membuatnya diam total
+
+**1. Push tidak pernah terkirim untuk booking hotel.** `notify-reservation` dulu berbunyi `r.status === 'pending' ? pushKeAdmin(...) : lewati`. Booking hotel dibuat admin dan **langsung `confirmed`**, jadi kondisi itu tidak pernah terpenuhi — tidak ada push sama sekali, dan tidak ada error apa pun yang menandakannya. Syarat status dihapus; trigger-nya memang hanya `on insert`, jadi yang batal/ditolak tetap tidak ikut terkirim.
+
+**2. Push hanya ke admin.** Alasan lamanya ("merekalah yang menyetujui") benar untuk reservasi cafe dari website, tapi salah begitu booking diisi admin sendiri: orang yang justru perlu tahu — resepsionis dan staf yang menyiapkan kamar — tidak pernah dapat kabar. Sekarang push ke **seluruh tim outlet**, dibatasi persis seperti apa yang orang itu lihat di app: punya scope di outlet tersebut (atau level BU), dan modul Reservasi tidak dicabut lewat `user_module_access`.
+
+Isi pesannya sadar mode. Memaksakan satu format akan menampilkan **"null tamu"** di salah satunya, karena `pax`/`reserve_time` memang tidak diisi untuk booking kamar, dan `check_in`/`check_out` tidak diisi untuk reservasi meja.
+
+### Rekap harian (`send-reservation-digest`) untuk kedua mode
+
+Berlaku **cafe maupun hotel**, lewat Telegram **dan** Web Push. **Hari kosong tetap dikirim** ("Tidak ada reservasi hari ini") — supaya tim tahu rekapnya memang jalan, bukan diam karena rusak.
+
+Untuk hotel, `reserve_date` = `check_in` (trigger 0055), jadi filter tanggal yang sama otomatis berarti **"tamu yang datang hari itu"** — tidak perlu query terpisah.
+
+Dua detail yang mudah salah:
+
+- **Jumlah tamu dihitung berbeda.** Cafe dari `pax`; hotel dari `adults + children`. Tanpa pembedaan ini rekap hotel selalu melaporkan **"0 tamu"**, karena `pax` memang null untuk booking kamar.
+- **Status `checked_in` ikut disertakan**, supaya rekap yang dijalankan ulang siang hari tidak mendadak kehilangan tamu yang sudah keburu datang.
+
+Judulnya mengikuti mode: 🏨 *Check-in hari ini* untuk hotel, 📅 *Reservasi hari ini* untuk cafe. Kalau seseorang membawahi keduanya, dipakai istilah cafe agar tidak ada yang terasa keliru.
+
+### Tamu yang sudah check-out hilang dari Staff App
+
+`getHotelHarian()` kini mengecualikan status `checked_out`. Sebelumnya tamu yang sudah pulang tetap nongkrong di daftar sampai ganti hari — terlihat seolah masih ada. Booking yang tanggal check-out-nya sudah lewat hilang sendiri lewat filter `check_out >= tanggal`.
+
+### Batalkan vs Hapus (Admin Portal)
+
+Dua tombol berbeda, dan bedanya sengaja ditegaskan di teks konfirmasinya:
+
+- **Batalkan** → status `cancelled`, kamar langsung bebas, **jejaknya tetap ada**: siapa yang membatalkan, kapan, dan alasannya masih terbaca di riwayat serta laporan.
+- **Hapus** → barisnya hilang permanen. Pertanyaan "kenapa kamar itu kosong tanggal segitu" jadi tidak punya jawaban.
+
+Keduanya sama-sama membebaskan kamar, jadi tanpa penjelasan itu orang akan memilih yang salah. `deleteReservation()` memakai `.select()` — RLS menolak dengan membalas sukses 0 baris, dan tanpa pemeriksaan itu admin outlet lain melihat "terhapus" padahal bookingnya masih ada.
+
 ### Keputusan lain yang perlu diingat
 
 **`reserve_date` jadi tanggal acuan.** Untuk hotel diisi otomatis = `check_in` lewat trigger. Dengan begitu penomoran kode `RSV-YYMMDD-XXX`, index tanggal, rekap harian, dan digest Telegram yang sudah ada **tidak perlu diubah sama sekali**.

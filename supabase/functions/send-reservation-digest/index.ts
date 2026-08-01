@@ -12,7 +12,7 @@
 //
 // Secrets: VAPID_*, TELEGRAM_BOT_TOKEN, CRON_SECRET
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'npm:@supabase/supabase-js@2'; // npm:, bukan esm.sh — lihat catatan di create-staff-user
 import webpush from 'npm:web-push@3.6.7';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -90,17 +90,40 @@ Deno.serve(async (req) => {
   const [{ data: reservasi }, { data: outlets }, { data: scopes }] = await Promise.all([
     admin
       .from('reservations')
-      .select('outlet_id, business_unit_id, customer_name, phone, reserve_time, pax, status, notes')
+      // Kolom hotel ikut dibawa. Untuk booking hotel `reserve_date` = check_in
+      // (trigger 0055), jadi filter tanggal yang sama otomatis berarti
+      // "tamu yang DATANG hari itu" — persis yang perlu direkap tiap pagi.
+      .select('outlet_id, business_unit_id, customer_name, phone, reserve_time, pax, status, notes, mode, check_in, check_out, adults, children, room_types(name)')
       .in('business_unit_id', buIds)
       .eq('reserve_date', tanggal)
-      .in('status', ['pending', 'confirmed'])
-      .order('reserve_time'),
-    admin.from('outlets').select('id, name, business_unit_id, outlet_role, is_active').in('business_unit_id', buIds),
+      // `checked_in` ikut supaya rekap yang dijalankan ulang siang hari tidak
+      // mendadak kehilangan tamu yang sudah keburu datang.
+      .in('status', ['pending', 'confirmed', 'checked_in'])
+      .order('reserve_time', { nullsFirst: true }),
+    admin.from('outlets').select('id, name, business_unit_id, outlet_role, is_active, reservation_mode').in('business_unit_id', buIds),
     admin.from('membership_scopes').select('user_id, business_unit_id, outlet_id').in('business_unit_id', buIds)
   ]);
 
   const daftarReservasi = reservasi ?? [];
   const namaOutlet = new Map((outlets ?? []).map((o) => [o.id, o.name]));
+  const modeOutlet = new Map((outlets ?? []).map((o) => [o.id, o.reservation_mode ?? 'cafe']));
+
+  // Satu tamu cafe dihitung dari `pax`; satu booking hotel dari dewasa + anak.
+  // Tanpa pembedaan ini, rekap hotel selalu melaporkan "0 tamu" karena kolom
+  // `pax` memang tidak diisi untuk booking kamar.
+  // deno-lint-ignore no-explicit-any
+  const jumlahTamu = (r: any) => (r.mode === 'hotel' ? (Number(r.adults) || 1) + (Number(r.children) || 0) : Number(r.pax) || 0);
+  const malam = (a: string, b: string) =>
+    Math.max(0, Math.round((new Date(b + 'T00:00:00').getTime() - new Date(a + 'T00:00:00').getTime()) / 86400000));
+  // deno-lint-ignore no-explicit-any
+  const barisTelegram = (r: any) =>
+    r.mode === 'hotel'
+      ? `• <b>${esc(r.room_types?.name ?? 'Kamar')}</b> — ${esc(r.customer_name)} (${jumlahTamu(r)} tamu, ${malam(r.check_in, r.check_out)} malam)` +
+        (r.status === 'checked_in' ? ' ✅' : '') +
+        (r.notes ? `\n   <i>${esc(r.notes)}</i>` : '')
+      : `• <b>${String(r.reserve_time).slice(0, 5)}</b> — ${esc(r.customer_name)} (${r.pax} tamu)` +
+        (r.status === 'pending' ? ' ⏳' : '') +
+        (r.notes ? `\n   <i>${esc(r.notes)}</i>` : '');
   // Central Kitchen tidak menerima tamu, jadi tidak perlu ikut direkap.
   const outletTamu = (outlets ?? []).filter((o) => o.is_active !== false && o.outlet_role !== 'central_kitchen');
 
@@ -120,26 +143,24 @@ Deno.serve(async (req) => {
   const teksOutlet = (outletId: string) => {
     const punya = daftarReservasi.filter((r) => r.outlet_id === outletId);
     const nama = namaOutlet.get(outletId) ?? '-';
+    const hotel = modeOutlet.get(outletId) === 'hotel';
+    const judul = hotel
+      ? `🏨 <b>Check-in ${untukBesok ? 'Besok' : 'Hari Ini'} — ${esc(nama)}</b>`
+      : `📅 <b>Reservasi ${untukBesok ? 'Besok' : 'Hari Ini'} — ${esc(nama)}</b>`;
+
     if (!punya.length) {
       // Diminta eksplisit: hari kosong tetap dikabari, supaya tim tahu
       // rekapnya memang jalan dan hari itu benar-benar kosong.
-      return `📅 <b>Reservasi ${untukBesok ? 'Besok' : 'Hari Ini'} — ${esc(nama)}</b>\n<i>${fmtTanggal(tanggal)}</i>\n\nTidak ada reservasi.`;
+      return `${judul}\n<i>${fmtTanggal(tanggal)}</i>\n\n${hotel ? 'Tidak ada tamu yang check-in.' : 'Tidak ada reservasi.'}`;
     }
-    const tamu = punya.reduce((t, r) => t + (Number(r.pax) || 0), 0);
+    const tamu = punya.reduce((t, r) => t + jumlahTamu(r), 0);
     const belumOk = punya.filter((r) => r.status === 'pending').length;
-    const baris = punya
-      .map(
-        (r) =>
-          `• <b>${String(r.reserve_time).slice(0, 5)}</b> — ${esc(r.customer_name)} (${r.pax} tamu)` +
-          (r.status === 'pending' ? ' ⏳' : '') +
-          (r.notes ? `\n   <i>${esc(r.notes)}</i>` : '')
-      )
-      .join('\n');
+    const baris = punya.map(barisTelegram).join('\n');
     return [
-      `📅 <b>Reservasi ${untukBesok ? 'Besok' : 'Hari Ini'} — ${esc(nama)}</b>`,
+      judul,
       `<i>${fmtTanggal(tanggal)}</i>`,
       '',
-      `${punya.length} reservasi · <b>${tamu} tamu</b>${belumOk ? ` · ⏳ ${belumOk} belum dikonfirmasi` : ''}`,
+      `${punya.length} ${hotel ? 'booking' : 'reservasi'} · <b>${tamu} tamu</b>${belumOk ? ` · ⏳ ${belumOk} belum dikonfirmasi` : ''}`,
       '',
       baris
     ].join('\n');
@@ -188,32 +209,47 @@ Deno.serve(async (req) => {
     const milikDia = daftarReservasi.filter((r) => idDia.has(r.outlet_id));
     const judulTempat = outletDia.length === 1 ? ` — ${outletDia[0].name}` : '';
 
+    // Judul & istilahnya mengikuti mode outlet orang itu. Kalau dia membawahi
+    // hotel DAN cafe sekaligus, dipakai istilah netral supaya tidak salah satu
+    // pun terasa keliru.
+    const semuaHotel = outletDia.every((o) => (o.reservation_mode ?? 'cafe') === 'hotel');
+    const kata = semuaHotel ? 'Check-in' : 'Reservasi';
+    const kataKecil = semuaHotel ? 'tamu check-in' : 'reservasi';
+    const ikon = semuaHotel ? '🏨' : '📅';
+    const kapan = untukBesok ? 'besok' : 'hari ini';
+
     if (!milikDia.length) {
       pesan.push({
         userId: uid,
-        title: `📅 Reservasi ${untukBesok ? 'besok' : 'hari ini'}${judulTempat}`,
+        title: `${ikon} ${kata} ${kapan}${judulTempat}`,
         body:
           outletDia.length === 1
-            ? `Tidak ada reservasi di ${outletDia[0].name} ${untukBesok ? 'besok' : 'hari ini'}.`
-            : `Tidak ada reservasi ${untukBesok ? 'besok' : 'hari ini'} di outlet kamu.`
+            ? `Tidak ada ${kataKecil} di ${outletDia[0].name} ${kapan}.`
+            : `Tidak ada ${kataKecil} ${kapan} di outlet kamu.`
       });
       continue;
     }
 
-    const totalTamu = milikDia.reduce((t, r) => t + (Number(r.pax) || 0), 0);
+    const totalTamu = milikDia.reduce((t, r) => t + jumlahTamu(r), 0);
     const belumOk = milikDia.filter((r) => r.status === 'pending').length;
     const banyakOutlet = new Set(milikDia.map((r) => r.outlet_id)).size > 1;
     const baris = milikDia
       .slice(0, MAX_BARIS_PUSH)
-      .map((r) => `${String(r.reserve_time).slice(0, 5)} ${r.customer_name} (${r.pax})${banyakOutlet ? ` @${namaOutlet.get(r.outlet_id) ?? '-'}` : ''}`)
+      .map((r) => {
+        const inti =
+          r.mode === 'hotel'
+            ? `${r.room_types?.name ?? 'Kamar'} ${r.customer_name} (${malam(r.check_in, r.check_out)} mlm)`
+            : `${String(r.reserve_time).slice(0, 5)} ${r.customer_name} (${r.pax})`;
+        return inti + (banyakOutlet ? ` @${namaOutlet.get(r.outlet_id) ?? '-'}` : '');
+      })
       .join('\n');
     const sisa = milikDia.length - MAX_BARIS_PUSH;
 
     pesan.push({
       userId: uid,
-      title: `📅 Reservasi ${untukBesok ? 'besok' : 'hari ini'}${judulTempat}`,
+      title: `${ikon} ${kata} ${kapan}${judulTempat}`,
       body:
-        `${milikDia.length} reservasi · ${totalTamu} tamu` +
+        `${milikDia.length} ${semuaHotel ? 'booking' : 'reservasi'} · ${totalTamu} tamu` +
         (belumOk ? ` · ${belumOk} belum dikonfirmasi` : '') +
         `\n${baris}` +
         (sisa > 0 ? `\n…dan ${sisa} lainnya` : '')

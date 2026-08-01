@@ -7,7 +7,7 @@
 // GRACE_PERIOD_MINUTES dari jam masuk dan staff belum clock in hari ini,
 // kirim Web Push reminder (sekali per staff per outlet per hari).
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'npm:@supabase/supabase-js@2'; // npm:, bukan esm.sh — lihat catatan di create-staff-user
 import webpush from 'npm:web-push@3.6.7';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;

@@ -5,7 +5,17 @@
 // Pakai service_role key di sisi server — TIDAK PERNAH dikirim ke frontend.
 // Validasi otorisasi dilakukan manual di sini karena service_role melewati RLS.
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// npm: (registry npm), BUKAN esm.sh.
+//
+// esm.sh mem-bundle paket secara on-the-fly saat deploy. Kalau layanan itu
+// sedang lambat, deploy GAGAL dengan "Fetch ... timed out after 10s" —
+// padahal kodenya tidak bermasalah sama sekali. Sudah terjadi berkali-kali,
+// dan tiap kali harus diulang-ulang sampai kebetulan lolos.
+//
+// Specifier `npm:` diresolusi Deno lewat registry npm langsung, tanpa
+// perantara. `npm:web-push` di function ini memang sudah dipakai sejak awal
+// dan tidak pernah bermasalah — jadi seluruh function disamakan ke pola itu.
+import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;

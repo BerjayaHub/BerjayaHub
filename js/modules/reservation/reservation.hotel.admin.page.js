@@ -14,6 +14,8 @@ import {
   updateHotelBooking,
   checkInBooking,
   checkOutBooking,
+  cancelHotelBooking,
+  deleteReservation,
   getHotelHarian,
   jumlahMalam,
   buildConfirmMessage,
@@ -149,6 +151,8 @@ function barisTamu(r) {
       ${r.status === 'checked_in' ? `<button class="primary hv-out" data-id="${r.id}" style="max-width:110px">Check-out</button>` : ''}
       <button class="hv-edit" data-id="${r.id}">Edit</button>
       <button class="hv-wa" data-id="${r.id}" title="Kirim konfirmasi lewat WhatsApp">💬</button>
+      ${r.status !== 'cancelled' ? `<button class="hv-cancel" data-id="${r.id}" title="Batalkan — kamar langsung bebas, jejaknya tetap tersimpan">Batalkan</button>` : ''}
+      <button class="hv-del" data-id="${r.id}" title="Hapus permanen">Hapus</button>
     </td>
   </tr>`;
 }
@@ -208,6 +212,50 @@ function wireAksi(host, rows, ctx, reload) {
 
   host.querySelectorAll('.hv-edit').forEach((b) =>
     b.addEventListener('click', () => formBooking(cari(b.dataset.id), ctx, reload))
+  );
+
+  host.querySelectorAll('.hv-cancel').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const r = cari(b.dataset.id);
+      const values = await formDialog({
+        title: `Batalkan booking ${r.code ?? ''}?`,
+        description: `${r.customer_name} · ${r.room_types?.name ?? '-'} · ${fmtSingkat(r.check_in)} → ${fmtSingkat(r.check_out)}. Kamar langsung bebas untuk tanggal tersebut.`,
+        fields: [{ name: 'alasan', label: 'Alasan pembatalan', type: 'text', required: true, placeholder: 'mis. tamu batal datang' }],
+        submitText: 'Batalkan Booking'
+      });
+      if (!values) return;
+      try {
+        await cancelHotelBooking(r.id, values.alasan);
+        toast('Booking dibatalkan.', 'success');
+        await reload();
+      } catch (error) {
+        toast(error.message ?? 'Gagal membatalkan.', 'error');
+      }
+    })
+  );
+
+  host.querySelectorAll('.hv-del').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const r = cari(b.dataset.id);
+      // Dibedakan tegas dari Batalkan, karena keduanya sama-sama "membebaskan
+      // kamar" tapi hanya satu yang menyisakan jejak.
+      const ok = await confirmDialog({
+        title: `Hapus booking ${r.code ?? ''}?`,
+        message:
+          `${r.customer_name} akan HILANG PERMANEN dari riwayat dan laporan. ` +
+          'Kalau tamunya sekadar batal datang, pakai "Batalkan" — kamar tetap bebas tapi alasannya masih bisa ditelusuri.',
+        confirmText: 'Hapus Permanen',
+        danger: true
+      });
+      if (!ok) return;
+      try {
+        await deleteReservation(r.id);
+        toast('Booking dihapus.', 'success');
+        await reload();
+      } catch (error) {
+        toast(error.message ?? 'Gagal menghapus.', 'error');
+      }
+    })
   );
 
   host.querySelectorAll('.hv-wa').forEach((b) =>

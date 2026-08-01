@@ -282,6 +282,40 @@ export async function checkOutBooking(id) {
   return updateHotelBooking(id, { status: 'checked_out', checked_out_at: new Date().toISOString() });
 }
 
+/**
+ * Batalkan booking — kamarnya langsung bebas untuk tanggal itu.
+ *
+ * DIBEDAKAN dari Hapus dengan sengaja. Membatalkan menyimpan jejaknya: siapa
+ * batal, kapan, dan alasannya masih bisa dibaca di riwayat dan ikut di laporan.
+ * Menghapus membuang barisnya sama sekali — dan pertanyaan "kenapa kamar itu
+ * kosong tanggal segitu" jadi tidak punya jawaban.
+ */
+export async function cancelHotelBooking(id, alasan) {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  return updateHotelBooking(id, {
+    status: 'cancelled',
+    review_note: alasan?.trim() || null,
+    reviewed_by: user?.id ?? null,
+    reviewed_at: new Date().toISOString()
+  });
+}
+
+/**
+ * Hapus booking permanen.
+ *
+ * `.select()` wajib: RLS `reservations_delete_admin` membatasi ke admin outlet,
+ * dan PostgREST membalas SUKSES dengan 0 baris kalau ditolak — tanpa
+ * pemeriksaan ini admin outlet lain menekan Hapus, melihat "terhapus", lalu
+ * bookingnya masih ada.
+ */
+export async function deleteReservation(id) {
+  const { data, error } = await supabase.from('reservations').delete().eq('id', id).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('Tidak bisa menghapus booking ini — kamu bukan admin outletnya.');
+}
+
 /** Riwayat reservasi — dipakai Staff App maupun Admin Portal, kedua mode. */
 export async function listReservations({ businessUnitId, outletId, status, dateFrom, dateTo, mode, limit = 300 }) {
   let q = supabase
@@ -321,7 +355,13 @@ export async function getHotelHarian({ businessUnitId, outletId, date }) {
     .eq('mode', 'hotel')
     .lte('check_in', date)
     .gte('check_out', date)
-    .not('status', 'in', '("cancelled","rejected","no_show")')
+    // `checked_out` IKUT dikecualikan: begitu tamu benar-benar keluar, kamarnya
+    // sudah bebas dan namanya tidak lagi menjawab pertanyaan operasional apa pun.
+    // Sebelumnya tamu yang sudah check-out tetap nongkrong di daftar sampai
+    // ganti hari — terlihat seperti masih ada padahal sudah pulang.
+    // Booking yang tanggal check-out-nya sudah LEWAT hilang sendiri lewat
+    // filter `check_out >= date` di atas.
+    .not('status', 'in', '("cancelled","rejected","no_show","checked_out")')
     .order('check_in');
   if (outletId) q = q.eq('outlet_id', outletId);
   const { data, error } = await q;
