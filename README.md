@@ -1175,6 +1175,17 @@ Dua tombol berbeda, dan bedanya sengaja ditegaskan di teks konfirmasinya:
 
 Keduanya sama-sama membebaskan kamar, jadi tanpa penjelasan itu orang akan memilih yang salah. `deleteReservation()` memakai `.select()` — RLS menolak dengan membalas sukses 0 baris, dan tanpa pemeriksaan itu admin outlet lain melihat "terhapus" padahal bookingnya masih ada.
 
+### Kirim konfirmasi lewat Email
+
+`shareDialog()` kini menerima `email` dan `subject`. Kalau `email` diisi, muncul tombol **✉️ Email** yang membuka aplikasi email dengan **tujuan sudah terisi** dari formulir — bukan share sheet kosong yang memaksa admin mengetik ulang alamatnya. Tanpa ini, alamat email yang susah payah diminta di formulir tidak pernah benar-benar dipakai.
+
+Dua detail teknis:
+
+- Isi pesannya dibaca dari **textarea saat tombol diklik**, bukan dari `defaultMessage` — supaya suntingan admin ikut terkirim.
+- Dipakai `window.location.href`, **bukan `window.open`**: sebagian browser memblokir popup ke skema non-http, dan yang muncul cuma tab kosong tanpa pesan apa pun.
+
+Berlaku di kedua mode (cafe & hotel), untuk konfirmasi maupun penolakan. Tombolnya **tidak muncul** kalau customer tidak mengisi email — tombol yang membuka email tanpa tujuan lebih membingungkan daripada tidak ada tombol.
+
 ### Keputusan lain yang perlu diingat
 
 **`reserve_date` jadi tanggal acuan.** Untuk hotel diisi otomatis = `check_in` lewat trigger. Dengan begitu penomoran kode `RSV-YYMMDD-XXX`, index tanggal, rekap harian, dan digest Telegram yang sudah ada **tidak perlu diubah sama sekali**.

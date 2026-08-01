@@ -265,7 +265,9 @@ function wireAksi(host, rows, ctx, reload) {
         title: `WhatsApp ke ${r.customer_name}`,
         helper: 'Nomor tujuan diambil dari data booking.',
         defaultMessage: buildConfirmMessage({ ...r, mode: 'hotel' }),
-        phone: waNumber(r.phone)
+        phone: waNumber(r.phone),
+        email: r.email ?? '',
+        subject: `Konfirmasi Booking ${r.code ?? ''}`.trim()
       });
     })
   );
@@ -406,7 +408,9 @@ async function formBooking(existing, ctx, reload) {
       const tipeNama = tipe.find((t) => t.id === values.room_type_id)?.name ?? '';
       await shareDialog({
         title: 'Kirim Konfirmasi ke Tamu',
-        helper: 'Nomor tujuan diambil dari data booking yang baru saja diisi.',
+        helper: 'Nomor WhatsApp dan alamat email diambil dari data booking yang baru saja diisi.',
+        email: values.email?.trim() || '',
+        subject: `Konfirmasi Booking ${baru?.code ?? ''}`.trim(),
         defaultMessage: buildConfirmMessage({
           mode: 'hotel',
           code: baru?.code,

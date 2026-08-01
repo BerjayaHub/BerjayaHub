@@ -152,9 +152,11 @@ function wireActions(host, rows, reload) {
         await shareDialog({
           title: 'Kirim Konfirmasi ke Customer',
           helper:
-            'Nomor tujuan diambil otomatis dari formulir reservasi (Staff App maupun website) — admin tidak perlu menyimpan kontak customer lebih dulu.',
+            'Nomor WhatsApp dan alamat email diambil otomatis dari formulir reservasi (Staff App maupun website) — admin tidak perlu menyimpan kontak customer lebih dulu.',
           defaultMessage: buildConfirmMessage(r),
-          phone: waNumber(r.phone)
+          phone: waNumber(r.phone),
+          email: r.email ?? '',
+          subject: `Konfirmasi Reservasi ${r.code ?? ''}`.trim()
         });
         await reload();
       } catch (error) {
@@ -180,7 +182,9 @@ function wireActions(host, rows, reload) {
           title: 'Kabari Customer',
           helper: 'Sampaikan baik-baik dan tawarkan alternatif kalau memungkinkan.',
           defaultMessage: buildRejectMessage(r, values.reason),
-          phone: waNumber(r.phone)
+          phone: waNumber(r.phone),
+          email: r.email ?? '',
+          subject: `Reservasi ${r.code ?? ''}`.trim()
         });
         await reload();
       } catch (error) {
@@ -194,9 +198,11 @@ function wireActions(host, rows, reload) {
       const r = byId(b.dataset.id);
       shareDialog({
         title: `WhatsApp ke ${r.customer_name}`,
-        helper: 'Nomor tujuan diambil otomatis dari formulir reservasi — admin tidak perlu menyimpan kontak customer.',
+        helper: 'Nomor WhatsApp dan alamat email diambil otomatis dari formulir reservasi — admin tidak perlu menyimpan kontak customer.',
         defaultMessage: buildConfirmMessage(r),
-        phone: waNumber(r.phone)
+        phone: waNumber(r.phone),
+        email: r.email ?? '',
+        subject: `Konfirmasi Reservasi ${r.code ?? ''}`.trim()
       });
     })
   );

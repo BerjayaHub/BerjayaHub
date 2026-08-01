@@ -249,7 +249,7 @@ export function infoDialog({ title = 'Detail', bodyHtml = '' } = {}) {
  * chat ke nomor itu langsung (wa.me/<nomor>) — dipakai modul Reservasi untuk
  * mengirim konfirmasi ke customer tanpa WhatsApp API.
  */
-export function shareDialog({ title = 'Bagikan', helper = '', defaultMessage = '', phone = '' } = {}) {
+export function shareDialog({ title = 'Bagikan', helper = '', defaultMessage = '', phone = '', email = '', subject = '' } = {}) {
   return new Promise((resolve) => {
     const overlay = buildOverlay();
     const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
@@ -263,6 +263,12 @@ export function shareDialog({ title = 'Bagikan', helper = '', defaultMessage = '
                  <strong style="font-family:ui-monospace,Menlo,monospace">+${escapeHtml(String(phone).replace(/\D/g, ''))}</strong>.</p>`
             : ''
         }
+        ${
+          email
+            ? `<p class="modal-text" style="margin-top:-6px">Tombol Email akan membuka aplikasi email dengan tujuan
+                 <strong style="font-family:ui-monospace,Menlo,monospace">${escapeHtml(email)}</strong> sudah terisi.</p>`
+            : ''
+        }
         <div class="field">
           <label for="share-text">Pesan (bisa diedit)</label>
           <textarea id="share-text" rows="4" class="share-textarea"></textarea>
@@ -271,6 +277,7 @@ export function shareDialog({ title = 'Bagikan', helper = '', defaultMessage = '
           <button type="button" class="btn-ghost" data-act="close">Tutup</button>
           <button type="button" class="btn-ghost" data-act="copy">Salin</button>
           <button type="button" class="btn-inline btn-whatsapp" data-act="wa">${phone ? 'Kirim ke Customer' : 'WhatsApp'}</button>
+          ${email ? `<button type="button" class="btn-inline" data-act="email">✉️ Email</button>` : ''}
           ${canShare ? `<button type="button" class="primary btn-inline" data-act="share">Bagikan…</button>` : ''}
         </div>
       </div>
@@ -301,6 +308,22 @@ export function shareDialog({ title = 'Bagikan', helper = '', defaultMessage = '
       const tujuan = String(phone ?? '').replace(/\D/g, '');
       window.open(`https://wa.me/${tujuan}?text=` + encodeURIComponent(ta.value), '_blank');
     });
+    // Email: mailto: dengan tujuan SUDAH TERISI dari form, bukan share sheet
+    // kosong yang memaksa admin mengetik ulang alamatnya. Tanpa ini, alamat
+    // email yang sudah susah payah diminta di formulir jadi tidak pernah dipakai.
+    //
+    // Isi pesannya diambil dari textarea saat diklik (bukan `defaultMessage`),
+    // supaya suntingan admin ikut terkirim.
+    overlay.querySelector('[data-act="email"]')?.addEventListener('click', () => {
+      const url =
+        `mailto:${encodeURIComponent(email)}` +
+        `?subject=${encodeURIComponent(subject || title)}` +
+        `&body=${encodeURIComponent(ta.value)}`;
+      // location.href, BUKAN window.open: sebagian browser memblokir popup ke
+      // skema non-http, dan yang muncul cuma tab kosong tanpa pesan apa pun.
+      window.location.href = url;
+    });
+
     overlay.querySelector('[data-act="share"]')?.addEventListener('click', async () => {
       try {
         await navigator.share({ text: ta.value });
