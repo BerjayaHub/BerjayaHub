@@ -325,7 +325,16 @@ button.primary:active { transform: translateY(1px); }
 /* =========================================================
    Mobile (< 768px) — target utama Staff App dipakai dari HP
    ========================================================= */
-@media (max-width: 768px) {
+/* HP dalam posisi LANDSCAPE ikut aturan mobile.
+ *
+ * Breakpoint di sini semula hanya melihat LEBAR. Masalahnya, HP yang diputar
+ * jadi ~800px lebar — melewati 768px — sehingga dianggap desktop dan sidebar
+ * dipasang permanen, padahal tingginya cuma ~360px. Yang tersisa untuk konten
+ * tinggal beberapa baris.
+ *
+ * `max-height: 500px` menangkap kondisi "lebar tapi pendek" itu tanpa
+ * mengganggu laptop layar kecil sekalipun (yang paling pendek pun >600px). */
+@media (max-width: 768px), (max-height: 500px) {
   .nav-toggle {
     display: block;
   }
@@ -341,6 +350,7 @@ button.primary:active { transform: translateY(1px); }
     transition: transform 0.2s ease;
     z-index: 15;
     box-shadow: 2px 0 12px rgba(0, 0, 0, 0.08);
+    overflow-y: auto; /* menu panjang tetap bisa digulir di layar pendek */
   }
 
   .app-nav.open {
@@ -1485,4 +1495,58 @@ select.sc-cell.is-off {
   border-radius: 0 8px 8px 0;
   padding: 8px 12px;
   margin-top: 12px;
+}
+
+/* =========================================================
+   Layar PENDEK — terutama HP dalam posisi landscape.
+   
+   Aplikasi ini sebelumnya dikunci portrait lewat manifest.json, jadi kondisi
+   ini tidak pernah terjadi. Setelah kuncinya dibuka, tinggi layar bisa cuma
+   ~350px — dan header, judul halaman, serta hero beranda memakan hampir
+   seluruhnya sebelum satu baris data pun terlihat.
+   
+   Yang dikecilkan HANYA jarak vertikal. Ukuran font dan target sentuh
+   dibiarkan: layar sempit bukan alasan membuat tombol jadi susah ditekan,
+   apalagi saat orangnya memegang HP dengan satu tangan sambil bekerja.
+   ========================================================= */
+@media (max-height: 500px) {
+  .staff-topbar,
+  .admin-topbar {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  .staff-main,
+  .app-content {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  h1 {
+    font-size: 1.15rem;
+    margin-bottom: 8px;
+  }
+
+  /* Hero beranda paling boros ruang; di layar pendek isinya diringkas. */
+  .home-hero {
+    padding: 10px 12px;
+  }
+  .home-hero p,
+  .hero-avatar {
+    display: none;
+  }
+
+  .inline-card {
+    padding: 10px 12px;
+  }
+
+  /* Dialog: 90vh dari 350px = 315px, terlalu mepet untuk form panjang.
+     Diberi ruang lebih besar dan tetap bisa digulir. */
+  .modal-card {
+    max-height: 96vh;
+    padding: 14px 16px;
+  }
+  .modal-info-body {
+    max-height: 55vh;
+  }
 }

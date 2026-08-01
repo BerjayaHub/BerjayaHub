@@ -1221,6 +1221,20 @@ tidak punya scope di BU ini      -> KOSONG
 
 Sisanya (peta id → nama untuk rekap, dan menu khusus super admin) terdaftar sebagai pengecualian beralasan di alat auditnya.
 
+## Rotasi layar: portrait & landscape
+
+**Penyebabnya bukan CSS.** `manifest.json` berisi `"orientation": "portrait"`, yang **mengunci** PWA ke portrait — memutar HP tidak berpengaruh sama sekali karena sistem operasinya sendiri yang menolak merotasi. Kini `"orientation": "any"`.
+
+⚠️ Perubahan manifest baru berlaku setelah PWA-nya **dipasang ulang** di HP (hapus dari layar depan, buka lagi di browser, Add to Home Screen). Membuka lewat browser biasa langsung berlaku.
+
+### Breakpoint harus melihat TINGGI, bukan cuma lebar
+
+Setelah kuncinya dibuka, muncul masalah kedua: HP yang diputar jadi **~800px lebar**, melewati breakpoint `768px`, sehingga dianggap desktop — sidebar dipasang permanen padahal tingginya cuma ~360px. Yang tersisa untuk konten tinggal beberapa baris.
+
+Karena itu breakpoint mobile jadi `@media (max-width: 768px), (max-height: 500px)`. Ambang 500px menangkap kondisi "lebar tapi pendek" tanpa mengganggu laptop layar kecil sekalipun — yang paling pendek pun di atas 600px.
+
+Ditambah blok `@media (max-height: 500px)` yang **hanya** merapatkan jarak vertikal (header, judul, hero beranda) dan memberi dialog ruang lebih besar. **Ukuran font dan target sentuh sengaja tidak dikecilkan**: layar sempit bukan alasan membuat tombol jadi susah ditekan, apalagi saat orangnya memegang HP satu tangan sambil bekerja.
+
 ## Alat audit (jalankan sebelum push)
 
 ```
