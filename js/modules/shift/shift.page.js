@@ -20,28 +20,41 @@ import { listMyOutlets } from '../../core/my-outlets.js';
 export async function renderShiftPage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat jadwal...</p>`;
 
-  // Jadwal shift MENEMPEL PADA ORANGNYA. Staff membuka menu ini untuk melihat
-  // "kapan SAYA masuk", jadi yang benar adalah outlet tempat kerja utamanya
-  // (★ di Master User) — bukan BU yang kebetulan sedang dipilih di menu atas.
-  // Tanpa ini, berpindah BU membuat jadwalnya seolah lenyap.
+  // Basis (★) menentukan APA YANG DIBUKA LEBIH DULU, bukan apa yang boleh dibuka.
+  //
+  // Versi sebelumnya memakai BU basis sebagai satu-satunya sumber daftar outlet,
+  // dan MENGABAIKAN pemilih BU di menu atas. Untuk staff biasa itu benar —
+  // pertanyaannya "kapan SAYA masuk". Tapi jadwal shift bukan dokumen pribadi
+  // seperti pengajuan cuti; ia daftar kerja tim.
+  //
+  // Akibatnya manager yang basisnya di Admin Divisi tidak bisa melihat jadwal
+  // Awal Bermula sama sekali — memindahkan pemilih BU tidak berpengaruh apa pun.
+  // Bukan karena scope-nya kurang, tapi karena halamannya menolak mendengarkan.
+  //
+  // Sekarang: daftar outlet mengikuti BU YANG SEDANG AKTIF, dan outlet basis
+  // hanya dipilih otomatis kalau kebetulan berada di BU itu. Staff biasa (yang
+  // BU-nya cuma satu) merasakan hal yang persis sama seperti sebelumnya;
+  // yang punya banyak BU jadi bisa berpindah.
   const fallbackBase = { business_unit_id: businessUnitId, outlet_id: outletId };
   const base = await getMyBaseScope(fallbackBase).catch(() => fallbackBase);
-  const buShift = base.business_unit_id ?? businessUnitId;
   const outletBasis = base.outlet_id ?? outletId;
 
   let outlets;
   try {
-    outlets = (await listMyOutlets(buShift)).filter((o) => o.shift_enabled);
+    outlets = (await listMyOutlets(businessUnitId)).filter((o) => o.shift_enabled);
   } catch (error) {
     container.innerHTML = `<p class="error-text">Gagal memuat: ${error.message ?? error}</p>`;
     return;
   }
   if (!outlets.length) {
-    container.innerHTML = `<h1>Jadwal Shift</h1><p style="color:var(--color-text-muted)">Modul Shift belum diaktifkan untuk outlet manapun di BU tempat kerja utamamu.</p>`;
+    container.innerHTML = `
+      <h1>Jadwal Shift</h1>
+      <p style="color:var(--color-text-muted)">
+        Belum ada outlet di BU ini yang mengaktifkan modul Shift.
+        Kalau kamu membawahi BU lain, ganti BU lewat pemilih di bagian atas layar.
+      </p>`;
     return;
   }
-  // Outlet basis yang dipilih lebih dulu; pemilih outlet tetap ada supaya staff
-  // yang memang bekerja lintas outlet masih bisa melihat yang lain.
   const state = { outletId: outlets.some((o) => o.id === outletBasis) ? outletBasis : outlets[0].id, anchor: todayWIB() };
 
   container.innerHTML = `
@@ -95,8 +108,8 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
         listOutletStaff(state.outletId),
         listOutletShifts(state.outletId),
         listSchedules({ outletId: state.outletId, from: wk.from, to: wk.to }),
-        getHolidayPolicy(buShift, state.outletId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] })),
-        listHolidays({ businessUnitId: buShift, outletId: state.outletId }).catch(() => [])
+        getHolidayPolicy(businessUnitId, state.outletId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] })),
+        listHolidays({ businessUnitId, outletId: state.outletId }).catch(() => [])
       ]);
     } catch (error) {
       grid.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;

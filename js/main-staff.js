@@ -1,6 +1,7 @@
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
 import { getActiveModules, getModuleRenderer, registerModule, getMyAllowedModules, getModulesActiveInAnyBu } from './core/module-loader.js';
 import { getModuleIcon } from './core/module-icons.js';
+import { listBusinessUnitsBasic } from './modules/organization/organization.service.js';
 import { toast, confirmDialog, formDialog, escapeHtml } from './core/ui.js';
 import { mountTutorialButton } from './core/tutorial-button.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
@@ -115,18 +116,34 @@ async function renderShell() {
   }
 
   // BU unik dari seluruh scope staff (untuk switcher kalau lebih dari satu BU).
-  const seen = new Map();
-  for (const s of context.scopes) {
-    if (s.business_unit_id && !seen.has(s.business_unit_id)) {
-      seen.set(s.business_unit_id, {
-        id: s.business_unit_id,
-        name: s.business_units?.name ?? 'BU',
-        theme_color: s.business_units?.theme_color,
-        logo_url: s.business_units?.logo_url
-      });
-    }
+  // Super admin melihat SELURUH BU, tanpa perlu didaftarkan satu per satu.
+  //
+  // Sebelumnya daftar BU di Staff App hanya dibangun dari baris scope. Akibatnya
+  // super admin yang scope-nya cuma satu (mis. Admin Divisi) hanya melihat satu
+  // BU di pemilih — padahal perannya berarti "semuanya". Satu-satunya jalan
+  // keluar adalah menambahkan scope bu_admin ke setiap BU secara manual, dan
+  // itu pekerjaan yang tidak seharusnya ada: daftar scope jadi panjang, dan
+  // setiap BU baru harus diingat untuk ditambahkan lagi.
+  //
+  // Admin Portal sudah lama berperilaku begini; Staff App tertinggal.
+  let availableBUs = [];
+  if (context.scopes.some((s) => s.role === 'super_admin')) {
+    availableBUs = await listBusinessUnitsBasic().catch(() => []);
   }
-  const availableBUs = [...seen.values()];
+  if (!availableBUs.length) {
+    const seen = new Map();
+    for (const s of context.scopes) {
+      if (s.business_unit_id && !seen.has(s.business_unit_id)) {
+        seen.set(s.business_unit_id, {
+          id: s.business_unit_id,
+          name: s.business_units?.name ?? 'BU',
+          theme_color: s.business_units?.theme_color,
+          logo_url: s.business_units?.logo_url
+        });
+      }
+    }
+    availableBUs = [...seen.values()];
+  }
 
   let activeBuId = null;
   try {

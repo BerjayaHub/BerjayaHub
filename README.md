@@ -1221,6 +1221,29 @@ tidak punya scope di BU ini      -> KOSONG
 
 Sisanya (peta id → nama untuk rekap, dan menu khusus super admin) terdaftar sebagai pengecualian beralasan di alat auditnya.
 
+## Basis (★) itu TITIK AWAL, bukan kurungan
+
+**Gejala:** manager ber-role super admin, basisnya BU *Admin Divisi* / outlet *Admin*, tidak bisa melihat Jadwal Shift *Awal Bermula Cafe* sama sekali — memindahkan pemilih BU di menu atas tidak berpengaruh apa pun.
+
+**Penyebab.** Waktu Jadwal Shift dibuat "menempel pada basis", halamannya memakai BU basis sebagai **satu-satunya** sumber daftar outlet dan **mengabaikan** pemilih BU. Untuk staff biasa itu benar — pertanyaannya "kapan **saya** masuk". Tapi jadwal shift bukan dokumen pribadi; ia **daftar kerja tim**.
+
+**Bedakan dua jenis modul:**
+
+| | Menempel pada ORANG | Mengikuti BU AKTIF |
+|---|---|---|
+| Contoh | Pengajuan Cuti, Presensi | **Jadwal Shift** |
+| Alasan | dokumen milik orang itu — salah tujuan = atasan tidak pernah menerima | daftar kerja tim — manajer memang perlu melihat tim lain |
+
+Untuk Jadwal Shift, basis kini hanya menentukan **outlet mana yang terpilih lebih dulu**, dan itu pun hanya kalau outletnya kebetulan ada di BU yang sedang aktif. Staff yang BU-nya cuma satu tidak merasakan perbedaan apa pun.
+
+### Super admin tidak perlu didaftarkan ke tiap BU
+
+Daftar BU di **Staff App** dulu dibangun murni dari baris scope. Akibatnya super admin yang scope-nya satu (mis. Admin Divisi) hanya melihat satu BU di pemilih — padahal perannya berarti "semuanya". Satu-satunya jalan keluar: menambahkan scope `bu_admin` ke **setiap** BU secara manual — pekerjaan yang tidak seharusnya ada, karena daftar scope jadi panjang dan tiap BU baru harus diingat untuk ditambahkan lagi.
+
+Sekarang super admin otomatis mendapat seluruh BU di pemilih. **Admin Portal sudah lama begitu; Staff App yang tertinggal.**
+
+Konsekuensi praktis: scope `bu_admin` yang ditambahkan sebagai akal-akalan boleh dihapus — cukup satu baris `super_admin` plus basis (★)-nya.
+
 ## "Invalid session" saat memanggil Edge Function (`js/core/invoke.js`)
 
 **Gejala:** Tambah Staff / Reset Password / Kirim Tes gagal dengan *Invalid session*, padahal jelas-jelas sedang login.
