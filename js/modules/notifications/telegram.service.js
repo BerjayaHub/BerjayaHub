@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { invokeFunction } from '../../core/invoke.js';
 
 /**
  * Katalog event yang bisa dirutekan ke grup Telegram.
@@ -179,43 +180,20 @@ export async function deleteTelegramRoute(id) {
  * memang belum ditambahkan ke sana.
  */
 export async function detectTelegramChats() {
-  const { data, error } = await supabase.functions.invoke('notify-telegram', { body: { detect_chats: true } });
-  if (error) {
-    let detail = error.message ?? String(error);
-    try {
-      const body = await error.context?.json?.();
-      if (body?.error) detail = body.error;
-    } catch {
-      /* pakai pesan aslinya */
-    }
-    throw new Error(detail);
-  }
-  return data;
+  return invokeFunction('notify-telegram', { detect_chats: true });
 }
 
 /** Kirim pesan tes ke grup tertentu (chat_id langsung, atau lewat rute event). */
 export async function sendTelegramTest({ chatId, eventKey, eventLabel, businessUnitId } = {}) {
-  const { data, error } = await supabase.functions.invoke('notify-telegram', {
-    body: {
-      test: true,
-      chat_id: chatId || undefined,
-      event_key: eventKey || undefined,
-      event_label: eventLabel || undefined,
-      business_unit_id: businessUnitId || undefined
-    }
+  // invokeFunction sudah membaca badan respons non-2xx, jadi pesan Telegram
+  // yang sebenarnya ("chat not found", dll) tetap terlihat.
+  const data = await invokeFunction('notify-telegram', {
+    test: true,
+    chat_id: chatId || undefined,
+    event_key: eventKey || undefined,
+    event_label: eventLabel || undefined,
+    business_unit_id: businessUnitId || undefined
   });
-  if (error) {
-    // supabase-js tidak membaca badan respons non-2xx — dibaca manual supaya
-    // pesan Telegram yang sebenarnya ("chat not found", dll) terlihat.
-    let detail = error.message ?? String(error);
-    try {
-      const body = await error.context?.json?.();
-      if (body?.error) detail = body.error;
-    } catch {
-      /* pakai pesan aslinya */
-    }
-    throw new Error(detail);
-  }
   if (!data?.ok) throw new Error(data?.error ?? 'Gagal mengirim.');
   return data;
 }

@@ -1,3 +1,4 @@
+import { invokeFunction } from './invoke.js';
 import { supabase } from '../config/supabase-client.js';
 import { toast } from './ui.js';
 import {
@@ -21,21 +22,10 @@ import {
 
 /** Kirim push percobaan ke perangkat sendiri lewat Edge Function. */
 export async function sendTestPush() {
-  const { data, error } = await supabase.functions.invoke('send-test-push', { body: {} });
-  if (error) {
-    // supabase-js tidak membaca badan respons non-2xx — dibaca manual supaya
-    // pesan aslinya ("belum ada perangkat berlangganan") sampai ke user.
-    let detail = error.message ?? String(error);
-    try {
-      const body = await error.context?.json?.();
-      if (body?.error) detail = body.error;
-    } catch {
-      /* pakai pesan aslinya */
-    }
-    throw new Error(detail);
-  }
-  if (!data?.ok) throw new Error(data?.error ?? data?.hint ?? 'Gagal mengirim notifikasi tes.');
-  return data;
+  // invokeFunction memastikan token belum kedaluwarsa dan membaca badan respons
+  // non-2xx, supaya pesan aslinya ("belum ada perangkat berlangganan") sampai
+  // ke user alih-alih "non-2xx status code" yang tidak memberi tahu apa pun.
+  return invokeFunction('send-test-push', {});
 }
 
 export function pushCardHtml({ title = 'Notifikasi', compact = false } = {}) {

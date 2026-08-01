@@ -27,13 +27,25 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
   const authHeader = req.headers.get('Authorization') ?? '';
-  const callerToken = authHeader.replace('Bearer ', '');
-  if (!callerToken) return json({ error: 'Missing Authorization header' }, 401);
+  const callerToken = authHeader.replace('Bearer ', '').trim();
+  if (!callerToken) return json({ error: 'Permintaan tidak menyertakan sesi login. Muat ulang halaman lalu coba lagi.' }, 401);
+
+  // JWT selalu punya tiga bagian dipisah titik. Kalau bentuknya bukan JWT,
+  // yang terkirim hampir pasti publishable key — artinya klien merasa TIDAK
+  // ADA sesi sama sekali, bukan sesinya kedaluwarsa. Dua sebab yang berbeda
+  // jauh, dan sebelumnya menghasilkan pesan yang sama persis ("Invalid
+  // session") sehingga mustahil dibedakan dari sisi user.
+  if (callerToken.split('.').length !== 3) {
+    return json({ error: 'Kamu terbaca belum login. Keluar lalu login ulang, kemudian coba lagi.' }, 401);
+  }
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
   const { data: callerData, error: callerError } = await admin.auth.getUser(callerToken);
-  if (callerError || !callerData?.user) return json({ error: 'Invalid session' }, 401);
+  if (callerError || !callerData?.user) {
+    // Token berbentuk JWT tapi ditolak server auth -> hampir selalu kedaluwarsa.
+    return json({ error: 'Sesi login kamu sudah berakhir. Keluar lalu login ulang, kemudian coba lagi.' }, 401);
+  }
   const callerId = callerData.user.id;
 
   let payload;

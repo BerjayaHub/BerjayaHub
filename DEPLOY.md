@@ -40,6 +40,13 @@ supabase functions deploy submit-reservation
 supabase functions deploy purge-old-selfies
 ```
 
+### WAJIB juga — pesan error sesi diperbaiki
+
+```bash
+supabase functions deploy create-staff-user
+supabase functions deploy reset-staff-password
+```
+
 ### OPSIONAL — hanya baris import yang berubah
 
 ```bash
@@ -47,8 +54,6 @@ supabase functions deploy send-attendance-reminders
 supabase functions deploy send-fleet-reminders
 supabase functions deploy send-test-push
 supabase functions deploy notify-telegram
-supabase functions deploy create-staff-user
-supabase functions deploy reset-staff-password
 ```
 
 Yang sudah ter-deploy **tetap jalan normal** — dependensinya ikut ter-bundle

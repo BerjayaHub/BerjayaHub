@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { invokeFunction } from '../../core/invoke.js';
 
 /**
  * Ambil daftar staff beserta seluruh membership scope-nya, dalam batas
@@ -183,33 +184,17 @@ export async function setPrimaryScope(userId, scopeId) {
 
 /**
  * Panggil Edge Function untuk bikin staff baru (auth user + profile + scope awal).
- * Sesi admin yang sedang login otomatis disertakan sebagai Bearer token oleh
- * supabase.functions.invoke, jadi Edge Function bisa validasi siapa yang manggil.
+ *
+ * Lewat `invokeFunction()`, bukan `supabase.functions.invoke()` langsung:
+ * helper itu memastikan access token belum kedaluwarsa sebelum dikirim. Tanpa
+ * itu, tab yang dibiarkan terbuka lama akan mengirim token basi dan Edge
+ * Function membalas "Invalid session" — terdengar seperti aplikasi rusak,
+ * padahal artinya cuma login-nya sudah lewat waktu.
  */
-async function extractFunctionErrorMessage(error) {
-  try {
-    if (error?.context && typeof error.context.json === 'function') {
-      const body = await error.context.json();
-      if (body?.error) return body.error;
-    }
-  } catch {
-    // body bukan JSON atau gagal dibaca, fallback ke pesan default di bawah
-  }
-  return error?.message ?? 'Terjadi kesalahan.';
-}
-
 export async function createStaffUser(payload) {
-  const { data, error } = await supabase.functions.invoke('create-staff-user', {
-    body: payload
-  });
-  if (error) throw new Error(await extractFunctionErrorMessage(error));
-  return data;
+  return invokeFunction('create-staff-user', payload);
 }
 
 export async function resetStaffPassword(targetUserId, newPassword) {
-  const { data, error } = await supabase.functions.invoke('reset-staff-password', {
-    body: { target_user_id: targetUserId, new_password: newPassword }
-  });
-  if (error) throw new Error(await extractFunctionErrorMessage(error));
-  return data;
+  return invokeFunction('reset-staff-password', { target_user_id: targetUserId, new_password: newPassword });
 }

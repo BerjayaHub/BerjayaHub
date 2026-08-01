@@ -1221,6 +1221,26 @@ tidak punya scope di BU ini      -> KOSONG
 
 Sisanya (peta id → nama untuk rekap, dan menu khusus super admin) terdaftar sebagai pengecualian beralasan di alat auditnya.
 
+## "Invalid session" saat memanggil Edge Function (`js/core/invoke.js`)
+
+**Gejala:** Tambah Staff / Reset Password / Kirim Tes gagal dengan *Invalid session*, padahal jelas-jelas sedang login.
+
+**Penyebab.** `supabase.functions.invoke()` mengirim token apa pun yang sedang dipegang klien — **tanpa memeriksa apakah masih berlaku**. Access token Supabase berumur pendek (±1 jam) dan diperbarui otomatis di latar belakang, tapi perpanjangan itu bisa terlewat kalau tab dibiarkan terbuka lama, HP tertidur, atau koneksi sempat putus. Token basi tetap dikirim, server menolak, dan yang terbaca admin adalah "Invalid session" — terdengar seperti aplikasi rusak.
+
+**Perbaikan.** Semua pemanggilan Edge Function lewat `invokeFunction()`, yang mengambil sesi (dan **memperbaruinya kalau perlu**) sebelum mengirim, dengan jeda 60 detik supaya token yang "hampir" mati tidak sempat kedaluwarsa di tengah perjalanan. Kalau memang tidak ada sesi, yang muncul kalimat yang bisa ditindaklanjuti, bukan istilah teknis.
+
+**Dua sebab berbeda yang dulu menghasilkan pesan sama persis** — sekarang dibedakan di Edge Function:
+
+| Yang terkirim | Artinya | Pesannya sekarang |
+|---|---|---|
+| tidak ada header | permintaan tidak membawa sesi | "Muat ulang halaman lalu coba lagi." |
+| bukan JWT (publishable key) | klien merasa **belum login** | "Kamu terbaca belum login. Keluar lalu login ulang." |
+| JWT ditolak auth | sesi **kedaluwarsa** | "Sesi login kamu sudah berakhir." |
+
+Bentuk JWT dikenali dari tiga bagian dipisah titik. Tanpa pembedaan ini, "belum login" dan "sesi habis" mustahil dibedakan dari sisi user — padahal langkah perbaikannya berbeda.
+
+`invokeFunction()` sekaligus membaca badan respons non-2xx, yang **tidak** dilakukan supabase-js: tanpa itu `error.message` hanya berisi *"Edge Function returned a non-2xx status code"*, yang tidak memberi tahu apa pun. Pesan asli seperti *"chat not found"* atau *"belum ada perangkat berlangganan"* jadi tetap terlihat.
+
 ## Rotasi layar: portrait & landscape
 
 **Penyebabnya bukan CSS.** `manifest.json` berisi `"orientation": "portrait"`, yang **mengunci** PWA ke portrait — memutar HP tidak berpengaruh sama sekali karena sistem operasinya sendiri yang menolak merotasi. Kini `"orientation": "any"`.

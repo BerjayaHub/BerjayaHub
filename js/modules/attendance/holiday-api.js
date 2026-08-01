@@ -15,6 +15,7 @@
 // =========================================================
 
 import { supabase } from '../../config/supabase-client.js';
+import { invokeFunction } from '../../core/invoke.js';
 
 /**
  * Urutan sengaja: Nager.Date lebih dulu karena infrastrukturnya jauh lebih
@@ -118,20 +119,15 @@ export async function fetchNationalHolidays(year) {
 
   // Sumber yang tidak mengizinkan CORS masih bisa ditarik lewat server.
   try {
-    const { data, error } = await supabase.functions.invoke('fetch-national-holidays', { body: { year } });
-    if (error) {
-      // Badan respons non-2xx tidak dibaca otomatis oleh supabase-js — dibaca
-      // manual supaya admin tahu sumber mana yang bermasalah, bukan sekadar
-      // "non-2xx status code".
-      let detail = error.message ?? String(error);
-      try {
-        const body = await error.context?.json?.();
-        if (body?.error) detail = body.error;
-      } catch {
-        /* biarkan pakai pesan aslinya */
-      }
-      errors.push(`Edge Function: ${detail}`);
-    } else if (data?.holidays?.length) {
+    // invokeFunction sudah membaca badan respons non-2xx, jadi admin tahu sumber
+    // mana yang bermasalah — bukan sekadar "non-2xx status code".
+    let data = null;
+    try {
+      data = await invokeFunction('fetch-national-holidays', { year });
+    } catch (err) {
+      errors.push(`Edge Function: ${err.message ?? err}`);
+    }
+    if (data?.holidays?.length) {
       return { source: `${data.source} (via server)`, holidays: parseRows(data.holidays), hasJointLeave: true };
     } else if (data?.error) {
       errors.push(`Edge Function: ${data.error}`);
