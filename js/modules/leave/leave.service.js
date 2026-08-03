@@ -286,9 +286,17 @@ export async function listLeaveTypesForAdmin(businessUnitId) {
  *
  * RPC `list_bu_staff_for_admin` menentukan cakupannya sendiri sesuai peran:
  * super/bu_admin dapat seluruh BU, outlet_admin dapat outlet yang diadminkan.
+ *
+ * Staff NONAKTIF disembunyikan secara default. `includeInactive: true` dipakai
+ * LAPORAN saja — orang yang bekerja bulan lalu lalu keluar tetap harus
+ * terhitung di laporan bulan lalu. Menyembunyikannya berarti menulis ulang
+ * sejarah: total jam dan gaji jadi tidak cocok dengan kenyataan.
  */
-export async function listBuStaff(businessUnitId) {
-  const { data, error } = await supabase.rpc('list_bu_staff_for_admin', { p_business_unit_id: businessUnitId });
+export async function listBuStaff(businessUnitId, { includeInactive = false } = {}) {
+  const { data, error } = await supabase.rpc('list_bu_staff_for_admin', {
+    p_business_unit_id: businessUnitId,
+    p_include_inactive: includeInactive
+  });
   if (error) throw error;
   return (data ?? []).sort((a, b) => String(a.full_name).localeCompare(String(b.full_name)));
 }

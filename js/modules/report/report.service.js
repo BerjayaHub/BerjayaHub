@@ -4,6 +4,10 @@ import { isoFrom, isoTo } from '../../core/dates.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
 import { getNbmConfig, listOvertimeTiers, listHolidays, listNbmAdjustments, calculateNbm } from '../attendance/nbm.service.js';
 // listHolidays juga dipakai laporan Hak Cuti Pengganti (PH).
+// includeInactive: true di SELURUH laporan. Orang yang bekerja bulan lalu lalu
+// keluar tetap harus terhitung di laporan bulan lalu — menyembunyikannya berarti
+// menulis ulang sejarah, dan total jam/gaji jadi tidak cocok dengan kenyataan
+// tanpa ada penjelasan kenapa.
 import { listBuStaff } from '../leave/leave.service.js';
 import { LATE_LABEL } from '../shift/shift.service.js';
 
@@ -179,7 +183,7 @@ async function buildProfitLoss({ businessUnitId, outletId, from, to }) {
 async function buildPayrollNbm({ businessUnitId, outletId, from, to }) {
   const [records, staff] = await Promise.all([
     fetchAttendance({ businessUnitId, outletId, from, to }),
-    listBuStaff(businessUnitId).catch(() => [])
+    listBuStaff(businessUnitId, { includeInactive: true }).catch(() => [])
   ]);
   const namaStaff = new Map(staff.map((s) => [s.user_id, s.full_name]));
 
@@ -295,7 +299,7 @@ async function buildPayrollNbm({ businessUnitId, outletId, from, to }) {
 async function buildAttendanceDiscipline({ businessUnitId, outletId, from, to }) {
   const [records, staff, leaveRes] = await Promise.all([
     fetchAttendance({ businessUnitId, outletId, from, to }),
-    listBuStaff(businessUnitId).catch(() => []),
+    listBuStaff(businessUnitId, { includeInactive: true }).catch(() => []),
     supabase
       .from('leave_requests')
       .select('user_id, start_date, end_date, status, leave_types(name)')
@@ -396,7 +400,7 @@ async function buildAttendanceDiscipline({ businessUnitId, outletId, from, to })
 async function buildPhReplacement({ businessUnitId, outletId, from, to }) {
   const [records, staff, holidays] = await Promise.all([
     fetchAttendance({ businessUnitId, outletId, from, to }),
-    listBuStaff(businessUnitId).catch(() => []),
+    listBuStaff(businessUnitId, { includeInactive: true }).catch(() => []),
     listHolidays({ businessUnitId, outletId: outletId || null }).catch(() => [])
   ]);
   const namaStaff = new Map(staff.map((s) => [s.user_id, s.full_name]));

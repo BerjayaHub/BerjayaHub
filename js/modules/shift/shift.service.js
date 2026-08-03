@@ -271,9 +271,17 @@ export async function getMyScheduleFor(dateStr) {
  * mengembalikan nama + status aktif, bukan seluruh profil.
  *
  * `tingkat`: 'outlet' = ditugaskan di outlet ini; 'bu' = scope level BU.
+ *
+ * Staff NONAKTIF disembunyikan secara default. `includeInactive: true` hanya
+ * dipakai Admin Portal — supaya jadwal milik orang yang sudah keluar masih bisa
+ * dilihat dan dibatalkan. Kalau barisnya disembunyikan padahal jadwalnya ada,
+ * admin tidak akan pernah tahu jadwal itu masih menggantung di sana.
  */
-export async function listOutletStaff(outletId) {
-  const { data, error } = await supabase.rpc('list_outlet_staff', { p_outlet_id: outletId });
+export async function listOutletStaff(outletId, { includeInactive = false } = {}) {
+  const { data, error } = await supabase.rpc('list_outlet_staff', {
+    p_outlet_id: outletId,
+    p_include_inactive: includeInactive
+  });
   if (error) throw error;
   return (data ?? []).sort((a, b) => String(a.full_name).localeCompare(String(b.full_name)));
 }

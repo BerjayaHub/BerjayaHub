@@ -1235,6 +1235,25 @@ tidak punya scope di BU ini      -> KOSONG
 
 Sisanya (peta id → nama untuk rekap, dan menu khusus super admin) terdaftar sebagai pengecualian beralasan di alat auditnya.
 
+## Staff nonaktif: hilang dari daftar pilihan, TETAP ADA di riwayat (migration `0058`)
+
+Menyembunyikan staff nonaktif "di semua tempat" terdengar benar, tapi setengahnya justru merusak. Ada dua jenis daftar yang kebetulan memakai fungsi yang sama, dengan aturan berlawanan:
+
+| | Harus HILANG | Harus TETAP ADA |
+|---|---|---|
+| Jenisnya | **daftar pilihan** | **catatan riwayat** |
+| Contoh | roster Jadwal Shift, Jatah Cuti, pemilih penerima kas | Laporan payroll, Rekap Disiplin, rekap presensi periode lalu |
+| Alasan | orang yang sudah keluar tidak boleh bisa dijadwalkan atau diberi jatah | orang yang bekerja bulan lalu lalu keluar **tetap harus terhitung** di laporan bulan lalu |
+
+Menyembunyikan di laporan berarti **menulis ulang sejarah**: total jam dan gaji jadi tidak cocok dengan kenyataan, dan tidak ada penjelasan kenapa.
+
+Karena itu `list_outlet_staff()` dan `list_bu_staff_for_admin()` menerima `p_include_inactive`, **default `false`** — sisi yang aman. Yang butuh riwayat harus menyatakannya sendiri, sehingga setiap tempat yang menampilkan orang nonaktif bisa ditelusuri dari kodenya:
+
+- `report.service.js` → `includeInactive: true` di **seluruh** laporan.
+- `shift.admin.page.js` → `includeInactive: true`, lalu disaring lagi di JS agar **hanya yang masih punya jadwal** yang tampil. Kalau barisnya disembunyikan padahal jadwalnya ada, tidak akan pernah ada yang tahu jadwal itu masih menggantung.
+
+Yang sudah benar sejak awal: `list_cash_members()` (`where up.is_active is not false`) dan **Master User** — di sana justru harus tampil semua, karena itu satu-satunya tempat mengaktifkan kembali.
+
 ## Basis (★) itu TITIK AWAL, bukan kurungan
 
 **Gejala:** manager ber-role super admin, basisnya BU *Admin Divisi* / outlet *Admin*, tidak bisa melihat Jadwal Shift *Awal Bermula Cafe* sama sekali — memindahkan pemilih BU di menu atas tidak berpengaruh apa pun.

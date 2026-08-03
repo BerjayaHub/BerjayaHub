@@ -311,7 +311,7 @@ async function renderEntitlementsTab(content, businessUnitId) {
   );
 
   content.innerHTML = `
-    <p style="color:var(--color-text-muted);font-size:0.9rem">Semua staff terdaftar di BU ini. Kolom status menandai siapa yang <strong>belum diatur</strong> hak/jatah cutinya. Klik "Atur" untuk mengatur jenis cuti yang boleh diajukan &amp; jatahnya.</p>
+    <p style="color:var(--color-text-muted);font-size:0.9rem">Staff <strong>aktif</strong> di BU ini. Yang sudah dinonaktifkan di Master User tidak ditampilkan. Kolom status menandai siapa yang <strong>belum diatur</strong> hak/jatah cutinya. Klik "Atur" untuk mengatur jenis cuti yang boleh diajukan &amp; jatahnya.</p>
     <table class="data-table">
       <thead><tr><th>Staff</th><th>Status Jatah</th><th>Aksi</th></tr></thead>
       <tbody>

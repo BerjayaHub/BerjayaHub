@@ -110,7 +110,12 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
         //
         // RPC ini juga membuat daftarnya sesuai OUTLET YANG DIPILIH, bukan
         // seluruh BU — admin outlet Serpong tidak perlu melihat staf Gading.
-        listOutletStaff(state.outletId),
+        // includeInactive: staff yang sudah keluar TAPI masih punya jadwal harus
+        // tetap terlihat di sini, supaya jadwalnya bisa dibatalkan. Kalau
+        // barisnya disembunyikan padahal jadwalnya ada, tidak akan pernah ada
+        // yang tahu jadwal itu masih menggantung. Yang tanpa jadwal disaring
+        // beberapa baris di bawah.
+        listOutletStaff(state.outletId, { includeInactive: true }),
         listOutletShifts(state.outletId),
         listSchedules({ outletId: state.outletId, from: wk.from, to: wk.to }),
         getHolidayPolicy(businessUnitId, state.outletId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] })),

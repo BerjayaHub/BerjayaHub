@@ -24,6 +24,7 @@ pernah dijalankan.
 | 0055 | `0055_reservation_hotel_mode.sql` | Mode reservasi **hotel** + tipe kamar + anti double-booking |
 | 0056 | `0056_staff_check_in.sql` | Ceklis check-in oleh staff |
 | 0057 | `0057_user_email_on_insert.sql` | **Perbaikan bug**: email user baru kosong di Master User (+ backfill) |
+| 0058 | `0058_sembunyikan_staff_nonaktif.sql` | Staff nonaktif hilang dari daftar pilihan, tetap ada di laporan |
 
 > ⚠️ `0055` mendefinisikan ulang `list_attendance_outlets()`. Kalau ada yang
 > sedang membuka aplikasi saat migration jalan, minta dia refresh setelahnya.
