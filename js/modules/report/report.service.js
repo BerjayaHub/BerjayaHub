@@ -10,6 +10,7 @@ import { getNbmConfig, listOvertimeTiers, listHolidays, listNbmAdjustments, calc
 // tanpa ada penjelasan kenapa.
 import { listBuStaff } from '../leave/leave.service.js';
 import { LATE_LABEL } from '../shift/shift.service.js';
+import { laporanKasUser } from '../cash/cash.service.js';
 
 // =========================================================
 // KATALOG LAPORAN
@@ -47,6 +48,20 @@ export const REPORTS = [
     group: 'SDM',
     description: 'Satu baris per staff: hari hadir, ketepatan waktu, menit keterlambatan, dan hari cuti.',
     build: buildAttendanceDiscipline
+  },
+  {
+    key: 'cash_by_user',
+    label: 'Kas per Pemegang',
+    group: 'Keuangan',
+    // `pakaiFilterUser` dibaca halaman laporan untuk memunculkan dropdown user.
+    // Laporan lain tidak punya konsep "pemegang", jadi filternya disembunyikan
+    // di sana — filter yang tidak berpengaruh apa pun lebih membingungkan
+    // daripada tidak ada filter.
+    pakaiFilterUser: true,
+    description:
+      'Transaksi kas per pemegang: kategori, keterangan, jumlah barang & satuan, nominal, dan bukti nota. ' +
+      'Outlet diambil dari tempat kerja utama (★) pemegangnya — sejak kas mengikuti user, baris kas sendiri tidak menyimpan outlet.',
+    build: buildCashByUser
   },
   {
     key: 'ph_replacement',
@@ -456,5 +471,60 @@ async function buildPhReplacement({ businessUnitId, outletId, from, to }) {
       'Besaran hak per hari diambil dari **Cuti pengganti** di pengaturan NBM outlet basis staff. ' +
       (belumDiatur ? `${belumDiatur} outlet belum mengisi cuti pengganti, sehingga haknya 0. ` : '') +
       'Laporan ini baru sebatas **perhitungan hak**; pemberiannya ke jatah cuti staff masih dilakukan admin lewat modul Cuti.'
+  };
+}
+
+// ---------------------------------------------------------
+// 5. Kas per Pemegang
+// ---------------------------------------------------------
+
+async function buildCashByUser({ outletId, userId, from, to }) {
+  const rows = await laporanKasUser({ from, to, userId, outletId }).catch(() => []);
+
+  const label = { in: 'Masuk', out: 'Keluar', transfer_in: 'Terima transfer', transfer_out: 'Kirim transfer' };
+
+  let masuk = 0;
+  let keluar = 0;
+  for (const r of rows) {
+    const n = Number(r.amount) || 0;
+    if (n >= 0) masuk += n;
+    else keluar += Math.abs(n);
+  }
+
+  const baris = rows.map((r) => [
+    r.entry_date,
+    r.holder_name ?? '-',
+    r.outlet_name ?? '-',
+    label[r.entry_type] ?? r.entry_type,
+    r.category_name ?? '-',
+    [r.notes, r.counterpart_name ? `(${r.counterpart_name})` : ''].filter(Boolean).join(' ') || '-',
+    r.qty == null ? '-' : `${formatNum(r.qty)}${r.unit ? ` ${r.unit}` : ''}`,
+    formatRupiah(Number(r.amount) || 0),
+    r.proof_path ? 'Ada' : '—'
+  ]);
+
+  return {
+    columns: [
+      { header: 'Tanggal', width: 1 },
+      { header: 'Pemegang', width: 1.5 },
+      { header: 'Outlet', width: 1.2 },
+      { header: 'Jenis', width: 1 },
+      { header: 'Kategori', width: 1.2 },
+      { header: 'Keterangan', width: 2 },
+      { header: 'Jumlah', width: 1 },
+      { header: 'Nominal', width: 1.2, numeric: true },
+      { header: 'Nota', width: 0.7 }
+    ],
+    rows: baris,
+    summary: [
+      { label: 'Kas masuk', value: formatRupiah(masuk) },
+      { label: 'Kas keluar', value: formatRupiah(keluar) },
+      { label: 'Selisih', value: formatRupiah(masuk - keluar) },
+      { label: 'Transaksi', value: formatNum(rows.length) }
+    ],
+    note:
+      'Saldo kas melekat pada USER, bukan outlet — kolom Outlet di sini diturunkan dari tempat kerja utama (★) pemegangnya, ' +
+      'jadi memindahkan basis seseorang akan mengubah pengelompokan laporan ini. ' +
+      'Transfer antar pemegang tidak memerlukan nota, karena tidak ada nota yang bisa difoto.'
   };
 }

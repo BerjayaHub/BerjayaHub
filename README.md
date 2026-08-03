@@ -1235,6 +1235,32 @@ tidak punya scope di BU ini      -> KOSONG
 
 Sisanya (peta id → nama untuk rekap, dan menu khusus super admin) terdaftar sebagai pengecualian beralasan di alat auditnya.
 
+## Kas: jumlah + satuan, nota wajib, dan Laporan Kas (migration `0060`)
+
+**Jumlah barang & satuan dipisah dari keterangan** (Bensin · **10** · **liter**). Ditulis sebagai satu kalimat, "Bensin 10 liter" tidak bisa dijumlahkan di laporan — dan menjumlahkan itulah gunanya kolom.
+
+**Foto nota WAJIB** untuk transaksi masuk/keluar. Transfer antar pemegang **dikecualikan**: uang berpindah antar orang, tidak ada nota yang bisa difoto — memaksakannya membuat transfer mustahil dilakukan.
+
+### Urutan unggah dibalik, dan itu yang membuat aturannya bisa ditegakkan
+
+Modul lain menyimpan barisnya dulu lalu mengisi `proof_path` lewat UPDATE. Dengan pola itu, constraint "nota wajib" **tidak mungkin** ditegakkan — barisnya sudah terlanjur masuk tanpa nota, dan UPDATE yang gagal tidak menghasilkan error apa pun (persis bug email di `0057`).
+
+Di sini fotonya diunggah **lebih dulu**, memakai id yang dibuat klien, lalu barisnya di-insert dengan `proof_path` sudah terisi. Bisa dibalik karena policy Storage bucket ini berbasis **prefix path** (`{uid}/...`), bukan berdasarkan ada-tidaknya baris kas. Kalau insert-nya gagal, fotonya dihapus supaya tidak jadi file yatim.
+
+Constraint-nya `NOT VALID` — hanya berlaku untuk baris **baru**. Entri lama tanpa nota tidak diutak-atik: memvalidasi mundur akan menggagalkan migration hanya karena data historis, dan riwayat kas justru yang paling tidak boleh diubah belakangan.
+
+### Laporan Kas per Pemegang
+
+Filter **pemegang + outlet + periode**, dengan **Export Excel**.
+
+⚠️ **Outlet di sini diturunkan dari tempat kerja utama (★) pemegangnya**, bukan dari baris kasnya. Sejak `0040` kas mengikuti USER — `cash_entries.outlet_id` sudah tidak diisi lagi. Kalau filter outlet membaca kolom itu, hasilnya akan **selalu kosong** dan terlihat seperti tidak ada datanya. Konsekuensinya: memindahkan basis ★ seseorang akan mengubah pengelompokan laporan ini.
+
+Lewat RPC `laporan_kas_user()` karena RLS `cash_entries` hanya membuka baris milik sendiri; laporan perlu lintas orang, dan itu dibuka terkendali di dalam RPC — bukan dengan melonggarkan policy tabelnya.
+
+**Export Excel berlaku untuk SEMUA laporan**, bukan cuma kas. Kolom bertanda `numeric` ditulis sebagai **angka**, bukan teks — kalau jadi teks, `SUM` di Excel menghasilkan nol, dan justru menjumlahkan itulah alasan orang meminta Excel alih-alih PDF.
+
+Dropdown pemegang hanya muncul untuk laporan yang memakainya (`pakaiFilterUser`). Filter yang tidak berpengaruh apa pun lebih membingungkan daripada tidak ada filter — orang akan mengubahnya lalu heran kenapa hasilnya sama.
+
 ## Divisi (Kitchen, Bar, Mekanik) — migration `0059_divisi.sql`
 
 Staff dikelompokkan per **divisi**, dipakai untuk mengurutkan tabel **Jadwal Shift** dan **Rekap Presensi**. Diatur di **Master User → 🏷️ Kelola Divisi**, lalu dipilih pada tiap scope.

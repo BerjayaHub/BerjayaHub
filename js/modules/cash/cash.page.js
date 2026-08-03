@@ -1,5 +1,5 @@
 import { toast, formDialog } from '../../core/ui.js';
-import { formatRupiah } from '../../core/format.js';
+import { formatRupiah, formatNum } from '../../core/format.js';
 import {
   ENTRY_LABEL,
   listCashCategories,
@@ -67,7 +67,9 @@ export async function renderCashPage(container, { userId }) {
                   return `<tr>
                     <td style="font-size:0.82rem">${fmtDate(e.entry_date)}</td>
                     <td>${ENTRY_LABEL[e.entry_type] ?? e.entry_type}</td>
-                    <td>${esc(ket)}${e.notes ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${esc(e.notes)}</div>` : ''}</td>
+                    <td>${esc(ket)}${e.notes ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${esc(e.notes)}</div>` : ''}${
+                      e.qty ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${formatNum(e.qty)} ${esc(e.unit ?? '')}</div>` : ''
+                    }</td>
                     <td style="color:${color};font-weight:600">${amt >= 0 ? '+' : '−'}${formatRupiah(Math.abs(amt))}</td>
                     <td>${e.proof_path ? `<button class="btn-proof" data-path="${e.proof_path}">Bukti</button>` : ''}</td>
                   </tr>`;
@@ -97,19 +99,37 @@ export async function renderCashPage(container, { userId }) {
     const values = await formDialog({
       title: isOut ? 'Catat Kas Keluar' : 'Catat Kas Masuk',
       fields: [
-        { name: 'amount', label: 'Jumlah', type: 'money', required: true },
+        { name: 'amount', label: 'Jumlah uang (Rp)', type: 'money', required: true },
         { name: 'category_id', label: 'Kategori', type: 'select', options: catOptions(type) },
+        { name: 'notes', label: 'Keterangan', type: 'text', required: true, placeholder: 'mis. Bensin' },
+        // Kuantitas & satuan dipisah dari keterangan supaya bisa dijumlahkan di
+        // laporan. "Bensin 10 liter" sebagai satu kalimat tidak bisa dihitung.
+        { name: 'qty', label: 'Jumlah barang', type: 'qty', placeholder: 'mis. 10' },
+        { name: 'unit', label: 'Satuan', type: 'text', placeholder: 'mis. liter / pcs / kg' },
         { name: 'date', label: 'Tanggal', type: 'date', value: todayWIB() },
-        { name: 'notes', label: 'Keterangan (opsional)', type: 'text' },
         // Bukti kas hampir selalu difoto di tempat (nota, struk), bukan diambil
         // dari galeri — jadi kamera didahulukan, galeri tetap tersedia.
-        { name: 'file', label: 'Foto bukti (opsional)', type: 'photo', facing: 'environment' }
+        {
+          name: 'file',
+          label: 'Foto nota (wajib)',
+          type: 'photo',
+          facing: 'environment',
+          required: true,
+          help: 'Setiap transaksi kas harus punya bukti. Transfer antar pemegang kas tidak perlu.'
+        }
       ],
       submitText: 'Simpan'
     });
     if (!values) return;
     if (!(values.amount > 0)) {
-      toast('Jumlah harus lebih dari 0.', 'warning');
+      toast('Jumlah uang harus lebih dari 0.', 'warning');
+      return;
+    }
+    if (!values.file) {
+      // Dijaga di tiga lapis: `required` di form, pemeriksaan ini, dan constraint
+      // `cash_entries_nota_wajib` di database. Yang terakhir yang menentukan —
+      // dua yang pertama hanya supaya pesannya ramah, bukan pesan constraint.
+      toast('Foto nota wajib dilampirkan.', 'warning');
       return;
     }
     try {
@@ -118,6 +138,8 @@ export async function renderCashPage(container, { userId }) {
         amount: values.amount,
         categoryId: values.category_id,
         notes: values.notes,
+        qty: values.qty,
+        unit: values.unit,
         date: values.date,
         file: values.file
       });

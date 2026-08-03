@@ -51,33 +51,56 @@ export async function deleteCashCategory(id) {
  * Catat kas masuk/keluar. TIDAK menyimpan BU/outlet — sejak 0040 kas melekat
  * pada USER, jadi saldonya sama di BU/outlet mana pun dia login.
  */
-export async function recordCashEntry({ type, amount, categoryId, notes, date, file }) {
+export async function recordCashEntry({ type, amount, categoryId, notes, date, qty, unit, file }) {
   const uid = await currentUserId();
   if (!uid) throw new Error('Sesi tidak ditemukan, silakan login ulang.');
+  if (!file) throw new Error('Foto nota wajib dilampirkan untuk setiap transaksi kas.');
+
   const signed = type === 'out' ? -Math.abs(amount) : Math.abs(amount);
+
+  // FOTO DIUNGGAH LEBIH DULU, baris kas menyusul.
+  //
+  // Urutannya sengaja dibalik dari pola modul lain. Kalau barisnya dibuat dulu
+  // lalu `proof_path` diisi belakangan lewat UPDATE, constraint "nota wajib"
+  // (migration 0060) tidak mungkin ditegakkan — baris sudah terlanjur masuk
+  // tanpa nota, dan UPDATE yang gagal tidak menghasilkan error apa pun.
+  //
+  // Bisa dibalik karena policy Storage bucket ini berbasis PREFIX PATH
+  // (`{uid}/...`), bukan berdasarkan ada-tidaknya baris kas. Jadi file boleh
+  // ditulis sebelum barisnya lahir.
+  const id = crypto.randomUUID();
+  const kecil = await compressImage(file, { preset: 'bukti' });
+  const ext = (kecil.name?.split('.').pop() || 'jpg').toLowerCase();
+  const path = `${uid}/${id}.${ext}`;
+
+  const { error: upErr } = await supabase.storage
+    .from('cash-proofs')
+    .upload(path, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
+  if (upErr) throw upErr;
+
   const { data, error } = await supabase
     .from('cash_entries')
     .insert({
+      id,
       holder_id: uid,
       entry_type: type,
       amount: signed,
       category_id: categoryId || null,
       notes: notes || null,
+      qty: qty === '' || qty == null ? null : Number(qty),
+      unit: unit?.trim() || null,
+      proof_path: path,
       entry_date: date || todayWIB(),
       created_by: uid
     })
     .select()
     .single();
-  if (error) throw error;
 
-  if (file) {
-    const kecil = await compressImage(file, { preset: 'bukti' });
-    const ext = (kecil.name?.split('.').pop() || 'jpg').toLowerCase();
-    const path = `${uid}/${data.id}.${ext}`;
-    const { error: upErr } = await supabase.storage.from('cash-proofs').upload(path, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
-    if (upErr) throw upErr;
-    const { error: updErr } = await supabase.from('cash_entries').update({ proof_path: path }).eq('id', data.id);
-    if (updErr) throw updErr;
+  if (error) {
+    // Barisnya gagal -> fotonya jadi yatim. Dibersihkan supaya bucket tidak
+    // terisi file yang tidak pernah bisa ditemukan lagi lewat aplikasi.
+    await supabase.storage.from('cash-proofs').remove([path]).catch(() => {});
+    throw error;
   }
   return data;
 }
@@ -106,7 +129,7 @@ export async function listMyCashEntries(limit = 50) {
   if (!uid) return [];
   const { data, error } = await supabase
     .from('cash_entries')
-    .select('id, entry_type, amount, notes, entry_date, proof_path, created_at, cash_categories(name), counterpart:user_profiles!counterpart_id(full_name)')
+    .select('id, entry_type, amount, notes, qty, unit, entry_date, proof_path, created_at, cash_categories(name), counterpart:user_profiles!counterpart_id(full_name)')
     .eq('holder_id', uid)
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -161,6 +184,26 @@ export async function listRecentCashActivity({ limit = 25, before = null } = {})
     .limit(limit);
   if (before) query = query.lt('created_at', before);
   const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Laporan kas per pemegang, untuk modul Laporan.
+ *
+ * Lewat RPC karena dua alasan yang tidak bisa diatasi dari sisi klien:
+ *   1. Sejak 0040 baris kas TIDAK menyimpan outlet — outlet di laporan
+ *      diturunkan dari tempat kerja utama (★) pemegangnya.
+ *   2. RLS cash_entries hanya membuka baris milik sendiri; laporan perlu
+ *      lintas orang, dan itu dibuka terkendali di dalam RPC.
+ */
+export async function laporanKasUser({ from, to, userId = null, outletId = null }) {
+  const { data, error } = await supabase.rpc('laporan_kas_user', {
+    p_from: from,
+    p_to: to,
+    p_user: userId || null,
+    p_outlet: outletId || null
+  });
   if (error) throw error;
   return data ?? [];
 }

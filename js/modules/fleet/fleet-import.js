@@ -1,20 +1,5 @@
+import { loadXLSX } from '../../core/xlsx.js';
 import { listVehicles, createVehicle, updateVehicle, loadFleetMasters, ensureBrand, ensureModel, ensureArea } from './fleet.service.js';
-
-// ---- Loader SheetJS (dari CDN, dipakai untuk baca .xlsx/.csv) ----
-let xlsxPromise = null;
-function loadXLSX() {
-  if (window.XLSX) return Promise.resolve(window.XLSX);
-  if (!xlsxPromise) {
-    xlsxPromise = new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-      s.onload = () => resolve(window.XLSX);
-      s.onerror = () => reject(new Error('Gagal memuat pustaka Excel (cek koneksi internet).'));
-      document.head.appendChild(s);
-    });
-  }
-  return xlsxPromise;
-}
 
 async function readRows(file) {
   const XLSX = await loadXLSX();

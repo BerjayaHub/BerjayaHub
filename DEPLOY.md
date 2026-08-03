@@ -26,6 +26,7 @@ pernah dijalankan.
 | 0057 | `0057_user_email_on_insert.sql` | **Perbaikan bug**: email user baru kosong di Master User (+ backfill) |
 | 0058 | `0058_sembunyikan_staff_nonaktif.sql` | Staff nonaktif hilang dari daftar pilihan, tetap ada di laporan |
 | 0059 | `0059_divisi.sql` | Divisi per BU + kolom divisi di scope; tabel shift & rekap presensi dikelompokkan |
+| 0060 | `0060_kas_qty_unit_dan_laporan.sql` | Kas: jumlah + satuan, nota wajib, RPC Laporan Kas per Pemegang |
 
 > ⚠️ `0055` mendefinisikan ulang `list_attendance_outlets()`. Kalau ada yang
 > sedang membuka aplikasi saat migration jalan, minta dia refresh setelahnya.
@@ -189,6 +190,11 @@ select net.http_post(
 - **Video Tutorial** (menu baru, super admin) → tempel link YouTube **Unlisted**.
 - Cek **Master User** → kolom Email terisi. Kalau kosong untuk *semua* orang,
   berarti `0049` belum jalan.
+- **Kas** → transaksi kini wajib melampirkan **foto nota**, dan ada isian
+  *Jumlah barang* + *Satuan* (mis. Bensin · 10 · liter). Transfer antar pemegang
+  tidak butuh nota.
+- **Laporan → Kas per Pemegang** → filter pemegang + outlet + periode, bisa
+  **Export Excel**. Kolom Outlet diturunkan dari tempat kerja utama (★).
 - **Master User → 🏷️ Kelola Divisi** → isi divisi tiap BU (mis. Kitchen, Bar),
   lalu tetapkan divisi pada scope tiap staff lewat tombol ✎ di badge scope-nya.
   ⚠️ **Staff tanpa divisi tidak akan muncul di Jadwal Shift** — jadi ini wajib

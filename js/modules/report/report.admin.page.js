@@ -1,5 +1,7 @@
 import { toast } from '../../core/ui.js';
 import { exportTablePDF } from '../../core/pdf.js';
+import { exportTableXLSX } from '../../core/xlsx.js';
+import { listBuStaff } from '../leave/leave.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { REPORTS, getReport } from './report.service.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
@@ -14,7 +16,7 @@ import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
  */
 export async function renderReportAdminPage(container, { businessUnitId }) {
   const range = monthRangeWIB();
-  const state = { key: REPORTS[0].key, outletId: '', from: range.from, to: range.to };
+  const state = { key: REPORTS[0].key, outletId: '', userId: '', from: range.from, to: range.to };
   let last = null; // { report, data, subtitle }
 
   const outlets = await listMyOutlets(businessUnitId).catch(() => []);
@@ -49,10 +51,15 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
           ${outlets.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}
         </select>
       </div>
+      <div class="field" style="margin:0;max-width:220px" id="rp-user-wrap" hidden>
+        <label for="rp-user">Pemegang kas</label>
+        <select id="rp-user"><option value="">Semua orang</option></select>
+      </div>
       <div class="field" style="margin:0;max-width:165px"><label for="rp-from">Dari tanggal</label><input type="date" id="rp-from" value="${range.from}" /></div>
       <div class="field" style="margin:0;max-width:165px"><label for="rp-to">Sampai tanggal</label><input type="date" id="rp-to" value="${range.to}" /></div>
       <button class="primary" id="rp-run" style="max-width:130px">Tampilkan</button>
-      <button id="rp-pdf">⇩ Export PDF</button>
+      <button id="rp-pdf">⇩ PDF</button>
+      <button id="rp-xlsx">⇩ Excel</button>
     </div>
     <p id="rp-desc" style="font-size:0.82rem;color:var(--color-text-muted);margin:8px 2px 0"></p>
     <div id="rp-result" style="margin-top:12px"></div>
@@ -62,23 +69,58 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
   const result = container.querySelector('#rp-result');
   const desc = container.querySelector('#rp-desc');
 
+  const userWrap = container.querySelector('#rp-user-wrap');
+  const userSel = container.querySelector('#rp-user');
+  let staffDimuat = false;
+
+  /**
+   * Dropdown pemegang kas hanya muncul untuk laporan yang memang memakainya.
+   * Filter yang tidak berpengaruh apa pun lebih membingungkan daripada tidak
+   * ada filter — orang akan mengubahnya lalu heran kenapa hasilnya sama.
+   *
+   * Daftarnya dimuat MALAS (sekali saat pertama dibutuhkan), supaya laporan
+   * lain tidak menanggung satu query tambahan yang tidak dipakai.
+   */
+  async function syncFilterUser() {
+    const perlu = !!getReport(state.key)?.pakaiFilterUser;
+    userWrap.hidden = !perlu;
+    if (!perlu || staffDimuat) return;
+    staffDimuat = true;
+    try {
+      const staff = await listBuStaff(businessUnitId, { includeInactive: true });
+      userSel.innerHTML =
+        '<option value="">Semua orang</option>' +
+        staff.map((st) => `<option value="${esc(st.user_id)}">${esc(st.full_name)}</option>`).join('');
+    } catch {
+      staffDimuat = false; // biar dicoba lagi kalau gagal
+    }
+  }
+
   const showDesc = () => {
     desc.textContent = getReport(sel.value).description ?? '';
   };
   sel.addEventListener('change', () => {
     state.key = sel.value;
+    // Ganti laporan -> filter user direset, supaya tidak diam-diam terbawa ke
+    // laporan berikutnya dan menghasilkan angka yang tidak bisa dijelaskan.
+    state.userId = '';
+    userSel.value = '';
     showDesc();
+    syncFilterUser();
     run();
   });
   container.querySelector('#rp-outlet').addEventListener('change', (e) => (state.outletId = e.target.value));
+  userSel.addEventListener('change', (e) => (state.userId = e.target.value));
   container.querySelector('#rp-from').addEventListener('change', (e) => (state.from = e.target.value));
   container.querySelector('#rp-to').addEventListener('change', (e) => (state.to = e.target.value));
   container.querySelector('#rp-run').addEventListener('click', run);
   container.querySelector('#rp-pdf').addEventListener('click', exportPdf);
+  container.querySelector('#rp-xlsx').addEventListener('click', exportXlsx);
 
   function subtitleOf() {
     const outlet = state.outletId ? outletNames.get(state.outletId) ?? '-' : 'Semua outlet';
-    return `${outlet} · Periode ${fmtDate(state.from)} – ${fmtDate(state.to)}`;
+    const orang = state.userId ? ` · ${userSel.options[userSel.selectedIndex]?.text ?? ''}` : '';
+    return `${outlet}${orang} · Periode ${fmtDate(state.from)} – ${fmtDate(state.to)}`;
   }
 
   async function run() {
@@ -87,7 +129,13 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
     if (state.from > state.to) return toast('Tanggal "dari" melewati tanggal "sampai".', 'warning');
     result.innerHTML = `<p style="color:var(--color-text-muted)">Menghitung ${esc(report.label)}…</p>`;
     try {
-      const data = await report.build({ businessUnitId, outletId: state.outletId, from: state.from, to: state.to });
+      const data = await report.build({
+        businessUnitId,
+        outletId: state.outletId,
+        userId: state.userId || null,
+        from: state.from,
+        to: state.to
+      });
       last = { report, data, subtitle: subtitleOf() };
       result.innerHTML = renderResult(report, data, subtitleOf());
     } catch (error) {
@@ -112,7 +160,28 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
     }
   }
 
+  async function exportXlsx() {
+    if (!last?.data?.rows?.length) return toast('Tampilkan laporannya dulu.', 'warning');
+    try {
+      await exportTableXLSX({
+        title: last.report.label,
+        subtitle: last.subtitle,
+        // `numeric` diteruskan supaya kolom nominal tetap ANGKA di Excel —
+        // kalau jadi teks, SUM-nya nol, dan itulah justru alasan orang minta
+        // Excel alih-alih PDF.
+        columns: last.data.columns.map((c) => ({ header: c.header, numeric: !!c.numeric })),
+        rows: last.data.rows,
+        sheetName: last.report.label,
+        filename: `laporan-${last.report.key}`
+      });
+      toast('Excel laporan terunduh.', 'success');
+    } catch (error) {
+      toast(error.message ?? 'Gagal membuat Excel.', 'error');
+    }
+  }
+
   showDesc();
+  await syncFilterUser();
   await run();
 }
 
