@@ -16,7 +16,8 @@ import {
   todayWIB,
   shiftCrossesMidnight,
   resolveAutoOff,
-  holidayMapOf
+  holidayMapOf,
+  kelompokkanPerDivisi
 } from './shift.service.js';
 import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
@@ -142,6 +143,18 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
     const adaJadwal = new Set(schedules.map((s) => s.user_id));
     staff = staff.filter((s) => s.is_active !== false || adaJadwal.has(s.user_id));
 
+    // Dikelompokkan per divisi, sama seperti Staff App. Yang belum berdivisi
+    // tidak muncul di grid — TAPI kalau dia sudah terlanjur punya jadwal, dia
+    // tetap ditampilkan: menyembunyikan baris yang punya data berarti jadwalnya
+    // tidak bisa dilihat maupun dibatalkan, dan tidak ada yang akan tahu.
+    const yatim = staff.filter((s) => !s.division_id && adaJadwal.has(s.user_id));
+    const { baris, tanpaDivisi } = kelompokkanPerDivisi(staff);
+    if (yatim.length) {
+      baris.push({ jenis: 'divisi', nama: 'Tanpa divisi (sudah terjadwal)' });
+      for (const y of yatim) baris.push({ jenis: 'staff', ...y });
+    }
+    const belumDiatur = tanpaDivisi.filter((s) => !adaJadwal.has(s.user_id));
+
     const opts = (sel) =>
       `<option value=""${!sel ? ' selected' : ''}>–</option>` +
       `<option value="off"${sel === 'off' ? ' selected' : ''}>Libur</option>` +
@@ -160,9 +173,11 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
           </thead>
           <tbody>
             ${
-              staff
-                .map(
-                  (st) => `<tr>
+              baris
+                .map((st) =>
+                  st.jenis === 'divisi'
+                    ? `<tr class="shift-divisi"><td colspan="8">${esc(st.nama)}</td></tr>`
+                    : `<tr>
                     <td>${esc(st.full_name)}${st.is_active === false ? ' <span style="font-size:0.7rem;color:var(--color-danger)">(nonaktif)</span>' : ''}${
                       // Scope level BU (mis. admin BU) mencakup semua outlet, jadi
                       // orangnya muncul di setiap outlet. Diberi tanda supaya admin
@@ -183,11 +198,20 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
                   </tr>`
                 )
                 .join('') ||
-              `<tr><td colspan="8" style="color:var(--color-text-muted)">Belum ada staff yang terdaftar di outlet ini. Tambahkan scope outlet-nya di <strong>Master User</strong>.</td></tr>`
+              `<tr><td colspan="8" style="color:var(--color-text-muted)">Belum ada staff berdivisi di outlet ini. Atur divisinya lewat <strong>Master User → Kelola Divisi</strong>.</td></tr>`
             }
           </tbody>
         </table>
       </div>
+      ${
+        belumDiatur.length
+          ? `<p style="font-size:0.78rem;color:var(--color-danger);margin-top:8px">
+               ⚠️ ${belumDiatur.length} staff belum punya divisi, jadi tidak bisa dijadwalkan:
+               <em>${belumDiatur.map((s) => esc(s.full_name)).join(', ')}</em>.
+               Atur divisinya di <strong>Master User</strong>.
+             </p>`
+          : ''
+      }
       ${
         adaAutoOff
           ? `<p style="font-size:0.76rem;color:var(--color-text-muted);margin-top:8px">

@@ -10,8 +10,9 @@ export async function listStaffWithScopes() {
   const { data, error } = await supabase
     .from('membership_scopes')
     .select(`
-      id, role, business_unit_id, outlet_id, is_primary,
+      id, role, business_unit_id, outlet_id, is_primary, division_id,
       business_units(name),
+      divisions(name),
       outlets(name),
       user_profiles(id, full_name, phone, email, is_active)
     `)
@@ -38,6 +39,52 @@ export async function listBusinessUnits() {
   return data ?? [];
 }
 
+// ---- Divisi (Kitchen, Bar, Mekanik, dst) ----
+//
+// Melekat pada SCOPE, bukan user: orang yang bekerja di Cafe dan Bengkel bisa
+// berbeda divisinya di masing-masing tempat.
+
+export async function listDivisions(businessUnitId, onlyActive = true) {
+  let q = supabase
+    .from('divisions')
+    .select('id, name, sort_order, is_active')
+    .eq('business_unit_id', businessUnitId)
+    .order('sort_order')
+    .order('name');
+  if (onlyActive) q = q.eq('is_active', true);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function saveDivision({ id, businessUnitId, name, sort_order, is_active }) {
+  const baris = {
+    business_unit_id: businessUnitId,
+    name: String(name ?? '').trim(),
+    sort_order: Number(sort_order) || 0,
+    is_active: is_active !== false
+  };
+  if (id) {
+    const { data, error } = await supabase.from('divisions').update(baris).eq('id', id).select('id');
+    if (error) throw error;
+    if (!data?.length) throw new Error('Tidak bisa mengubah divisi ini — kamu bukan admin BU-nya.');
+    return;
+  }
+  const { error } = await supabase.from('divisions').insert(baris);
+  if (error) throw error;
+}
+
+/**
+ * Hapus divisi. Scope yang memakainya TIDAK ikut terhapus — kolomnya jadi NULL
+ * (`on delete set null`), jadi orangnya cuma kembali "belum berdivisi".
+ * Menghapus keanggotaan orang hanya karena divisinya dihapus jelas berlebihan.
+ */
+export async function deleteDivision(id) {
+  const { data, error } = await supabase.from('divisions').delete().eq('id', id).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('Tidak bisa menghapus divisi ini — kamu bukan admin BU-nya.');
+}
+
 export async function listOutlets(businessUnitId) {
   const { data, error } = await supabase
     .from('outlets')
@@ -56,17 +103,17 @@ export async function updateProfile(userId, { full_name, phone, is_active }) {
   if (error) throw error;
 }
 
-export async function addMembershipScope({ user_id, business_unit_id, outlet_id, role }) {
+export async function addMembershipScope({ user_id, business_unit_id, outlet_id, role, division_id }) {
   const { error } = await supabase
     .from('membership_scopes')
-    .insert({ user_id, business_unit_id, outlet_id: outlet_id || null, role });
+    .insert({ user_id, business_unit_id, outlet_id: outlet_id || null, role, division_id: division_id || null });
   if (error) throw error;
 }
 
-export async function updateMembershipScope(scopeId, { business_unit_id, outlet_id, role }) {
+export async function updateMembershipScope(scopeId, { business_unit_id, outlet_id, role, division_id }) {
   const { error } = await supabase
     .from('membership_scopes')
-    .update({ business_unit_id, outlet_id: outlet_id || null, role })
+    .update({ business_unit_id, outlet_id: outlet_id || null, role, division_id: division_id || null })
     .eq('id', scopeId);
   if (error) throw error;
 }

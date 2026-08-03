@@ -7,7 +7,8 @@ import {
   todayWIB,
   shiftCrossesMidnight,
   resolveAutoOff,
-  holidayMapOf
+  holidayMapOf,
+  kelompokkanPerDivisi
 } from './shift.service.js';
 import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
 import { getMyBaseScope } from '../../core/base-scope.js';
@@ -127,7 +128,12 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
     // outlet) hanya ikut tampil kalau memang punya jadwal di sini. Kalau tidak,
     // tabel outlet kecil akan penuh nama orang yang tidak pernah masuk ke situ.
     const scheduled = new Set(schedules.map((s) => s.user_id));
-    const rows = staff.filter((s) => s.tingkat === 'outlet' || scheduled.has(s.user_id) || s.user_id === userId);
+    const terpakai = staff.filter((s) => s.tingkat === 'outlet' || scheduled.has(s.user_id) || s.user_id === userId);
+    // Dikelompokkan per divisi. Yang belum berdivisi TIDAK ikut tampil (sesuai
+    // keputusan) — tapi jumlahnya diberitahukan di bawah tabel, karena orang
+    // yang hilang tanpa penjelasan adalah cara tercepat membuat orang mengira
+    // aplikasinya rusak.
+    const { baris, tanpaDivisi } = kelompokkanPerDivisi(terpakai);
     const today = todayWIB();
 
     grid.innerHTML = `
@@ -146,9 +152,11 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
           </thead>
           <tbody>
             ${
-              rows
-                .map(
-                  (st) => `<tr${st.user_id === userId ? ' class="shift-me"' : ''}>
+              baris
+                .map((st) =>
+                  st.jenis === 'divisi'
+                    ? `<tr class="shift-divisi"><td colspan="8">${esc(st.nama)}</td></tr>`
+                    : `<tr${st.user_id === userId ? ' class="shift-me"' : ''}>
                     <td>${esc(st.full_name)}${st.user_id === userId ? ' <span class="badge badge-approved" style="font-size:0.65rem">Saya</span>' : ''}</td>
                     ${wk.days
                       .map((d) => {
@@ -168,11 +176,20 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
                   </tr>`
                 )
                 .join('') ||
-              `<tr><td colspan="8" style="color:var(--color-text-muted)">Belum ada staff yang terdaftar di outlet ini. Minta admin menambahkan scope outlet di Master User.</td></tr>`
+              `<tr><td colspan="8" style="color:var(--color-text-muted)">Belum ada staff berdivisi di outlet ini.</td></tr>`
             }
           </tbody>
         </table>
       </div>
+      ${
+        tanpaDivisi.length
+          ? `<p style="font-size:0.76rem;color:var(--color-text-muted);margin-top:8px">
+               ${tanpaDivisi.length} staff belum punya divisi dan tidak ditampilkan:
+               <em>${tanpaDivisi.map((s) => esc(s.full_name)).join(', ')}</em>.
+               Admin bisa mengaturnya di Master User.
+             </p>`
+          : ''
+      }
       ${
         shifts.filter((s) => s.is_active).length
           ? `<p style="font-size:0.76rem;color:var(--color-text-muted);margin-top:8px">${shifts

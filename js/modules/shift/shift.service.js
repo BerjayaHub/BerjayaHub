@@ -290,3 +290,38 @@ export async function listOutletStaff(outletId, { includeInactive = false } = {}
 export function isShiftEnabled(outlet) {
   return !!outlet?.shift_enabled;
 }
+
+/**
+ * Susun baris roster: dikelompokkan per divisi, dengan penanda kelompok.
+ *
+ * Staff TANPA divisi TIDAK ikut — sesuai keputusan, roster shift hanya berisi
+ * orang yang sudah ditentukan divisinya. Tapi jumlahnya dikembalikan supaya UI
+ * bisa memberi tahu; menghilangkan orang tanpa sepatah kata pun adalah cara
+ * tercepat membuat admin curiga aplikasinya rusak.
+ *
+ * @returns {{ baris: Array, tanpaDivisi: Array }}
+ *   `baris` berisi { jenis: 'divisi'|'staff', ... } supaya UI tinggal merender
+ *   berurutan tanpa perlu tahu aturan pengelompokannya.
+ */
+export function kelompokkanPerDivisi(staff) {
+  const tanpaDivisi = staff.filter((s) => !s.division_id);
+  const berdivisi = staff.filter((s) => s.division_id);
+
+  berdivisi.sort(
+    (a, b) =>
+      (a.division_sort ?? 0) - (b.division_sort ?? 0) ||
+      String(a.division_name ?? '').localeCompare(String(b.division_name ?? '')) ||
+      String(a.full_name ?? '').localeCompare(String(b.full_name ?? ''))
+  );
+
+  const baris = [];
+  let divisiTerakhir = null;
+  for (const s of berdivisi) {
+    if (s.division_id !== divisiTerakhir) {
+      divisiTerakhir = s.division_id;
+      baris.push({ jenis: 'divisi', nama: s.division_name ?? 'Divisi' });
+    }
+    baris.push({ jenis: 'staff', ...s });
+  }
+  return { baris, tanpaDivisi };
+}

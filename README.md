@@ -1235,6 +1235,31 @@ tidak punya scope di BU ini      -> KOSONG
 
 Sisanya (peta id → nama untuk rekap, dan menu khusus super admin) terdaftar sebagai pengecualian beralasan di alat auditnya.
 
+## Divisi (Kitchen, Bar, Mekanik) — migration `0059_divisi.sql`
+
+Staff dikelompokkan per **divisi**, dipakai untuk mengurutkan tabel **Jadwal Shift** dan **Rekap Presensi**. Diatur di **Master User → 🏷️ Kelola Divisi**, lalu dipilih pada tiap scope.
+
+**Melekat di SCOPE, bukan di user.** Orang yang bekerja di Cafe *dan* Bengkel bisa jadi "Kitchen" di Cafe dan "Mekanik" di Bengkel. Kalau divisi ditaruh sebagai satu kolom di `user_profiles`, nilainya pasti salah di salah satu tempat dan tidak ada cara memperbaikinya selain membongkar desainnya.
+
+**Daftar master, bukan teks bebas.** "Kitchen", "kitchen", dan "Ktichen" akan jadi tiga kelompok terpisah — dan pengelompokannya rusak tanpa ada yang sadar, karena tabelnya tetap tampil rapi, cuma isinya salah.
+
+**Urutan diatur admin**, bukan abjad: "Kitchen sebelum Bar" adalah urutan operasional yang masuk akal, sedangkan abjad memaksa sebaliknya.
+
+Trigger `divisi_cocok_bu()` menjaga divisi benar-benar milik BU yang sama dengan scope-nya — tanpa itu, panggilan API langsung bisa menempelkan divisi Cafe ke scope Bengkel, dan itu tidak akan terlihat di UI mana pun karena dropdown-nya memang sudah benar.
+
+### Aturan tampil berbeda antara dua tabel — dan itu disengaja
+
+| | Jadwal Shift | Rekap Presensi |
+|---|---|---|
+| Staff **tanpa divisi** | **tidak tampil** | **tetap tampil**, dikelompokkan "Tanpa divisi" |
+| Alasan | roster adalah rencana — orang yang belum ditentukan bagiannya belum siap dijadwalkan | rekap adalah **bukti kehadiran**; menghilangkan baris yang datanya ada berarti jam kerja seseorang lenyap dari catatan |
+
+**Yang hilang selalu diberitahukan.** Di kedua tampilan shift, staff tanpa divisi disebut jumlah **dan namanya** di bawah tabel. Orang yang menghilang tanpa penjelasan adalah cara tercepat membuat admin mengira aplikasinya rusak.
+
+Pengecualian di Admin Portal: staff tanpa divisi yang **sudah terlanjur punya jadwal** tetap ditampilkan (kelompok "Tanpa divisi (sudah terjadwal)"). Menyembunyikan baris yang punya data berarti jadwalnya tidak bisa dibatalkan, dan tidak akan ada yang tahu jadwal itu masih menggantung.
+
+Menghapus divisi memakai `on delete set null` — staff yang memakainya **tidak** ikut terhapus, hanya kembali "belum berdivisi".
+
 ## Staff nonaktif: hilang dari daftar pilihan, TETAP ADA di riwayat (migration `0058`)
 
 Menyembunyikan staff nonaktif "di semua tempat" terdengar benar, tapi setengahnya justru merusak. Ada dua jenis daftar yang kebetulan memakai fungsi yang sama, dengan aturan berlawanan:

@@ -1,5 +1,8 @@
 import {
   listStaffWithScopes,
+  listDivisions,
+  saveDivision,
+  deleteDivision,
   listBusinessUnits,
   listOutlets,
   updateProfile,
@@ -48,7 +51,10 @@ export async function renderMasterUserPage(container, ctx = {}) {
   container.innerHTML = `
     <div class="page-header">
       <h1>Master User</h1>
-      <button class="primary" id="btn-new-staff" style="max-width:180px">+ Tambah Staff</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="btn-divisions">🏷️ Kelola Divisi</button>
+        <button class="primary" id="btn-new-staff" style="max-width:180px">+ Tambah Staff</button>
+      </div>
     </div>
     <div id="new-staff-form-wrap"></div>
 
@@ -93,6 +99,7 @@ export async function renderMasterUserPage(container, ctx = {}) {
   document.getElementById('btn-new-staff').addEventListener('click', () => {
     renderNewStaffForm(container, businessUnits);
   });
+  document.getElementById('btn-divisions').addEventListener('click', () => openDivisionManager(container, businessUnits));
 
   // wireRowActions dipanggil DI DALAM wireFilters setiap kali baris digambar
   // ulang. Jangan dipanggil lagi di sini — tombolnya akan tersambung dua kali
@@ -212,9 +219,12 @@ function staffRowHtml(s, registeredFaceIds) {
       <span class="scope-badge${sc.is_primary ? ' scope-badge-primary' : ''}" data-scope-id="${sc.id}">
         <button class="scope-primary${sc.is_primary ? ' is-primary' : ''}" data-scope-id="${sc.id}" data-user-id="${s.profile.id}"
           title="${sc.is_primary ? 'Tempat kerja utama (basis NBM)' : 'Jadikan tempat kerja utama (basis NBM)'}">${sc.is_primary ? '★' : '☆'}</button>
-        ${sc.business_units?.name ?? '-'} ${sc.outlets?.name ? '/ ' + sc.outlets.name : ''} — ${ROLE_LABEL[sc.role] ?? sc.role}
+        ${escapeHtml(sc.business_units?.name ?? '-')} ${sc.outlets?.name ? '/ ' + escapeHtml(sc.outlets.name) : ''} — ${ROLE_LABEL[sc.role] ?? sc.role}${
+          sc.divisions?.name ? ` · <em>${escapeHtml(sc.divisions.name)}</em>` : ''
+        }
         <button class="scope-edit" data-scope-id="${sc.id}" data-user-id="${s.profile.id}"
           data-bu="${sc.business_unit_id ?? ''}" data-outlet="${sc.outlet_id ?? ''}" data-role="${sc.role}"
+          data-division="${sc.division_id ?? ''}"
           title="Ubah scope ini">✎</button>
         <button class="scope-remove" data-scope-id="${sc.id}" title="Hapus scope ini">✕</button>
       </span>`
@@ -435,7 +445,13 @@ function wireRowActions(container, businessUnits) {
     btn.addEventListener('click', () =>
       openScopeDialog(container, businessUnits, {
         userId: btn.dataset.userId,
-        scope: { id: btn.dataset.scopeId, bu: btn.dataset.bu, outlet: btn.dataset.outlet, role: btn.dataset.role }
+        scope: {
+          id: btn.dataset.scopeId,
+          bu: btn.dataset.bu,
+          outlet: btn.dataset.outlet,
+          role: btn.dataset.role,
+          division: btn.dataset.division
+        }
       })
     );
   });
@@ -594,7 +610,16 @@ async function openScopeDialog(container, businessUnits, { userId, scope = null 
         type: 'select',
         options: [{ value: '', label: '-- semua outlet / level BU --' }]
       },
-      { name: 'role', label: 'Role', type: 'select', required: true, value: scope?.role ?? 'staff', options: ROLE_OPTIONS }
+      { name: 'role', label: 'Role', type: 'select', required: true, value: scope?.role ?? 'staff', options: ROLE_OPTIONS },
+      {
+        name: 'division_id',
+        label: 'Divisi',
+        type: 'select',
+        // Divisi ikut BU, jadi pilihannya dimuat ulang setiap BU berganti —
+        // sama seperti outlet. Daftarnya diisi di tombol "Kelola Divisi".
+        help: 'Staff TANPA divisi tidak muncul di roster Jadwal Shift.',
+        options: [{ value: '', label: '-- belum ditentukan --' }]
+      }
     ],
     submitText: isEdit ? 'Simpan' : 'Tambah',
     onReady: (form) => {
@@ -614,8 +639,30 @@ async function openScopeDialog(container, businessUnits, { userId, scope = null 
           // biarkan default kalau gagal ambil outlet
         }
       };
-      buSelect.addEventListener('change', () => loadOutlets(null));
-      if (scope?.bu) loadOutlets(scope.outlet || null); // prefill outlet saat edit
+      const divSelect = form.elements['division_id'];
+      const loadDivisions = async (selectedId) => {
+        divSelect.innerHTML = '<option value="">-- belum ditentukan --</option>';
+        if (!buSelect.value) return;
+        try {
+          const divisi = await listDivisions(buSelect.value);
+          divSelect.innerHTML =
+            '<option value="">-- belum ditentukan --</option>' +
+            divisi
+              .map((d) => `<option value="${d.id}"${d.id === selectedId ? ' selected' : ''}>${escapeHtml(d.name)}</option>`)
+              .join('');
+        } catch {
+          // biarkan default kalau gagal ambil divisi
+        }
+      };
+
+      buSelect.addEventListener('change', () => {
+        loadOutlets(null);
+        loadDivisions(null);
+      });
+      if (scope?.bu) {
+        loadOutlets(scope.outlet || null); // prefill outlet saat edit
+        loadDivisions(scope.division || null);
+      }
     }
   });
   if (!values) return;
@@ -624,7 +671,8 @@ async function openScopeDialog(container, businessUnits, { userId, scope = null 
       await updateMembershipScope(scope.id, {
         business_unit_id: values.business_unit_id,
         outlet_id: values.outlet_id || null,
-        role: values.role
+        role: values.role,
+        division_id: values.division_id || null
       });
       toast('Scope diperbarui.', 'success');
     } else {
@@ -632,12 +680,166 @@ async function openScopeDialog(container, businessUnits, { userId, scope = null 
         user_id: userId,
         business_unit_id: values.business_unit_id,
         outlet_id: values.outlet_id || null,
-        role: values.role
+        role: values.role,
+        division_id: values.division_id || null
       });
       toast('Scope ditambahkan.', 'success');
     }
     await renderMasterUserPage(container);
   } catch (error) {
     toast(error.message ?? 'Gagal menyimpan scope.', 'error');
+  }
+}
+
+/**
+ * Kelola daftar divisi per BU (Kitchen, Bar, Mekanik, dst).
+ *
+ * Daftar master, bukan teks bebas di tiap user: "Kitchen", "kitchen", dan
+ * "Ktichen" akan jadi tiga kelompok terpisah di tabel shift, dan
+ * pengelompokannya rusak tanpa ada yang sadar — tabelnya tetap tampil rapi,
+ * cuma isinya salah.
+ */
+async function openDivisionManager(container, businessUnits) {
+  if (!businessUnits.length) return toast('Belum ada Business Unit.', 'warning');
+
+  let buId = container.dataset.divBu || businessUnits[0].id;
+
+  await dialogManual();
+
+  async function dialogManual() {
+    let divisi = [];
+    try {
+      divisi = await listDivisions(buId, false);
+    } catch (error) {
+      return toast(error.message ?? 'Gagal memuat divisi.', 'error');
+    }
+
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true" style="max-width:520px">
+        <h3 class="modal-title">🏷️ Kelola Divisi</h3>
+        <div class="field">
+          <label for="dv-bu">Business Unit</label>
+          <select id="dv-bu">${businessUnits
+            .map((b) => `<option value="${escapeHtml(b.id)}"${b.id === buId ? ' selected' : ''}>${escapeHtml(b.name)}</option>`)
+            .join('')}</select>
+        </div>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Urutan</th><th>Divisi</th><th>Status</th><th>Aksi</th></tr></thead>
+            <tbody>
+              ${
+                divisi
+                  .map(
+                    (d) => `<tr${d.is_active ? '' : ' style="opacity:0.55"'}>
+                      <td>${d.sort_order}</td>
+                      <td><strong>${escapeHtml(d.name)}</strong></td>
+                      <td>${d.is_active ? 'Aktif' : 'Nonaktif'}</td>
+                      <td>
+                        <button class="dv-edit" data-id="${escapeHtml(d.id)}">Edit</button>
+                        <button class="dv-del" data-id="${escapeHtml(d.id)}">Hapus</button>
+                      </td>
+                    </tr>`
+                  )
+                  .join('') || '<tr><td colspan="4" style="color:var(--color-text-muted)">Belum ada divisi di BU ini.</td></tr>'
+              }
+            </tbody>
+          </table>
+        </div>
+        <p style="font-size:0.78rem;color:var(--color-text-muted);margin:10px 0 0">
+          Angka <strong>Urutan</strong> menentukan susunan kelompok di tabel Jadwal Shift — angka kecil di atas.
+          Staff tanpa divisi tidak muncul di roster.
+        </p>
+        <div class="modal-actions">
+          <button type="button" class="btn-ghost" data-act="close">Tutup</button>
+          <button type="button" class="primary btn-inline" id="dv-new">+ Tambah Divisi</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add('show'));
+
+    const tutup = (gambarUlang = false) => {
+      overlay.classList.remove('show');
+      setTimeout(() => overlay.remove(), 200);
+      if (gambarUlang) renderMasterUserPage(container);
+    };
+    overlay.querySelector('[data-act="close"]').addEventListener('click', () => tutup(true));
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) tutup(true);
+    });
+
+    overlay.querySelector('#dv-bu').addEventListener('change', (e) => {
+      buId = e.target.value;
+      container.dataset.divBu = buId;
+      tutup();
+      setTimeout(dialogManual, 220);
+    });
+
+    overlay.querySelector('#dv-new').addEventListener('click', async () => {
+      tutup();
+      await formDivisi(null);
+    });
+
+    overlay.querySelectorAll('.dv-edit').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const d = divisi.find((x) => x.id === b.dataset.id);
+        tutup();
+        await formDivisi(d);
+      })
+    );
+
+    overlay.querySelectorAll('.dv-del').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const d = divisi.find((x) => x.id === b.dataset.id);
+        tutup();
+        const ok = await confirmDialog({
+          title: `Hapus divisi "${d.name}"?`,
+          message:
+            'Staff yang memakai divisi ini TIDAK ikut terhapus — mereka hanya kembali "belum berdivisi", ' +
+            'dan otomatis hilang dari roster Jadwal Shift sampai diberi divisi lagi.',
+          confirmText: 'Hapus',
+          danger: true
+        });
+        if (ok) {
+          try {
+            await deleteDivision(d.id);
+            toast('Divisi dihapus.', 'success');
+          } catch (error) {
+            toast(error.message ?? 'Gagal menghapus.', 'error');
+          }
+        }
+        await dialogManual();
+      })
+    );
+  }
+
+  async function formDivisi(existing) {
+    const values = await formDialog({
+      title: existing ? `Edit Divisi — ${existing.name}` : 'Tambah Divisi',
+      fields: [
+        { name: 'name', label: 'Nama divisi', type: 'text', required: true, value: existing?.name ?? '', placeholder: 'mis. Kitchen' },
+        {
+          name: 'sort_order',
+          label: 'Urutan',
+          type: 'number',
+          min: 0,
+          value: existing?.sort_order ?? 0,
+          help: 'Angka kecil tampil lebih dulu di tabel shift.'
+        },
+        ...(existing ? [{ name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing.is_active }] : [])
+      ],
+      submitText: 'Simpan'
+    });
+    if (values) {
+      try {
+        await saveDivision({ id: existing?.id, businessUnitId: buId, ...values });
+        toast('Divisi tersimpan.', 'success');
+      } catch (error) {
+        toast(error.message ?? 'Gagal menyimpan divisi.', 'error');
+      }
+    }
+    await dialogManual();
   }
 }

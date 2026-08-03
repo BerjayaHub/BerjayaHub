@@ -1,3 +1,4 @@
+import { listBuStaff } from '../leave/leave.service.js';
 import {
   listPushEnabledUserIds,
   listAttendanceForAdmin,
@@ -71,6 +72,19 @@ async function renderPresensiTab(container, businessUnitId) {
   // tanpa langganan tidak akan pernah menerima reminder clock in, dan sebelum
   // ini tidak ada satu pun tempat di aplikasi yang memperlihatkannya.
   const pushAktif = await listPushEnabledUserIds();
+
+  // Divisi tiap staff, untuk mengurutkan rekap per bagian (Kitchen, Bar, dst).
+  // includeInactive: rekap adalah CATATAN RIWAYAT — orang yang sudah keluar
+  // tetap punya baris presensi di periode saat dia masih bekerja, dan namanya
+  // harus tetap terbaca.
+  const divisiUser = new Map();
+  try {
+    for (const st of await listBuStaff(businessUnitId, { includeInactive: true })) {
+      divisiUser.set(st.user_id, { nama: st.division_name, urut: st.division_sort ?? 0 });
+    }
+  } catch {
+    // Gagal baca divisi -> rekap tetap tampil, hanya tidak dikelompokkan.
+  }
   // Nama outlet untuk filter/PDF.
   const outletNames = new Map((outlets ?? []).map((o) => [o.id, o.name]));
 
@@ -94,8 +108,32 @@ async function renderPresensiTab(container, businessUnitId) {
       return;
     }
     lastRecords = records;
-    body.innerHTML =
-      records.map((r) => rowHtml(r, outletOf(r), pushAktif)).join('') || '<tr><td colspan="11">Tidak ada data.</td></tr>';
+
+    // Urut per divisi, lalu nama, lalu waktu. BEDA dengan Jadwal Shift: yang
+    // belum berdivisi TIDAK disembunyikan di sini — rekap presensi adalah bukti
+    // kehadiran, dan menghilangkan baris yang datanya ada berarti jam kerja
+    // seseorang lenyap dari catatan. Mereka dikumpulkan di kelompok terakhir.
+    const urutDivisi = (uid) => divisiUser.get(uid)?.urut ?? Number.MAX_SAFE_INTEGER;
+    const namaDivisi = (uid) => divisiUser.get(uid)?.nama ?? null;
+    records.sort(
+      (a, b) =>
+        urutDivisi(a.user_id) - urutDivisi(b.user_id) ||
+        String(namaDivisi(a.user_id) ?? 'zzz').localeCompare(String(namaDivisi(b.user_id) ?? 'zzz')) ||
+        String(a.user_profiles?.full_name ?? '').localeCompare(String(b.user_profiles?.full_name ?? '')) ||
+        String(b.clock_in_at ?? '').localeCompare(String(a.clock_in_at ?? ''))
+    );
+
+    let divisiTerakhir = Symbol('awal');
+    const potongan = [];
+    for (const r of records) {
+      const d = namaDivisi(r.user_id);
+      if (d !== divisiTerakhir) {
+        divisiTerakhir = d;
+        potongan.push(`<tr class="shift-divisi"><td colspan="11">${escapeHtml(d ?? 'Tanpa divisi')}</td></tr>`);
+      }
+      potongan.push(rowHtml(r, outletOf(r), pushAktif));
+    }
+    body.innerHTML = potongan.join('') || '<tr><td colspan="11">Tidak ada data.</td></tr>';
 
     // Lengkapi pilihan filter outlet dengan outlet lain yang terpakai di data.
     const sel = container.querySelector('#filter-outlet');

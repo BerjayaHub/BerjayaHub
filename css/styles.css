@@ -1550,3 +1550,16 @@ select.sc-cell.is-off {
     max-height: 55vh;
   }
 }
+
+/* Baris pemisah kelompok divisi di tabel Jadwal Shift.
+   Satu baris tipis, bukan tabel terpisah — batas kelompoknya terlihat tanpa
+   memecah grid tanggal yang harus tetap sejajar antar divisi. */
+.shift-divisi td {
+  background: var(--color-bg);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  padding: 6px 13px;
+}

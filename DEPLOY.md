@@ -25,6 +25,7 @@ pernah dijalankan.
 | 0056 | `0056_staff_check_in.sql` | Ceklis check-in oleh staff |
 | 0057 | `0057_user_email_on_insert.sql` | **Perbaikan bug**: email user baru kosong di Master User (+ backfill) |
 | 0058 | `0058_sembunyikan_staff_nonaktif.sql` | Staff nonaktif hilang dari daftar pilihan, tetap ada di laporan |
+| 0059 | `0059_divisi.sql` | Divisi per BU + kolom divisi di scope; tabel shift & rekap presensi dikelompokkan |
 
 > ⚠️ `0055` mendefinisikan ulang `list_attendance_outlets()`. Kalau ada yang
 > sedang membuka aplikasi saat migration jalan, minta dia refresh setelahnya.
@@ -188,6 +189,10 @@ select net.http_post(
 - **Video Tutorial** (menu baru, super admin) → tempel link YouTube **Unlisted**.
 - Cek **Master User** → kolom Email terisi. Kalau kosong untuk *semua* orang,
   berarti `0049` belum jalan.
+- **Master User → 🏷️ Kelola Divisi** → isi divisi tiap BU (mis. Kitchen, Bar),
+  lalu tetapkan divisi pada scope tiap staff lewat tombol ✎ di badge scope-nya.
+  ⚠️ **Staff tanpa divisi tidak akan muncul di Jadwal Shift** — jadi ini wajib
+  diisi sebelum menyusun jadwal. Yang belum terisi disebut namanya di bawah tabel.
 
 ---
 
