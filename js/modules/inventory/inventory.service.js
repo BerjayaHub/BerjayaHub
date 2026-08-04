@@ -100,7 +100,7 @@ export async function transferStock({ fromOutlet, toOutlet, productId, qty, unit
 export async function listMovements({ businessUnitId, outletId, movementType, dateFrom, dateTo }) {
   let query = supabase
     .from('stock_movements')
-    .select('id, movement_type, qty_delta, unit_cost, notes, created_at, products(name, base_unit), outlets!outlet_id(name), ref:outlets!ref_outlet_id(name), user_profiles(full_name)')
+    .select('id, movement_type, qty_delta, unit_cost, notes, created_at, products(name, base_unit), outlets!outlet_id(name), ref:outlets!ref_outlet_id(name), user_profiles!created_by(full_name)')
     .eq('business_unit_id', businessUnitId)
     .order('created_at', { ascending: false })
     .limit(300);
@@ -116,7 +116,7 @@ export async function listMovements({ businessUnitId, outletId, movementType, da
 export async function listRecentInventoryActivity({ limit = 25, before = null } = {}) {
   let query = supabase
     .from('stock_movements')
-    .select('created_at, movement_type, qty_delta, products(name, base_unit), outlets!outlet_id(name), business_units(name), user_profiles(full_name)')
+    .select('created_at, movement_type, qty_delta, products(name, base_unit), outlets!outlet_id(name), business_units(name), user_profiles!created_by(full_name)')
     .order('created_at', { ascending: false })
     .limit(limit);
   if (before) query = query.lt('created_at', before);

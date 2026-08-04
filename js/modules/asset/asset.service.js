@@ -14,7 +14,7 @@ export function conditionText(a) {
 export async function listAssets({ businessUnitId, outletId, condition, q, limit = 500 }) {
   let query = supabase
     .from('assets')
-    .select('*, outlets(name), creator:user_profiles!created_by(full_name)')
+    .select('*, outlets!outlet_id(name), creator:user_profiles!created_by(full_name)')
     .eq('business_unit_id', businessUnitId)
     .order('name')
     .limit(limit);

@@ -377,7 +377,7 @@ export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFro
     // `user_id` WAJIB ikut: dipakai UI untuk mencocokkan penanda 🔕 (status
     // langganan push). Tanpa kolom ini pencocokannya meleset diam-diam dan
     // SEMUA staff ditandai belum mengaktifkan notifikasi.
-    .select('id, user_id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, shift_name, late_minutes, late_status, business_unit_id, nbm_business_unit_id, nbm_outlet_id, nbm_outlet_note, outlet_id, user_profiles(full_name)')
+    .select('id, user_id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, shift_name, late_minutes, late_status, business_unit_id, nbm_business_unit_id, nbm_outlet_id, nbm_outlet_note, outlet_id, user_profiles!user_id(full_name)')
     .or(`nbm_business_unit_id.eq.${businessUnitId},and(nbm_business_unit_id.is.null,business_unit_id.eq.${businessUnitId})`)
     .order('clock_in_at', { ascending: false })
     .limit(200);
@@ -392,6 +392,18 @@ export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFro
 }
 
 /**
+ * CATATAN EMBED: semua `user_profiles` di file ini WAJIB memakai `!user_id`.
+ * Sejak migration 0062, `attendance_records` punya DUA foreign key ke
+ * `user_profiles` — `user_id` (pemilik presensi) dan `nbm_outlet_changed_by`
+ * (yang mengoreksi outlet basis). PostgREST menolak embed yang ambigu dengan
+ * "more than one relationship was found", dan seluruh rekap gagal dimuat.
+ *
+ * Menambah kolom foreign key ke tabel yang SUDAH di-embed di tempat lain selalu
+ * berisiko begini: kolomnya sendiri tidak dipakai UI mana pun, tapi query yang
+ * sudah lama jalan mendadak berhenti.
+ */
+
+/**
  * Data presensi untuk perhitungan NBM — difilter & dikelompokkan berdasarkan
  * BU/outlet BASIS (tempat kerja utama), bukan lokasi absen fisik. Membawa
  * kedua info outlet: nbm_outlet (basis, untuk config NBM) & outlets (lokasi absen).
@@ -402,7 +414,7 @@ export async function listAttendanceForNbm({ businessUnitId, outletId, dateFrom,
     .select(
       // outlets!outlet_id (lokasi absen) bisa null kalau outletnya milik BU lain
       // (RLS outlets_select). Nama lokasi diresolusi di UI via list_attendance_outlets.
-      'id, clock_in_at, clock_out_at, is_storing, business_unit_id, nbm_business_unit_id, outlet_id, nbm_outlet_id, nbm_outlet_note, user_profiles(full_name), nbm_outlet:outlets!nbm_outlet_id(id, name)'
+      'id, clock_in_at, clock_out_at, is_storing, business_unit_id, nbm_business_unit_id, outlet_id, nbm_outlet_id, nbm_outlet_note, user_profiles!user_id(full_name), nbm_outlet:outlets!nbm_outlet_id(id, name)'
     )
     .eq('nbm_business_unit_id', businessUnitId)
     .order('clock_in_at', { ascending: false })
@@ -425,7 +437,7 @@ export async function listAttendanceForNbm({ businessUnitId, outletId, dateFrom,
 export async function listRecentAttendanceActivity({ limit = 25, before = null } = {}) {
   let query = supabase
     .from('attendance_records')
-    .select('clock_in_at, clock_out_at, is_storing, user_profiles(full_name), outlets!outlet_id(name), business_units!business_unit_id(name)')
+    .select('clock_in_at, clock_out_at, is_storing, user_profiles!user_id(full_name), outlets!outlet_id(name), business_units!business_unit_id(name)')
     .order('clock_in_at', { ascending: false })
     .limit(limit);
   if (before) query = query.lt('clock_in_at', before);

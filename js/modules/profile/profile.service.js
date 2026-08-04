@@ -115,7 +115,7 @@ export async function getStaffPhotoUrl(path) {
 export async function listStaffData(businessUnitId, outletId) {
   let query = supabase
     .from('membership_scopes')
-    .select(`user_id, outlet_id, role, outlets(name), user_profiles(${PROFILE_FIELDS})`)
+    .select(`user_id, outlet_id, role, outlets!outlet_id(name), user_profiles!user_id(${PROFILE_FIELDS})`)
     .eq('business_unit_id', businessUnitId);
   if (outletId) query = query.eq('outlet_id', outletId);
   const { data, error } = await query;

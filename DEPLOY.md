@@ -211,6 +211,7 @@ node --experimental-vm-modules tools/audit-syntax.cjs
 node tools/audit-html-escape.cjs
 node tools/audit-owner-filter.cjs
 node tools/audit-outlet-scope.cjs
+node tools/audit-embed-ambigu.cjs
 node tools/test-youtube-parser.mjs
 node tools/test-image-compress.mjs
 ```

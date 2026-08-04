@@ -237,7 +237,7 @@ export async function listMySchedule(from, to) {
   if (!user) return [];
   const { data, error } = await supabase
     .from('shift_schedules')
-    .select('work_date, is_off, outlet_id, outlets(name), outlet_shifts(name, start_time, end_time)')
+    .select('work_date, is_off, outlet_id, outlets!outlet_id(name), outlet_shifts(name, start_time, end_time)')
     .eq('user_id', user.id)
     .gte('work_date', from)
     .lte('work_date', to)

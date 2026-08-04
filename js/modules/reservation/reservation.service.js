@@ -321,7 +321,7 @@ export async function listReservations({ businessUnitId, outletId, status, dateF
   let q = supabase
     .from('reservations')
     .select(
-      'id, code, outlet_id, mode, customer_name, phone, email, reserve_date, reserve_time, pax, check_in, check_out, adults, children, room_no, room_type_id, checked_in_at, checked_out_at, notes, referral_source, source, status, review_note, reviewed_at, created_at, room_types(name), reservation_areas(name), outlets(name), creator:user_profiles!created_by(full_name), reviewer:user_profiles!reviewed_by(full_name)'
+      'id, code, outlet_id, mode, customer_name, phone, email, reserve_date, reserve_time, pax, check_in, check_out, adults, children, room_no, room_type_id, checked_in_at, checked_out_at, notes, referral_source, source, status, review_note, reviewed_at, created_at, room_types(name), reservation_areas(name), outlets!outlet_id(name), creator:user_profiles!created_by(full_name), reviewer:user_profiles!reviewed_by(full_name)'
     )
     .eq('business_unit_id', businessUnitId)
     .order('reserve_date', { ascending: false })
@@ -349,7 +349,7 @@ export async function getHotelHarian({ businessUnitId, outletId, date }) {
   let q = supabase
     .from('reservations')
     .select(
-      'id, code, outlet_id, customer_name, phone, check_in, check_out, adults, children, room_no, status, notes, checked_in_at, room_types(name), outlets(name), penanda:user_profiles!checked_in_by(full_name)'
+      'id, code, outlet_id, customer_name, phone, check_in, check_out, adults, children, room_no, status, notes, checked_in_at, room_types(name), outlets!outlet_id(name), penanda:user_profiles!checked_in_by(full_name)'
     )
     .eq('business_unit_id', businessUnitId)
     .eq('mode', 'hotel')

@@ -1235,6 +1235,20 @@ tidak punya scope di BU ini      -> KOSONG
 
 Sisanya (peta id → nama untuk rekap, dan menu khusus super admin) terdaftar sebagai pengecualian beralasan di alat auditnya.
 
+## Bug: menambah SATU foreign key mematikan halaman yang tidak disentuh
+
+**Gejala:** setelah `0062` di-push — `Could not embed because more than one relationship was found for 'attendance_records' and 'user_profiles'`. Rekap Presensi mati total.
+
+**Penyebab.** `0062` menambah `attendance_records.nbm_outlet_changed_by → user_profiles`, sementara `user_id → user_profiles` sudah ada. PostgREST menolak embed yang ambigu.
+
+Yang membuatnya berbahaya: **query-nya tidak diubah satu baris pun**. Yang berubah cuma skema. Kolom barunya bahkan tidak dipakai UI mana pun — tapi seluruh halaman yang memakai embed itu langsung gagal.
+
+**Perbaikan:** semua embed ke tabel yang jadi tujuan banyak FK **wajib menyebut kolomnya** — `user_profiles!user_id(...)`, bukan `user_profiles(...)`. Menyebut kolomnya juga membuat maksudnya terbaca: `!created_by` vs `!user_id` langsung menjelaskan orang mana yang dimaksud.
+
+Sepuluh embed lain yang belum rusak tapi rentan pada jebakan yang sama ikut dieksplisitkan. `tools/audit-embed-ambigu.cjs` menjaganya — dan pengecualiannya wajib menyertakan alasan, supaya daftar pengecualian tidak berubah jadi tempat menyembunyikan risiko.
+
+⚠️ **Ingat ini setiap kali menambah kolom FK**: cek dulu apakah tabel tujuannya sudah jadi sasaran FK lain dari tabel yang sama.
+
 ## Outlet basis adalah POTRET, dan cara membetulkannya (migration `0062`)
 
 `attendance_records.nbm_outlet_id` diisi dari basis (★) **pada detik clock-in**, lalu ikut tersimpan di baris presensinya. Rekap NBM menghitung dari kolom itu.
@@ -1424,6 +1438,7 @@ node --experimental-vm-modules tools/audit-syntax.cjs   # sintaks ES module
 node tools/audit-html-escape.cjs                        # data DB masuk HTML tanpa escape
 node tools/audit-owner-filter.cjs                       # query "milik saya" tanpa filter pemilik
 node tools/audit-outlet-scope.cjs                       # dropdown outlet menembus scope
+node tools/audit-embed-ambigu.cjs                      # embed PostgREST tanpa nama FK
 node tools/test-youtube-parser.mjs                      # parser link YouTube
 node tools/test-image-compress.mjs                      # skala & format kompresi foto
 ```
