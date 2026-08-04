@@ -377,7 +377,7 @@ export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFro
     // `user_id` WAJIB ikut: dipakai UI untuk mencocokkan penanda 🔕 (status
     // langganan push). Tanpa kolom ini pencocokannya meleset diam-diam dan
     // SEMUA staff ditandai belum mengaktifkan notifikasi.
-    .select('id, user_id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, shift_name, late_minutes, late_status, business_unit_id, nbm_business_unit_id, outlet_id, user_profiles(full_name)')
+    .select('id, user_id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, shift_name, late_minutes, late_status, business_unit_id, nbm_business_unit_id, nbm_outlet_id, nbm_outlet_note, outlet_id, user_profiles(full_name)')
     .or(`nbm_business_unit_id.eq.${businessUnitId},and(nbm_business_unit_id.is.null,business_unit_id.eq.${businessUnitId})`)
     .order('clock_in_at', { ascending: false })
     .limit(200);
@@ -402,7 +402,7 @@ export async function listAttendanceForNbm({ businessUnitId, outletId, dateFrom,
     .select(
       // outlets!outlet_id (lokasi absen) bisa null kalau outletnya milik BU lain
       // (RLS outlets_select). Nama lokasi diresolusi di UI via list_attendance_outlets.
-      'id, clock_in_at, clock_out_at, is_storing, business_unit_id, nbm_business_unit_id, outlet_id, nbm_outlet_id, user_profiles(full_name), nbm_outlet:outlets!nbm_outlet_id(id, name)'
+      'id, clock_in_at, clock_out_at, is_storing, business_unit_id, nbm_business_unit_id, outlet_id, nbm_outlet_id, nbm_outlet_note, user_profiles(full_name), nbm_outlet:outlets!nbm_outlet_id(id, name)'
     )
     .eq('nbm_business_unit_id', businessUnitId)
     .order('clock_in_at', { ascending: false })
@@ -432,6 +432,43 @@ export async function listRecentAttendanceActivity({ limit = 25, before = null }
   const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
+}
+
+/**
+ * Koreksi OUTLET BASIS satu baris presensi.
+ *
+ * Lewat RPC, bukan update langsung: pemeriksaan izinnya GANDA — admin di outlet
+ * tempat absen DAN di outlet basis tujuan. Kalau hanya salah satu, admin outlet
+ * A bisa memindahkan beban gaji seseorang ke outlet B yang bukan tanggung
+ * jawabnya, dan admin B tidak akan pernah tahu angkanya bertambah dari mana.
+ * Aturan sekompleks itu tidak bisa diungkapkan lewat policy RLS biasa.
+ */
+export async function koreksiOutletBasis(recordId, outletId, note) {
+  const { error } = await supabase.rpc('koreksi_outlet_basis', {
+    p_record: recordId,
+    p_outlet: outletId,
+    p_note: note
+  });
+  if (error) throw error;
+}
+
+/**
+ * Koreksi massal untuk satu orang dalam rentang tanggal.
+ * `dryRun: true` hanya MENGHITUNG, tidak mengubah apa pun — dipakai untuk
+ * memperlihatkan akibatnya sebelum admin menekan lanjut.
+ */
+export async function koreksiOutletBasisMassal({ userId, from, to, outletId, note, dryRun = true }) {
+  const { data, error } = await supabase.rpc('koreksi_outlet_basis_massal', {
+    p_user: userId,
+    p_from: from,
+    p_to: to,
+    p_outlet: outletId,
+    p_note: note ?? '',
+    p_dry_run: dryRun
+  });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return { terpengaruh: Number(row?.terpengaruh ?? 0), dilewati: Number(row?.dilewati ?? 0) };
 }
 
 export async function correctAttendanceRecord(id, { clock_in_at, clock_out_at, notes }) {

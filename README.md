@@ -1235,6 +1235,31 @@ tidak punya scope di BU ini      -> KOSONG
 
 Sisanya (peta id → nama untuk rekap, dan menu khusus super admin) terdaftar sebagai pengecualian beralasan di alat auditnya.
 
+## Outlet basis adalah POTRET, dan cara membetulkannya (migration `0062`)
+
+`attendance_records.nbm_outlet_id` diisi dari basis (★) **pada detik clock-in**, lalu ikut tersimpan di baris presensinya. Rekap NBM menghitung dari kolom itu.
+
+**Ini desain yang benar dan sengaja dipertahankan.** Kalau basis dibaca ulang saat rekap disusun, mengubah basis seseorang hari ini akan **menulis ulang seluruh riwayat gajinya** — bulan yang sudah dibayarkan ikut berubah angkanya.
+
+**Tapi potret hanya seakurat saat pemotretannya.** Kasus nyata: seseorang pindah outlet tanggal 2, basis (★)-nya baru diperbarui tanggal 3. Presensi tanggal 2 terlanjur tercatat di outlet lama. Akibatnya bukan cuma label:
+
+- NBM-nya dihitung dengan **konfigurasi outlet lama** — tarif base, tier lembur, kebijakan PH;
+- saat rekap difilter ke outlet **baru**, barisnya **hilang sama sekali** — bukan tampil dengan angka salah, tapi tidak muncul. Itu yang paling mudah terlewat saat memeriksa.
+
+### Dua cara membetulkan
+
+**Satu baris** — dialog *Koreksi* di Rekap Presensi kini punya isian **Outlet basis** + alasan. Untuk membetulkan satu hari yang meleset.
+
+**Beberapa hari sekaligus** — tombol **⇄ Koreksi Outlet Basis** di Rekap NBM: pilih staff, rentang tanggal, outlet yang benar, dan alasan. **Selalu dihitung dulu sebelum diubah** — admin melihat berapa baris yang akan terpengaruh, baru menyetujui. Rentang yang kelewat lebar bisa memindahkan berminggu-minggu gaji dalam satu klik, dan tidak ada tombol urungkan.
+
+### Detail yang menentukan benar-tidaknya
+
+- **Izin GANDA.** Pemanggil harus admin di outlet **tempat absen** *dan* di outlet **basis tujuan**. Kalau hanya salah satu, admin outlet A bisa memindahkan beban gaji ke outlet B yang bukan tanggung jawabnya — dan admin B tidak akan pernah tahu angkanya bertambah dari mana. Aturan sekompleks itu tidak bisa diungkapkan lewat policy RLS biasa, jadi dipakai RPC.
+- **`nbm_business_unit_id` ikut diperbarui** mengikuti BU outlet barunya. Tanpa itu barisnya jadi tidak konsisten: rekap NBM menyaring dengan kolom itu, sehingga baris yang basisnya pindah BU akan hilang dari **kedua** BU sekaligus.
+- **`p_dry_run` default `true`.** Kalau pemanggil lupa mengirim parameter, yang terjadi adalah tidak terjadi apa-apa — bukan perubahan massal diam-diam.
+- **Baris di luar wewenang DILEWATI, bukan menggagalkan semuanya.** Kalau digagalkan total, admin outlet tidak akan pernah bisa membetulkan barisnya sendiri hanya karena ada satu baris milik outlet lain yang kebetulan masuk rentang. Jumlah yang dilewati tetap dilaporkan.
+- Baris yang pernah dikoreksi diberi tanda **"dikoreksi"** di Rekap NBM, dengan alasannya sebagai tooltip — supaya angka yang berbeda dari perkiraan bisa ditelusuri, bukan dicurigai salah hitung.
+
 ## Bug: RLS berlaku juga DI DALAM ekspresi policy (migration `0061`)
 
 **Gejala:** admin outlet membuka Rekap Presensi / Rekap NBM — **barisnya muncul, tapi kolom nama isinya "-"**.

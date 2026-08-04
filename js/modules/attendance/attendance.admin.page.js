@@ -3,6 +3,7 @@ import {
   listPushEnabledUserIds,
   listAttendanceForAdmin,
   correctAttendanceRecord,
+  koreksiOutletBasis,
   listOutletsWithGeofence,
   listAttendanceOutlets,
   setOutletLocation,
@@ -151,7 +152,7 @@ async function renderPresensiTab(container, businessUnitId) {
     }
     if (added) sel.value = filters.outletId || '';
 
-    wireEditButtons(container);
+    wireEditButtons(container, outlets ?? []);
     wirePhotoButtons(container);
     wireAddressButtons(container);
   }
@@ -518,29 +519,55 @@ function wireAddressButtons(container) {
   });
 }
 
-function wireEditButtons(container) {
+function wireEditButtons(container, outletPilihan = []) {
   container.querySelectorAll('.btn-edit').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const row = container.querySelector(`tr[data-record-id="${btn.dataset.recordId}"]`);
       const currentIn = row.children[5].textContent;
       const currentOut = row.children[9].textContent === '—' ? '' : row.children[9].textContent;
+      const basisSekarang = btn.dataset.nbmOutlet || '';
 
       const values = await formDialog({
         title: 'Koreksi Presensi',
         fields: [
           { name: 'clock_in_at', label: 'Clock In', type: 'datetime-local', required: true, value: toInputFormat(currentIn) },
-          { name: 'clock_out_at', label: 'Clock Out (kosongkan kalau belum)', type: 'datetime-local', value: toInputFormat(currentOut) }
+          { name: 'clock_out_at', label: 'Clock Out (kosongkan kalau belum)', type: 'datetime-local', value: toInputFormat(currentOut) },
+          {
+            name: 'nbm_outlet_id',
+            label: 'Outlet basis (penentu tarif NBM)',
+            type: 'select',
+            value: basisSekarang,
+            // Basis dipotret saat clock-in. Kalau seseorang pindah outlet tapi
+            // basisnya baru diperbarui beberapa hari kemudian, hari-hari di
+            // antaranya terlanjur memakai tarif outlet lama — dan hilang dari
+            // rekap saat difilter ke outlet baru. Ini tempat membetulkannya.
+            help: 'Ubah HANYA kalau basis saat clock-in memang keliru — mis. sudah pindah outlet tapi ★-nya telat diperbarui.',
+            options: [{ value: '', label: '-- biarkan seperti sekarang --' }, ...outletPilihan.map((o) => ({ value: o.id, label: o.name }))]
+          },
+          { name: 'nbm_note', label: 'Alasan koreksi basis', type: 'text', placeholder: 'wajib kalau outlet basis diubah' }
         ],
         submitText: 'Simpan Koreksi'
       });
       if (!values) return;
+
+      const gantiBasis = values.nbm_outlet_id && values.nbm_outlet_id !== basisSekarang;
+      if (gantiBasis && !values.nbm_note?.trim()) {
+        toast('Isi alasan koreksi basis — perubahan ini mempengaruhi perhitungan gaji.', 'warning');
+        return;
+      }
 
       try {
         await correctAttendanceRecord(btn.dataset.recordId, {
           clock_in_at: new Date(values.clock_in_at).toISOString(),
           clock_out_at: values.clock_out_at ? new Date(values.clock_out_at).toISOString() : null
         });
-        toast('Presensi dikoreksi.', 'success');
+        // Basis diubah lewat RPC terpisah: izinnya lebih ketat (harus admin di
+        // outlet asal DAN outlet tujuan), dan itu tidak bisa dijamin oleh
+        // update biasa yang tunduk pada policy presensi saja.
+        if (gantiBasis) {
+          await koreksiOutletBasis(btn.dataset.recordId, values.nbm_outlet_id, values.nbm_note);
+        }
+        toast(gantiBasis ? 'Presensi & outlet basis dikoreksi.' : 'Presensi dikoreksi.', 'success');
         document.getElementById('btn-filter').click();
       } catch (error) {
         toast(error.message ?? 'Gagal koreksi presensi.', 'error');

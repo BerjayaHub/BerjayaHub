@@ -1,4 +1,5 @@
-import { listAttendanceForNbm, listOutletsWithGeofence, listAttendanceOutlets } from './attendance.service.js';
+import { listAttendanceForNbm, listOutletsWithGeofence, listAttendanceOutlets, koreksiOutletBasisMassal } from './attendance.service.js';
+import { listBuStaff } from '../leave/leave.service.js';
 import {
   getNbmConfig,
   listOvertimeTiers,
@@ -10,7 +11,7 @@ import {
   removeNbmAdjustment
 } from './nbm.service.js';
 import { exportTablePDF } from '../../core/pdf.js';
-import { toast, formDialog, shareDialog } from '../../core/ui.js';
+import { toast, formDialog, shareDialog, confirmDialog } from '../../core/ui.js';
 import { formatRupiah, formatThousands, parseNumber, attachThousandsInput } from '../../core/format.js';
 import { monthRangeWIB } from '../../core/dates.js';
 
@@ -45,11 +46,13 @@ export async function renderNbmReportTab(container, businessUnitId) {
       <div class="field" style="margin:0"><label>Sampai tanggal</label><input type="date" id="nbm-report-to" value="${range.to}" /></div>
       <button class="primary" id="btn-nbm-report" style="max-width:120px">Tampilkan</button>
       <button id="btn-nbm-export">⇩ Export PDF</button>
+      <button id="btn-nbm-pindah-basis" title="Betulkan outlet basis beberapa hari sekaligus">⇄ Koreksi Outlet Basis</button>
     </div>
     <div id="nbm-report-result"></div>
   `;
 
   document.getElementById('btn-nbm-report').addEventListener('click', () => runReport(businessUnitId, outlets));
+  document.getElementById('btn-nbm-pindah-basis').addEventListener('click', () => koreksiMassal(businessUnitId, outlets));
   document.getElementById('btn-nbm-export').addEventListener('click', async () => {
     if (!lastReportRows.length) return toast('Tampilkan datanya dulu sebelum export.', 'warning');
     const outletId = document.getElementById('nbm-report-outlet').value;
@@ -216,6 +219,12 @@ async function runReport(businessUnitId, outlets) {
             .map((row) => {
               const { record, nbm } = row;
               const baseName = record.nbm_outlet?.name ?? physOutletName(record);
+              // Basis yang pernah dikoreksi manual diberi tanda — supaya angka
+              // yang berbeda dari perkiraan bisa langsung ditelusuri alasannya,
+              // bukan dicurigai sebagai salah hitung.
+              const basisTag = record.nbm_outlet_note
+                ? ` <span class="badge badge-pending" style="font-size:0.62rem" title="${esc(record.nbm_outlet_note)}">dikoreksi</span>`
+                : '';
               const physName = physOutletName(record);
               const physCell = physName === baseName ? '<span style="color:var(--color-text-muted)">(sama)</span>' : esc(physName);
               if (!nbm) {
@@ -226,7 +235,7 @@ async function runReport(businessUnitId, outlets) {
               return `
                 <tr data-record="${record.id}">
                   <td>${esc(record.user_profiles?.full_name ?? '-')}</td>
-                  <td>${esc(baseName)}</td>
+                  <td>${esc(baseName)}${basisTag}</td>
                   <td>${physCell}</td>
                   <td>${toDateKey(new Date(record.clock_in_at))}</td>
                   <td>${record.is_storing ? 'Ya' : '-'}</td>
@@ -349,4 +358,96 @@ async function runReport(businessUnitId, outlets) {
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/**
+ * Koreksi outlet basis untuk BEBERAPA HARI sekaligus.
+ *
+ * Untuk kasus yang sudah terbukti terjadi: orang pindah outlet tanggal 2, tapi
+ * basis (★)-nya baru diperbarui tanggal 3. Hari-hari di antaranya terlanjur
+ * memakai tarif outlet lama — dan hilang dari rekap begitu difilter ke outlet
+ * baru, sehingga tidak ketahuan sampai gajinya dihitung.
+ *
+ * SELALU DIHITUNG DULU SEBELUM DIUBAH. Rentang yang kelewat lebar bisa
+ * memindahkan berminggu-minggu gaji dalam satu klik, dan tidak ada tombol
+ * urungkan. Jadi admin harus melihat angkanya lebih dulu, baru menyetujui.
+ */
+async function koreksiMassal(businessUnitId, outlets) {
+  let staff = [];
+  try {
+    staff = await listBuStaff(businessUnitId, { includeInactive: true });
+  } catch {
+    return toast('Gagal memuat daftar staff.', 'error');
+  }
+  if (!staff.length) return toast('Belum ada staff di BU ini.', 'warning');
+  if (!outlets.length) return toast('Belum ada outlet di BU ini.', 'warning');
+
+  const range = monthRangeWIB();
+  const values = await formDialog({
+    title: 'Koreksi Outlet Basis',
+    description:
+      'Untuk kasus staff yang sudah pindah outlet tapi basis (★)-nya telat diperbarui. ' +
+      'Presensi pada rentang ini akan dihitung ulang memakai tarif NBM outlet tujuan.',
+    fields: [
+      { name: 'user_id', label: 'Staff', type: 'searchselect', required: true, options: staff.map((s) => ({ value: s.user_id, label: s.full_name })) },
+      { name: 'from', label: 'Dari tanggal', type: 'date', required: true, value: range.from },
+      { name: 'to', label: 'Sampai tanggal', type: 'date', required: true, value: range.to },
+      { name: 'outlet_id', label: 'Outlet basis yang benar', type: 'select', required: true, options: outlets.map((o) => ({ value: o.id, label: o.name })) },
+      { name: 'note', label: 'Alasan koreksi', type: 'text', required: true, placeholder: 'mis. pindah ke CK sejak 2 Agu, ★ telat diperbarui' }
+    ],
+    submitText: 'Hitung Dampaknya'
+  });
+  if (!values) return;
+  if (values.from > values.to) return toast('Tanggal "dari" melewati tanggal "sampai".', 'warning');
+
+  let pratinjau;
+  try {
+    pratinjau = await koreksiOutletBasisMassal({
+      userId: values.user_id,
+      from: values.from,
+      to: values.to,
+      outletId: values.outlet_id,
+      note: values.note,
+      dryRun: true
+    });
+  } catch (error) {
+    return toast(error.message ?? 'Gagal menghitung dampak.', 'error');
+  }
+
+  if (!pratinjau.terpengaruh) {
+    return toast(
+      pratinjau.dilewati
+        ? `Tidak ada yang bisa diubah — ${pratinjau.dilewati} baris ada di outlet yang bukan wewenangmu.`
+        : 'Tidak ada presensi yang perlu dikoreksi pada rentang itu.',
+      'info'
+    );
+  }
+
+  const namaStaff = staff.find((s) => s.user_id === values.user_id)?.full_name ?? 'staff ini';
+  const namaOutlet = outlets.find((o) => o.id === values.outlet_id)?.name ?? 'outlet tujuan';
+  const ok = await confirmDialog({
+    title: `Pindahkan ${pratinjau.terpengaruh} hari presensi?`,
+    message:
+      `${pratinjau.terpengaruh} baris presensi ${namaStaff} (${fmtTanggal(values.from)} s/d ${fmtTanggal(values.to)}) ` +
+      `akan dihitung ulang memakai tarif NBM ${namaOutlet}. Nominalnya bisa berubah, dan ini TIDAK bisa diurungkan otomatis.` +
+      (pratinjau.dilewati ? ` ${pratinjau.dilewati} baris dilewati karena di luar wewenangmu.` : ''),
+    confirmText: 'Ya, koreksi',
+    danger: true
+  });
+  if (!ok) return;
+
+  try {
+    const hasil = await koreksiOutletBasisMassal({
+      userId: values.user_id,
+      from: values.from,
+      to: values.to,
+      outletId: values.outlet_id,
+      note: values.note,
+      dryRun: false
+    });
+    toast(`${hasil.terpengaruh} baris presensi dikoreksi.`, 'success');
+    document.getElementById('btn-nbm-report')?.click();
+  } catch (error) {
+    toast(error.message ?? 'Gagal mengoreksi.', 'error');
+  }
 }
