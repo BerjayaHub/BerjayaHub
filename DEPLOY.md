@@ -27,6 +27,7 @@ pernah dijalankan.
 | 0058 | `0058_sembunyikan_staff_nonaktif.sql` | Staff nonaktif hilang dari daftar pilihan, tetap ada di laporan |
 | 0059 | `0059_divisi.sql` | Divisi per BU + kolom divisi di scope; tabel shift & rekap presensi dikelompokkan |
 | 0060 | `0060_kas_qty_unit_dan_laporan.sql` | Kas: jumlah + satuan, nota wajib, RPC Laporan Kas per Pemegang |
+| 0061 | `0061_profil_terlihat_outlet_admin.sql` | **Perbaikan bug**: admin outlet melihat "-" di kolom nama pada Rekap Presensi & NBM |
 
 > ⚠️ `0055` mendefinisikan ulang `list_attendance_outlets()`. Kalau ada yang
 > sedang membuka aplikasi saat migration jalan, minta dia refresh setelahnya.

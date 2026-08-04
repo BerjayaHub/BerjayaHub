@@ -10,9 +10,15 @@ import {
   removeNbmAdjustment
 } from './nbm.service.js';
 import { exportTablePDF } from '../../core/pdf.js';
-import { toast, formDialog } from '../../core/ui.js';
+import { toast, formDialog, shareDialog } from '../../core/ui.js';
 import { formatRupiah, formatThousands, parseNumber, attachThousandsInput } from '../../core/format.js';
 import { monthRangeWIB } from '../../core/dates.js';
+
+/** 'YYYY-MM-DD' -> '01 Agu 2026'. Kosong -> '…' supaya teksnya tetap terbaca. */
+function fmtTanggal(d) {
+  if (!d) return '…';
+  return new Date(d + 'T00:00:00').toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+}
 
 let lastReportRows = [];
 // Nama SEMUA outlet aktif (RPC security-definer) — dipakai untuk kolom "Lokasi
@@ -53,7 +59,7 @@ export async function renderNbmReportTab(container, businessUnitId) {
     try {
       await exportTablePDF({
         title: 'Rekap NBM (Uang Hadir)',
-        subtitle: `Outlet basis: ${outletName} · Periode ${from || '…'} s/d ${to || '…'}`,
+        subtitle: `Outlet basis: ${outletName} · Periode ${fmtTanggal(from)} s/d ${fmtTanggal(to)}`,
         columns: [
           { header: 'Staff', width: 1.5 },
           { header: 'Outlet Basis', width: 1.2 },
@@ -136,6 +142,12 @@ async function runReport(businessUnitId, outlets) {
     return `Diedit oleh ${who}${when ? ' · ' + when : ''}${adj.note ? ' — ' + adj.note : ''}`;
   };
 
+  // Judul periode & outlet dipakai di kartu, teks WhatsApp, dan PDF — dihitung
+  // sekali supaya ketiganya TIDAK pernah berbeda. Kalau dihitung terpisah,
+  // cepat atau lambat salah satunya tertinggal saat filternya berubah.
+  const namaOutlet = outletId ? outlets.find((o) => o.id === outletId)?.name ?? '-' : 'Semua outlet';
+  const judulPeriode = `Outlet basis: ${namaOutlet} · Periode ${fmtTanggal(from)} s/d ${fmtTanggal(to)}`;
+
   const totalsByStaff = {};
   for (const row of rows) {
     if (!row.nbm) continue;
@@ -164,6 +176,33 @@ async function runReport(businessUnitId, outlets) {
     });
 
   resultEl.innerHTML = `
+    <div class="inline-card" style="max-width:520px">
+      <div class="page-header" style="margin-bottom:8px">
+        <h2 style="font-size:1rem;margin:0">Total per Staff (periode ini)</h2>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button id="nbm-total-wa">💬 WhatsApp</button>
+          <button id="nbm-total-pdf">⇩ PDF</button>
+        </div>
+      </div>
+      <p style="font-size:0.78rem;color:var(--color-text-muted);margin:0 0 8px">${esc(judulPeriode)}</p>
+      <table class="data-table">
+        <thead><tr><th>Staff</th><th style="text-align:right">Total NBM</th></tr></thead>
+        <tbody>
+          ${
+            Object.entries(totalsByStaff)
+              .map(([name, total]) => `<tr><td>${esc(name)}</td><td style="text-align:right">${formatRupiah(total)}</td></tr>`)
+              .join('') || '<tr><td colspan="2">-</td></tr>'
+          }
+          ${
+            Object.keys(totalsByStaff).length
+              ? `<tr style="font-weight:700"><td>TOTAL</td><td style="text-align:right">${formatRupiah(
+                  Object.values(totalsByStaff).reduce((t, n) => t + n, 0)
+                )}</td></tr>`
+              : ''
+          }
+        </tbody>
+      </table>
+    </div>
     <p style="font-size:0.8rem;color:var(--color-text-muted);margin:14px 0 6px">
       Kolom <strong>Total</strong> bisa diubah langsung — klik nominalnya, ketik nilai baru, lalu tekan Enter/keluar dari kolom untuk konfirmasi.
     </p>
@@ -212,18 +251,49 @@ async function runReport(businessUnitId, outlets) {
       </tbody>
     </table>
 
-    <h2 style="font-size:1rem;margin-top:20px">Total per Staff (periode ini)</h2>
-    <table class="data-table" style="max-width:400px">
-      <thead><tr><th>Staff</th><th>Total NBM</th></tr></thead>
-      <tbody>
-        ${
-          Object.entries(totalsByStaff)
-            .map(([name, total]) => `<tr><td>${esc(name)}</td><td>${formatRupiah(total)}</td></tr>`)
-            .join('') || '<tr><td colspan="2">-</td></tr>'
-        }
-      </tbody>
-    </table>
   `;
+
+  // ---- Total per staff: WhatsApp & PDF ----
+  const barisTotal = Object.entries(totalsByStaff);
+  const grandTotal = barisTotal.reduce((t, [, n]) => t + n, 0);
+
+  resultEl.querySelector('#nbm-total-wa')?.addEventListener('click', () => {
+    if (!barisTotal.length) return toast('Tidak ada data untuk dikirim.', 'warning');
+    // Tanpa nomor tujuan: rekap ini dibagikan ke grup/atasan yang berbeda-beda,
+    // jadi dialognya membiarkan pengirim memilih lewat share sheet WhatsApp.
+    shareDialog({
+      title: 'Kirim Rekap NBM',
+      helper: 'Teks sudah memuat outlet dan rentang tanggalnya, jadi penerima tidak perlu bertanya periode mana.',
+      defaultMessage: [
+        '*REKAP NBM (Uang Hadir)*',
+        judulPeriode,
+        '',
+        ...barisTotal.map(([nama, total]) => `• ${nama} : ${formatRupiah(total)}`),
+        '',
+        `*TOTAL : ${formatRupiah(grandTotal)}*`,
+        `(${barisTotal.length} staff)`
+      ].join('\n')
+    });
+  });
+
+  resultEl.querySelector('#nbm-total-pdf')?.addEventListener('click', async () => {
+    if (!barisTotal.length) return toast('Tidak ada data untuk diexport.', 'warning');
+    try {
+      await exportTablePDF({
+        title: 'Rekap NBM — Total per Staff',
+        subtitle: judulPeriode,
+        columns: [
+          { header: 'Staff', width: 2 },
+          { header: 'Total NBM', width: 1 }
+        ],
+        rows: [...barisTotal.map(([nama, total]) => [nama, formatRupiah(total)]), ['TOTAL', formatRupiah(grandTotal)]],
+        filename: 'rekap-nbm-total-per-staff'
+      });
+      toast('PDF total per staff terunduh.', 'success');
+    } catch (error) {
+      toast(error.message ?? 'Gagal membuat PDF.', 'error');
+    }
+  });
 
   // ---- Edit nominal langsung di tabel ----
   resultEl.querySelectorAll('.nbm-total-input').forEach((input) => {

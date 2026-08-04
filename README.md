@@ -1235,6 +1235,36 @@ tidak punya scope di BU ini      -> KOSONG
 
 Sisanya (peta id → nama untuk rekap, dan menu khusus super admin) terdaftar sebagai pengecualian beralasan di alat auditnya.
 
+## Bug: RLS berlaku juga DI DALAM ekspresi policy (migration `0061`)
+
+**Gejala:** admin outlet membuka Rekap Presensi / Rekap NBM — **barisnya muncul, tapi kolom nama isinya "-"**.
+
+Gejala itu sendiri sudah menunjuk penyebabnya: data presensinya **lolos** RLS (policy presensi memakai `is_admin_of_outlet`, yang memang mencakup outlet_admin), sementara embed `user_profiles(full_name)` **ditolak**.
+
+**Penyebabnya halus.** Policy `user_profiles_select_scoped` (dari `0001`) sudah menyebut `outlet_admin` secara eksplisit — sekilas terlihat benar. Tapi isinya menjoin ke `membership_scopes` **orang lain**:
+
+```sql
+join membership_scopes theirs on theirs.user_id = user_profiles.id
+```
+
+dan **RLS berlaku juga di dalam ekspresi policy**. Pembacaan `theirs` tunduk pada RLS `membership_scopes`, di mana `membership_scopes_select_admin` memakai `is_bu_admin()` — yang **tidak mencakup outlet_admin**. Jadi bagi outlet_admin, `theirs` selalu kosong, `EXISTS` gagal, dan namanya tidak pernah terbaca.
+
+Untuk bu_admin kebetulan jalan. **Itulah kenapa bug ini hanya muncul pada satu peran** dan lolos dari pengujian biasa — persis pola yang berulang di dokumen ini.
+
+**Perbaikan:** pemeriksaannya dipindah ke fungsi `SECURITY DEFINER` (`sesama_anggota_bu`), sehingga pembacaan scope di dalamnya tidak lagi disaring RLS. Pola ini sudah dipakai `is_bu_admin()` dan `has_outlet_scope()` sejak awal — policy inilah yang tertinggal karena ditulis sebagai subquery inline.
+
+**Aturan umum:** kalau ekspresi policy membaca tabel yang juga ber-RLS, bungkus dalam fungsi `SECURITY DEFINER`. Kalau tidak, policy-nya akan berperilaku berbeda per peran dengan cara yang tidak terbaca dari policy itu sendiri.
+
+## Rekap NBM — Total per Staff di atas, plus WhatsApp & PDF
+
+Tabel **Total per Staff** dipindah ke **atas** tabel rincian: yang dicari saat membuka halaman ini hampir selalu angka totalnya, bukan baris per presensi.
+
+Ditambah tombol **💬 WhatsApp** dan **⇩ PDF** khusus untuk tabel total itu. Teks WhatsApp-nya memuat **outlet dan rentang tanggal**, jadi penerima tidak perlu bertanya periode mana — dan barisnya ditutup grand total.
+
+Judul periode dihitung **sekali** lalu dipakai kartu, teks WhatsApp, dan PDF bersama-sama. Kalau dihitung terpisah di tiga tempat, cepat atau lambat salah satunya tertinggal saat filternya berubah — dan rekap gaji yang menyebut periode salah adalah kesalahan yang mahal.
+
+Dialog WhatsApp-nya sengaja **tanpa nomor tujuan**: rekap ini dibagikan ke grup atau atasan yang berbeda-beda, jadi pengirim memilih sendiri lewat share sheet.
+
 ## Kas: jumlah + satuan, nota wajib, dan Laporan Kas (migration `0060`)
 
 **Jumlah barang & satuan dipisah dari keterangan** (Bensin · **10** · **liter**). Ditulis sebagai satu kalimat, "Bensin 10 liter" tidak bisa dijumlahkan di laporan — dan menjumlahkan itulah gunanya kolom.
