@@ -12,7 +12,9 @@ import {
   listRunsForAdmin,
   getRunItems,
   getChecklistPhotoUrl,
-  getChecklistPhotoUrls
+  getChecklistPhotoUrls,
+  getItemSessionMap,
+  setItemSessions
 } from './cleaning.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { loadingHtml } from '../../core/loading.js';
@@ -48,14 +50,17 @@ export async function renderCleaningAdminPage(container, { businessUnitId }) {
 
 async function renderItemsTab(content, businessUnitId, outlets = []) {
   content.innerHTML = loadingHtml('Memuat…', { baris: 5 });
-  let items;
+  let items, sessions, petaSesi;
   try {
     // Item BU + item SEMUA outlet, supaya tidak ada yang "hilang" karena filter.
     items = await listAllItems(businessUnitId);
+    sessions = await listAllSessions(businessUnitId).catch(() => []);
+    petaSesi = await getItemSessionMap(items.map((i) => i.id));
   } catch (error) {
     content.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
     return;
   }
+  const namaSesi = new Map((sessions ?? []).map((x) => [x.id, x.name]));
   content.innerHTML = `
     <div class="page-header">
       <h2 style="font-size:1.05rem;margin:0">Item Aktivitas</h2>
@@ -65,9 +70,11 @@ async function renderItemsTab(content, businessUnitId, outlets = []) {
       Item <strong>Semua outlet</strong> adalah standar BU dan hanya bisa diubah Admin BU.
       Admin outlet bisa menambah item <strong>khusus outletnya</strong> — item itu
       <em>ditambahkan</em> di atas standar BU, bukan menggantikannya.
+      <br />Kolom <strong>Sesi</strong>: item yang belum ditugaskan berlaku di <em>semua</em> sesi.
+      Begitu kamu menugaskannya ke satu sesi, ia <strong>berhenti muncul di sesi lain</strong>.
     </p>
-    <table class="data-table">
-      <thead><tr><th>Urutan</th><th>Item</th><th>Berlaku di</th><th>Status</th><th>Aksi</th></tr></thead>
+    <div class="table-scroll"><table class="data-table">
+      <thead><tr><th>Urutan</th><th>Item</th><th>Berlaku di</th><th>Sesi</th><th>Status</th><th>Aksi</th></tr></thead>
       <tbody>
         ${items
           .map(
@@ -80,17 +87,30 @@ async function renderItemsTab(content, businessUnitId, outlets = []) {
                 ? escapeHtml(outlets.find((o) => o.id === it.outlet_id)?.name ?? 'Outlet')
                 : '<span class="badge badge-approved" style="font-size:0.68rem">Semua outlet</span>'
             }</td>
+            <td style="font-size:0.82rem">${
+              (petaSesi.get(it.id) ?? []).length
+                ? petaSesi
+                    .get(it.id)
+                    .map((sid) => `<span class="badge" style="font-size:0.68rem">${escapeHtml(namaSesi.get(sid) ?? 'Sesi')}</span>`)
+                    .join(' ')
+                : '<span style="color:var(--color-text-muted)">Semua sesi</span>'
+            }</td>
             <td>${it.is_active ? 'Aktif' : 'Nonaktif'}</td>
-            <td>
+            <td style="white-space:nowrap">
+              <button class="btn-item-sessions" data-id="${it.id}" data-label="${escapeAttr(it.label)}" title="Atur sesi mana yang memakai item ini">Sesi</button>
               <button class="btn-edit-item" data-json='${escapeAttr(JSON.stringify(it))}'>Edit</button>
               <button class="btn-del-item" data-id="${it.id}">Hapus</button>
             </td>
           </tr>`
           )
-          .join('') || '<tr><td colspan="5">Belum ada item.</td></tr>'}
+          .join('') || '<tr><td colspan="6">Belum ada item.</td></tr>'}
       </tbody>
-    </table>
+    </table></div>
   `;
+
+  content.querySelectorAll('.btn-item-sessions').forEach((btn) =>
+    btn.addEventListener('click', () => openItemSessionDialog(content, businessUnitId, outlets, sessions ?? [], btn.dataset.id, btn.dataset.label, petaSesi.get(btn.dataset.id) ?? []))
+  );
   document.getElementById('btn-new-item').addEventListener('click', () => openItemDialog(content, businessUnitId, null, outlets));
   content.querySelectorAll('.btn-edit-item').forEach((btn) =>
     btn.addEventListener('click', () => openItemDialog(content, businessUnitId, JSON.parse(btn.dataset.json), outlets))
@@ -108,6 +128,43 @@ async function renderItemsTab(content, businessUnitId, outlets = []) {
       }
     })
   );
+}
+
+/**
+ * Pilih sesi mana saja yang memakai satu item.
+ *
+ * Memakai deretan checkbox, bukan multi-select: di layar HP, `<select multiple>`
+ * praktis tidak bisa dipakai — memilih dua opsi butuh menahan tombol yang tidak
+ * ada di papan ketik sentuh.
+ */
+async function openItemSessionDialog(content, businessUnitId, outlets, sessions, itemId, label, terpilih) {
+  if (!sessions.length) {
+    return toast('Belum ada sesi di BU ini. Buat sesinya dulu di tab Sesi.', 'warning');
+  }
+  const dipilih = new Set(terpilih);
+  const values = await formDialog({
+    title: `Sesi untuk "${label}"`,
+    description:
+      'Centang sesi yang memakai item ini. Kalau TIDAK ada yang dicentang, item ini berlaku di semua sesi — ' +
+      'itu juga perilaku sebelum fitur ini ada.',
+    fields: sessions.map((s) => ({
+      name: `s_${s.id}`,
+      label: `${s.name}${s.outlet_id ? ` — ${outlets.find((o) => o.id === s.outlet_id)?.name ?? 'outlet'}` : ' (semua outlet)'}`,
+      type: 'checkbox',
+      value: dipilih.has(s.id)
+    })),
+    submitText: 'Simpan'
+  });
+  if (!values) return;
+
+  const baru = sessions.filter((s) => values[`s_${s.id}`]).map((s) => s.id);
+  try {
+    await setItemSessions(itemId, baru);
+    toast(baru.length ? `Item dipakai di ${baru.length} sesi.` : 'Item kembali berlaku di semua sesi.', 'success');
+    await renderItemsTab(content, businessUnitId, outlets);
+  } catch (error) {
+    toast(error.message ?? 'Gagal menyimpan.', 'error');
+  }
 }
 
 async function openItemDialog(content, businessUnitId, existing, outlets = []) {
@@ -298,29 +355,67 @@ async function loadReport(content, businessUnitId) {
     result.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
     return;
   }
+  // Semua signed URL bukti diambil SEKALI untuk seluruh halaman. Satu permintaan
+  // per baris akan menembakkan ratusan koneksi berbarengan dan sebagian tertunda
+  // lama — hasilnya tabel yang tampak "sebagian fotonya rusak".
+  const semuaPath = runs.flatMap((r) => [r.photo_path, ...(r.checklist_run_items ?? []).map((i) => i.photo_path)]);
+  const fotoUrl = await getChecklistPhotoUrls(semuaPath).catch(() => new Map());
+
+  /** Sampai 3 thumbnail + sisanya sebagai angka. Kolom tabel bukan galeri. */
+  function selBukti(r) {
+    const paths = [...(r.checklist_run_items ?? []).map((i) => i.photo_path), r.photo_path].filter(Boolean);
+    if (!paths.length) return '<span style="color:var(--color-text-muted)">–</span>';
+    const tampil = paths.slice(0, 3);
+    const sisa = paths.length - tampil.length;
+    return `<div style="display:flex;gap:4px;align-items:center">
+      ${tampil
+        .map((p) => {
+          const url = fotoUrl.get(p);
+          return url
+            ? `<img src="${escapeHtml(url)}" alt="Bukti" class="ck-thumb" data-path="${escapeHtml(p)}"
+                 style="width:34px;height:34px;object-fit:cover;border-radius:5px;cursor:pointer;border:1px solid var(--color-border)" />`
+            : `<button class="btn-run-photo" data-path="${escapeHtml(p)}" title="Buka foto">📷</button>`;
+        })
+        .join('')}
+      ${sisa > 0 ? `<span style="font-size:0.74rem;color:var(--color-text-muted)">+${sisa}</span>` : ''}
+    </div>`;
+  }
+
   result.innerHTML = `
-    <table class="data-table" style="margin-top:16px">
-      <thead><tr><th>Tanggal</th><th>Outlet</th><th>Sesi</th><th>Oleh</th><th>Catatan</th><th>Aksi</th></tr></thead>
+    <div class="table-scroll" style="margin-top:16px"><table class="data-table">
+      <thead><tr><th>Tanggal</th><th>Outlet</th><th>Sesi</th><th>Oleh</th><th>Bukti</th><th>Catatan</th><th>Aksi</th></tr></thead>
       <tbody>
         ${runs
           .map(
             (r) => `
           <tr>
-            <td>${r.run_date}</td>
+            <td>${r.run_date}<div style="font-size:0.72rem;color:var(--color-text-muted)">${jamOf(r.created_at)}</div></td>
             <td>${escapeHtml(r.outlets?.name ?? '-')}</td>
             <td>${escapeHtml(r.checklist_sessions?.name ?? '-')}</td>
             <td>${escapeHtml(r.user_profiles?.full_name ?? '-')}</td>
+            <td>${selBukti(r)}</td>
             <td>${escapeHtml(r.notes ?? '-')}</td>
-            <td>
-              <button class="btn-run-detail" data-id="${r.id}">Detail</button>
-              ${r.photo_path ? `<button class="btn-run-photo" data-path="${r.photo_path}">Foto</button>` : ''}
-            </td>
+            <td><button class="btn-run-detail" data-id="${r.id}">Detail</button></td>
           </tr>`
           )
-          .join('') || '<tr><td colspan="6">Tidak ada data.</td></tr>'}
+          .join('') || '<tr><td colspan="7">Tidak ada data.</td></tr>'}
       </tbody>
-    </table>
+    </table></div>
   `;
+
+  // Thumbnail diklik -> buka besar. Dibuat ulang signed URL-nya, bukan memakai
+  // yang di <img>: yang ini berumur 1 jam dan bisa sudah kedaluwarsa kalau
+  // halamannya dibuka lama.
+  result.querySelectorAll('.ck-thumb').forEach((img) =>
+    img.addEventListener('click', async () => {
+      try {
+        const url = await getChecklistPhotoUrl(img.dataset.path);
+        if (url) window.open(url, '_blank');
+      } catch (error) {
+        toast(error.message ?? 'Gagal membuka foto.', 'error');
+      }
+    })
+  );
 
   result.querySelectorAll('.btn-run-photo').forEach((btn) =>
     btn.addEventListener('click', async () => {
@@ -363,6 +458,12 @@ async function loadReport(content, businessUnitId) {
       }
     })
   );
+}
+
+/** Jam WIB dari timestamp, untuk kolom Tanggal di rekap. */
+function jamOf(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' });
 }
 
 function escapeHtml(s) {

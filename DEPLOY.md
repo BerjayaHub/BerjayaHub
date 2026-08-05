@@ -34,6 +34,8 @@ pernah dijalankan.
 | 0065 | `0065_batas_kantong_kas_hanya_admin.sql` | **Perbaikan bug**: jatah kantong kas bisa dinaikkan sendiri oleh yang bersangkutan |
 | 0066 | `0066_hapus_kantong_kas.sql` | Hapus kantong kas: isinya dipindahkan ke kantong lain dulu, saldo total tidak berubah |
 | 0067 | `0067_peringatan_jadwal_kosong.sql` | Dedupe peringatan "jadwal shift besok masih kosong" ke admin |
+| 0068 | `0068_daily_activities_terlihat_satu_outlet.sql` | **Perbaikan bug**: staff hanya melihat Daily Activities miliknya sendiri, sehingga sesi dikerjakan dua kali |
+| 0069 | `0069_item_per_sesi.sql` | Item aktivitas bisa berbeda per sesi (tanpa penugasan = berlaku di semua sesi) |
 
 > ⚠️ `0063` mendefinisikan ulang `laporan_kas_user()` dengan **parameter baru**
 > (`p_category`). Versi lama (4 argumen) di-`drop` di awal file — halaman Laporan
@@ -276,6 +278,18 @@ select net.http_post(
   tabel, pemutar untuk halaman penuh). Tidak ada yang perlu diatur; kalau setelah
   deploy ada layar yang tampak polos tanpa animasi, berarti `css/styles.css` belum
   ikut ter-push.
+- **Daily Activities (Staff App)** → kartu sesi yang sudah selesai kini
+  menampilkan **nama pengerja + jam** dan bisa diketuk untuk melihat rincian +
+  foto bukti tiap item. Ada pemilih **tanggal** untuk melihat hari sebelumnya.
+  ⚠️ Setelah `0068` jalan, sesi yang dulu terlanjur dikerjakan dua kali akan
+  mulai terlihat di rekap — itu jejak bug lama, bukan bug baru.
+- **Daily Activities (Admin Portal → Rekap)** → ada kolom **Bukti** berisi
+  thumbnail foto per item.
+- **Daily Activities (Admin Portal → Item)** → kolom **Sesi** + tombol **Sesi**
+  untuk memilih sesi mana yang memakai item itu. Item yang belum ditugaskan tetap
+  berlaku di **semua** sesi, jadi setelah `0069` tidak ada yang berubah sampai
+  kamu mulai menugaskan. ⚠️ Begitu sebuah item ditugaskan ke satu sesi, ia
+  **berhenti muncul di sesi lain**.
 - **Rekap Presensi** → ada pemilih baru **"Outlet yang dicari"**: *Lokasi absen*
   (bawaan) atau *Outlet basis (NBM)*. Baris yang basisnya sudah dikoreksi kini
   menampilkan `★ basis: <outlet>` di bawah nama outlet lokasinya.
@@ -302,6 +316,7 @@ node tools/test-image-compress.mjs
 node tools/test-pdf-lebar.mjs
 node tools/test-ambang-reminder.mjs
 node tools/test-jenjang-admin.mjs
+node tools/test-item-per-sesi.mjs
 ```
 
 `audit-syntax` yang paling penting: satu SyntaxError membuat **seluruh**

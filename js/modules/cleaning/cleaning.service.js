@@ -36,7 +36,22 @@ export async function listBuOutlets(businessUnitId) {
 const cakupan = (q, outletId) =>
   outletId ? q.or(`outlet_id.is.null,outlet_id.eq.${outletId}`) : q.is('outlet_id', null);
 
-export async function listActiveItems(businessUnitId, outletId = null) {
+/**
+ * Item aktif untuk satu outlet, dan (sejak 0069) untuk satu SESI.
+ *
+ * `sessionId` null = jangan saring per sesi (dipakai layar admin yang memang
+ * ingin melihat semuanya).
+ *
+ * ATURANNYA: item yang TIDAK punya satu pun penugasan sesi berlaku di SEMUA
+ * sesi. Itu perilaku sebelum 0069, jadi data lama tetap bekerja tanpa satu
+ * baris pun dipindahkan.
+ *
+ * Penyaringannya dikerjakan di sisi klien setelah mengambil daftar penugasan,
+ * bukan lewat satu query bersyarat: jumlah itemnya puluhan, sementara
+ * "tanpa baris berarti semua" sulit ditulis sebagai filter PostgREST tanpa
+ * menjadi query yang tidak bisa dibaca siapa pun enam bulan lagi.
+ */
+export async function listActiveItems(businessUnitId, outletId = null, sessionId = null) {
   const { data, error } = await cakupan(
     supabase
       .from('checklist_items')
@@ -48,7 +63,65 @@ export async function listActiveItems(businessUnitId, outletId = null) {
     .order('sort_order')
     .order('created_at');
   if (error) throw error;
-  return data ?? [];
+  const items = data ?? [];
+  if (!sessionId || !items.length) return items;
+
+  const { data: tugas, error: errTugas } = await supabase
+    .from('checklist_session_items')
+    .select('session_id, item_id')
+    .in('item_id', items.map((i) => i.id));
+  // Gagal baca penugasan -> tampilkan SEMUA item, bukan kosong. Ceklis yang
+  // tiba-tiba kosong membuat staff mengira pekerjaannya tidak perlu dilakukan;
+  // ceklis yang kepanjangan hanya merepotkan.
+  if (errTugas) {
+    console.warn('[daily] penugasan sesi tidak terbaca:', errTugas.message);
+    return items;
+  }
+
+  const punyaTugas = new Set((tugas ?? []).map((t) => t.item_id));
+  const untukSesi = new Set((tugas ?? []).filter((t) => t.session_id === sessionId).map((t) => t.item_id));
+  return items.filter((i) => !punyaTugas.has(i.id) || untukSesi.has(i.id));
+}
+
+/**
+ * Peta item_id -> daftar session_id yang ditugaskan padanya.
+ * Item yang tidak muncul di peta ini berlaku di semua sesi.
+ */
+export async function getItemSessionMap(itemIds) {
+  const ids = [...new Set((itemIds ?? []).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const { data, error } = await supabase.from('checklist_session_items').select('session_id, item_id').in('item_id', ids);
+  if (error) {
+    console.warn('[daily] penugasan sesi tidak terbaca:', error.message);
+    return new Map();
+  }
+  const peta = new Map();
+  for (const t of data ?? []) {
+    if (!peta.has(t.item_id)) peta.set(t.item_id, []);
+    peta.get(t.item_id).push(t.session_id);
+  }
+  return peta;
+}
+
+/**
+ * Tetapkan sesi mana saja yang memakai item ini.
+ * Daftar KOSONG berarti kembali ke "berlaku di semua sesi".
+ */
+export async function setItemSessions(itemId, sessionIds) {
+  const { error: errHapus } = await supabase.from('checklist_session_items').delete().eq('item_id', itemId);
+  if (errHapus) throw errHapus;
+  const baru = [...new Set((sessionIds ?? []).filter(Boolean))];
+  if (!baru.length) return;
+  const { data, error } = await supabase
+    .from('checklist_session_items')
+    .insert(baru.map((session_id) => ({ session_id, item_id: itemId })))
+    .select('item_id');
+  if (error) throw error;
+  // Penolakan RLS pada INSERT memang menghasilkan error, tapi baris yang
+  // tersaring sebagian tidak. Diperiksa supaya "tersimpan" tidak berbohong.
+  if ((data ?? []).length !== baru.length) {
+    throw new Error('Sebagian sesi tidak tersimpan — kamu tidak punya izin mengubah sesi itu.');
+  }
 }
 
 export async function listActiveSessions(businessUnitId, outletId = null) {
@@ -186,13 +259,26 @@ export async function deleteSession(id) {
 
 /** Sesi yang SUDAH dikerjakan hari ini untuk sebuah outlet (set of session_id). */
 export async function getTodayDoneSessions(outletId) {
+  const runs = await listSessionRuns(outletId, todayWIB());
+  return new Set(runs.map((r) => r.session_id));
+}
+
+/**
+ * Pengerjaan sesi di satu outlet pada satu tanggal — SIAPA dan JAM BERAPA.
+ *
+ * Sejak `0068` staff satu outlet boleh membaca run rekannya. Sebelum itu RLS
+ * memotongnya jadi "punya saya saja", sehingga sesi yang sudah dikerjakan
+ * rekannya tetap tampak "Belum" — dan dikerjakan dua kali.
+ */
+export async function listSessionRuns(outletId, tanggal) {
   const { data, error } = await supabase
     .from('checklist_runs')
-    .select('session_id')
+    .select('id, session_id, run_date, notes, created_at, user_id, user_profiles(full_name), checklist_sessions(name)')
     .eq('outlet_id', outletId)
-    .eq('run_date', todayWIB());
+    .eq('run_date', tanggal)
+    .order('created_at', { ascending: true });
   if (error) throw error;
-  return new Set((data ?? []).map((r) => r.session_id));
+  return data ?? [];
 }
 
 /**
@@ -268,7 +354,11 @@ export async function submitChecklistRun({ businessUnitId, outletId, sessionId, 
 export async function listRunsForAdmin({ businessUnitId, outletId, dateFrom, dateTo }) {
   let query = supabase
     .from('checklist_runs')
-    .select('id, run_date, notes, photo_path, created_at, user_profiles(full_name), checklist_sessions(name), outlets(name)')
+    // Foto per item ikut diambil di sini (hanya kolom path-nya) supaya kolom
+    // Bukti bisa menampilkan thumbnail tanpa satu query tambahan per baris.
+    // 500 baris x 1 query = 500 permintaan berbarengan; sebagian akan tertunda
+    // lama dan tabelnya tampak "sebagian fotonya rusak".
+    .select('id, run_date, notes, photo_path, created_at, user_profiles(full_name), checklist_sessions(name), outlets(name), checklist_run_items(photo_path)')
     .eq('business_unit_id', businessUnitId)
     .order('run_date', { ascending: false })
     .order('created_at', { ascending: false })

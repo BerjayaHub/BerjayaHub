@@ -1681,6 +1681,59 @@ Sekarang keduanya dinyatakan terpisah, karena **dua-duanya benar dan keduanya di
 
 Jawaban singkatnya untuk pertanyaan "apakah rekap presensi ikut berpindah setelah koreksi": **sekarang bisa, kalau kamu memintanya.** Bebannya (Rekap NBM) selalu ikut pindah; kehadirannya tetap tercatat di tempat dia benar-benar berdiri.
 
+## Daily Activities: bukti kerja terlihat, dan bug yang menyembunyikannya
+
+### Bug: staff hanya melihat pekerjaannya SENDIRI, jadi sesi dikerjakan dua kali (migration `0068`)
+
+`checklist_runs_select_own` (0016) hanya membuka baris milik sendiri untuk staff biasa. Akibatnya bukan sekadar "tidak bisa lihat teman":
+
+`getTodayDoneSessions()` menghitung sesi yang sudah selesai dengan membaca `checklist_runs` untuk outlet itu — tapi RLS memotongnya jadi "punya saya saja". Jadi sesi yang **sudah** dikerjakan rekannya tetap tampil **"Belum"** bagi staff lain, dan dia mengerjakannya lagi: dua run untuk sesi yang sama, dua set foto, tanpa satu pun pesan yang menjelaskan. Pekerjaannya bertambah, datanya kotor, dan tidak ada yang tahu kenapa.
+
+Yang membuatnya makin janggal: **foto buktinya sudah boleh dilihat satu outlet sejak `0052`** (`checklist_photo_select` memakai `has_outlet_scope`). Jadi fotonya terbuka tapi catatan pekerjaannya tidak — dua policy untuk satu hal yang sama, dan yang lebih ketat yang menang.
+
+`0068` menambahkan policy SELECT berbasis `has_outlet_scope()`. Daily Activities adalah pekerjaan **bersama** satu outlet, bukan catatan pribadi seperti pengajuan cuti. Hanya SELECT yang dibuka: melihat pekerjaan orang lain adalah transparansi, menyuntingnya hal yang sama sekali berbeda.
+
+Kalau setelah menjalankan `0068` muncul sesi ganda di rekap, itu bukan bug baru — itu jejak bug lama yang akhirnya terlihat. Kartu sesinya menyebutkan hal itu apa adanya.
+
+### Admin Portal — kolom Bukti di rekap
+
+Kolom baru berisi **thumbnail foto per item**, maksimal 3 lalu sisanya sebagai `+N`; diketuk untuk membuka besar, dan tombol Detail tetap menampilkan seluruhnya. Kolom tabel bukan galeri — menampilkan sepuluh foto per baris membuat tabelnya tidak bisa dibaca sebagai tabel lagi.
+
+Path fotonya ikut diambil di query yang sama (`checklist_run_items(photo_path)`), dan seluruh signed URL diambil **sekali** untuk satu halaman. 500 baris × 1 permintaan = 500 koneksi berbarengan; sebagian akan tertunda lama dan tabelnya tampak "sebagian fotonya rusak". Thumbnail yang diketuk membuat signed URL **baru**, bukan memakai yang di `<img>` — yang itu berumur 1 jam dan bisa sudah kedaluwarsa kalau halamannya dibiarkan terbuka.
+
+### Staff App — kartu selesai bukan lagi kartu mati
+
+Sebelumnya kartu sesi yang sudah beres di-`disabled`, jadi setelah semua sesi selesai halamannya cuma deretan kotak abu-abu: tidak ada cara melihat siapa yang mengerjakan, jam berapa, atau apa buktinya.
+
+Sekarang kartunya jadi **pintu**, bukan batu nisan:
+
+- Kartu selesai menampilkan **nama pengerja + jam**, dan diketuk membuka rincian: item apa saja yang dicentang, catatannya, dan foto tiap item (diketuk lagi untuk memperbesar).
+- Ada **pemilih tanggal** (maksimal hari ini) untuk melihat hari-hari sebelumnya. Tanggal lampau bersifat **hanya lihat** — sesi yang tidak dikerjakan hari itu ditandai "Tidak dikerjakan" dan tidak bisa diisi surut.
+- Kalau satu sesi punya lebih dari satu run, kartunya menampilkan yang pertama dan dialognya menampilkan semuanya, dengan keterangan di bawah grid.
+
+Pendengar klik untuk foto di dalam dialog dipasang **sekali di level modul**, bukan tiap render — memasangnya tiap kali halaman dibuka membuat pendengarnya menumpuk, dan satu ketukan membuka tab yang sama berkali-kali. Pola bug yang sama pernah terjadi di Master User.
+
+## Item aktivitas berbeda per sesi (migration `0069`)
+
+Ceklis buka toko dan ceklis tutup toko memang beda pekerjaannya. Memaksa keduanya memakai daftar yang sama membuat staff mencentang seadanya — dan ceklis yang dicentang seadanya tidak membuktikan apa pun.
+
+**Relasinya banyak-ke-banyak** (`checklist_session_items`), bukan kolom `session_id` di `checklist_items`. Item seperti "Cek stok" wajar muncul di sesi pagi **dan** malam; dengan satu kolom, item itu harus digandakan — dan dua item kembar berarti dua riwayat terpisah untuk satu pekerjaan yang sama.
+
+### Aturan yang menentukan segalanya: "tanpa penugasan = berlaku di semua sesi"
+
+Item yang tidak punya satu pun baris penugasan dianggap berlaku untuk semua sesi. Itu **persis perilaku sebelum `0069`**, jadi seluruh data lama tetap bekerja tanpa satu baris pun dipindahkan. Penugasan menambah kejelasan, bukan menjadi syarat baru yang mendadak mengosongkan ceklis orang.
+
+Konsekuensinya harus disebut di layar, dan memang disebut di kolom penjelas tab Item: **begitu sebuah item ditugaskan ke satu sesi, ia berhenti muncul di sesi lain.** Aturan implisit yang tidak dijelaskan adalah cara tercepat membuat admin mengira itemnya hilang.
+
+Aturan ini dikunci `node tools/test-item-per-sesi.mjs` (7 kasus) — kalau tergeser tanpa sengaja, ceklis orang akan kosong, dan gejalanya bukan error melainkan staff yang mengira pekerjaannya tidak perlu dilakukan.
+
+### Yang berubah di layar
+
+- **Admin → tab Item**: kolom **Sesi** (badge nama sesi, atau "Semua sesi") + tombol **Sesi** untuk mengaturnya. Dialognya memakai deretan **checkbox**, bukan `<select multiple>`: di HP, memilih dua opsi di select-multiple butuh menahan tombol yang tidak ada di papan ketik sentuh.
+- **Staff App**: item dimuat **saat sesi dibuka**, bukan sekali di awal. Memuatnya di depan berarti sesi kedua menampilkan item sesi pertama — salah tanpa tanda apa pun. Sesi yang belum punya item menampilkan penjelasan + jalan keluarnya, bukan form kosong.
+
+Kalau daftar penugasan gagal dibaca, item ditampilkan **semua**, bukan kosong: ceklis yang tiba-tiba kosong membuat staff mengira pekerjaannya tidak perlu; ceklis yang kepanjangan hanya merepotkan.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
