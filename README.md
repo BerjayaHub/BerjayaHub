@@ -1614,6 +1614,48 @@ Sekarang semuanya lewat `loadingHtml()`, dengan dua bentuk. Pilihannya bukan soa
 
 Semua blok memakai `role="status" aria-live="polite" aria-busy="true"` supaya pembaca layar ikut mengumumkannya — teks "Memuat..." yang lama tidak diumumkan sama sekali.
 
+## Reminder clock in mengikuti jadwal shift
+
+Untuk outlet yang **mengaktifkan modul Shift**, jam masuk reminder diambil dari **jadwal shift tiap staff hari itu** — `outlets.clock_in_time` tidak perlu diisi dan diabaikan. Outlet tanpa modul Shift tetap memakai jam tetap seperti sebelumnya. Query outletnya: `reminder_enabled = true` **dan** (`clock_in_time` terisi **atau** `shift_enabled`).
+
+Yang ikut didapat gratis: staff yang dijadwalkan **Libur** tidak diingatkan sama sekali, dan staff shift sore tidak lagi diteror pukul 08:10 karena outletnya buka pagi.
+
+**Konsekuensi yang harus disadari — semuanya nyata, bukan teoretis:**
+
+1. **Tidak dijadwalkan = tidak diingatkan.** Reminder jadi bergantung pada admin yang rajin menyusun jadwal. Kalau jadwal minggu itu belum dibuat, seisi outlet tidak diingatkan — dan tidak ada satu pun tanda bahwa itu terjadi. Sebelumnya jam tetap selalu berbunyi apa pun keadaannya.
+2. **Staff tanpa divisi tidak bisa dijadwalkan** (keputusan di `0059`), dan karena itu tidak akan pernah diingatkan di outlet ber-shift. Dua keputusan yang masing-masing masuk akal, tapi bertemu jadi lubang senyap.
+3. **Jadwal diubah setelah reminder terkirim tidak menariknya kembali.** Dedupe-nya per (user, outlet, tanggal); begitu terkirim, mengubah shift orang itu tidak membatalkan apa pun.
+4. **Shift lintas tengah malam hanya diingatkan sampai pukul 23:59.** Barisnya bertanggal hari mulai, jadi setelah lewat tengah malam ia tidak lagi ikut diperiksa.
+5. **Presisi ikut irama cron** (`*/10`), jadi reminder bisa telat sampai ~10 menit dari ambangnya. Sama seperti mode jam tetap.
+
+### Peringatan ke admin kalau jadwal besok kosong (`send-shift-gap-alerts`, migration `0067`)
+
+Konsekuensi nomor 1 di atas ditutup dari sisi admin, bukan dengan jaring pengaman jam tetap. Sekali sehari sore hari (cron 17:00 WIB), tiap outlet ber-shift diperiksa: kalau **belum ada satu pun** baris jadwal untuk besok, adminnya diberi push.
+
+**Satu baris jadwal sudah cukup untuk dianggap aman.** Kalau admin sudah mulai mengisi, dia jelas tidak lupa — yang dicari adalah outlet yang benar-benar kosong. Menegur orang yang sedang bekerja adalah cara tercepat membuat peringatan diabaikan.
+
+**Siapa yang diberi tahu: berjenjang, dan berhenti di jenjang pertama yang berisi orang.**
+
+1. **Admin outlet** outlet itu.
+2. Kalau tidak ada → **admin BU** dari BU-nya.
+3. Kalau tidak ada juga → **super admin**.
+
+Mengirim ke semua admin BU sekaligus terdengar lebih aman, tapi hasilnya peringatan yang tidak jelas jadi tanggung jawab siapa — dan sesuatu yang menjadi tanggung jawab semua orang tidak dikerjakan siapa pun. Yang paling mungkin bertindak adalah admin outlet itu sendiri. Jenjang berikutnya hanya dipakai kalau jenjang sebelumnya kosong, supaya outlet tanpa admin sendiri tidak berakhir tanpa siapa pun yang tahu. Admin yang **nonaktif** tidak dihitung — dan kalau dia satu-satunya, peringatannya naik jenjang, bukan hilang.
+
+Dedupe per (outlet, tanggal jadwal) lewat `shift_gap_alerts_sent`, dan **hanya ditandai kalau benar-benar ada push yang terkirim**. Kalau ditandai walau semua gagal, peringatannya hilang selamanya untuk tanggal itu — gagal senyap yang justru menutupi gagal senyap lain.
+
+Punya `{"dry_run":true}`: menghitung dan melaporkan tanpa mengirim maupun menandai. Tanpa mode itu, satu-satunya cara menguji adalah dengan mengirim notifikasi ke orang sungguhan.
+
+Jenjang penerimanya diuji tersendiri: `node tools/test-jenjang-admin.mjs` (8 kasus, termasuk admin outlet dari outlet lain, admin BU dari BU lain, dan admin nonaktif).
+
+Yang **tidak** ditutup oleh ini: konsekuensi nomor 2 (staff tanpa divisi tidak bisa dijadwalkan sama sekali). Peringatan ini hanya melihat "ada jadwal atau tidak", bukan "semua orang sudah kebagian atau belum".
+
+### Bug: ambang yang dibungkus modulo mengirim reminder 23 jam lebih awal
+
+`addMinutes()` membungkus hasilnya dengan `% 1440`. Untuk shift yang mulai **23:50**, ambangnya jadi `"00:00"` — dan perbandingan `nowTime >= "00:00"` benar **sepanjang hari**. Akibatnya reminder terkirim pukul 00:0x, hampir 24 jam sebelum shift-nya, dan penerimanya cuma bingung kenapa disuruh absen tengah malam. Tidak ada error, tidak ada log yang aneh.
+
+Sekarang ambangnya dihitung dalam **menit sejak tengah malam tanpa dibungkus**; nilai ≥ 1440 berarti reminder-nya jatuh di hari berikutnya, dan hari ini dilewati. Lebih baik tidak mengingatkan daripada mengingatkan di waktu yang salah. Diuji `node tools/test-ambang-reminder.mjs` (11 kasus, termasuk shift dekat tengah malam).
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

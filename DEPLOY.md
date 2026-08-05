@@ -33,6 +33,7 @@ pernah dijalankan.
 | 0064 | `0064_otp_tugas_luar_admin_outlet.sql` | **Perbaikan bug**: admin outlet tidak bisa menerbitkan kode OTP Tugas Luar; `created_by` kode kini terisi |
 | 0065 | `0065_batas_kantong_kas_hanya_admin.sql` | **Perbaikan bug**: jatah kantong kas bisa dinaikkan sendiri oleh yang bersangkutan |
 | 0066 | `0066_hapus_kantong_kas.sql` | Hapus kantong kas: isinya dipindahkan ke kantong lain dulu, saldo total tidak berubah |
+| 0067 | `0067_peringatan_jadwal_kosong.sql` | Dedupe peringatan "jadwal shift besok masih kosong" ke admin |
 
 > ⚠️ `0063` mendefinisikan ulang `laporan_kas_user()` dengan **parameter baru**
 > (`p_category`). Versi lama (4 argumen) di-`drop` di awal file — halaman Laporan
@@ -61,10 +62,21 @@ supabase functions deploy create-staff-user
 supabase functions deploy reset-staff-password
 ```
 
-### OPSIONAL — hanya baris import yang berubah
+### WAJIB — perbaikan ambang reminder shift dekat tengah malam
 
 ```bash
 supabase functions deploy send-attendance-reminders
+```
+
+### BARU — peringatan jadwal shift kosong
+
+```bash
+supabase functions deploy send-shift-gap-alerts
+```
+
+### OPSIONAL — hanya baris import yang berubah
+
+```bash
 supabase functions deploy send-fleet-reminders
 supabase functions deploy send-test-push
 supabase functions deploy notify-telegram
@@ -136,6 +148,41 @@ select cron.schedule(
   );
   $$
 );
+```
+
+### Peringatan jadwal shift kosong (BARU)
+
+Sekali sehari sore hari, memeriksa apakah jadwal **besok** sudah ada.
+
+```sql
+select cron.schedule(
+  'shift-gap-alerts',
+  '0 10 * * *',                        -- 10:00 UTC = 17:00 WIB
+  $$
+  select net.http_post(
+    url     := 'https://<PROJECT-REF>.supabase.co/functions/v1/send-shift-gap-alerts',
+    headers := jsonb_build_object(
+      'Content-Type',  'application/json',
+      'Authorization', 'Bearer <anon key>',
+      'x-cron-secret', '<CRON_SECRET>'
+    ),
+    body    := '{}'::jsonb,
+    timeout_milliseconds := 30000
+  );
+  $$
+);
+```
+
+Uji dulu tanpa mengirim apa pun ke siapa pun:
+
+```sql
+select net.http_post(
+  url := 'https://<PROJECT-REF>.supabase.co/functions/v1/send-shift-gap-alerts',
+  headers := jsonb_build_object('Content-Type','application/json',
+    'Authorization','Bearer <anon key>', 'x-cron-secret','<CRON_SECRET>'),
+  body := '{"dry_run":true}'::jsonb, timeout_milliseconds := 30000);
+-- lalu baca jawabannya:
+-- select left(content, 800) from net._http_response order by id desc limit 1;
 ```
 
 ### Rekap reservasi harian
@@ -250,6 +297,8 @@ node tools/audit-select-wajib.cjs
 node tools/test-youtube-parser.mjs
 node tools/test-image-compress.mjs
 node tools/test-pdf-lebar.mjs
+node tools/test-ambang-reminder.mjs
+node tools/test-jenjang-admin.mjs
 ```
 
 `audit-syntax` yang paling penting: satu SyntaxError membuat **seluruh**

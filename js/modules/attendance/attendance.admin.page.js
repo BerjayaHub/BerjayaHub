@@ -206,9 +206,15 @@ async function renderPresensiTab(container, businessUnitId) {
         </tbody>
       </table>
       <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:8px">
-        Kalau "Jam Masuk" belum diisi, reminder tidak aktif untuk outlet itu. Staff yang belum
-        clock in 10 menit setelah jam masuk akan dapat notifikasi pengingat otomatis (sekali per hari).
-        Staff perlu aktifkan sendiri notifikasi lewat halaman Presensi mereka.
+        Staff yang belum clock in <strong>10 menit</strong> setelah jam masuknya akan dapat
+        notifikasi pengingat otomatis (sekali per staff per outlet per hari).
+        Staff perlu mengaktifkan sendiri notifikasinya lewat halaman Presensi mereka.
+      </p>
+      <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:8px">
+        <strong>Outlet yang memakai modul Shift tidak perlu mengisi "Jam Masuk"</strong> — jam masuknya
+        diambil dari jadwal shift masing-masing staff hari itu, dan yang dijadwalkan libur tidak diingatkan.
+        Konsekuensinya: staff yang <strong>belum dijadwalkan</strong> hari itu tidak akan diingatkan sama sekali.
+        Untuk outlet tanpa modul Shift, "Jam Masuk" wajib diisi — kalau kosong, remindernya tidak aktif.
       </p>
     </details>
 

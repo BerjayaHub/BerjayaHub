@@ -43,14 +43,28 @@ function nowInTimezone() {
   return { date: `${get('year')}-${get('month')}-${get('day')}`, time: `${get('hour')}:${get('minute')}` };
 }
 
-/** Tambah menit ke "HH:MM:SS" atau "HH:MM", return "HH:MM". */
-function addMinutes(hhmm: string, minutesToAdd: number) {
+/**
+ * Ambang reminder = jam mulai + masa tenggang, dalam MENIT sejak tengah malam.
+ *
+ * Sengaja TIDAK dibungkus modulo 1440. Versi sebelumnya membungkusnya, dan
+ * itu melahirkan bug yang tenang sekali: shift 23:50 + 10 menit menghasilkan
+ * ambang "00:00", sehingga sepanjang hari `nowTime >= ambang` selalu benar —
+ * reminder terkirim pukul 00:0x, hampir 24 jam LEBIH AWAL dari shift-nya, dan
+ * penerimanya cuma bingung kenapa disuruh absen tengah malam.
+ *
+ * Sekarang nilainya boleh melebihi 1440. Pemanggil yang memutuskan apa artinya:
+ * ambang di atas 1440 berarti reminder-nya jatuh di hari berikutnya, dan
+ * pemeriksaan hari ini memang harus dilewati.
+ */
+function ambangMenit(hhmm: string, minutesToAdd: number) {
   const [h, m] = hhmm.split(':').map(Number);
-  const total = h * 60 + m + minutesToAdd;
-  const wrapped = ((total % 1440) + 1440) % 1440;
-  const hh = String(Math.floor(wrapped / 60)).padStart(2, '0');
-  const mm = String(wrapped % 60).padStart(2, '0');
-  return `${hh}:${mm}`;
+  return h * 60 + m + minutesToAdd;
+}
+
+/** "HH:MM" -> menit sejak tengah malam. */
+function keMenit(hhmm: string) {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
 }
 
 Deno.serve(async (req) => {
@@ -146,9 +160,13 @@ Deno.serve(async (req) => {
       }
     }
 
+    const nowMin = keMenit(nowTime);
+
     if (!shiftMode) {
-      const threshold = addMinutes(outlet.clock_in_time, GRACE_PERIOD_MINUTES);
-      if (nowTime < threshold) continue; // belum waktunya reminder untuk outlet ini
+      const threshold = ambangMenit(outlet.clock_in_time, GRACE_PERIOD_MINUTES);
+      // threshold > 1440 hanya terjadi kalau jam masuknya sangat dekat tengah
+      // malam; reminder-nya jatuh di hari berikutnya, jadi hari ini dilewati.
+      if (threshold >= 1440 || nowMin < threshold) continue;
     }
 
     // Staff yang ditugaskan di outlet ini (langsung, bukan level BU)
@@ -165,7 +183,12 @@ Deno.serve(async (req) => {
       if (shiftMode) {
         const start = shiftStartByUser.get(scope.user_id);
         if (!start) continue; // libur / tidak dijadwalkan
-        if (nowTime < addMinutes(start, GRACE_PERIOD_MINUTES)) continue;
+        const threshold = ambangMenit(start, GRACE_PERIOD_MINUTES);
+        // Shift yang mulai <10 menit sebelum tengah malam: ambangnya jatuh di
+        // tanggal berikutnya, sementara jadwalnya masih bertanggal hari ini.
+        // Dilewati — lebih baik tidak mengingatkan daripada mengingatkan di
+        // waktu yang salah.
+        if (threshold >= 1440 || nowMin < threshold) continue;
       }
       checkedStaffCount++;
 
