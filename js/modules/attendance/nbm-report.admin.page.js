@@ -188,7 +188,7 @@ async function runReport(businessUnitId, outlets) {
         </div>
       </div>
       <p style="font-size:0.78rem;color:var(--color-text-muted);margin:0 0 8px">${esc(judulPeriode)}</p>
-      <table class="data-table">
+      <div class="table-scroll"><table class="data-table table-freeze-1">
         <thead><tr><th>Staff</th><th style="text-align:right">Total NBM</th></tr></thead>
         <tbody>
           ${
@@ -204,12 +204,12 @@ async function runReport(businessUnitId, outlets) {
               : ''
           }
         </tbody>
-      </table>
+      </table></div>
     </div>
     <p style="font-size:0.8rem;color:var(--color-text-muted);margin:14px 0 6px">
       Kolom <strong>Total</strong> bisa diubah langsung — klik nominalnya, ketik nilai baru, lalu tekan Enter/keluar dari kolom untuk konfirmasi.
     </p>
-    <table class="data-table">
+    <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead>
         <tr><th>Staff</th><th>Outlet Basis</th><th>Lokasi Absen</th><th>Tanggal</th><th>Tugas Luar/Storing</th><th>Libur</th><th>Base</th><th>Lembur</th><th>Bonus Tugas Luar/Storing</th><th>Bonus PH</th><th>Total</th><th>Keterangan</th></tr>
       </thead>
@@ -258,7 +258,7 @@ async function runReport(businessUnitId, outlets) {
             .join('') || '<tr><td colspan="12">Tidak ada data.</td></tr>'
         }
       </tbody>
-    </table>
+    </table></div>
 
   `;
 

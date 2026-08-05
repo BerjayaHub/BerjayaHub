@@ -125,7 +125,7 @@ function blok(judul, rows, kosong) {
       <h2 style="font-size:0.98rem;margin:0 0 8px">${judul}${rows.length ? ` <span class="incoming-count">${rows.length}</span>` : ''}</h2>
       ${
         rows.length
-          ? `<div class="table-scroll"><table class="data-table">
+          ? `<div class="table-scroll"><table class="data-table table-freeze-1">
               <thead><tr><th>Kode</th><th>Tamu</th><th>Tipe / Kamar</th><th>Menginap</th><th>Status</th><th>Aksi</th></tr></thead>
               <tbody>${rows.map(barisTamu).join('')}</tbody>
             </table></div>`
@@ -478,7 +478,7 @@ async function tabSemua(content, ctx) {
     }
     list.innerHTML = `
       <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px"><strong>${rows.length}</strong> booking</p>
-      <div class="table-scroll"><table class="data-table">
+      <div class="table-scroll"><table class="data-table table-freeze-1">
         <thead><tr><th>Kode</th><th>Tamu</th><th>Tipe / Kamar</th><th>Menginap</th><th>Status</th><th>Aksi</th></tr></thead>
         <tbody>${rows.map(barisTamu).join('') || '<tr><td colspan="6">Tidak ada booking pada periode ini.</td></tr>'}</tbody>
       </table></div>
@@ -571,7 +571,7 @@ async function tabKamar(content, ctx) {
       return;
     }
     list.innerHTML = `
-      <div class="table-scroll"><table class="data-table">
+      <div class="table-scroll"><table class="data-table table-freeze-1">
         <thead><tr><th>Urutan</th><th>Tipe Kamar</th><th>Jumlah Unit</th><th>Kapasitas</th><th>Status</th><th>Aksi</th></tr></thead>
         <tbody>
           ${

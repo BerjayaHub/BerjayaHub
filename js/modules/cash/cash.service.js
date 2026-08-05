@@ -2,6 +2,8 @@ import { supabase } from '../../config/supabase-client.js';
 import { compressImage } from '../../core/image-compress.js';
 
 export const ENTRY_LABEL = {
+  move_out: 'Pindah keluar',
+  move_in: 'Pindah masuk',
   in: 'Kas Masuk',
   out: 'Kas Keluar',
   transfer_out: 'Transfer Keluar',
@@ -51,41 +53,49 @@ export async function deleteCashCategory(id) {
  * Catat kas masuk/keluar. TIDAK menyimpan BU/outlet — sejak 0040 kas melekat
  * pada USER, jadi saldonya sama di BU/outlet mana pun dia login.
  */
-export async function recordCashEntry({ type, amount, categoryId, notes, date, qty, unit, file }) {
+export async function recordCashEntry({ type, amount, categoryId, outletId, accountId, notes, date, qty, unit, file }) {
   const uid = await currentUserId();
   if (!uid) throw new Error('Sesi tidak ditemukan, silakan login ulang.');
-  if (!file) throw new Error('Foto nota wajib dilampirkan untuk setiap transaksi kas.');
+
+  // Aturan berbeda per arah, sesuai keputusan:
+  //   KELUAR — nota WAJIB (ada bukti fisiknya) dan outlet peruntukan WAJIB
+  //            ("uang ini dibelanjakan untuk outlet mana").
+  //   MASUK  — nota opsional; uang masuk sering berupa setoran/owner yang tidak
+  //            selalu ada notanya, dan belum tentu diperuntukkan satu outlet.
+  if (type === 'out') {
+    if (!file) throw new Error('Foto nota wajib dilampirkan untuk kas keluar.');
+    if (!outletId) throw new Error('Pilih outlet peruntukan untuk kas keluar.');
+  }
 
   const signed = type === 'out' ? -Math.abs(amount) : Math.abs(amount);
-
-  // FOTO DIUNGGAH LEBIH DULU, baris kas menyusul.
-  //
-  // Urutannya sengaja dibalik dari pola modul lain. Kalau barisnya dibuat dulu
-  // lalu `proof_path` diisi belakangan lewat UPDATE, constraint "nota wajib"
-  // (migration 0060) tidak mungkin ditegakkan — baris sudah terlanjur masuk
-  // tanpa nota, dan UPDATE yang gagal tidak menghasilkan error apa pun.
-  //
-  // Bisa dibalik karena policy Storage bucket ini berbasis PREFIX PATH
-  // (`{uid}/...`), bukan berdasarkan ada-tidaknya baris kas. Jadi file boleh
-  // ditulis sebelum barisnya lahir.
   const id = crypto.randomUUID();
-  const kecil = await compressImage(file, { preset: 'bukti' });
-  const ext = (kecil.name?.split('.').pop() || 'jpg').toLowerCase();
-  const path = `${uid}/${id}.${ext}`;
+  let path = null;
 
-  const { error: upErr } = await supabase.storage
-    .from('cash-proofs')
-    .upload(path, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
-  if (upErr) throw upErr;
+  // Kalau ada foto, diunggah LEBIH DULU lalu barisnya menyusul dengan
+  // `proof_path` sudah terisi. Urutan ini yang membuat constraint "nota wajib"
+  // bisa ditegakkan database — kalau barisnya dibuat dulu lalu path diisi lewat
+  // UPDATE, baris tanpa nota sempat masuk dan UPDATE yang gagal tidak
+  // menghasilkan error apa pun.
+  if (file) {
+    const kecil = await compressImage(file, { preset: 'bukti' });
+    const ext = (kecil.name?.split('.').pop() || 'jpg').toLowerCase();
+    path = `${uid}/${id}.${ext}`;
+    const { error: upErr } = await supabase.storage
+      .from('cash-proofs')
+      .upload(path, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
+    if (upErr) throw upErr;
+  }
 
   const { data, error } = await supabase
     .from('cash_entries')
     .insert({
       id,
       holder_id: uid,
+      account_id: accountId || null,
       entry_type: type,
       amount: signed,
       category_id: categoryId || null,
+      outlet_id: type === 'out' ? outletId : null,
       notes: notes || null,
       qty: qty === '' || qty == null ? null : Number(qty),
       unit: unit?.trim() || null,
@@ -97,12 +107,89 @@ export async function recordCashEntry({ type, amount, categoryId, notes, date, q
     .single();
 
   if (error) {
-    // Barisnya gagal -> fotonya jadi yatim. Dibersihkan supaya bucket tidak
-    // terisi file yang tidak pernah bisa ditemukan lagi lewat aplikasi.
-    await supabase.storage.from('cash-proofs').remove([path]).catch(() => {});
+    if (path) await supabase.storage.from('cash-proofs').remove([path]).catch(() => {});
     throw error;
   }
   return data;
+}
+
+// ---- Kantong kas (sub-kas) ----
+
+/** Kantong kas milik user yang login. Kosong = dia memakai kas tunggal. */
+export async function listMyCashAccounts(onlyActive = true) {
+  const uid = await currentUserId();
+  if (!uid) return [];
+  let q = supabase
+    .from('cash_accounts')
+    .select('id, name, sort_order, is_active')
+    .eq('holder_id', uid)
+    .order('sort_order')
+    .order('name');
+  if (onlyActive) q = q.eq('is_active', true);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Berapa kantong yang boleh dia punya (diatur admin). 1 = kas tunggal. */
+export async function getMyCashAccountLimit() {
+  const uid = await currentUserId();
+  if (!uid) return 1;
+  const { data, error } = await supabase.from('user_profiles').select('cash_account_limit').eq('id', uid).maybeSingle();
+  if (error) return 1;
+  return Number(data?.cash_account_limit ?? 1);
+}
+
+export async function saveCashAccount({ id, name, sort_order, is_active }) {
+  const uid = await currentUserId();
+  if (!uid) throw new Error('Sesi tidak ditemukan.');
+  const baris = { holder_id: uid, name: String(name ?? '').trim(), sort_order: Number(sort_order) || 0, is_active: is_active !== false };
+  if (id) {
+    const { data, error } = await supabase.from('cash_accounts').update(baris).eq('id', id).select('id');
+    if (error) throw error;
+    if (!data?.length) throw new Error('Kantong kas ini bukan milikmu.');
+    return;
+  }
+  const { error } = await supabase.from('cash_accounts').insert(baris);
+  if (error) throw error;
+}
+
+export async function deleteCashAccount(id) {
+  // `on delete restrict` di cash_entries menahan penghapusan kantong yang sudah
+  // dipakai — riwayatnya tidak boleh kehilangan penunjuk kantongnya. Pesannya
+  // diterjemahkan supaya user tahu harus menonaktifkan, bukan menghapus.
+  const { data, error } = await supabase.from('cash_accounts').delete().eq('id', id).select('id');
+  if (error) {
+    if (/foreign key|restrict/i.test(error.message ?? '')) {
+      throw new Error('Kantong ini sudah dipakai transaksi. Nonaktifkan saja lewat Edit — riwayatnya tetap terbaca.');
+    }
+    throw error;
+  }
+  if (!data?.length) throw new Error('Kantong kas ini bukan milikmu.');
+}
+
+/** Saldo per kantong milik user yang login. */
+export async function listMyCashAccountBalances() {
+  const uid = await currentUserId();
+  if (!uid) return [];
+  const { data, error } = await supabase
+    .from('cash_account_balances')
+    .select('account_id, account_name, sort_order, balance')
+    .eq('holder_id', uid)
+    .order('sort_order');
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Pindahkan saldo antar kantong SENDIRI. Total saldo tidak berubah. */
+export async function pindahKas({ fromAccountId, toAccountId, amount, notes }) {
+  const { error } = await supabase.rpc('pindah_kas', {
+    p_from: fromAccountId || null,
+    p_to: toAccountId || null,
+    p_amount: amount,
+    p_notes: notes || null
+  });
+  if (error) throw error;
 }
 
 /** Transfer kas ke user lain — boleh lintas BU (kas ikut user). */
@@ -129,7 +216,7 @@ export async function listMyCashEntries(limit = 50) {
   if (!uid) return [];
   const { data, error } = await supabase
     .from('cash_entries')
-    .select('id, entry_type, amount, notes, qty, unit, entry_date, proof_path, created_at, cash_categories(name), counterpart:user_profiles!counterpart_id(full_name)')
+    .select('id, entry_type, amount, notes, qty, unit, entry_date, proof_path, created_at, cash_categories(name), cash_accounts(name), outlets!outlet_id(name), counterpart:user_profiles!counterpart_id(full_name)')
     .eq('holder_id', uid)
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -197,12 +284,13 @@ export async function listRecentCashActivity({ limit = 25, before = null } = {})
  *   2. RLS cash_entries hanya membuka baris milik sendiri; laporan perlu
  *      lintas orang, dan itu dibuka terkendali di dalam RPC.
  */
-export async function laporanKasUser({ from, to, userId = null, outletId = null }) {
+export async function laporanKasUser({ from, to, userId = null, outletId = null, categoryId = null }) {
   const { data, error } = await supabase.rpc('laporan_kas_user', {
     p_from: from,
     p_to: to,
     p_user: userId || null,
-    p_outlet: outletId || null
+    p_outlet: outletId || null,
+    p_category: categoryId || null
   });
   if (error) throw error;
   return data ?? [];

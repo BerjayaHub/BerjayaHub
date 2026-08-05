@@ -48,10 +48,10 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
         <select id="menu-cat"><option value="">Semua</option>${categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
       </div>
     </div>
-    <table class="data-table">
+    <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead><tr><th>Menu</th><th>Kategori</th><th>Jumlah tersedia</th></tr></thead>
       <tbody id="menu-rows"></tbody>
-    </table>
+    </table></div>
   `;
 
   const outletSel = container.querySelector('#menu-outlet');

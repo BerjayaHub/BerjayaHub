@@ -57,12 +57,12 @@ async function load(container, businessUnitId) {
 
   result.innerHTML = `
     <p style="margin:14px 0 6px;font-weight:600">Total: ${formatNum(totalQty)} menu terjual · Omzet ${formatRupiah(totalRevenue)}</p>
-    <table class="data-table">
+    <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead><tr><th>Menu</th><th>Kategori</th><th>Terjual</th><th>Omzet</th></tr></thead>
       <tbody>
         ${list.map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(p.category)}</td><td>${formatNum(p.qty)}</td><td>${formatRupiah(p.revenue)}</td></tr>`).join('') || '<tr><td colspan="4">Tidak ada data.</td></tr>'}
       </tbody>
-    </table>
+    </table></div>
   `;
 }
 

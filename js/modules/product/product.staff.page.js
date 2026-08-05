@@ -53,14 +53,14 @@ export async function renderProductStaffPage(container, { businessUnitId, outlet
       }
     }
     body.innerHTML = `
-      <table class="data-table">
+      <div class="table-scroll"><table class="data-table table-freeze-1">
         <thead><tr><th>Produk</th><th>Tipe</th><th>Stok</th><th>Satuan</th></tr></thead>
         <tbody>
           ${active
             .map((p) => `<tr><td>${esc(p.name)}</td><td>${TYPE_LABEL[p.product_type] ?? p.product_type}</td><td>${formatNum(map.get(p.id) ?? 0)}</td><td>${esc(p.base_unit)}</td></tr>`)
             .join('')}
         </tbody>
-      </table>
+      </table></div>
     `;
   }
   refresh();

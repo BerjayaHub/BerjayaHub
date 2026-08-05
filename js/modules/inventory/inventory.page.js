@@ -71,7 +71,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       return null;
     }
     stockDiv.innerHTML = `
-      <table class="data-table">
+      <div class="table-scroll"><table class="data-table table-freeze-1">
         <thead><tr><th>Produk</th><th>Stok</th><th>Satuan</th></tr></thead>
         <tbody>
           ${activeProducts
@@ -81,7 +81,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
             })
             .join('')}
         </tbody>
-      </table>
+      </table></div>
     `;
     return map;
   }
@@ -209,7 +209,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
           (!opnameState.q || fuzzyMatch(opnameState.q, `${p.name} ${p.category ?? ''} ${p.subcategory ?? ''}`))
       );
       rowsBox.innerHTML = `
-        <table class="data-table">
+        <div class="table-scroll"><table class="data-table table-freeze-1">
           <thead><tr><th>Bahan</th><th>Kategori</th><th>Stok Akhir</th><th>Stok Fisik</th><th>Satuan</th><th>Selisih</th></tr></thead>
           <tbody>
             ${
@@ -229,7 +229,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
                 .join('') || '<tr><td colspan="6">Tidak ada bahan pada filter ini.</td></tr>'
             }
           </tbody>
-        </table>`;
+        </table></div>`;
 
       rowsBox.querySelectorAll('.opname-input').forEach((inp) => {
         const updateDiff = () => {

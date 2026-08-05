@@ -29,6 +29,12 @@ pernah dijalankan.
 | 0060 | `0060_kas_qty_unit_dan_laporan.sql` | Kas: jumlah + satuan, nota wajib, RPC Laporan Kas per Pemegang |
 | 0061 | `0061_profil_terlihat_outlet_admin.sql` | **Perbaikan bug**: admin outlet melihat "-" di kolom nama pada Rekap Presensi & NBM |
 | 0062 | `0062_koreksi_outlet_basis.sql` | Koreksi outlet basis pada presensi yang sudah tersimpan (satuan & massal) |
+| 0063 | `0063_kas_sub_akun_dan_outlet.sql` | Kas: kantong (sub-kas) per user, outlet **peruntukan** pada kas keluar, pindah antar kantong, Laporan Kas dengan filter kategori |
+| 0064 | `0064_otp_tugas_luar_admin_outlet.sql` | **Perbaikan bug**: admin outlet tidak bisa menerbitkan kode OTP Tugas Luar; `created_by` kode kini terisi |
+
+> ⚠️ `0063` mendefinisikan ulang `laporan_kas_user()` dengan **parameter baru**
+> (`p_category`). Versi lama (4 argumen) di-`drop` di awal file — halaman Laporan
+> yang masih terbuka di browser lain akan error sampai di-refresh.
 
 > ⚠️ `0055` mendefinisikan ulang `list_attendance_outlets()`. Kalau ada yang
 > sedang membuka aplikasi saat migration jalan, minta dia refresh setelahnya.
@@ -95,7 +101,7 @@ Supabase, bukan di komputermu.
 
 ```bash
 git add .
-git commit -m "Mode reservasi hotel, foto per item Daily Activities, kompresi foto, perbaikan RLS outlet_admin"
+git commit -m "Kantong kas + outlet peruntukan, kolom nama dibekukan, tutorial di Beranda, perbaikan OTP tugas luar & export Data Staff"
 git push origin master
 ```
 
@@ -192,11 +198,23 @@ select net.http_post(
 - **Video Tutorial** (menu baru, super admin) → tempel link YouTube **Unlisted**.
 - Cek **Master User** → kolom Email terisi. Kalau kosong untuk *semua* orang,
   berarti `0049` belum jalan.
-- **Kas** → transaksi kini wajib melampirkan **foto nota**, dan ada isian
-  *Jumlah barang* + *Satuan* (mis. Bensin · 10 · liter). Transfer antar pemegang
-  tidak butuh nota.
-- **Laporan → Kas per Pemegang** → filter pemegang + outlet + periode, bisa
-  **Export Excel**. Kolom Outlet diturunkan dari tempat kerja utama (★).
+- **Kas** → form **Kas Masuk** dan **Kas Keluar** kini berbeda:
+  - *Kas Masuk*: jumlah uang, keterangan, tanggal, foto **opsional**.
+  - *Kas Keluar*: kategori, **outlet peruntukan (wajib)**, jumlah + satuan,
+    dan **foto nota wajib**.
+- **Kantong kas (sub-kas)** → di **Master User**, atur *jumlah kantong* per user.
+  Default `1` → tampilannya persis seperti sebelumnya, tanpa istilah baru.
+  Kalau > 1, user menamai sendiri kantongnya (mis. *Kas Owner*, *Kas Operasional*),
+  bisa memilih kantong saat mencatat, dan bisa **memindahkan** saldo antar kantongnya.
+- **Laporan → Kas per Pemegang** → filter pemegang + outlet + **kategori** + periode,
+  **Export PDF & Excel**. Kolom Outlet sekarang adalah **peruntukan** yang dipilih
+  saat mencatat kas keluar, bukan lagi turunan tempat kerja utama (★).
+  Baris kas masuk tidak punya peruntukan, jadi menyaring per outlet menyisihkannya.
+- **Presensi → Mode Tugas Luar** → kalau dipilih *OTP*, admin **outlet** kini juga
+  bisa menerbitkan kode (sebelumnya hanya admin BU — tombolnya ada tapi ditolak RLS).
+  Mode ini mengikuti **BU basis (★)** staff, bukan BU yang sedang dibuka di portal.
+- **Data Staff** → ada **Export .xlsx** di samping Export PDF; PDF-nya tidak lagi
+  bertumpuk teks (sel panjang dibungkus, tinggi baris menyesuaikan).
 - **Master User → 🏷️ Kelola Divisi** → isi divisi tiap BU (mis. Kitchen, Bar),
   lalu tetapkan divisi pada scope tiap staff lewat tombol ✎ di badge scope-nya.
   ⚠️ **Staff tanpa divisi tidak akan muncul di Jadwal Shift** — jadi ini wajib

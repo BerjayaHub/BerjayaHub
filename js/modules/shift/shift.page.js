@@ -141,7 +141,7 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
         Periode <strong>${fmtDate(wk.from)} – ${fmtDate(wk.to)}</strong>
       </p>
       <div class="table-scroll">
-        <table class="data-table shift-grid">
+        <table class="data-table shift-grid table-freeze-1">
           <thead>
             <tr><th style="min-width:140px">Staff</th>${wk.days
               .map(

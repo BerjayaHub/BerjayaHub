@@ -183,7 +183,7 @@ async function renderVehiclesTab(content, ctx) {
         Menampilkan <strong>${rows.length}</strong> dari ${vehicles.length} kendaraan${rows.length !== vehicles.length ? ` — ${esc(filterSummary())}` : ''}
       </p>
       <div class="table-scroll">
-        <table class="data-table">
+        <table class="data-table table-freeze-1">
           <thead><tr><th>Plat</th><th>Kendaraan</th><th>Area Rental</th><th>Status</th><th>Penyewa</th><th>STNK (pajak)</th><th>KIR</th><th>Aksi</th></tr></thead>
           <tbody>
             ${
@@ -599,7 +599,7 @@ async function renderRentalTab(content, ctx) {
   content.innerHTML = `
     <h2 style="font-size:1.05rem">Sedang Direntalkan (${active.length})</h2>
     <div class="table-scroll">
-      <table class="data-table">
+      <table class="data-table table-freeze-1">
         <thead><tr><th>Plat</th><th>Penyewa</th><th>Area Rental</th><th>Mulai</th><th>Sampai</th><th>Catatan</th></tr></thead>
         <tbody>
           ${
@@ -622,7 +622,7 @@ async function renderRentalTab(content, ctx) {
 
     <h2 style="font-size:1.05rem;margin-top:20px">Riwayat Rental</h2>
     <div class="table-scroll">
-      <table class="data-table">
+      <table class="data-table table-freeze-1">
         <thead><tr><th>Plat</th><th>Penyewa</th><th>Area Rental</th><th>Mulai</th><th>Selesai</th></tr></thead>
         <tbody>
           ${
@@ -687,7 +687,7 @@ async function renderDocsTab(content, ctx) {
         perlu.length
           ? `<p style="font-size:0.8rem;color:var(--color-text-muted);margin:6px 0 0">Ambang peringatan: ${lead} hari sebelum jatuh tempo (diatur di tab Pengaturan).</p>
              <div class="table-scroll" style="margin-top:10px">
-               <table class="data-table">
+               <table class="data-table table-freeze-1">
                  <thead><tr><th>Plat</th><th>Kendaraan</th><th>Area</th><th>Dokumen</th><th>Jatuh Tempo</th><th>Status</th></tr></thead>
                  <tbody>
                    ${perlu
@@ -711,7 +711,7 @@ async function renderDocsTab(content, ctx) {
 
     <h2 style="font-size:1.05rem;margin-top:18px">Semua Dokumen</h2>
     <div class="table-scroll">
-      <table class="data-table">
+      <table class="data-table table-freeze-1">
         <thead><tr><th>Plat</th><th>Dokumen</th><th>Nomor</th><th>Jatuh Tempo</th><th>Status</th></tr></thead>
         <tbody>
           ${

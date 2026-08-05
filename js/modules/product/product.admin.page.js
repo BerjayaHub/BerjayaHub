@@ -74,12 +74,12 @@ async function renderProductsTab(content, businessUnitId) {
         <button class="primary" id="btn-new-product" style="max-width:180px">+ Tambah Produk</button>
       </div>
     </div>
-    <table class="data-table">
+    <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead><tr><th>Nama</th><th>Tipe</th><th>Kategori</th><th>Satuan</th><th>Harga Beli</th><th>HPP / Satuan</th><th>Harga Jual</th><th>Margin</th><th>Aksi</th></tr></thead>
       <tbody>
         ${products.map((p) => productRowHtml(p, costs.get(p.id))).join('') || '<tr><td colspan="9">Belum ada produk.</td></tr>'}
       </tbody>
-    </table>
+    </table></div>
   `;
   document.getElementById('btn-new-product').addEventListener('click', () => openProductDialog(content, businessUnitId, null));
   document.getElementById('btn-tpl-product').addEventListener('click', downloadProductTemplate);
@@ -247,7 +247,7 @@ async function renderRecipesTab(content, businessUnitId) {
         <button id="btn-import-recipe">Import Excel</button>
       </div>
     </div>
-    <table class="data-table">
+    <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead><tr><th>Produk</th><th>Tipe</th><th>Varian resep &amp; HPP</th><th>Aksi</th></tr></thead>
       <tbody>
         ${
@@ -268,7 +268,7 @@ async function renderRecipesTab(content, businessUnitId) {
             .join('') || '<tr><td colspan="4">Belum ada produk setengah jadi / jadi.</td></tr>'
         }
       </tbody>
-    </table>
+    </table></div>
     <div id="recipe-editor" style="margin-top:16px"></div>
   `;
 

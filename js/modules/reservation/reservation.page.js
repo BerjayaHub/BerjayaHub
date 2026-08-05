@@ -114,7 +114,7 @@ export async function renderReservationPage(container, { businessUnitId }) {
         <strong>${rows.length}</strong> reservasi · <strong>${tamu}</strong> tamu (menunggu + dikonfirmasi)
       </p>
       <div class="table-scroll">
-        <table class="data-table">
+        <table class="data-table table-freeze-1">
           <thead><tr><th>Kode</th><th>Tanggal &amp; Jam</th><th>Customer</th><th>Tamu</th><th>Area</th><th>Sumber</th><th>Status</th></tr></thead>
           <tbody>
             ${

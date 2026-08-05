@@ -165,7 +165,7 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
         Periode <strong>${fmtDate(wk.from)} – ${fmtDate(wk.to)}</strong>. Pilih shift langsung di tabel; tersimpan otomatis.
       </p>
       <div class="table-scroll">
-        <table class="data-table shift-grid">
+        <table class="data-table shift-grid table-freeze-1">
           <thead>
             <tr><th style="min-width:150px">Staff</th>${wk.days
               .map((d) => `<th style="text-align:center">${dayLabel(d)}<div style="font-weight:400;font-size:0.72rem;color:var(--color-text-muted)">${fmtShort(d)}</div></th>`)

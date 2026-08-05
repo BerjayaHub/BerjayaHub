@@ -167,6 +167,10 @@ async function renderPresensiTab(container, businessUnitId) {
         </select>
       </div>
       <button class="primary" id="btn-save-exit-mode" style="max-width:140px;margin-top:8px">Simpan Mode</button>
+      <p style="font-size:0.78rem;color:var(--color-text-muted);margin:8px 0 0">
+        Mode ini mengikuti <strong>BU basis (★)</strong> staff, bukan BU yang sedang kamu buka di sini.
+        Staff yang basisnya di BU lain tetap memakai mode BU-nya sendiri — atur di BU tersebut.
+      </p>
 
       <div id="otp-generator-wrap" style="margin-top:16px;${exitMode === 'otp' ? '' : 'display:none'}">
         <button class="primary" id="btn-generate-otp" style="max-width:200px">+ Generate Kode OTP</button>
@@ -221,12 +225,12 @@ async function renderPresensiTab(container, businessUnitId) {
       <button id="btn-export-att">⇩ Export PDF</button>
     </div>
 
-    <table class="data-table">
+    <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead>
         <tr><th>Staff</th><th>Outlet</th><th>Tipe</th><th>Keterangan</th><th>Shift</th><th>Clock In</th><th>Wajah</th><th>Foto</th><th>Alamat</th><th>Clock Out</th><th>Aksi</th></tr>
       </thead>
       <tbody id="attendance-table-body"></tbody>
-    </table>
+    </table></div>
     <p style="font-size:0.78rem;color:var(--color-text-muted);margin:8px 0 0">
       🔕 di sebelah nama = staff itu belum mengaktifkan notifikasi di perangkat mana pun,
       jadi <strong>pengingat clock in tidak akan sampai padanya</strong>. Minta dia membuka

@@ -58,9 +58,10 @@ export const REPORTS = [
     // di sana — filter yang tidak berpengaruh apa pun lebih membingungkan
     // daripada tidak ada filter.
     pakaiFilterUser: true,
+    // Idem untuk kategori: hanya laporan kas yang punya kategori.
+    pakaiFilterKategori: true,
     description:
-      'Transaksi kas per pemegang: kategori, keterangan, jumlah barang & satuan, nominal, dan bukti nota. ' +
-      'Outlet diambil dari tempat kerja utama (★) pemegangnya — sejak kas mengikuti user, baris kas sendiri tidak menyimpan outlet.',
+      'Transaksi kas per pemegang: kantong, outlet peruntukan, kategori, keterangan, jumlah barang & satuan, nominal, dan bukti nota.',
     build: buildCashByUser
   },
   {
@@ -478,10 +479,17 @@ async function buildPhReplacement({ businessUnitId, outletId, from, to }) {
 // 5. Kas per Pemegang
 // ---------------------------------------------------------
 
-async function buildCashByUser({ outletId, userId, from, to }) {
-  const rows = await laporanKasUser({ from, to, userId, outletId }).catch(() => []);
+async function buildCashByUser({ outletId, userId, categoryId, from, to }) {
+  const rows = await laporanKasUser({ from, to, userId, outletId, categoryId }).catch(() => []);
 
-  const label = { in: 'Masuk', out: 'Keluar', transfer_in: 'Terima transfer', transfer_out: 'Kirim transfer' };
+  const label = {
+    in: 'Masuk',
+    out: 'Keluar',
+    transfer_in: 'Terima transfer',
+    transfer_out: 'Kirim transfer',
+    move_in: 'Masuk antar kantong',
+    move_out: 'Keluar antar kantong'
+  };
 
   let masuk = 0;
   let keluar = 0;
@@ -494,6 +502,7 @@ async function buildCashByUser({ outletId, userId, from, to }) {
   const baris = rows.map((r) => [
     r.entry_date,
     r.holder_name ?? '-',
+    r.account_name ?? '-',
     r.outlet_name ?? '-',
     label[r.entry_type] ?? r.entry_type,
     r.category_name ?? '-',
@@ -507,6 +516,7 @@ async function buildCashByUser({ outletId, userId, from, to }) {
     columns: [
       { header: 'Tanggal', width: 1 },
       { header: 'Pemegang', width: 1.5 },
+      { header: 'Kantong', width: 1.1 },
       { header: 'Outlet', width: 1.2 },
       { header: 'Jenis', width: 1 },
       { header: 'Kategori', width: 1.2 },
@@ -523,8 +533,9 @@ async function buildCashByUser({ outletId, userId, from, to }) {
       { label: 'Transaksi', value: formatNum(rows.length) }
     ],
     note:
-      'Saldo kas melekat pada USER, bukan outlet — kolom Outlet di sini diturunkan dari tempat kerja utama (★) pemegangnya, ' +
-      'jadi memindahkan basis seseorang akan mengubah pengelompokan laporan ini. ' +
-      'Transfer antar pemegang tidak memerlukan nota, karena tidak ada nota yang bisa difoto.'
+      'Saldo kas melekat pada **user**, bukan outlet. Kolom Outlet adalah **peruntukan** yang dipilih saat mencatat kas keluar — ' +
+      'untuk outlet mana uang itu dibelanjakan — bukan tempat kerja utama pemegangnya. ' +
+      'Kas masuk tidak punya peruntukan, jadi kolomnya kosong; menyaring per outlet otomatis menyisihkan baris kas masuk. ' +
+      'Transfer antar pemegang dan perpindahan antar kantong sendiri tidak memerlukan nota, karena tidak ada nota yang bisa difoto.'
   };
 }

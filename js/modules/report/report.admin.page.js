@@ -2,6 +2,7 @@ import { toast } from '../../core/ui.js';
 import { exportTablePDF } from '../../core/pdf.js';
 import { exportTableXLSX } from '../../core/xlsx.js';
 import { listBuStaff } from '../leave/leave.service.js';
+import { listCashCategories } from '../cash/cash.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { REPORTS, getReport } from './report.service.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
@@ -16,7 +17,7 @@ import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
  */
 export async function renderReportAdminPage(container, { businessUnitId }) {
   const range = monthRangeWIB();
-  const state = { key: REPORTS[0].key, outletId: '', userId: '', from: range.from, to: range.to };
+  const state = { key: REPORTS[0].key, outletId: '', userId: '', categoryId: '', from: range.from, to: range.to };
   let last = null; // { report, data, subtitle }
 
   const outlets = await listMyOutlets(businessUnitId).catch(() => []);
@@ -55,6 +56,10 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
         <label for="rp-user">Pemegang kas</label>
         <select id="rp-user"><option value="">Semua orang</option></select>
       </div>
+      <div class="field" style="margin:0;max-width:220px" id="rp-kat-wrap" hidden>
+        <label for="rp-kat">Kategori</label>
+        <select id="rp-kat"><option value="">Semua kategori</option></select>
+      </div>
       <div class="field" style="margin:0;max-width:165px"><label for="rp-from">Dari tanggal</label><input type="date" id="rp-from" value="${range.from}" /></div>
       <div class="field" style="margin:0;max-width:165px"><label for="rp-to">Sampai tanggal</label><input type="date" id="rp-to" value="${range.to}" /></div>
       <button class="primary" id="rp-run" style="max-width:130px">Tampilkan</button>
@@ -71,7 +76,10 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
 
   const userWrap = container.querySelector('#rp-user-wrap');
   const userSel = container.querySelector('#rp-user');
+  const katWrap = container.querySelector('#rp-kat-wrap');
+  const katSel = container.querySelector('#rp-kat');
   let staffDimuat = false;
+  let katDimuat = false;
 
   /**
    * Dropdown pemegang kas hanya muncul untuk laporan yang memang memakainya.
@@ -96,6 +104,27 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
     }
   }
 
+  /** Sama seperti filter pemegang: hanya laporan kas yang mengenal kategori. */
+  async function syncFilterKategori() {
+    const perlu = !!getReport(state.key)?.pakaiFilterKategori;
+    katWrap.hidden = !perlu;
+    if (!perlu || katDimuat) return;
+    katDimuat = true;
+    try {
+      // Kategori nonaktif tetap ditampilkan: transaksi lama masih memakainya,
+      // dan laporan periode lampau jadi tidak bisa disaring kalau kategorinya
+      // dipensiunkan.
+      const kategori = await listCashCategories(false);
+      katSel.innerHTML =
+        '<option value="">Semua kategori</option>' +
+        kategori
+          .map((k) => `<option value="${esc(k.id)}">${esc(k.name)}${k.is_active === false ? ' (nonaktif)' : ''}</option>`)
+          .join('');
+    } catch {
+      katDimuat = false;
+    }
+  }
+
   const showDesc = () => {
     desc.textContent = getReport(sel.value).description ?? '';
   };
@@ -104,13 +133,17 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
     // Ganti laporan -> filter user direset, supaya tidak diam-diam terbawa ke
     // laporan berikutnya dan menghasilkan angka yang tidak bisa dijelaskan.
     state.userId = '';
+    state.categoryId = '';
     userSel.value = '';
+    katSel.value = '';
     showDesc();
     syncFilterUser();
+    syncFilterKategori();
     run();
   });
   container.querySelector('#rp-outlet').addEventListener('change', (e) => (state.outletId = e.target.value));
   userSel.addEventListener('change', (e) => (state.userId = e.target.value));
+  katSel.addEventListener('change', (e) => (state.categoryId = e.target.value));
   container.querySelector('#rp-from').addEventListener('change', (e) => (state.from = e.target.value));
   container.querySelector('#rp-to').addEventListener('change', (e) => (state.to = e.target.value));
   container.querySelector('#rp-run').addEventListener('click', run);
@@ -120,7 +153,8 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
   function subtitleOf() {
     const outlet = state.outletId ? outletNames.get(state.outletId) ?? '-' : 'Semua outlet';
     const orang = state.userId ? ` · ${userSel.options[userSel.selectedIndex]?.text ?? ''}` : '';
-    return `${outlet}${orang} · Periode ${fmtDate(state.from)} – ${fmtDate(state.to)}`;
+    const kategori = state.categoryId ? ` · ${katSel.options[katSel.selectedIndex]?.text ?? ''}` : '';
+    return `${outlet}${orang}${kategori} · Periode ${fmtDate(state.from)} – ${fmtDate(state.to)}`;
   }
 
   async function run() {
@@ -133,6 +167,7 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
         businessUnitId,
         outletId: state.outletId,
         userId: state.userId || null,
+        categoryId: state.categoryId || null,
         from: state.from,
         to: state.to
       });
@@ -182,6 +217,7 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
 
   showDesc();
   await syncFilterUser();
+  await syncFilterKategori();
   await run();
 }
 
@@ -202,7 +238,7 @@ function renderResult(report, data, subtitle) {
         : ''
     }
     <div class="table-scroll">
-      <table class="data-table">
+      <table class="data-table table-freeze-1">
         <thead><tr>${data.columns.map((c) => `<th${c.numeric ? ' style="text-align:right"' : ''}>${esc(c.header)}</th>`).join('')}</tr></thead>
         <tbody>
           ${

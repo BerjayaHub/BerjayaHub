@@ -1563,3 +1563,51 @@ select.sc-cell.is-off {
   color: var(--color-text-muted);
   padding: 6px 13px;
 }
+
+/* =========================================================
+   Kolom pertama beku (sticky) untuk tabel yang kolom pertamanya NAMA —
+   staff, user, barang, atau customer.
+   
+   KENAPA: tabel-tabel ini lebar (rekap presensi 11 kolom, jadwal shift 8).
+   Saat digeser ke kanan di HP, namanya hilang dari layar dan angka yang
+   terlihat jadi tidak bisa dihubungkan ke siapa/apa. Itu bukan sekadar tidak
+   nyaman — orang bisa membaca angka milik baris yang salah.
+   
+   Dipasang lewat kelas `.table-freeze-1`, bukan ke semua .data-table: tabel
+   yang kolom pertamanya angka atau tanggal tidak butuh ini, dan sticky yang
+   tidak perlu justru memakan lebar di layar sempit.
+   
+   WAJIB di dalam `.table-scroll` — sticky butuh wadah yang menggulir. Kalau
+   tabelnya digulir oleh body halaman, `position: sticky` tidak berpengaruh
+   apa pun dan kegagalannya senyap.
+   ========================================================= */
+.table-freeze-1 th:first-child,
+.table-freeze-1 td:first-child {
+  position: -webkit-sticky;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  /* Latar SOLID wajib — tanpa ini sel yang lewat di belakangnya menembus
+     dan tulisannya bertumpuk jadi tidak terbaca. */
+  background: var(--color-surface);
+  /* Garis pemisah dibuat dengan box-shadow, bukan border-right: border ikut
+     tergeser bersama tabel dan meninggalkan celah di tepi kolom beku. */
+  box-shadow: 1px 0 0 var(--color-border);
+}
+
+.table-freeze-1 thead th:first-child {
+  z-index: 3; /* header sudut harus di atas sel isi maupun header lain */
+  background: var(--color-bg);
+}
+
+/* Baris pemisah divisi membentang penuh (colspan) — tidak boleh ikut beku,
+   karena selnya memang satu-satunya di baris itu. */
+.table-freeze-1 tr.shift-divisi td:first-child {
+  position: static;
+  box-shadow: none;
+}
+
+/* Hover baris tidak boleh membuat kolom beku berbeda warna dari sisanya. */
+.table-freeze-1 tbody tr:hover td:first-child {
+  background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface));
+}

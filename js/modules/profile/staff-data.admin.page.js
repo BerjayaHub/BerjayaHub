@@ -1,5 +1,6 @@
 import { toast, infoDialog } from '../../core/ui.js';
 import { exportTablePDF } from '../../core/pdf.js';
+import { exportTableXLSX } from '../../core/xlsx.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listBusinessUnitsBasic } from '../organization/organization.service.js';
 import { GENDER_LABEL, MARITAL_LABEL, listStaffData, getStaffPhotoUrl } from './profile.service.js';
@@ -33,6 +34,7 @@ export async function renderStaffDataPage(container, { businessUnitId }) {
         <select id="sd-outlet"></select>
       </div>
       <button class="primary" id="sd-go" style="max-width:120px">Tampilkan</button>
+      <button id="sd-xlsx">⇩ Export .xlsx</button>
       <button id="sd-export">⇩ Export PDF</button>
     </div>
     <div id="sd-result"></div>
@@ -59,6 +61,7 @@ export async function renderStaffDataPage(container, { businessUnitId }) {
   });
   container.querySelector('#sd-go').addEventListener('click', load);
   container.querySelector('#sd-export').addEventListener('click', doExport);
+  container.querySelector('#sd-xlsx').addEventListener('click', doExportXlsx);
 
   async function load() {
     const box = container.querySelector('#sd-result');
@@ -71,7 +74,7 @@ export async function renderStaffDataPage(container, { businessUnitId }) {
     }
     box.innerHTML = `
       <p style="font-size:0.82rem;color:var(--color-text-muted);margin:14px 0 6px">${state.rows.length} staff. Ketuk nama untuk melihat data lengkap.</p>
-      <table class="data-table">
+      <div class="table-scroll"><table class="data-table table-freeze-1">
         <thead><tr><th>Nama</th><th>Outlet</th><th>Telp</th><th>Nama KTP</th><th>No. KTP</th><th>JK</th><th>Status</th><th>Kelengkapan</th></tr></thead>
         <tbody>
           ${
@@ -94,7 +97,7 @@ export async function renderStaffDataPage(container, { businessUnitId }) {
               .join('') || '<tr><td colspan="8">Belum ada staff di filter ini.</td></tr>'
           }
         </tbody>
-      </table>`;
+      </table></div>`;
 
     box.querySelectorAll('.sd-detail').forEach((btn) =>
       btn.addEventListener('click', async () => {
@@ -129,56 +132,66 @@ export async function renderStaffDataPage(container, { businessUnitId }) {
     );
   }
 
-  async function doExport() {
-    if (!state.rows.length) return toast('Tidak ada data untuk diexport.', 'warning');
+  // Satu definisi kolom untuk PDF maupun Excel. Dua daftar terpisah berarti
+  // suatu hari salah satunya akan ketinggalan satu kolom, dan tidak ada yang
+  // sadar sampai ada yang membandingkan dua file.
+  const KOLOM = [
+    { header: 'Nama', width: 1.3, ambil: (p) => p.full_name },
+    { header: 'Outlet', width: 1.2, ambil: (p, r) => r.outlets.join(', ') },
+    { header: 'Telp', width: 0.9, ambil: (p) => p.phone },
+    { header: 'Nama KTP', width: 1.3, ambil: (p) => p.ktp_name },
+    { header: 'No. KTP', width: 1.1, ambil: (p) => p.ktp_number },
+    { header: 'JK', width: 0.5, ambil: (p) => GENDER_LABEL[p.gender] },
+    { header: 'Alamat KTP', width: 2.2, ambil: (p) => p.ktp_address },
+    { header: 'Kode Pos', width: 0.6, ambil: (p) => p.postal_code },
+    { header: 'Ibu Kandung', width: 1.1, ambil: (p) => p.mother_name },
+    { header: 'No. Darurat', width: 0.9, ambil: (p) => p.emergency_contact },
+    { header: 'Baju', width: 0.5, ambil: (p) => p.shirt_size },
+    { header: 'Celana', width: 0.55, ambil: (p) => p.pants_size },
+    { header: 'Sepatu', width: 0.55, ambil: (p) => p.shoe_size },
+    { header: 'Status', width: 0.8, ambil: (p) => MARITAL_LABEL[p.marital_status] },
+    { header: 'NPWP', width: 1.1, ambil: (p) => p.npwp }
+  ];
+
+  function keterangan() {
     const buName = bus.find((b) => b.id === state.buId)?.name ?? '-';
     const outletName = state.outletId ? outlets.find((o) => o.id === state.outletId)?.name ?? '-' : 'Semua outlet';
+    return `${buName} · ${outletName}`;
+  }
+  const barisData = (kosong) => state.rows.map((r) => KOLOM.map((k) => k.ambil(r.profile, r) ?? kosong));
+
+  async function doExport() {
+    if (!state.rows.length) return toast('Tidak ada data untuk diexport.', 'warning');
     try {
       await exportTablePDF({
         title: 'Data Staff',
-        subtitle: `${buName} · ${outletName}`,
-        columns: [
-          { header: 'Nama', width: 1.3 },
-          { header: 'Outlet', width: 1 },
-          { header: 'Telp', width: 1 },
-          { header: 'Nama KTP', width: 1.3 },
-          { header: 'No. KTP', width: 1.2 },
-          { header: 'JK', width: 0.5 },
-          { header: 'Alamat KTP', width: 1.8 },
-          { header: 'Kode Pos', width: 0.7 },
-          { header: 'Ibu Kandung', width: 1.1 },
-          { header: 'No. Darurat', width: 1 },
-          { header: 'Baju', width: 0.5 },
-          { header: 'Celana', width: 0.5 },
-          { header: 'Sepatu', width: 0.5 },
-          { header: 'Status', width: 0.8 },
-          { header: 'NPWP', width: 1.1 }
-        ],
-        rows: state.rows.map((r) => {
-          const p = r.profile;
-          return [
-            p.full_name ?? '-',
-            r.outlets.join(', ') || '-',
-            p.phone ?? '-',
-            p.ktp_name ?? '-',
-            p.ktp_number ?? '-',
-            GENDER_LABEL[p.gender] ?? '-',
-            p.ktp_address ?? '-',
-            p.postal_code ?? '-',
-            p.mother_name ?? '-',
-            p.emergency_contact ?? '-',
-            p.shirt_size ?? '-',
-            p.pants_size ?? '-',
-            p.shoe_size ?? '-',
-            MARITAL_LABEL[p.marital_status] ?? '-',
-            p.npwp ?? '-'
-          ];
-        }),
+        subtitle: keterangan(),
+        columns: KOLOM.map((k) => ({ header: k.header, width: k.width })),
+        rows: barisData('-'),
         filename: 'data-staff'
       });
       toast('PDF data staff terunduh.', 'success');
     } catch (error) {
       toast(error.message ?? 'Gagal membuat PDF.', 'error');
+    }
+  }
+
+  async function doExportXlsx() {
+    if (!state.rows.length) return toast('Tidak ada data untuk diexport.', 'warning');
+    try {
+      await exportTableXLSX({
+        filename: 'data-staff',
+        sheetName: 'Data Staff',
+        title: 'Data Staff',
+        subtitle: keterangan(),
+        // Di Excel sel kosong dibiarkan kosong, bukan "-": tanda hubung membuat
+        // filter dan hitung-hitungan ikut menghitungnya sebagai isi.
+        columns: KOLOM.map((k) => ({ header: k.header })),
+        rows: barisData('')
+      });
+      toast('Excel data staff terunduh.', 'success');
+    } catch (error) {
+      toast(error.message ?? 'Gagal membuat Excel.', 'error');
     }
   }
 

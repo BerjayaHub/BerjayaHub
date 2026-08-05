@@ -1308,7 +1308,7 @@ Dialog WhatsApp-nya sengaja **tanpa nomor tujuan**: rekap ini dibagikan ke grup 
 
 **Jumlah barang & satuan dipisah dari keterangan** (Bensin · **10** · **liter**). Ditulis sebagai satu kalimat, "Bensin 10 liter" tidak bisa dijumlahkan di laporan — dan menjumlahkan itulah gunanya kolom.
 
-**Foto nota WAJIB** untuk transaksi masuk/keluar. Transfer antar pemegang **dikecualikan**: uang berpindah antar orang, tidak ada nota yang bisa difoto — memaksakannya membuat transfer mustahil dilakukan.
+**Foto nota WAJIB untuk kas KELUAR saja** (sejak `0063`). Kas masuk tidak selalu punya nota — setoran tunai, sisa kembalian, uang dari kasir; mewajibkannya di situ hanya menciptakan foto asal-asalan supaya formnya mau lanjut, dan bukti yang dipalsukan agar sistem diam lebih buruk daripada tidak ada bukti. Transfer antar pemegang dan perpindahan antar kantong sendiri juga dikecualikan: uang hanya berpindah tempat, tidak ada nota yang bisa difoto.
 
 ### Urutan unggah dibalik, dan itu yang membuat aturannya bisa ditegakkan
 
@@ -1318,17 +1318,40 @@ Di sini fotonya diunggah **lebih dulu**, memakai id yang dibuat klien, lalu bari
 
 Constraint-nya `NOT VALID` — hanya berlaku untuk baris **baru**. Entri lama tanpa nota tidak diutak-atik: memvalidasi mundur akan menggagalkan migration hanya karena data historis, dan riwayat kas justru yang paling tidak boleh diubah belakangan.
 
+### Kas Masuk dan Kas Keluar bukan form yang sama (migration `0063`)
+
+Dulu satu form dipakai untuk keduanya, hanya jenisnya yang berbeda. Akibatnya pencatat kas masuk tetap dipaksa mengisi kategori pengeluaran dan memotret nota yang tidak ada.
+
+- **Kas Masuk**: jumlah uang, keterangan, tanggal, foto **opsional**. Tidak ada outlet — uang masuk ke orangnya, belum diperuntukkan ke mana pun.
+- **Kas Keluar**: kategori, **outlet peruntukan (wajib)**, jumlah + satuan, **foto nota wajib**.
+
+### Outlet pada kas = PERUNTUKAN, bukan pemilik
+
+Yang memegang uang tetap **user** dan sepenuhnya tanggung jawabnya. `cash_entries.outlet_id` kini berarti **untuk outlet mana uang itu dibelanjakan** — dan hanya boleh diisi outlet tempat user punya peran (dropdown-nya memakai `listMyOutlets()`, yang gagal **tertutup**). Constraint `cash_entries_outlet_wajib_saat_keluar` menegakkannya di database, `NOT VALID` supaya baris lama tidak diutak-atik.
+
+Ini menggantikan cara lama yang menurunkan outlet dari tempat kerja utama (★) pemegangnya. Cara lama punya sifat yang tidak enak: memindahkan basis ★ seseorang diam-diam mengubah laporan periode yang sudah lewat. Sekarang peruntukan dicatat **saat kejadian** dan tidak ikut berubah belakangan.
+
+Konsekuensi yang perlu diketahui: baris kas **masuk** tidak punya peruntukan, jadi menyaring laporan per outlet otomatis menyisihkannya. Itu memang yang diinginkan — pertanyaan "berapa yang dibelanjakan untuk outlet X" bukan pertanyaan tentang pemasukan.
+
+### Kantong kas (sub-kas) per user
+
+Sebagian orang memegang lebih dari satu kas dengan peruntukan berbeda (mis. *Kas Owner* dan *Kas Operasional*). Jumlah kantong yang boleh dibuat diatur admin BU / super admin per user (`user_profiles.cash_account_limit`, default **1**).
+
+Default `1` berarti tampilannya **persis seperti sebelumnya** — tidak ada istilah "kantong" yang muncul untuk orang yang tidak membutuhkannya. Batasnya ditegakkan trigger di database (`cek_batas_kantong_kas()`), bukan hanya di form: pemeriksaan yang cuma ada di UI selalu bisa dilewati, dan yang melewatinya tidak akan tahu bahwa dia sedang melanggar apa pun.
+
+Nama kantong ditentukan **user sendiri**. Uangnya bisa dibagi saat mencatat, atau dipindahkan belakangan lewat `pindah_kas()` — yang menulis sepasang baris `move_out`/`move_in` supaya saldonya tetap bisa ditelusuri, bukan menyunting angka lama.
+
 ### Laporan Kas per Pemegang
 
-Filter **pemegang + outlet + periode**, dengan **Export Excel**.
+Filter **pemegang + outlet + kategori + periode**, dengan **Export PDF & Excel**. Kolom Outlet adalah peruntukan pada barisnya sendiri (lihat di atas) — sejak `0063` ia kolom sungguhan, bukan turunan.
 
-⚠️ **Outlet di sini diturunkan dari tempat kerja utama (★) pemegangnya**, bukan dari baris kasnya. Sejak `0040` kas mengikuti USER — `cash_entries.outlet_id` sudah tidak diisi lagi. Kalau filter outlet membaca kolom itu, hasilnya akan **selalu kosong** dan terlihat seperti tidak ada datanya. Konsekuensinya: memindahkan basis ★ seseorang akan mengubah pengelompokan laporan ini.
+Admin BU juga bisa melihat baris kas **masuk** anak buahnya. Predikat lama hanya mengizinkan lewat `is_admin_of_outlet(outlet_id)`, sementara kas masuk `outlet_id`-nya NULL — hasilnya laporan yang separuhnya hilang tanpa pesan apa pun, dan angkanya tetap terlihat wajar.
 
 Lewat RPC `laporan_kas_user()` karena RLS `cash_entries` hanya membuka baris milik sendiri; laporan perlu lintas orang, dan itu dibuka terkendali di dalam RPC — bukan dengan melonggarkan policy tabelnya.
 
 **Export Excel berlaku untuk SEMUA laporan**, bukan cuma kas. Kolom bertanda `numeric` ditulis sebagai **angka**, bukan teks — kalau jadi teks, `SUM` di Excel menghasilkan nol, dan justru menjumlahkan itulah alasan orang meminta Excel alih-alih PDF.
 
-Dropdown pemegang hanya muncul untuk laporan yang memakainya (`pakaiFilterUser`). Filter yang tidak berpengaruh apa pun lebih membingungkan daripada tidak ada filter — orang akan mengubahnya lalu heran kenapa hasilnya sama.
+Dropdown pemegang & kategori hanya muncul untuk laporan yang memakainya (`pakaiFilterUser`, `pakaiFilterKategori`). Filter yang tidak berpengaruh apa pun lebih membingungkan daripada tidak ada filter — orang akan mengubahnya lalu heran kenapa hasilnya sama. Kategori **nonaktif** tetap ikut ditampilkan di dropdown: transaksi lama masih memakainya, dan laporan periode lampau jadi tidak bisa disaring kalau kategorinya dipensiunkan.
 
 ## Divisi (Kitchen, Bar, Mekanik) — migration `0059_divisi.sql`
 
@@ -1483,7 +1506,51 @@ node tools/test-youtube-parser.mjs
 
 **Hak akses.** Baca: semua yang login (global + BU tempat dia punya scope). Tulis: super admin saja, sejajar dengan Master User dan Notifikasi Telegram.
 
+**Daftarnya juga ada di Beranda Staff**, dikelompokkan per modul. Tombol ❓ di header modul hanya terlihat kalau orangnya **sudah** membuka modul itu — padahal yang paling butuh tutorial justru yang belum berani membukanya. Blok "📺 Video Tutorial" di Beranda hanya menampilkan modul yang benar-benar dipakai staff tersebut: menawarkan tutorial modul yang tidak bisa dia buka bukan cuma sia-sia, itu membuat orang mengira ada bagian aplikasi yang disembunyikan darinya. Datanya diambil `listTutorialsByModule()` dalam **satu** query — versi memanggil `listTutorials()` per modul akan menembakkan 15-20 permintaan begitu Beranda dibuka, dan yang paling terasa bukan servernya melainkan Beranda yang tersendat di HP. Dialog pemutarnya sengaja dipakai bersama (`openTutorialDialog()`), bukan disalin: dua pemutar terpisah berarti dua tempat yang harus diperbaiki setiap ada perubahan, dan yang satu pasti tertinggal.
+
 **Pemutarannya di dalam aplikasi** (`youtube-nocookie.com`), bukan membuka tab YouTube — di PWA, membuka tab baru berarti orangnya keluar dari aplikasi dan sering tidak kembali, padahal dia membuka tutorial justru karena sedang di tengah mengerjakan sesuatu. Tetap ada tautan "Buka di YouTube" sebagai cadangan, karena sebagian jaringan memblokir iframe embed sementara aplikasi YouTube-nya jalan.
+
+## Kolom nama dibekukan di tabel yang melebar (`.table-freeze-1`)
+
+Setiap tabel yang kolom pertamanya berisi **nama** — staff/user, nama barang, atau nama tamu — kolom itu dibekukan saat tabel digeser ke samping. Di HP, tabel rekap yang punya 8-15 kolom hampir selalu digeser; tanpa kolom nama yang menempel, angka di kolom ke-9 tidak lagi bisa dikaitkan ke siapa pun. Orang lalu menggeser bolak-balik untuk mencocokkan baris — dan salah baca hanya soal waktu.
+
+Dipakai dengan menambahkan kelas `table-freeze-1` pada `<table class="data-table">`.
+
+⚠️ **Tabelnya WAJIB dibungkus `.table-scroll`.** `position: sticky` butuh wadah bergulir sebagai acuan. `.data-table` sendiri punya `overflow: hidden` (untuk sudut membulat) yang justru mematikan sticky, dan di layar kecil ia berubah jadi `display: block` — dua-duanya membuat kolom beku **diam-diam tidak bekerja**, tanpa error, tanpa tampilan rusak. Yang terlihat cuma tabel biasa. Aturan pengembaliannya ada di `css/styles.css` (`.table-scroll .data-table`).
+
+Baris pemisah divisi di Jadwal Shift dikecualikan (`tr.shift-divisi td:first-child { position: static }`) — sel `colspan` yang ikut membeku akan menutupi kolom di sebelahnya saat digeser.
+
+Di **Inventaris Aset** urutan kolomnya ditukar: *Nama Barang* dulu, baru *Foto*. Membekukan kolom foto berarti yang menempel di layar adalah gambar 44px tanpa keterangan apa pun.
+
+## Export PDF: sel panjang dibungkus, bukan ditumpuk (`js/core/pdf.js`)
+
+**Gejala:** Export PDF Data Staff menghasilkan teks yang saling menimpa, makin parah pada baris yang alamat KTP-nya panjang.
+
+**Penyebab.** `doc.text(teks, x, y, { maxWidth })` milik jsPDF memang membungkus teks — tapi baris kelanjutannya digambar **ke bawah** tanpa memberi tahu pemanggilnya. Tinggi baris di `exportTablePDF()` dipatok tetap 14pt, jadi sel dua-tiga baris menimpa baris staff berikutnya. Kolomnya benar, lebarnya benar; yang salah adalah asumsi bahwa satu baris data = satu baris teks.
+
+**Perbaikan.** Teks dipecah lebih dulu dengan `doc.splitTextToSize()`, lalu **tinggi baris dihitung dari jumlah baris terbanyak** di baris itu (dibatasi `maxLines`, default 3, sisanya dipotong dengan `…`). Baris bergambar tetap ikut diperhitungkan seperti sebelumnya. Ditambah garis pemisah tipis antar baris, karena baris yang tingginya tidak seragam sulit diikuti mata tanpa garis.
+
+`columns[].align` (`'right'` / `'center'`) sekarang benar-benar dipakai — sebelumnya didokumentasikan tapi diabaikan.
+
+**Data Staff** juga mendapat **Export .xlsx**. Definisi kolomnya satu (`KOLOM`) untuk kedua format: dua daftar terpisah berarti suatu hari salah satunya ketinggalan satu kolom, dan tidak ada yang sadar sampai ada yang membandingkan dua file. Di Excel sel kosong dibiarkan kosong, bukan diisi `-`, supaya filter dan hitungan tidak menghitungnya sebagai isi.
+
+## Bug: kotak "No. Telp" terisi alamat email (Master User)
+
+**Gejala:** di form Edit Staff, kotak bertuliskan *No. Telp* berisi alamat email.
+
+**Penyebab.** Nilai awalnya dibaca dari `row.children[1].textContent` — dulu itu memang kolom Telp. Sejak kolom **Email** disisipkan di posisi kedua (migration `0049`), indeks itu menunjuk kolom yang salah. Formnya benar; isinya yang salah kolom.
+
+**Perbaikan.** Nilai awal diambil dari atribut `data-*` pada tombol Edit, bukan dari urutan kolom tabel. Indeks DOM adalah bom waktu: ia hanya benar sampai ada yang menambah kolom, dan tidak ada satu pun tes yang gagal saat itu terjadi. Email login sekarang ditampilkan sebagai keterangan di atas form (tidak bisa diubah dari sini) supaya tidak ada lagi yang mengira kotak telepon adalah kotak email.
+
+## Bug: mode OTP Tugas Luar tampak "tidak aktif" (migration `0064`)
+
+Alur OTP-nya sendiri utuh: admin menerbitkan kode → staff memasukkannya saat mengaktifkan mode Tugas Luar → `redeem_exit_otp()` (SECURITY DEFINER) memvalidasi & menandai terpakai → id kode ikut tersimpan di baris presensi, dan policy insert presensi memeriksanya lagi di database. Yang bermasalah ada tiga hal di sekelilingnya:
+
+1. **Admin outlet tidak bisa menerbitkan kode.** Policy `0006` hanya mengizinkan `is_bu_admin()`. Tombolnya tetap tampil, insert-nya ditolak RLS — bagi admin outlet fiturnya tampak mati. Padahal orang yang tahu si staff memang sedang keluar justru admin outletnya. `0064` menggantinya dengan `is_outlet_admin_in_bu()` (SECURITY DEFINER — subquery di dalam ekspresi policy ikut disaring RLS, jadi versi inline-nya akan selalu `false` untuk orang yang justru ingin diizinkan).
+2. **"Simpan Mode" bisa berbohong.** `setExitTaskMode()` melakukan UPDATE tanpa `.select()`. PostgREST tidak menganggap penolakan RLS sebagai error, jadi UPDATE yang tidak menyentuh baris apa pun tetap balik sukses dan toast "Mode disimpan" muncul — sementara nilainya tidak berubah. Sekarang jumlah baris diperiksa dan pesannya jujur.
+3. **Modenya mengikuti BU basis (★) staff**, bukan BU yang sedang dibuka admin di portal. Ini memang disengaja (presensi menempel pada orang, bukan pada BU aktif), tapi tidak pernah dikatakan di layar — admin mengaktifkan OTP di satu BU lalu heran kenapa stafnya tidak diminta kode. Sekarang ditulis di bawah pemilih modenya.
+
+`created_by` kode OTP juga tidak pernah terisi sejak `0006`. Diisi lewat `DEFAULT auth.uid()`, bukan dititipkan ke client — jejak audit yang bisa diisi sembarang nilai oleh client lebih buruk daripada kolom kosong.
 
 ## Roadmap fase
 
@@ -1503,4 +1570,5 @@ node tools/test-youtube-parser.mjs
 - [x] **Modul Inventaris Aset** — nama, jumlah, ukuran, foto, kondisi (Normal/Rusak/Lain-lain)
 - [x] **Modul Reservasi** — input Staff App + halaman publik `reservasi.html`, kuota per slot, approval Admin Portal, notifikasi Telegram & Web Push
 - [x] **Mode Reservasi Hotel** — booking kamar (rentang tanggal + tipe kamar), kuota per tipe dijaga trigger database, check-in/check-out, tanpa persetujuan & tanpa jalur website
-- [x] **Video Tutorial per modul** — tombol ❓ di header modul (Staff App + Admin Portal), video YouTube Unlisted, global atau khusus BU, dikelola super admin
+- [x] **Video Tutorial per modul** — tombol ❓ di header modul (Staff App + Admin Portal) **dan daftar per modul di Beranda Staff**, video YouTube Unlisted, global atau khusus BU, dikelola super admin
+- [x] **Kantong kas (sub-kas) & outlet peruntukan** — form Kas Masuk/Keluar dibedakan, jumlah kantong per user diatur admin, pindah saldo antar kantong sendiri, Laporan Kas bisa disaring per outlet & kategori

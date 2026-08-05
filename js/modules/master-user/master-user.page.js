@@ -80,7 +80,7 @@ export async function renderMasterUserPage(container, ctx = {}) {
     <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 10px">
       Tanda ★ = tempat kerja utama (basis perhitungan NBM). Klik ☆ pada salah satu scope untuk menetapkannya.
     </p>
-    <table class="data-table" id="staff-table">
+    <div class="table-scroll"><table class="data-table table-freeze-1" id="staff-table">
       <thead>
         <tr>
           <th>Nama</th>
@@ -93,7 +93,7 @@ export async function renderMasterUserPage(container, ctx = {}) {
         </tr>
       </thead>
       <tbody id="staff-tbody"></tbody>
-    </table>
+    </table></div>
   `;
 
   document.getElementById('btn-new-staff').addEventListener('click', () => {
@@ -249,7 +249,10 @@ function staffRowHtml(s, registeredFaceIds) {
         ${hasFace ? `<button class="btn-reset-face" data-user-id="${s.profile.id}">Reset</button>` : ''}
       </td>
       <td>
-        <button class="btn-edit" data-user-id="${s.profile.id}">Edit</button>
+        <button class="btn-edit" data-user-id="${s.profile.id}"
+          data-name="${escapeHtml(s.profile.full_name ?? '')}"
+          data-phone="${escapeHtml(s.profile.phone ?? '')}"
+          data-email="${escapeHtml(s.profile.email ?? '')}">Edit</button>
         <button class="btn-modules" data-user-id="${s.profile.id}" data-name="${s.profile.full_name}">Akses Modul</button>
         <button class="btn-admin-access" data-user-id="${s.profile.id}" data-name="${s.profile.full_name}">Izin Admin</button>
         <button class="btn-reset-password" data-user-id="${s.profile.id}">Reset Password</button>
@@ -396,14 +399,22 @@ function wireRowActions(container, businessUnits) {
 
   container.querySelectorAll('.btn-edit').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const row = container.querySelector(`tr[data-user-id="${btn.dataset.userId}"]`);
-      const currentName = row.children[0].textContent;
-      const currentPhone = row.children[1].textContent === '-' ? '' : row.children[1].textContent;
+      // Nilai awal diambil dari data-* baris, BUKAN dari urutan kolom tabel.
+      // Versi lama membaca row.children[1] — dulu itu kolom Telp, tapi sejak
+      // kolom Email disisipkan di posisi kedua, kotak "No. Telp" jadi terisi
+      // alamat email. Formnya benar, isinya yang salah kolom; indeks DOM memang
+      // selalu jadi bom waktu setiap kali tabelnya berubah.
+      const currentName = btn.dataset.name ?? '';
+      const currentPhone = btn.dataset.phone ?? '';
+      const email = btn.dataset.email ?? '';
       const values = await formDialog({
         title: 'Edit Staff',
+        description: email
+          ? `Email login: ${email} — dipakai untuk masuk aplikasi dan tidak bisa diubah dari sini.`
+          : 'Email login belum tercatat untuk user ini.',
         fields: [
           { name: 'full_name', label: 'Nama Lengkap', type: 'text', required: true, value: currentName },
-          { name: 'phone', label: 'No. Telp', type: 'tel', value: currentPhone, placeholder: 'Opsional' }
+          { name: 'phone', label: 'No. Telp (bukan email login)', type: 'tel', value: currentPhone, placeholder: 'Opsional' }
         ],
         submitText: 'Simpan'
       });

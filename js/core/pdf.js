@@ -34,12 +34,13 @@ export function loadJsPDF() {
  * error apa pun — kegagalan sunyi yang sulit dilacak. Ubah dulu ke data URL
  * lewat `imageToDataUrl()` di bawah, yang sekaligus memperkecil ukurannya.
  */
-export async function exportTablePDF({ title, subtitle = '', columns, rows, filename = 'laporan' }) {
+export async function exportTablePDF({ title, subtitle = '', columns, rows, filename = 'laporan', maxLines = 3 }) {
   const JsPDF = await loadJsPDF();
   const doc = new JsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
   const M = 32;
+  const LH = 10; // tinggi satu baris teks
   let y = M;
 
   const totalW = W - M * 2;
@@ -52,6 +53,31 @@ export async function exportTablePDF({ title, subtitle = '', columns, rows, file
     colX.push(acc);
     acc += w;
   }
+
+  // KENAPA DIPOTONG SENDIRI, BUKAN PAKAI maxWidth:
+  // opsi { maxWidth } milik jsPDF memang membungkus teks, tapi ia menggambar
+  // baris kelanjutannya ke BAWAH tanpa memberi tahu siapa pun. Tinggi baris di
+  // sini dulu dipatok 14pt, jadi alamat KTP yang panjang menimpa baris staff
+  // berikutnya — persis "teks tumpuk" yang terlihat di export Data Staff.
+  // Sekarang teksnya dipecah lebih dulu supaya tinggi barisnya bisa dihitung.
+  const pecah = (teks, lebar) => {
+    const baris = doc.splitTextToSize(String(teks ?? '-'), Math.max(12, lebar - 6));
+    if (baris.length <= maxLines) return baris;
+    const dipangkas = baris.slice(0, maxLines);
+    dipangkas[maxLines - 1] = String(dipangkas[maxLines - 1]).replace(/\s*\S*$/, '') + '…';
+    return dipangkas;
+  };
+
+  const tulisSel = (baris, i, atas) => {
+    const c = columns[i] ?? {};
+    baris.forEach((t, k) => {
+      const opsi = {};
+      if (c.align === 'right') opsi.align = 'right';
+      else if (c.align === 'center') opsi.align = 'center';
+      const x = c.align === 'right' ? colX[i] + colW[i] - 6 : c.align === 'center' ? colX[i] + colW[i] / 2 : colX[i];
+      doc.text(t, x, atas + k * LH, opsi);
+    });
+  };
 
   const drawHeader = () => {
     doc.setFont('helvetica', 'bold');
@@ -66,10 +92,12 @@ export async function exportTablePDF({ title, subtitle = '', columns, rows, file
       doc.setTextColor(0);
       y += 14;
     }
-    doc.setFontSize(9);
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'bold');
-    columns.forEach((c, i) => doc.text(String(c.header), colX[i], y, { maxWidth: colW[i] - 4 }));
-    y += 5;
+    const judulKolom = columns.map((c, i) => pecah(c.header, colW[i]));
+    const tinggiJudul = Math.max(...judulKolom.map((b) => b.length)) * LH;
+    judulKolom.forEach((b, i) => tulisSel(b, i, y));
+    y += tinggiJudul - LH + 5;
     doc.setDrawColor(180);
     doc.line(M, y, W - M, y);
     y += 11;
@@ -81,10 +109,13 @@ export async function exportTablePDF({ title, subtitle = '', columns, rows, file
   const isGambar = (c) => c && typeof c === 'object' && typeof c.image === 'string';
 
   for (const row of rows) {
-    // Baris bergambar lebih tinggi. Dihitung SEBELUM cek ganti halaman, supaya
-    // gambar tidak terpotong di batas bawah kertas.
+    // Tinggi baris ditentukan oleh isi paling tinggi — gambar ATAU teks yang
+    // membungkus jadi beberapa baris. Dihitung SEBELUM cek ganti halaman supaya
+    // tidak ada yang terpotong di batas bawah kertas.
+    const sel = row.map((c, i) => (isGambar(c) ? null : pecah(c, colW[i])));
     const tinggiGambar = row.reduce((t, c) => (isGambar(c) ? Math.max(t, c.h ?? 34) : t), 0);
-    const tinggiBaris = tinggiGambar ? tinggiGambar + 6 : 14;
+    const tinggiTeks = Math.max(1, ...sel.map((b) => (b ? b.length : 1))) * LH;
+    const tinggiBaris = Math.max(tinggiGambar ? tinggiGambar + 6 : 0, tinggiTeks) + 4;
 
     if (y + tinggiBaris > H - M - 20) {
       doc.addPage();
@@ -97,20 +128,21 @@ export async function exportTablePDF({ title, subtitle = '', columns, rows, file
         const w = cell.w ?? 46;
         const h = cell.h ?? 34;
         try {
-          // y adalah garis dasar teks, jadi gambar digeser ke atas supaya
-          // sejajar dengan teks di kolom sebelahnya.
+          // y adalah garis dasar teks baris pertama, jadi gambar digeser ke atas
+          // supaya sejajar dengan teks di kolom sebelahnya.
           doc.addImage(cell.image, 'JPEG', colX[i], y - h + 8, w, h);
         } catch {
           // Satu gambar rusak tidak boleh membatalkan seluruh laporan.
-          doc.text('(foto gagal)', colX[i], y, { maxWidth: colW[i] - 4 });
+          doc.text('(foto gagal)', colX[i], y);
         }
         return;
       }
-      const text = String(cell ?? '-');
-      doc.text(text.length > 60 ? text.slice(0, 57) + '…' : text, colX[i], y, { maxWidth: colW[i] - 4 });
+      tulisSel(sel[i], i, y);
     });
 
     y += tinggiBaris;
+    doc.setDrawColor(232);
+    doc.line(M, y - 7, W - M, y - 7);
   }
 
   y += 4;

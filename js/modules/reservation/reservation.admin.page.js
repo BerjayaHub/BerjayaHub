@@ -97,7 +97,7 @@ async function renderInbox(content, ctx) {
       ${
         rows.length
           ? `<div class="table-scroll" style="margin-top:10px">
-               <table class="data-table">
+               <table class="data-table table-freeze-1">
                  <thead><tr><th>Kode</th><th>Tanggal &amp; Jam</th><th>Customer</th><th>Tamu</th><th>Outlet / Area</th><th>Sumber</th><th>Aksi</th></tr></thead>
                  <tbody>${rows.map(rowHtml).join('')}</tbody>
                </table>
@@ -275,7 +275,7 @@ async function renderAll(content, ctx) {
         <strong>${last.length}</strong> reservasi · <strong>${hidup.reduce((t, r) => t + (Number(r.pax) || 0), 0)}</strong> tamu aktif
       </p>
       <div class="table-scroll">
-        <table class="data-table">
+        <table class="data-table table-freeze-1">
           <thead><tr><th>Kode</th><th>Tanggal &amp; Jam</th><th>Customer</th><th>Tamu</th><th>Outlet / Area</th><th>Sumber</th><th>Status</th><th></th></tr></thead>
           <tbody>
             ${

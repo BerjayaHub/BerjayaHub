@@ -324,7 +324,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
             <div style="font-size:0.78rem;color:var(--color-text-muted)">${fmtDateTime(o.created_at)} · oleh ${esc(o.user_profiles?.full_name ?? '-')}${o.notes ? ' · ' + esc(o.notes) : ''} · ketuk untuk proses ▾</div>
           </button>
           <div class="ord-body" hidden style="margin-top:10px">
-            <table class="data-table">
+            <div class="table-scroll"><table class="data-table table-freeze-1">
               <thead><tr><th>Produk</th><th>Diminta</th><th>Stok CK</th><th>Dikirim</th></tr></thead>
               <tbody>
                 ${items
@@ -339,7 +339,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                   })
                   .join('')}
               </tbody>
-            </table>
+            </table></div>
             <div class="field" style="margin-top:10px"><label>Catatan surat jalan (opsional)</label><input type="text" class="ord-sj-notes" /></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="primary btn-fulfill" data-id="${o.id}" style="max-width:250px">Kirim &amp; Buat Surat Jalan</button>
@@ -509,7 +509,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
             <div style="font-size:0.78rem;color:var(--color-text-muted)">${fmtDateTime(d.created_at)} · oleh ${esc(d.user_profiles?.full_name ?? '-')} · ketuk untuk terima ▾</div>
           </button>
           <div class="recv-body" hidden style="margin-top:10px">
-            <table class="data-table">
+            <div class="table-scroll"><table class="data-table table-freeze-1">
               <thead><tr><th>Produk</th><th>Dikirim</th><th>Diterima</th></tr></thead>
               <tbody>
                 ${items
@@ -522,7 +522,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                   )
                   .join('')}
               </tbody>
-            </table>
+            </table></div>
             <button class="primary btn-save-receive" data-id="${d.id}" style="margin-top:10px;max-width:220px">Simpan (Terima)</button>
           </div>
         </div>`;

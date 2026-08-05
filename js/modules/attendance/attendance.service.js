@@ -304,8 +304,18 @@ export async function getExitTaskMode(businessUnitId) {
 }
 
 export async function setExitTaskMode(businessUnitId, mode) {
-  const { error } = await supabase.from('business_units').update({ exit_task_mode: mode }).eq('id', businessUnitId);
+  // .select() WAJIB di sini. PostgREST tidak menganggap penolakan RLS sebagai
+  // error: UPDATE yang tidak menyentuh baris apa pun tetap balik "sukses".
+  // Tanpa pemeriksaan ini, admin melihat toast "Mode disimpan" padahal
+  // nilainya tidak berubah — dan OTP-nya lalu tampak "tidak pernah aktif".
+  const { data, error } = await supabase
+    .from('business_units')
+    .update({ exit_task_mode: mode })
+    .eq('id', businessUnitId)
+    .select('id, exit_task_mode');
   if (error) throw error;
+  if (!data?.length) throw new Error('Mode tidak tersimpan — akunmu tidak punya izin mengubah pengaturan BU ini.');
+  return data[0].exit_task_mode;
 }
 
 /** Staff coba pakai kode OTP. Return id kode kalau valid, null kalau salah/expired/sudah dipakai. */

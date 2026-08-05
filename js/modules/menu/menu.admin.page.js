@@ -57,7 +57,7 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
   function renderTable() {
     const list = visibleMenus();
     tableBox.innerHTML = `
-      <table class="data-table">
+      <div class="table-scroll"><table class="data-table table-freeze-1">
         <thead>
           <tr><th>Menu</th><th>Kategori</th><th>Satuan</th><th>Harga Jual</th><th>HPP Standalone</th><th>HPP Dilayani CK</th><th>Margin</th><th>Resep</th></tr>
         </thead>
@@ -92,7 +92,7 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
               .join('') || '<tr><td colspan="8">Tidak ada menu.</td></tr>'
           }
         </tbody>
-      </table>
+      </table></div>
       <p style="font-size:0.75rem;color:var(--color-text-muted);margin-top:6px">Tanda • pada tombol resep = varian itu belum diatur.</p>
     `;
 

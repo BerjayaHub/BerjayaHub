@@ -18,6 +18,18 @@ export function clearFloatingTutorialButton() {
 }
 
 let gaya = false;
+/**
+ * Sisipkan gaya tutorial sekali saja.
+ *
+ * Diekspor karena Beranda Staff memakai kelas .tutorial-list/.tutorial-item
+ * tanpa pernah memasang tombol ❓ maupun membuka dialog — tanpa ini daftarnya
+ * tampil polos tanpa bingkai, dan tidak ada error apa pun yang menjelaskan
+ * kenapa.
+ */
+export function ensureTutorialStyles() {
+  pasangGaya();
+}
+
 function pasangGaya() {
   if (gaya) return;
   gaya = true;
@@ -81,20 +93,31 @@ export async function mountTutorialButton(host, moduleCode, businessUnitId, { fl
   btn.className = floating ? 'tutorial-btn tutorial-btn-float' : 'tutorial-btn';
   btn.innerHTML = `❓ <span>Tutorial${videos.length > 1 ? ` (${videos.length})` : ''}</span>`;
   btn.title = 'Lihat video cara memakai modul ini';
-  btn.addEventListener('click', () => bukaDialog(videos));
+  btn.addEventListener('click', () => openTutorialDialog(videos));
 
   if (floating) document.body.appendChild(btn);
   else host.appendChild(btn);
 }
 
-function bukaDialog(videos) {
+/**
+ * Buka pemutar tutorial untuk sekumpulan video.
+ *
+ * Diekspor supaya Beranda Staff bisa memakai dialog yang SAMA dengan tombol ❓
+ * di header modul. Dua pemutar terpisah berarti dua tempat yang harus diperbaiki
+ * setiap kali ada yang berubah, dan yang satu pasti tertinggal.
+ *
+ * @param {object[]} videos
+ * @param {string} [judul] judul dialog (mis. nama modulnya)
+ */
+export function openTutorialDialog(videos, judul = '📺 Tutorial') {
+  if (!videos?.length) return;
   pasangGaya();
 
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
     <div class="modal-card" role="dialog" aria-modal="true" style="max-width:640px">
-      <h3 class="modal-title">📺 Tutorial</h3>
+      <h3 class="modal-title">${escapeHtml(judul)}</h3>
       <div id="tut-body"></div>
       <div class="modal-actions">
         <button type="button" class="primary btn-inline" id="tut-close">Tutup</button>

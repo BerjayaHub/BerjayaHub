@@ -3,7 +3,8 @@ import { getActiveModules, getModuleRenderer, registerModule, getMyAllowedModule
 import { getModuleIcon } from './core/module-icons.js';
 import { listBusinessUnitsBasic } from './modules/organization/organization.service.js';
 import { toast, confirmDialog, formDialog, escapeHtml } from './core/ui.js';
-import { mountTutorialButton } from './core/tutorial-button.js';
+import { mountTutorialButton, openTutorialDialog, ensureTutorialStyles } from './core/tutorial-button.js';
+import { listTutorialsByModule } from './modules/tutorial/tutorial.service.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
 import { renderLeavePage } from './modules/leave/leave.page.js';
 import { renderCleaningPage } from './modules/cleaning/cleaning.page.js';
@@ -372,11 +373,18 @@ async function renderHome(context, modules, moduleCtx) {
           .join('') || '<p>Belum ada modul aktif untuk BU kamu. Hubungi admin.</p>'
       }
     </div>
+    <div id="home-tutorial"></div>
   `;
 
   content.querySelectorAll('[data-module]').forEach((card) => {
     card.addEventListener('click', () => openModule(card.dataset.module, context, modules, moduleCtx));
   });
+
+  // Daftar tutorial di Beranda. Tombol ❓ di header modul hanya terlihat kalau
+  // orangnya SUDAH membuka modul itu — padahal yang paling butuh tutorial justru
+  // yang belum berani membukanya. Sengaja tidak di-await: Beranda harus tampil
+  // sekarang, tidak menunggu satu query pelengkap.
+  renderTutorialBeranda(staffModules, moduleCtx?.businessUnitId);
 
   // Foto staff di sebelah sapaan (fallback: inisial nama).
   if (context.profile.photo_path) {
@@ -408,6 +416,52 @@ async function renderHome(context, modules, moduleCtx) {
         if (body) body.textContent = 'Ketuk untuk buka presensi';
       });
   }
+}
+
+/**
+ * Blok "Video Tutorial" di Beranda, dikelompokkan per modul.
+ *
+ * Hanya modul yang BENAR-BENAR dipakai staff ini yang ditampilkan. Menawarkan
+ * tutorial modul yang tidak bisa dia buka bukan cuma sia-sia — itu membuat orang
+ * mengira ada bagian aplikasi yang disembunyikan darinya.
+ */
+async function renderTutorialBeranda(staffModules, businessUnitId) {
+  const host = document.getElementById('home-tutorial');
+  if (!host || !businessUnitId) return;
+
+  const perModul = await listTutorialsByModule(businessUnitId).catch(() => new Map());
+  const punya = staffModules.filter((m) => perModul.get(m.code)?.length);
+  if (!punya.length) return; // tidak ada video -> tidak ada blok kosong
+
+  ensureTutorialStyles();
+
+  host.innerHTML = `
+    <details class="inline-card" style="margin-top:18px">
+      <summary style="cursor:pointer;font-weight:600">📺 Video Tutorial <span style="font-weight:400;color:var(--color-text-muted)">(${punya.length} modul)</span></summary>
+      <div class="tutorial-list" style="margin-top:10px">
+        ${punya
+          .map((m) => {
+            const n = perModul.get(m.code).length;
+            return `
+              <button class="tutorial-item" data-tut="${escapeHtml(m.code)}">
+                <span style="font-size:1.5rem;width:34px;text-align:center;flex-shrink:0">${getModuleIcon(m.code)}</span>
+                <span>
+                  <span class="t-title">${escapeHtml(m.name)}</span>
+                  <span class="t-desc">${n} video</span>
+                </span>
+              </button>`;
+          })
+          .join('')}
+      </div>
+    </details>
+  `;
+
+  host.querySelectorAll('[data-tut]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const mod = punya.find((m) => m.code === b.dataset.tut);
+      openTutorialDialog(perModul.get(b.dataset.tut), `📺 Tutorial ${mod?.name ?? ''}`.trim());
+    })
+  );
 }
 
 function fmtClock(iso) {

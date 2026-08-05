@@ -119,10 +119,10 @@ async function loadStock(content, businessUnitId, outletId) {
     .join('');
 
   result.innerHTML = `
-    <table class="data-table" style="margin-top:12px">
+    <div class="table-scroll" style="margin-top:12px"><table class="data-table table-freeze-1">
       <thead><tr><th>Produk</th><th>Tipe</th><th>Stok</th><th>Satuan</th><th>Nilai (HPP)</th></tr></thead>
       <tbody>${bodyHtml || '<tr><td colspan="5">Belum ada stok.</td></tr>'}</tbody>
-    </table>
+    </table></div>
     <p style="margin-top:10px;font-weight:600">Total nilai stok: ${formatRupiah(totalValue)}</p>
   `;
 }

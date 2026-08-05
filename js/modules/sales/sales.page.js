@@ -43,10 +43,10 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
         <select id="sl-cat"><option value="">Semua</option>${categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
       </div>
     </div>
-    <table class="data-table">
+    <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead><tr><th>Menu</th><th>Harga</th><th>Jumlah terjual</th></tr></thead>
       <tbody id="sl-rows"></tbody>
-    </table>
+    </table></div>
     <button class="primary" id="sl-save" style="max-width:220px;margin-top:12px">Simpan Penjualan</button>
     <div id="sl-summary" style="margin-top:18px"></div>
   `;

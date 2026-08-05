@@ -109,15 +109,15 @@ async function render(container, { businessUnitId }, isAdmin) {
         ${rusak ? ` · <span style="color:var(--color-danger)"><strong>${rusak}</strong> rusak</span>` : ''}
       </p>
       <div class="table-scroll">
-        <table class="data-table">
-          <thead><tr><th>Foto</th><th>Nama Barang</th><th>Jumlah</th><th>Ukuran</th><th>Kondisi</th>${isAdmin ? '<th>Outlet</th>' : ''}<th>Aksi</th></tr></thead>
+        <table class="data-table table-freeze-1">
+          <thead><tr><th>Nama Barang</th><th>Foto</th><th>Jumlah</th><th>Ukuran</th><th>Kondisi</th>${isAdmin ? '<th>Outlet</th>' : ''}<th>Aksi</th></tr></thead>
           <tbody>
             ${
               rows
                 .map(
                   (a) => `<tr>
-                    <td>${fotoSel(a, fotoUrl)}</td>
                     <td><strong>${esc(a.name)}</strong>${a.notes ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${esc(a.notes)}</div>` : ''}</td>
+                    <td>${fotoSel(a, fotoUrl)}</td>
                     <td style="text-align:right">${formatNum(a.qty)}</td>
                     <td style="font-size:0.85rem">${esc(a.size ?? '-')}</td>
                     <td><span class="badge ${ASSET_CONDITION_BADGE[a.condition] ?? ''}">${esc(conditionText(a))}</span></td>

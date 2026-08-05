@@ -68,12 +68,12 @@ async function renderBalancesTab(content) {
 
   content.innerHTML = `
     <h2 style="font-size:1.05rem">Saldo Kas per Pemegang</h2>
-    <table class="data-table" style="max-width:460px">
+    <div class="table-scroll" style="max-width:460px"><table class="data-table table-freeze-1">
       <thead><tr><th>Pemegang</th><th>Saldo</th></tr></thead>
       <tbody>
         ${rows.map((b) => `<tr><td>${esc(nameById.get(b.holder_id) ?? '-')}</td><td>${formatRupiah(b.balance)}</td></tr>`).join('') || '<tr><td colspan="2">Belum ada data kas.</td></tr>'}
       </tbody>
-    </table>
+    </table></div>
     <p style="font-weight:600;margin-top:8px">Total kas seluruh pemegang: ${formatRupiah(total)}</p>
 
     <h2 style="font-size:1.05rem;margin-top:20px">Mutasi Kas</h2>

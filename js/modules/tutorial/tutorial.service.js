@@ -122,6 +122,47 @@ export async function listModulesWithTutorial(businessUnitId) {
   return new Set((data ?? []).map((r) => r.module_code));
 }
 
+/**
+ * Semua video yang berlaku di satu BU, sudah DIKELOMPOKKAN per modul.
+ *
+ * Dipakai Beranda Staff supaya seluruh daftar tutorial bisa ditampilkan dengan
+ * SATU query. Versi memanggil listTutorials() per modul akan menembakkan 15-20
+ * permintaan sekaligus saat halaman pertama dibuka — dan yang paling terasa
+ * bukan servernya, melainkan Beranda yang tersendat di HP.
+ *
+ * Aturan pewarisannya sama persis dengan listTutorials(): video khusus BU
+ * MENIMPA video global, per modul, bukan digabung.
+ *
+ * Gagal = Map kosong, bukan lempar error. Tutorial itu pelengkap; Beranda tidak
+ * boleh ikut gagal tampil gara-gara ini.
+ *
+ * @returns {Promise<Map<string, object[]>>} module_code -> daftar video
+ */
+export async function listTutorialsByModule(businessUnitId) {
+  const { data, error } = await supabase
+    .from('module_tutorials')
+    .select('id, module_code, business_unit_id, title, youtube_id, description, sort_order')
+    .eq('is_active', true)
+    .or(`business_unit_id.is.null,business_unit_id.eq.${businessUnitId}`)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+  if (error) {
+    console.warn('[tutorial] daftar per modul tidak bisa dibaca:', error.message);
+    return new Map();
+  }
+
+  const perModul = new Map();
+  for (const t of data ?? []) {
+    if (!perModul.has(t.module_code)) perModul.set(t.module_code, []);
+    perModul.get(t.module_code).push(t);
+  }
+  for (const [code, list] of perModul) {
+    const khususBu = list.filter((t) => t.business_unit_id === businessUnitId);
+    perModul.set(code, khususBu.length ? khususBu : list.filter((t) => t.business_unit_id === null));
+  }
+  return perModul;
+}
+
 /** Super admin: semua video, termasuk yang nonaktif, untuk halaman kelola. */
 export async function listAllTutorials() {
   const { data, error } = await supabase

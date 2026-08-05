@@ -75,12 +75,12 @@ async function renderRequestsTab(content, businessUnitId) {
       return;
     }
     result.innerHTML = `
-      <table class="data-table" style="margin-top:12px">
+      <div class="table-scroll" style="margin-top:12px"><table class="data-table table-freeze-1">
         <thead><tr><th>Staff</th><th>Diajukan</th><th>Jenis</th><th>Tanggal Cuti</th><th>Hari</th><th>Alasan</th><th>Status</th><th>Aksi</th></tr></thead>
         <tbody>
           ${requests.map(reqRowHtml).join('') || '<tr><td colspan="8">Tidak ada pengajuan.</td></tr>'}
         </tbody>
-      </table>
+      </table></div>
     `;
     wireReqActions(result, requests, refresh);
   }
@@ -187,12 +187,12 @@ async function renderTypesTab(content, businessUnitId) {
       <h2 style="font-size:1.05rem;margin:0">Jenis Cuti</h2>
       <button class="primary" id="btn-new-type" style="max-width:200px">+ Tambah Jenis (BU ini)</button>
     </div>
-    <table class="data-table">
+    <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead><tr><th>Nama</th><th>Punya Jatah</th><th>Jatah Default</th><th>Wajib Lampiran</th><th>Lingkup</th><th>Status</th><th>Aksi</th></tr></thead>
       <tbody>
         ${types.map(typeRowHtml).join('') || '<tr><td colspan="7">Belum ada jenis cuti.</td></tr>'}
       </tbody>
-    </table>
+    </table></div>
     <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:8px">Jenis "Global" berlaku semua BU dan hanya bisa diubah Super Admin. "Jatah default" dipakai saat jenis diberikan ke staff (bisa diubah per staff di tab Hak &amp; Jatah).</p>
   `;
 
@@ -312,7 +312,7 @@ async function renderEntitlementsTab(content, businessUnitId) {
 
   content.innerHTML = `
     <p style="color:var(--color-text-muted);font-size:0.9rem">Staff <strong>aktif</strong> di BU ini. Yang sudah dinonaktifkan di Master User tidak ditampilkan. Kolom status menandai siapa yang <strong>belum diatur</strong> hak/jatah cutinya. Klik "Atur" untuk mengatur jenis cuti yang boleh diajukan &amp; jatahnya.</p>
-    <table class="data-table">
+    <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead><tr><th>Staff</th><th>Status Jatah</th><th>Aksi</th></tr></thead>
       <tbody>
         ${
@@ -328,7 +328,7 @@ async function renderEntitlementsTab(content, businessUnitId) {
             .join('') || '<tr><td colspan="3">Belum ada staff di BU ini.</td></tr>'
         }
       </tbody>
-    </table>
+    </table></div>
     <div id="ent-detail" style="margin-top:16px"></div>
   `;
 
