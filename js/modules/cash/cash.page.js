@@ -22,6 +22,17 @@ import {
 } from './cash.service.js';
 
 /**
+ * Penanda "Kas Utama" di dalam <select>.
+ *
+ * TIDAK boleh string kosong. formDialog menganggap nilai kosong sebagai
+ * "belum diisi", jadi field `required` yang defaultnya Kas Utama akan selalu
+ * ditolak dengan pesan "wajib diisi" — padahal pilihannya sudah benar terpilih
+ * di layar. Nilainya baru diubah jadi `null` tepat sebelum dikirim ke database.
+ */
+const KAS_UTAMA = '__utama__';
+const idKantong = (v) => (!v || v === KAS_UTAMA ? null : v);
+
+/**
  * Kas melekat pada USER (migration 0040): saldo & riwayatnya sama persis di
  * BU/outlet mana pun dia login.
  *
@@ -378,7 +389,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     const utama = saldoKantong.find((a) => !a.account_id);
     // Kas Utama hanya relevan kalau memang pernah ada isinya. Menawarkan laci
     // yang tidak pernah dipakai hanya menambah pilihan yang membingungkan.
-    if (utama) opsi.push({ value: '', label: `Kas Utama (${formatRupiah(Number(utama.balance) || 0)})` });
+    if (utama) opsi.push({ value: KAS_UTAMA, label: `Kas Utama (${formatRupiah(Number(utama.balance) || 0)})` });
     for (const a of accounts) {
       const saldo = saldoKantong.find((x) => x.account_id === a.id)?.balance ?? 0;
       opsi.push({ value: a.id, label: `${a.name} (${formatRupiah(Number(saldo) || 0)})` });
@@ -396,19 +407,24 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
         '"Kas Utama" adalah tempat uang yang dicatat sebelum kantong dibuat.',
       fields: [
         { name: 'from', label: 'Dari kantong', type: 'select', required: true, options: opsi },
-        { name: 'to', label: 'Ke kantong', type: 'select', required: true, options: opsi, value: opsi[1]?.value ?? '' },
+        { name: 'to', label: 'Ke kantong', type: 'select', required: true, options: opsi, value: opsi[1]?.value ?? KAS_UTAMA },
         { name: 'amount', label: 'Jumlah', type: 'money', required: true },
         { name: 'notes', label: 'Keterangan (opsional)', type: 'text', placeholder: 'mis. pembagian setoran' }
       ],
       submitText: 'Pindahkan'
     });
     if (!values) return;
-    // Dibandingkan sebagai string: Kas Utama bernilai '' (kosong), bukan null,
-    // karena <select> hanya bisa menyimpan string.
+    // Dibandingkan sebagai string dulu: <select> hanya menyimpan string, dan
+    // Kas Utama diwakili penanda KAS_UTAMA — bukan null, bukan string kosong.
     if (String(values.from) === String(values.to)) return toast('Kantong asal dan tujuan tidak boleh sama.', 'warning');
     if (!(values.amount > 0)) return toast('Jumlah harus lebih dari 0.', 'warning');
     try {
-      await pindahKas({ fromAccountId: values.from, toAccountId: values.to, amount: values.amount, notes: values.notes });
+      await pindahKas({
+        fromAccountId: idKantong(values.from),
+        toAccountId: idKantong(values.to),
+        amount: values.amount,
+        notes: values.notes
+      });
       toast('Saldo dipindahkan.', 'success');
       await refresh();
     } catch (error) {
@@ -525,7 +541,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     // masih bisa berisi transaksi masuk & keluar yang saling meniadakan, dan
     // transaksi itu tetap harus punya tempat.
     const tujuan = [
-      { value: '', label: 'Kas Utama' },
+      { value: KAS_UTAMA, label: 'Kas Utama' },
       ...accounts.filter((x) => x.id !== a.id).map((x) => ({ value: x.id, label: x.name }))
     ];
     const values = await formDialog({
@@ -549,7 +565,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     if (!ok) return;
 
     try {
-      const pindah = await hapusKantongKas(a.id, values.target || null);
+      const pindah = await hapusKantongKas(a.id, idKantong(values.target));
       toast(pindah ? `Kantong dihapus. ${pindah} transaksi pindah ke "${namaTujuan}".` : 'Kantong dihapus.', 'success');
       await muatUlangKantong();
     } catch (error) {

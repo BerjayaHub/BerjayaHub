@@ -1345,6 +1345,14 @@ Menurunkan batas **tidak** menghapus kantong yang terlanjur dibuat — itu berar
 
 Nama kantong ditentukan **user sendiri**. Uangnya bisa dibagi saat mencatat, atau dipindahkan belakangan lewat `pindah_kas()` — yang menulis sepasang baris `move_out`/`move_in` supaya saldonya tetap bisa ditelusuri, bukan menyunting angka lama.
 
+### Jebakan: opsi SAH yang bernilai string kosong di `<select>` wajib
+
+**Gejala:** dialog Pindah Kas menolak dengan *"Dari kantong" wajib diisi* — padahal "Kas Utama" jelas-jelas sudah terpilih di layar.
+
+**Penyebab.** `formDialog` menganggap nilai kosong sebagai "belum diisi". "Kas Utama" diberi `value: ''` karena di database ia memang `account_id` NULL, jadi memilihnya sama saja dengan tidak memilih apa pun. Formnya terlihat terisi, validasinya berpendapat sebaliknya — dan tidak ada cara mengetahuinya selain menekan tombol simpan.
+
+**Perbaikan.** "Kas Utama" diwakili penanda `KAS_UTAMA = '__utama__'`, baru diubah jadi `null` tepat sebelum dikirim ke database (`idKantong()`). String kosong tetap dipakai untuk placeholder "-- pilih --" yang memang **harus** ditolak, mis. satuan produk. Dijaga `node tools/audit-select-wajib.cjs`.
+
 ### "Kas Utama" adalah tempat sungguhan, dan harus bisa dipindahkan
 
 `account_id` NULL = **Kas Utama**: tempat uang berada sebelum kantong pertama dibuat, dan tempat semua entri lama sebelum `0063`. Dialog Pindah Kas dulu hanya menawarkan kantong **bernama**, sehingga saldo di Kas Utama terkunci — terlihat jelas di rincian saldo, tapi tidak ada satu pun jalan untuk memindahkannya. `pindah_kas()` di database memang sudah menerima NULL sejak awal; yang kurang cuma pilihannya di layar.
