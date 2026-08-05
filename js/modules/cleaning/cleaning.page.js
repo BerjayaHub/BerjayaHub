@@ -181,7 +181,10 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
                       url
                         ? `<img src="${escapeHtml(url)}" alt="" class="ck-foto" data-path="${escapeHtml(i.photo_path)}"
                              style="width:40px;height:40px;object-fit:cover;border-radius:6px;cursor:pointer;flex-shrink:0;border:1px solid var(--color-border)" />`
-                        : `<span style="width:40px;text-align:center;flex-shrink:0">${i.checked ? '✅' : '⬜'}</span>`
+                        : // Dicentang tapi tanpa foto ditandai merah — artinya beda
+                          // jauh dari item yang memang tidak dikerjakan.
+                          `<span title="${i.checked ? 'Dicentang tanpa foto bukti' : 'Tidak dikerjakan'}"
+                             style="width:40px;text-align:center;flex-shrink:0${i.checked ? ';color:var(--color-danger)' : ''}">${i.checked ? '⚠️' : '⬜'}</span>`
                     }
                     <span style="font-size:0.85rem${i.checked ? '' : ';color:var(--color-text-muted)'}">${escapeHtml(i.checklist_items?.label ?? '-')}
                       ${i.note ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${escapeHtml(i.note)}</div>` : ''}</span>

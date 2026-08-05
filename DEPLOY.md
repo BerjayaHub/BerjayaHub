@@ -36,6 +36,7 @@ pernah dijalankan.
 | 0067 | `0067_peringatan_jadwal_kosong.sql` | Dedupe peringatan "jadwal shift besok masih kosong" ke admin |
 | 0068 | `0068_daily_activities_terlihat_satu_outlet.sql` | **Perbaikan bug**: staff hanya melihat Daily Activities miliknya sendiri, sehingga sesi dikerjakan dua kali |
 | 0069 | `0069_item_per_sesi.sql` | Item aktivitas bisa berbeda per sesi (tanpa penugasan = berlaku di semua sesi) |
+| 0070 | `0070_foto_item_wajib.sql` | **Perbaikan bug**: item yang dicentang bisa dikirim tanpa foto — aturannya hanya ada di tampilan |
 
 > ⚠️ `0063` mendefinisikan ulang `laporan_kas_user()` dengan **parameter baru**
 > (`p_category`). Versi lama (4 argumen) di-`drop` di awal file — halaman Laporan
@@ -285,6 +286,11 @@ select net.http_post(
   mulai terlihat di rekap — itu jejak bug lama, bukan bug baru.
 - **Daily Activities (Admin Portal → Rekap)** → ada kolom **Bukti** berisi
   thumbnail foto per item.
+- **Daily Activities** → aturan "item yang dicentang wajib berfoto" kini juga
+  ditegakkan **di database**, bukan hanya di layar. Setelah `0070`, baris lama
+  yang dicentang tanpa bukti tetap ada (tidak divalidasi mundur) tapi ditandai
+  merah **"tanpa bukti"** di detail rekap, dibedakan dari item yang memang
+  **"tidak dikerjakan"**.
 - **Daily Activities (Admin Portal → Item)** → kolom **Sesi** + tombol **Sesi**
   untuk memilih sesi mana yang memakai item itu. Item yang belum ditugaskan tetap
   berlaku di **semua** sesi, jadi setelah `0069` tidak ada yang berubah sampai

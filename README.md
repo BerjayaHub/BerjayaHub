@@ -1734,6 +1734,27 @@ Aturan ini dikunci `node tools/test-item-per-sesi.mjs` (7 kasus) — kalau terge
 
 Kalau daftar penugasan gagal dibaca, item ditampilkan **semua**, bukan kosong: ceklis yang tiba-tiba kosong membuat staff mengira pekerjaannya tidak perlu; ceklis yang kepanjangan hanya merepotkan.
 
+## Bug: "wajib foto" ternyata hanya kebiasaan, bukan aturan (migration `0070`)
+
+**Pertanyaannya:** bisakah staff mengirim aktivitas tanpa foto bukti? **Bisa.**
+
+Sejak `0052`, aturan "setiap item yang dicentang harus ada fotonya" hanya hidup di **satu** tempat: pemeriksaan di halaman staff sebelum tombol Kirim. `submitChecklistRun()` menerima `checked: true, photo_path: null` tanpa berkomentar, dan tabelnya tidak punya batasan apa pun.
+
+Artinya itu bukan aturan, melainkan kebiasaan. Siapa pun yang memanggil API langsung — atau versi halaman lama yang masih tersimpan di cache HP seseorang — bisa mengirim ceklis tanpa satu pun bukti, dan hasilnya masuk ke rekap **terlihat sama sahnya** dengan yang lain. Yang paling merugikan bukan kebocorannya, melainkan kepercayaan pada rekap yang ternyata tidak sekuat yang dikira.
+
+Sekarang ditegakkan di **tiga lapis**: halaman staff (supaya salahnya ketahuan sebelum apa pun terkirim), `submitChecklistRun()`, dan `CHECK` constraint di database. Pemeriksaan di service dilakukan **sebelum** run dibuat — kalau ditolak belakangan, run-nya sudah terlanjur lahir dan `unique (outlet_id, session_id, run_date)` akan menolak percobaan ulang hari itu, jadi staff terjebak sampai besok.
+
+Constraint-nya `NOT VALID`: hanya untuk baris **baru**. Run sebelum `0052` memang belum punya foto per item sama sekali, dan memvalidasi mundur akan menggagalkan migration hanya karena sejarah. Riwayat pekerjaan justru yang paling tidak boleh diubah belakangan.
+
+### Dan soal item yang "tidak muncul foto dan aksinya"
+
+Sebagian besar bukan pelanggaran — itu item yang **tidak dicentang**, yang wajar tidak berfoto. Tapi keduanya dulu ditampilkan sama: kotak abu-abu bertuliskan "tanpa foto". Dua hal yang artinya berbeda jauh dijadikan satu tampilan, sehingga yang benar-benar bermasalah tenggelam di antara yang wajar.
+
+Sekarang dibedakan di rekap admin maupun di Staff App:
+
+- **"tidak dikerjakan"** (abu-abu) — item tidak dicentang.
+- **"tanpa bukti"** (merah) — dicentang tapi tidak ada fotonya. Setelah `0070` ini hanya mungkin berasal dari data lama, dan detail rekap menyebutkannya di atas daftar.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

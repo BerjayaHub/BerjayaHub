@@ -296,6 +296,21 @@ export async function submitChecklistRun({ businessUnitId, outletId, sessionId, 
   const uid = await currentUserId();
   if (!uid) throw new Error('Sesi tidak ditemukan, silakan login ulang.');
 
+  // Aturan "dicentang wajib berfoto" ditegakkan di TIGA lapis: halaman staff
+  // (supaya salahnya ketahuan sebelum apa pun terkirim), di sini, dan CHECK
+  // constraint di database (0070). Sebelumnya hanya lapis pertama yang ada —
+  // dan aturan yang cuma dijaga tampilan bukan aturan, melainkan kebiasaan.
+  //
+  // Diperiksa SEBELUM run dibuat: kalau ditolak belakangan, run-nya sudah
+  // terlanjur lahir dan `unique (outlet_id, session_id, run_date)` akan
+  // menolak percobaan ulang hari itu.
+  const dicentang = (itemStates ?? []).filter((s) => s.checked);
+  if (!dicentang.length) throw new Error('Centang minimal satu item dulu.');
+  const tanpaFoto = dicentang.filter((s) => !s.file);
+  if (tanpaFoto.length) {
+    throw new Error(`${tanpaFoto.length} item yang dicentang belum ada fotonya. Setiap pekerjaan yang diceklis harus punya bukti.`);
+  }
+
   const { data: run, error } = await supabase
     .from('checklist_runs')
     .insert({

@@ -442,7 +442,14 @@ async function loadReport(content, businessUnitId) {
                     url
                       ? `<a href="${escapeAttr(url)}" target="_blank" rel="noopener"><img src="${escapeAttr(url)}" alt="" loading="lazy"
                           style="width:64px;height:64px;object-fit:cover;border-radius:8px;background:#eee;border:1px solid var(--color-border,#e3e3e3)" /></a>`
-                      : `<span style="width:64px;height:64px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:#f2f2f2;color:var(--color-text-muted);font-size:0.68rem;flex-shrink:0">tanpa foto</span>`
+                      : // DIBEDAKAN, karena artinya sama sekali berbeda:
+                        //   tidak dicentang -> memang tidak dikerjakan, wajar tanpa foto;
+                        //   dicentang tanpa foto -> pekerjaan yang diakui tanpa bukti.
+                        // Menampilkan keduanya sebagai "tanpa foto" membuat yang
+                        // kedua tenggelam di antara yang pertama.
+                        i.checked
+                        ? `<span style="width:64px;height:64px;display:inline-flex;align-items:center;justify-content:center;text-align:center;border-radius:8px;background:var(--color-bg);color:var(--color-danger);font-size:0.64rem;flex-shrink:0;border:1px solid var(--color-danger)">tanpa bukti</span>`
+                        : `<span style="width:64px;height:64px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:#f2f2f2;color:var(--color-text-muted);font-size:0.66rem;flex-shrink:0">tidak dikerjakan</span>`
                   }
                   <span style="flex:1;min-width:0">
                     <span style="font-weight:600">${i.checked ? '✅' : '⬜'} ${escapeHtml(i.checklist_items?.label ?? '-')}</span>
@@ -452,7 +459,15 @@ async function loadReport(content, businessUnitId) {
               })
               .join('')}</div>`
           : '<p>Tidak ada item.</p>';
-        await infoDialog({ title: 'Detail Aktivitas', bodyHtml });
+        const tanpaBukti = items.filter((i) => i.checked && !i.photo_path).length;
+        await infoDialog({
+          title: 'Detail Aktivitas',
+          bodyHtml:
+            (tanpaBukti
+              ? `<p class="error-text" style="margin:0 0 10px">${tanpaBukti} item dicentang tanpa foto bukti.
+                   Baris seperti ini hanya mungkin berasal dari sebelum aturan fotonya ditegakkan di database (migration 0070).</p>`
+              : '') + bodyHtml
+        });
       } catch (error) {
         toast(error.message ?? 'Gagal memuat detail.', 'error');
       }
