@@ -354,7 +354,10 @@ async function renderHome(context, modules, moduleCtx) {
       <div class="staff-greeting">
         <div class="hero-avatar" id="hero-avatar">${escapeHtml(initials(context.profile.full_name))}</div>
         <div>
-          <h1>Halo, ${firstName} 👋</h1>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <h1>Halo, ${firstName} 👋</h1>
+            <span id="home-tutorial"></span>
+          </div>
           <p>Pilih menu di bawah untuk mulai.</p>
         </div>
       </div>
@@ -373,7 +376,6 @@ async function renderHome(context, modules, moduleCtx) {
           .join('') || '<p>Belum ada modul aktif untuk BU kamu. Hubungi admin.</p>'
       }
     </div>
-    <div id="home-tutorial"></div>
   `;
 
   content.querySelectorAll('[data-module]').forEach((card) => {
@@ -384,7 +386,7 @@ async function renderHome(context, modules, moduleCtx) {
   // orangnya SUDAH membuka modul itu — padahal yang paling butuh tutorial justru
   // yang belum berani membukanya. Sengaja tidak di-await: Beranda harus tampil
   // sekarang, tidak menunggu satu query pelengkap.
-  renderTutorialBeranda(staffModules, moduleCtx?.businessUnitId);
+  mountTutorialBeranda(staffModules, moduleCtx?.businessUnitId);
 
   // Foto staff di sebelah sapaan (fallback: inisial nama).
   if (context.profile.photo_path) {
@@ -419,46 +421,100 @@ async function renderHome(context, modules, moduleCtx) {
 }
 
 /**
- * Blok "Video Tutorial" di Beranda, dikelompokkan per modul.
+ * Tombol tutorial di header Beranda, tepat di sebelah sapaan.
  *
- * Hanya modul yang BENAR-BENAR dipakai staff ini yang ditampilkan. Menawarkan
+ * Tombol ❓ di header modul hanya terlihat kalau orangnya SUDAH membuka modul
+ * itu — padahal yang paling butuh tutorial justru yang belum berani membukanya.
+ * Di Beranda tombolnya diletakkan di tempat mata sudah berhenti (nama sendiri),
+ * bukan sebagai kartu tambahan di bawah: satu kartu lagi di grid modul justru
+ * menambah yang harus dipilah sebelum orang sampai ke pekerjaannya.
+ *
+ * Hanya modul yang BENAR-BENAR dipakai staff ini yang dihitung. Menawarkan
  * tutorial modul yang tidak bisa dia buka bukan cuma sia-sia — itu membuat orang
  * mengira ada bagian aplikasi yang disembunyikan darinya.
  */
-async function renderTutorialBeranda(staffModules, businessUnitId) {
+async function mountTutorialBeranda(staffModules, businessUnitId) {
   const host = document.getElementById('home-tutorial');
   if (!host || !businessUnitId) return;
 
   const perModul = await listTutorialsByModule(businessUnitId).catch(() => new Map());
   const punya = staffModules.filter((m) => perModul.get(m.code)?.length);
-  if (!punya.length) return; // tidak ada video -> tidak ada blok kosong
+  // Tidak ada video -> tidak ada tombol. Tombol bantuan yang membuka daftar
+  // kosong lebih merugikan daripada tidak ada tombol sama sekali.
+  if (!punya.length) return;
 
   ensureTutorialStyles();
 
-  host.innerHTML = `
-    <details class="inline-card" style="margin-top:18px">
-      <summary style="cursor:pointer;font-weight:600">📺 Video Tutorial <span style="font-weight:400;color:var(--color-text-muted)">(${punya.length} modul)</span></summary>
-      <div class="tutorial-list" style="margin-top:10px">
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'tutorial-btn';
+  btn.innerHTML = `❓ <span>Tutorial${punya.length > 1 ? ` (${punya.length})` : ''}</span>`;
+  btn.title = 'Video cara memakai tiap modul';
+  btn.addEventListener('click', () => {
+    // Satu modul saja -> langsung ke videonya, tidak perlu memaksa memilih dulu.
+    if (punya.length === 1) {
+      openTutorialDialog(perModul.get(punya[0].code), `📺 Tutorial ${punya[0].name}`);
+      return;
+    }
+    pilihModulTutorial(punya, perModul);
+  });
+  host.appendChild(btn);
+}
+
+/** Dialog pemilih modul; setelah dipilih, pemutarnya memakai dialog yang sama
+ *  dengan tombol ❓ di header modul (openTutorialDialog), bukan salinannya. */
+function pilihModulTutorial(punya, perModul) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-card" role="dialog" aria-modal="true" style="max-width:520px">
+      <h3 class="modal-title">📺 Video Tutorial</h3>
+      <p class="modal-text">Pilih modul yang ingin kamu pelajari.</p>
+      <div class="tutorial-list">
         ${punya
           .map((m) => {
-            const n = perModul.get(m.code).length;
+            // Jumlah video dihitung DI LUAR template: `perModul.get(m.code)`
+            // di dalam ${...} membuat audit escape menandainya (karena `code`
+            // termasuk bidang teks bebas), padahal yang dicetak cuma angka.
+            const jml = perModul.get(m.code).length;
             return `
-              <button class="tutorial-item" data-tut="${escapeHtml(m.code)}">
-                <span style="font-size:1.5rem;width:34px;text-align:center;flex-shrink:0">${getModuleIcon(m.code)}</span>
-                <span>
-                  <span class="t-title">${escapeHtml(m.name)}</span>
-                  <span class="t-desc">${n} video</span>
-                </span>
-              </button>`;
+          <button class="tutorial-item" data-tut="${escapeHtml(m.code)}">
+            <span style="font-size:1.5rem;width:34px;text-align:center;flex-shrink:0">${getModuleIcon(m.code)}</span>
+            <span>
+              <span class="t-title">${escapeHtml(m.name)}</span>
+              <span class="t-desc">${jml} video</span>
+            </span>
+          </button>`;
           })
           .join('')}
       </div>
-    </details>
+      <div class="modal-actions">
+        <button type="button" class="primary btn-inline" data-act="close">Tutup</button>
+      </div>
+    </div>
   `;
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add('show'));
 
-  host.querySelectorAll('[data-tut]').forEach((b) =>
+  function tutup() {
+    overlay.classList.remove('show');
+    setTimeout(() => overlay.remove(), 200);
+    document.removeEventListener('keydown', onEsc);
+  }
+  function onEsc(e) {
+    if (e.key === 'Escape') tutup();
+  }
+  document.addEventListener('keydown', onEsc);
+  overlay.querySelector('[data-act="close"]').addEventListener('click', tutup);
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) tutup();
+  });
+  overlay.querySelectorAll('[data-tut]').forEach((b) =>
     b.addEventListener('click', () => {
       const mod = punya.find((m) => m.code === b.dataset.tut);
+      // Pemilih ditutup lebih dulu supaya tidak ada dua overlay bertumpuk —
+      // yang di bawah tetap menangkap klik dan terasa seperti aplikasi macet.
+      tutup();
       openTutorialDialog(perModul.get(b.dataset.tut), `📺 Tutorial ${mod?.name ?? ''}`.trim());
     })
   );
