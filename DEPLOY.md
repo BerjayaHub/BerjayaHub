@@ -202,8 +202,9 @@ select net.http_post(
   berarti `0049` belum jalan.
 - **Kas** → form **Kas Masuk** dan **Kas Keluar** kini berbeda:
   - *Kas Masuk*: jumlah uang, keterangan, tanggal, foto **opsional**.
-  - *Kas Keluar*: kategori, **outlet peruntukan (wajib)**, jumlah + satuan,
-    dan **foto nota wajib**.
+  - *Kas Keluar*: kategori, **outlet peruntukan (wajib, boleh lintas BU)**,
+    jumlah + satuan, dan **foto nota wajib**. Pilihan outletnya mencakup semua BU
+    tempat user punya peran, dengan nama BU tertulis di depannya.
 - **Kantong kas (sub-kas)** → **Master User → Edit** pada staff yang bersangkutan →
   isian *Jumlah kantong kas*.
 - **Kas (Staff App) → 🏷️ Kelola Kas** → panel daftar kantong: **✎ ubah nama** dan

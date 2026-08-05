@@ -1,6 +1,6 @@
 import { toast, formDialog, confirmDialog, escapeHtml } from '../../core/ui.js';
 import { formatRupiah, formatNum } from '../../core/format.js';
-import { listMyOutlets } from '../../core/my-outlets.js';
+import { listMyOutletsAllBu } from '../../core/my-outlets.js';
 import { exportTablePDF, imageToDataUrl } from '../../core/pdf.js';
 import {
   ENTRY_LABEL,
@@ -52,7 +52,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       listCashMembers().catch(() => []),
       listMyCashAccounts().catch(() => []),
       getMyCashAccountLimit().catch(() => 1),
-      listMyOutlets(businessUnitId).catch(() => [])
+      listMyOutletsAllBu().catch(() => [])
     ]);
   } catch (error) {
     container.innerHTML = `<p class="error-text">Gagal memuat: ${escapeHtml(error.message ?? error)}</p>`;
@@ -316,7 +316,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
   // ---- Kas KELUAR: lengkap. Ada barangnya, ada notanya, ada peruntukannya. ----
   async function openKeluar() {
     if (!outlets.length) {
-      return toast('Belum ada outlet yang bisa kamu akses — kas keluar butuh outlet peruntukan.', 'warning');
+      return toast('Belum ada outlet yang bisa kamu akses di BU mana pun — kas keluar butuh outlet peruntukan.', 'warning');
     }
     const values = await formDialog({
       title: 'Catat Kas Keluar',
@@ -328,8 +328,13 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
           label: 'Untuk outlet',
           type: 'select',
           required: true,
-          options: outlets.map((o) => ({ value: o.id, label: o.name })),
-          help: 'Uang ini dibelanjakan untuk outlet mana. Pilihannya hanya outlet tempat kamu punya peran.'
+          // Nama BU ikut ditulis di label karena daftarnya LINTAS BU: dua outlet
+          // bernama mirip di BU berbeda tidak bisa dibedakan tanpa itu.
+          options: outlets.map((o) => ({
+            value: o.id,
+            label: o.business_unit_name ? `${o.business_unit_name} — ${o.name}` : o.name
+          })),
+          help: 'Uang ini dibelanjakan untuk outlet mana. Boleh lintas BU — pilihannya semua outlet tempat kamu punya peran, di BU mana pun.'
         },
         { name: 'category_id', label: 'Kategori biaya', type: 'select', options: catOptions('out') },
         { name: 'qty', label: 'Jumlah barang', type: 'qty', placeholder: 'mis. 10' },

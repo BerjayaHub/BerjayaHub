@@ -1327,7 +1327,11 @@ Dulu satu form dipakai untuk keduanya, hanya jenisnya yang berbeda. Akibatnya pe
 
 ### Outlet pada kas = PERUNTUKAN, bukan pemilik
 
-Yang memegang uang tetap **user** dan sepenuhnya tanggung jawabnya. `cash_entries.outlet_id` kini berarti **untuk outlet mana uang itu dibelanjakan** — dan hanya boleh diisi outlet tempat user punya peran (dropdown-nya memakai `listMyOutlets()`, yang gagal **tertutup**). Constraint `cash_entries_outlet_wajib_saat_keluar` menegakkannya di database, `NOT VALID` supaya baris lama tidak diutak-atik.
+Yang memegang uang tetap **user** dan sepenuhnya tanggung jawabnya. `cash_entries.outlet_id` kini berarti **untuk outlet mana uang itu dibelanjakan** — dan hanya boleh diisi outlet tempat user punya peran, **di BU mana pun**.
+
+Dropdown-nya memakai `listMyOutletsAllBu()` (`js/core/my-outlets.js`), bukan `listMyOutlets()` yang terikat BU aktif. Alasannya sama dengan alasan kas melekat pada orang: uangnya dibawa ke mana pun dia login. Membatasi peruntukan ke BU yang kebetulan sedang dibuka berarti orang yang belanja untuk outlet BU lain harus berganti BU dulu — dan kalau lupa, dia akan memilih outlet yang salah justru karena itu satu-satunya yang tersedia. Aturan penyaringannya sama persis, diterapkan per BU, dan tetap **gagal tertutup**. Nama BU ikut ditulis di label karena dua outlet bernama mirip di BU berbeda tidak bisa dibedakan tanpa itu.
+
+Konsekuensi di sisi baca: admin sebuah outlet bisa melihat baris kas milik orang dari BU lain, selama uangnya diperuntukkan bagi outlet yang dia adminkan. Itu memang yang diinginkan — dialah yang berkepentingan atas belanja untuk outletnya. Constraint `cash_entries_outlet_wajib_saat_keluar` menegakkannya di database, `NOT VALID` supaya baris lama tidak diutak-atik.
 
 Ini menggantikan cara lama yang menurunkan outlet dari tempat kerja utama (★) pemegangnya. Cara lama punya sifat yang tidak enak: memindahkan basis ★ seseorang diam-diam mengubah laporan periode yang sudah lewat. Sekarang peruntukan dicatat **saat kejadian** dan tidak ikut berubah belakangan.
 

@@ -26,14 +26,55 @@ import { listAttendanceOutlets } from '../modules/attendance/attendance.service.
  */
 export async function listMyOutlets(businessUnitId, semuaOutlet = null) {
   if (!businessUnitId) return [];
-
   const semua = semuaOutlet ?? (await listAttendanceOutlets().catch(() => []));
-  const diBu = semua.filter((o) => o.business_unit_id === businessUnitId);
+  const scopes = await bacaScopeSaya();
+  if (scopes === null) return []; // tidak tahu -> tutup
+  return saringPerBu(semua, scopes, businessUnitId);
+}
 
+/**
+ * Outlet yang boleh diakses akun ini di SELURUH BU, bukan hanya BU yang sedang
+ * aktif di pemilih atas.
+ *
+ * Dipakai untuk pertanyaan yang menempel pada ORANG, bukan pada BU aktif —
+ * mis. outlet PERUNTUKAN saat mencatat kas keluar. Kas melekat pada user dan
+ * dibawa ke mana pun dia login; membatasi peruntukannya ke BU yang kebetulan
+ * sedang dibuka berarti orang yang membelanjakan uangnya untuk outlet BU lain
+ * harus berganti BU dulu — dan kalau lupa, dia akan memilih outlet yang salah
+ * hanya karena itu satu-satunya yang tersedia.
+ *
+ * Aturan penyaringannya sama persis dengan `listMyOutlets()`, diterapkan per BU.
+ * Hasilnya membawa `business_unit_name` supaya dropdown bisa dikelompokkan —
+ * tanpa itu, dua outlet bernama mirip di BU berbeda tidak bisa dibedakan.
+ *
+ * Sama-sama GAGAL TERTUTUP.
+ */
+export async function listMyOutletsAllBu(semuaOutlet = null) {
+  const semua = semuaOutlet ?? (await listAttendanceOutlets().catch(() => []));
+  const scopes = await bacaScopeSaya();
+  if (scopes === null) return [];
+
+  const buIds = [...new Set(semua.map((o) => o.business_unit_id).filter(Boolean))];
+  const hasil = [];
+  for (const buId of buIds) hasil.push(...saringPerBu(semua, scopes, buId));
+
+  return hasil.sort(
+    (a, b) =>
+      String(a.business_unit_name ?? '').localeCompare(String(b.business_unit_name ?? '')) ||
+      String(a.name ?? '').localeCompare(String(b.name ?? ''))
+  );
+}
+
+/**
+ * Scope milik akun yang login.
+ * @returns {Promise<Array|null>} null berarti TIDAK TAHU (belum login / query
+ *   gagal) — pemanggil wajib menutup, bukan menampilkan semuanya.
+ */
+async function bacaScopeSaya() {
   const {
     data: { user }
   } = await supabase.auth.getUser();
-  if (!user) return [];
+  if (!user) return null;
 
   // RLS `membership_scopes_select_own` selalu membuka baris milik sendiri, jadi
   // query ini aman untuk peran apa pun — termasuk outlet_admin, yang TIDAK
@@ -47,10 +88,14 @@ export async function listMyOutlets(businessUnitId, semuaOutlet = null) {
   // query izin gagal adalah kegagalan yang paling tidak boleh terjadi.
   if (error) {
     console.warn('[outlet] scope tidak terbaca:', error.message);
-    return [];
+    return null;
   }
+  return data ?? [];
+}
 
-  const scopes = data ?? [];
+/** Aturan penyaringan untuk SATU BU. Satu-satunya tempat aturannya ditulis. */
+function saringPerBu(semua, scopes, businessUnitId) {
+  const diBu = semua.filter((o) => o.business_unit_id === businessUnitId);
   if (scopes.some((s) => s.role === 'super_admin')) return diBu;
 
   const diBuIni = scopes.filter((s) => s.business_unit_id === businessUnitId);
