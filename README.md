@@ -1337,7 +1337,11 @@ Konsekuensi yang perlu diketahui: baris kas **masuk** tidak punya peruntukan, ja
 
 Sebagian orang memegang lebih dari satu kas dengan peruntukan berbeda (mis. *Kas Owner* dan *Kas Operasional*). Jumlah kantong yang boleh dibuat diatur admin BU / super admin per user (`user_profiles.cash_account_limit`, default **1**).
 
-Default `1` berarti tampilannya **persis seperti sebelumnya** — tidak ada istilah "kantong" yang muncul untuk orang yang tidak membutuhkannya. Batasnya ditegakkan trigger di database (`cek_batas_kantong_kas()`), bukan hanya di form: pemeriksaan yang cuma ada di UI selalu bisa dilewati, dan yang melewatinya tidak akan tahu bahwa dia sedang melanggar apa pun.
+Diatur di **Master User → Edit** pada staff yang bersangkutan. Default `1` berarti tampilannya **persis seperti sebelumnya** — tidak ada istilah "kantong" yang muncul untuk orang yang tidak membutuhkannya. Batasnya ditegakkan trigger di database (`cek_batas_kantong_kas()`), bukan hanya di form: pemeriksaan yang cuma ada di UI selalu bisa dilewati, dan yang melewatinya tidak akan tahu bahwa dia sedang melanggar apa pun.
+
+⚠️ Batas itu **tidak cukup dijaga policy** (migration `0065`). Policy `user_profiles_update_own` mengizinkan setiap orang memperbarui barisnya sendiri, dan policy bekerja per **baris**, bukan per **kolom** — jadi siapa pun bisa menaikkan jatah kantongnya lewat API tanpa menyentuh UI. Dampaknya kecil (kantong bertambah, saldo tidak), tapi yang berbahaya adalah kalimat di dokumentasi yang menjanjikan kontrol yang tidak pernah ada: batas yang diyakini ada padahal tidak, lebih buruk daripada tidak punya batas. Penjaganya berupa trigger `jaga_batas_kantong_kas()`, supaya kolom lain tetap bisa diperbarui pemiliknya seperti biasa.
+
+Menurunkan batas **tidak** menghapus kantong yang terlanjur dibuat — itu berarti menghapus riwayat kas di dalamnya. Yang terjadi: user tidak bisa menambah kantong baru sampai jumlahnya turun sendiri.
 
 Nama kantong ditentukan **user sendiri**. Uangnya bisa dibagi saat mencatat, atau dipindahkan belakangan lewat `pindah_kas()` — yang menulis sepasang baris `move_out`/`move_in` supaya saldonya tetap bisa ditelusuri, bukan menyunting angka lama.
 

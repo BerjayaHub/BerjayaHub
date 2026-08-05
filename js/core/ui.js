@@ -498,6 +498,11 @@ function fieldHtml(f) {
   const extra = [
     f.placeholder ? `placeholder="${escapeAttr(f.placeholder)}"` : '',
     f.min != null ? `min="${escapeAttr(f.min)}"` : '',
+    // `max` hanya mengatur tombol naik/turun & keyboard angka di HP — ia TIDAK
+    // menghalangi orang mengetik angka lebih besar, karena formDialog memakai
+    // validasinya sendiri, bukan validasi bawaan browser. Pemanggil tetap wajib
+    // membatasi nilainya sendiri.
+    f.max != null ? `max="${escapeAttr(f.max)}"` : '',
     f.minlength ? `minlength="${escapeAttr(f.minlength)}"` : '',
     f.accept ? `accept="${escapeAttr(f.accept)}"` : ''
   ].join(' ');

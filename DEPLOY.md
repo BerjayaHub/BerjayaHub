@@ -31,6 +31,7 @@ pernah dijalankan.
 | 0062 | `0062_koreksi_outlet_basis.sql` | Koreksi outlet basis pada presensi yang sudah tersimpan (satuan & massal) |
 | 0063 | `0063_kas_sub_akun_dan_outlet.sql` | Kas: kantong (sub-kas) per user, outlet **peruntukan** pada kas keluar, pindah antar kantong, Laporan Kas dengan filter kategori |
 | 0064 | `0064_otp_tugas_luar_admin_outlet.sql` | **Perbaikan bug**: admin outlet tidak bisa menerbitkan kode OTP Tugas Luar; `created_by` kode kini terisi |
+| 0065 | `0065_batas_kantong_kas_hanya_admin.sql` | **Perbaikan bug**: jatah kantong kas bisa dinaikkan sendiri oleh yang bersangkutan |
 
 > ⚠️ `0063` mendefinisikan ulang `laporan_kas_user()` dengan **parameter baru**
 > (`p_category`). Versi lama (4 argumen) di-`drop` di awal file — halaman Laporan
@@ -202,7 +203,8 @@ select net.http_post(
   - *Kas Masuk*: jumlah uang, keterangan, tanggal, foto **opsional**.
   - *Kas Keluar*: kategori, **outlet peruntukan (wajib)**, jumlah + satuan,
     dan **foto nota wajib**.
-- **Kantong kas (sub-kas)** → di **Master User**, atur *jumlah kantong* per user.
+- **Kantong kas (sub-kas)** → **Master User → Edit** pada staff yang bersangkutan →
+  isian *Jumlah kantong kas*.
   Default `1` → tampilannya persis seperti sebelumnya, tanpa istilah baru.
   Kalau > 1, user menamai sendiri kantongnya (mis. *Kas Owner*, *Kas Operasional*),
   bisa memilih kantong saat mencatat, dan bisa **memindahkan** saldo antar kantongnya.

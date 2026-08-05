@@ -14,7 +14,7 @@ export async function listStaffWithScopes() {
       business_units(name),
       divisions(name),
       outlets(name),
-      user_profiles(id, full_name, phone, email, is_active)
+      user_profiles(id, full_name, phone, email, is_active, cash_account_limit)
     `)
     .order('business_unit_id');
 
@@ -95,12 +95,17 @@ export async function listOutlets(businessUnitId) {
   return data ?? [];
 }
 
-export async function updateProfile(userId, { full_name, phone, is_active }) {
-  const { error } = await supabase
+export async function updateProfile(userId, { full_name, phone, is_active, cash_account_limit }) {
+  // .select() WAJIB. PostgREST tidak menganggap penolakan RLS sebagai error:
+  // UPDATE yang tidak menyentuh baris apa pun tetap balik "sukses", dan admin
+  // melihat toast "Data staff diperbarui" untuk perubahan yang tidak terjadi.
+  const { data, error } = await supabase
     .from('user_profiles')
-    .update({ full_name, phone, is_active })
-    .eq('id', userId);
+    .update({ full_name, phone, is_active, cash_account_limit })
+    .eq('id', userId)
+    .select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('Tidak tersimpan — kamu tidak punya izin mengubah data staff ini.');
 }
 
 export async function addMembershipScope({ user_id, business_unit_id, outlet_id, role, division_id }) {

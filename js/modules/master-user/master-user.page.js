@@ -252,7 +252,8 @@ function staffRowHtml(s, registeredFaceIds) {
         <button class="btn-edit" data-user-id="${s.profile.id}"
           data-name="${escapeHtml(s.profile.full_name ?? '')}"
           data-phone="${escapeHtml(s.profile.phone ?? '')}"
-          data-email="${escapeHtml(s.profile.email ?? '')}">Edit</button>
+          data-email="${escapeHtml(s.profile.email ?? '')}"
+          data-kas="${Number(s.profile.cash_account_limit ?? 1)}">Edit</button>
         <button class="btn-modules" data-user-id="${s.profile.id}" data-name="${s.profile.full_name}">Akses Modul</button>
         <button class="btn-admin-access" data-user-id="${s.profile.id}" data-name="${s.profile.full_name}">Izin Admin</button>
         <button class="btn-reset-password" data-user-id="${s.profile.id}">Reset Password</button>
@@ -414,13 +415,32 @@ function wireRowActions(container, businessUnits) {
           : 'Email login belum tercatat untuk user ini.',
         fields: [
           { name: 'full_name', label: 'Nama Lengkap', type: 'text', required: true, value: currentName },
-          { name: 'phone', label: 'No. Telp (bukan email login)', type: 'tel', value: currentPhone, placeholder: 'Opsional' }
+          { name: 'phone', label: 'No. Telp (bukan email login)', type: 'tel', value: currentPhone, placeholder: 'Opsional' },
+          {
+            name: 'cash_account_limit',
+            label: 'Jumlah kantong kas',
+            type: 'number',
+            min: 1,
+            max: 10,
+            value: String(Number(btn.dataset.kas) || 1),
+            help: 'Isi 1 kalau dia hanya memegang satu kas (paling umum). Lebih dari 1 kalau kasnya dipisah, mis. Kas Owner & Kas Operasional — nama kantongnya ditentukan sendiri oleh yang bersangkutan.'
+          }
         ],
         submitText: 'Simpan'
       });
       if (!values) return;
       try {
-        await updateProfile(btn.dataset.userId, { full_name: values.full_name, phone: values.phone || null });
+        // Batas kantong hanya dikirim kalau memang BERUBAH. Mengirimnya setiap
+        // kali membuat trigger 0065 ikut memeriksa izin walau admin cuma
+        // membetulkan ejaan nama — dan penolakannya akan membatalkan seluruh
+        // simpanan, termasuk yang sebenarnya boleh dia lakukan.
+        const kasBaru = Math.min(10, Math.max(1, Number(values.cash_account_limit) || 1));
+        const kasLama = Number(btn.dataset.kas) || 1;
+        await updateProfile(btn.dataset.userId, {
+          full_name: values.full_name,
+          phone: values.phone || null,
+          cash_account_limit: kasBaru === kasLama ? undefined : kasBaru
+        });
         toast('Data staff diperbarui.', 'success');
         await renderMasterUserPage(container);
       } catch (error) {
