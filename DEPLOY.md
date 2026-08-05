@@ -32,6 +32,7 @@ pernah dijalankan.
 | 0063 | `0063_kas_sub_akun_dan_outlet.sql` | Kas: kantong (sub-kas) per user, outlet **peruntukan** pada kas keluar, pindah antar kantong, Laporan Kas dengan filter kategori |
 | 0064 | `0064_otp_tugas_luar_admin_outlet.sql` | **Perbaikan bug**: admin outlet tidak bisa menerbitkan kode OTP Tugas Luar; `created_by` kode kini terisi |
 | 0065 | `0065_batas_kantong_kas_hanya_admin.sql` | **Perbaikan bug**: jatah kantong kas bisa dinaikkan sendiri oleh yang bersangkutan |
+| 0066 | `0066_hapus_kantong_kas.sql` | Hapus kantong kas: isinya dipindahkan ke kantong lain dulu, saldo total tidak berubah |
 
 > ⚠️ `0063` mendefinisikan ulang `laporan_kas_user()` dengan **parameter baru**
 > (`p_category`). Versi lama (4 argumen) di-`drop` di awal file — halaman Laporan
@@ -205,6 +206,12 @@ select net.http_post(
     dan **foto nota wajib**.
 - **Kantong kas (sub-kas)** → **Master User → Edit** pada staff yang bersangkutan →
   isian *Jumlah kantong kas*.
+- **Kas (Staff App) → 🏷️ Kelola Kas** → panel daftar kantong: **✎ ubah nama** dan
+  **🗑 hapus** per kantong, plus tombol tambah. Ubah nama berlaku surut ke seluruh
+  laporan; hapus akan meminta kantong tujuan dan memindahkan seluruh isinya ke sana.
+- **Kas → ⇄ Pindah Kas** → **"Kas Utama"** kini ikut jadi pilihan asal/tujuan.
+  Uang yang dicatat sebelum kantong pertama dibuat tersimpan di sana; sebelum ini
+  saldo tersebut terlihat tapi tidak bisa dipindahkan ke mana pun.
   Default `1` → tampilannya persis seperti sebelumnya, tanpa istilah baru.
   Kalau > 1, user menamai sendiri kantongnya (mis. *Kas Owner*, *Kas Operasional*),
   bisa memilih kantong saat mencatat, dan bisa **memindahkan** saldo antar kantongnya.
@@ -215,6 +222,8 @@ select net.http_post(
 - **Presensi → Mode Tugas Luar** → kalau dipilih *OTP*, admin **outlet** kini juga
   bisa menerbitkan kode (sebelumnya hanya admin BU — tombolnya ada tapi ditolak RLS).
   Mode ini mengikuti **BU basis (★)** staff, bukan BU yang sedang dibuka di portal.
+- **Kas (Staff App) → Riwayat Kas** → tombol **⇩ Export PDF** (portrait), berisi
+  kolom **Nota** sebagai foto. Fotonya diperkecil dulu, jadi PDF-nya tetap ringan.
 - **Data Staff** → ada **Export .xlsx** di samping Export PDF; PDF-nya tidak lagi
   bertumpuk teks (sel panjang dibungkus, tinggi baris menyesuaikan).
 - **Master User → 🏷️ Kelola Divisi** → isi divisi tiap BU (mis. Kitchen, Bar),
@@ -234,6 +243,7 @@ node tools/audit-outlet-scope.cjs
 node tools/audit-embed-ambigu.cjs
 node tools/test-youtube-parser.mjs
 node tools/test-image-compress.mjs
+node tools/test-pdf-lebar.mjs
 ```
 
 `audit-syntax` yang paling penting: satu SyntaxError membuat **seluruh**

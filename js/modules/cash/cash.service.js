@@ -154,18 +154,21 @@ export async function saveCashAccount({ id, name, sort_order, is_active }) {
   if (error) throw error;
 }
 
-export async function deleteCashAccount(id) {
-  // `on delete restrict` di cash_entries menahan penghapusan kantong yang sudah
-  // dipakai — riwayatnya tidak boleh kehilangan penunjuk kantongnya. Pesannya
-  // diterjemahkan supaya user tahu harus menonaktifkan, bukan menghapus.
-  const { data, error } = await supabase.from('cash_accounts').delete().eq('id', id).select('id');
-  if (error) {
-    if (/foreign key|restrict/i.test(error.message ?? '')) {
-      throw new Error('Kantong ini sudah dipakai transaksi. Nonaktifkan saja lewat Edit — riwayatnya tetap terbaca.');
-    }
-    throw error;
-  }
-  if (!data?.length) throw new Error('Kantong kas ini bukan milikmu.');
+/**
+ * Hapus kantong kas — isinya dipindahkan lebih dulu (migration 0066).
+ *
+ * `targetAccountId` null berarti **Kas Utama** (`account_id` NULL), yaitu tempat
+ * uang berada sebelum kantong mana pun dibuat. Saldo total tidak berubah.
+ *
+ * @returns {Promise<number>} jumlah transaksi yang ikut berpindah
+ */
+export async function hapusKantongKas(id, targetAccountId = null) {
+  const { data, error } = await supabase.rpc('hapus_kantong_kas', {
+    p_account: id,
+    p_target: targetAccountId || null
+  });
+  if (error) throw error;
+  return Number(data) || 0;
 }
 
 /** Saldo per kantong milik user yang login. */
@@ -236,6 +239,29 @@ export async function getCashProofUrl(path) {
   const { data, error } = await supabase.storage.from('cash-proofs').createSignedUrl(path, 600);
   if (error) throw error;
   return data?.signedUrl ?? null;
+}
+
+/**
+ * Signed URL untuk BANYAK nota sekaligus (export PDF).
+ *
+ * Satu permintaan per baris akan menembakkan puluhan koneksi berbarengan dan
+ * sebagian tertunda lama — hasilnya PDF dengan sebagian foto hilang, tanpa
+ * error apa pun yang menjelaskan kenapa.
+ *
+ * Gagal = Map kosong, bukan lempar error: export tetap harus jadi, cukup
+ * kolom notanya yang berisi "-".
+ *
+ * @returns {Promise<Map<string,string>>} path -> signed URL
+ */
+export async function getCashProofUrls(paths, expiresIn = 3600) {
+  const bersih = [...new Set((paths ?? []).filter(Boolean))];
+  if (!bersih.length) return new Map();
+  const { data, error } = await supabase.storage.from('cash-proofs').createSignedUrls(bersih, expiresIn);
+  if (error) {
+    console.warn('[kas] gagal membuat signed URL nota:', error.message);
+    return new Map();
+  }
+  return new Map((data ?? []).filter((d) => d.signedUrl && !d.error).map((d) => [d.path, d.signedUrl]));
 }
 
 // ---- Admin ----

@@ -1345,6 +1345,24 @@ Menurunkan batas **tidak** menghapus kantong yang terlanjur dibuat — itu berar
 
 Nama kantong ditentukan **user sendiri**. Uangnya bisa dibagi saat mencatat, atau dipindahkan belakangan lewat `pindah_kas()` — yang menulis sepasang baris `move_out`/`move_in` supaya saldonya tetap bisa ditelusuri, bukan menyunting angka lama.
 
+### "Kas Utama" adalah tempat sungguhan, dan harus bisa dipindahkan
+
+`account_id` NULL = **Kas Utama**: tempat uang berada sebelum kantong pertama dibuat, dan tempat semua entri lama sebelum `0063`. Dialog Pindah Kas dulu hanya menawarkan kantong **bernama**, sehingga saldo di Kas Utama terkunci — terlihat jelas di rincian saldo, tapi tidak ada satu pun jalan untuk memindahkannya. `pindah_kas()` di database memang sudah menerima NULL sejak awal; yang kurang cuma pilihannya di layar.
+
+### Kelola kantong: ubah nama & hapus
+
+Ditampilkan sebagai **panel di halaman**, bukan dialog berisi dropdown "Mau apa?". Versi dropdown menyembunyikan Ubah Nama dan Hapus di dalam daftar pilihan — secara teknis ada, tapi tidak ada yang menemukannya, dan memang tidak ditemukan. Tombol yang tidak ditemukan sama saja dengan tombol yang tidak dibuat.
+
+**Ubah nama berlaku surut ke seluruh laporan**, termasuk periode yang sudah lewat. Itu bukan efek samping melainkan konsekuensi langsung dari desainnya: nama kantong dibaca dari `cash_accounts` lewat join, tidak disalin ke tiap transaksi. Dikatakan terus terang di dialognya, karena orang yang mengira hanya mengganti label ke depan akan kaget melihat laporan bulan lalu ikut berubah.
+
+**Menghapus kantong tidak menghilangkan uangnya** (migration `0066`). RPC `hapus_kantong_kas()` memindahkan seluruh entri ke kantong tujuan (boleh Kas Utama) lebih dulu, baru menghapus barisnya. Saldo total pemegang tidak berubah sepeser pun.
+
+Sebelumnya `on delete restrict` membuat kantong yang pernah dipakai **tidak bisa dihapus sama sekali** — yang muncul cuma pesan foreign key mentah, bukan jalan keluar. Praktiknya orang meninggalkan kantong tak terpakai selamanya, dan jatahnya habis oleh sampah.
+
+Entrinya **dipindahkan** (`account_id` di-update), bukan dibuatkan sepasang baris mutasi: kantong itu cuma label untuk uang milik sendiri. Transaksinya — tanggal, nominal, nota, outlet peruntukan — tidak berubah sama sekali; yang hilang hanya nama laci tempat ia disimpan. Menambahkan mutasi ke kantong yang sudah tidak ada justru membuat riwayatnya lebih sulit dibaca, bukan lebih jujur.
+
+Tujuan tetap ditanyakan **walau saldonya nol**: kantong bersaldo nol masih bisa berisi transaksi masuk & keluar yang saling meniadakan, dan transaksi itu tetap harus punya tempat.
+
 ### Laporan Kas per Pemegang
 
 Filter **pemegang + outlet + kategori + periode**, dengan **Export PDF & Excel**. Kolom Outlet adalah peruntukan pada barisnya sendiri (lihat di atas) — sejak `0063` ia kolom sungguhan, bukan turunan.
@@ -1534,7 +1552,20 @@ Di **Inventaris Aset** urutan kolomnya ditukar: *Nama Barang* dulu, baru *Foto*.
 
 **Perbaikan.** Teks dipecah lebih dulu dengan `doc.splitTextToSize()`, lalu **tinggi baris dihitung dari jumlah baris terbanyak** di baris itu (dibatasi `maxLines`, default 3, sisanya dipotong dengan `…`). Baris bergambar tetap ikut diperhitungkan seperti sebelumnya. Ditambah garis pemisah tipis antar baris, karena baris yang tingginya tidak seragam sulit diikuti mata tanpa garis.
 
-`columns[].align` (`'right'` / `'center'`) sekarang benar-benar dipakai — sebelumnya didokumentasikan tapi diabaikan.
+`columns[].align` (`'right'` / `'center'`) sekarang benar-benar dipakai — sebelumnya didokumentasikan tapi diabaikan. Ditambah opsi `orientation`: **portrait** untuk daftar yang dicetak/dikirim apa adanya (Riwayat Kas), landscape tetap default untuk laporan berkolom banyak.
+
+### Riwayat Kas (Staff App) → PDF portrait dengan foto nota
+
+Kolom **Nota** berisi fotonya, bukan tulisan "Ada". Dua jebakan yang harus dihindari sekaligus:
+
+- **jsPDF memuat gambar secara SINKRON.** Memberinya URL jaringan menghasilkan halaman kosong **tanpa error sama sekali**. Semua foto diubah ke data URL lebih dulu (`imageToDataUrl()`); yang gagal cukup jadi `-`, satu nota rusak tidak boleh membatalkan seluruh export.
+- **Ukurannya harus diperkecil.** jsPDF menyimpan gambar apa adanya, jadi 30 nota dari kamera HP (2-4 MB masing-masing) menghasilkan PDF ratusan MB yang tidak bisa dibuka di HP — dan gejalanya bukan error, melainkan browser yang menggantung. Dicetak ~46×34 pt, jadi 220 px sudah lebih dari cukup.
+
+Kompresinya dijalankan **berurutan**, bukan `Promise.all`: memproses 50 foto sekaligus membuat tab-nya membeku di HP kelas menengah. Signed URL-nya diambil sekali untuk semua (`getCashProofUrls()`) — satu permintaan per baris membuat sebagian tertunda lama, dan hasilnya PDF dengan sebagian foto hilang tanpa penjelasan.
+
+Isi PDF diambil dari **entri yang sedang tampil**, bukan query ulang. Mengambil ulang saat export berisiko menghasilkan PDF yang isinya berbeda dari yang dilihat orangnya — dan perbedaan itu tidak akan pernah dia sadari.
+
+Lebar kolom diuji tersendiri (`node tools/test-pdf-lebar.mjs`), karena kolom Nota adalah kolom **terakhir**: gambar yang lebih lebar dari kolomnya akan menembus tepi kertas, dan itu baru ketahuan setelah PDF-nya dibuka orang lain. Tanda minus panjang (−) diganti tanda hubung biasa: helvetica bawaan jsPDF tidak punya glyph-nya dan mencetaknya sebagai kotak.
 
 **Data Staff** juga mendapat **Export .xlsx**. Definisi kolomnya satu (`KOLOM`) untuk kedua format: dua daftar terpisah berarti suatu hari salah satunya ketinggalan satu kolom, dan tidak ada yang sadar sampai ada yang membandingkan dua file. Di Excel sel kosong dibiarkan kosong, bukan diisi `-`, supaya filter dan hitungan tidak menghitungnya sebagai isi.
 

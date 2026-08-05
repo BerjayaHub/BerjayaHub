@@ -28,15 +28,27 @@ export function loadJsPDF() {
  *   rows     array of array. Tiap sel boleh berupa teks, ATAU objek
  *            { image: dataUrl, w?, h? } untuk menyisipkan gambar.
  *   filename nama file (tanpa .pdf)
+ *   orientation 'landscape' (default) atau 'portrait'. Landscape untuk laporan
+ *            berkolom banyak; portrait untuk daftar yang ingin dicetak/dibaca
+ *            seperti dokumen biasa. Lebar kolom dihitung dari lebar kertas,
+ *            jadi `width` pada kolom tetap bekerja di keduanya.
  *
  * CATATAN GAMBAR: pakai data URL (base64), bukan URL http. jsPDF memuat gambar
  * secara sinkron, jadi URL jaringan akan menghasilkan halaman kosong tanpa
  * error apa pun — kegagalan sunyi yang sulit dilacak. Ubah dulu ke data URL
  * lewat `imageToDataUrl()` di bawah, yang sekaligus memperkecil ukurannya.
  */
-export async function exportTablePDF({ title, subtitle = '', columns, rows, filename = 'laporan', maxLines = 3 }) {
+export async function exportTablePDF({
+  title,
+  subtitle = '',
+  columns,
+  rows,
+  filename = 'laporan',
+  maxLines = 3,
+  orientation = 'landscape'
+}) {
   const JsPDF = await loadJsPDF();
-  const doc = new JsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
+  const doc = new JsPDF({ unit: 'pt', format: 'a4', orientation });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
   const M = 32;
