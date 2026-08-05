@@ -61,7 +61,7 @@ async function renderPresensiTab(container, businessUnitId) {
   const exitMode = await getExitTaskMode(businessUnitId);
   // Default periode: tanggal 1 bulan berjalan s/d hari ini.
   const range = monthRangeWIB();
-  const filters = { businessUnitId, outletId: '', dateFrom: isoFrom(range.from), dateTo: isoTo(range.to) };
+  const filters = { businessUnitId, outletId: '', outletMode: 'lokasi', dateFrom: isoFrom(range.from), dateTo: isoTo(range.to) };
   let lastRecords = [];
 
   // Direktori SEMUA outlet aktif (lewat RPC security-definer). Dibutuhkan karena
@@ -93,10 +93,14 @@ async function renderPresensiTab(container, businessUnitId) {
   /** Nama outlet lokasi absen + BU-nya, apa pun BU pemiliknya. */
   function outletOf(r) {
     const info = outletInfo.get(r.outlet_id);
+    const basis = r.nbm_outlet_id && r.nbm_outlet_id !== r.outlet_id ? outletInfo.get(r.nbm_outlet_id) : null;
     return {
       name: info?.name ?? outletNames.get(r.outlet_id) ?? '-',
       buName: info?.business_unit_name ?? '',
-      isOtherBu: !!(r.nbm_business_unit_id && r.business_unit_id && r.nbm_business_unit_id !== r.business_unit_id)
+      isOtherBu: !!(r.nbm_business_unit_id && r.business_unit_id && r.nbm_business_unit_id !== r.business_unit_id),
+      basisName: basis?.name ?? (r.nbm_outlet_id && r.nbm_outlet_id !== r.outlet_id ? 'outlet lain' : ''),
+      basisNote: r.nbm_outlet_note ?? '',
+      basisDikoreksi: !!r.nbm_outlet_note
     };
   }
 
@@ -226,6 +230,13 @@ async function renderPresensiTab(container, businessUnitId) {
           ${(outlets ?? []).map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('')}
         </select>
       </div>
+      <div class="field" style="margin:0;max-width:190px">
+        <label for="filter-outlet-mode">Outlet yang dicari</label>
+        <select id="filter-outlet-mode">
+          <option value="lokasi">Lokasi absen</option>
+          <option value="basis">Outlet basis (NBM)</option>
+        </select>
+      </div>
       <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="filter-from" value="${range.from}" /></div>
       <div class="field" style="margin:0"><label>Sampai tanggal</label><input type="date" id="filter-to" value="${range.to}" /></div>
       <button class="primary" id="btn-filter" style="max-width:120px">Filter</button>
@@ -238,6 +249,13 @@ async function renderPresensiTab(container, businessUnitId) {
       </thead>
       <tbody id="attendance-table-body"></tbody>
     </table></div>
+    <p style="font-size:0.78rem;color:var(--color-text-muted);margin-top:8px">
+      Kolom <strong>Outlet</strong> menampilkan <strong>lokasi absen</strong> — tempat yang dibuktikan foto dan koordinatnya.
+      Kalau outlet <strong>basis NBM</strong>-nya berbeda (mis. setelah dikoreksi lewat ✎), basisnya ditulis di bawahnya dengan tanda ★.
+      Pemilih <em>Outlet yang dicari</em> menentukan yang mana dipakai saat menyaring.
+      Status <strong>Tepat waktu / Toleransi / Terlambat</strong> dihitung terhadap <strong>jadwal shift</strong> staff saat dia clock in,
+      dan disimpan sebagai catatan — mengubah jadwalnya belakangan tidak mengubah penilaian yang sudah tercatat.
+    </p>
     <p style="font-size:0.78rem;color:var(--color-text-muted);margin:8px 0 0">
       🔕 di sebelah nama = staff itu belum mengaktifkan notifikasi di perangkat mana pun,
       jadi <strong>pengingat clock in tidak akan sampai padanya</strong>. Minta dia membuka
@@ -331,6 +349,7 @@ async function renderPresensiTab(container, businessUnitId) {
 
   document.getElementById('btn-filter').addEventListener('click', () => {
     filters.outletId = document.getElementById('filter-outlet').value || '';
+    filters.outletMode = document.getElementById('filter-outlet-mode').value || 'lokasi';
     filters.dateFrom = isoFrom(document.getElementById('filter-from').value);
     filters.dateTo = isoTo(document.getElementById('filter-to').value);
     refresh();
@@ -389,6 +408,17 @@ function rowHtml(r, outlet, pushAktif) {
         // Kalau absen di outlet milik BU lain, tampilkan BU lokasinya agar jelas.
         outlet.isOtherBu && outlet.buName
           ? `<div style="font-size:0.72rem;color:var(--color-text-muted)">di BU ${escapeHtml(outlet.buName)}</div>`
+          : ''
+      }${
+        // Outlet BASIS ditampilkan HANYA kalau berbeda dari lokasi absennya.
+        // Ini yang berubah saat admin mengoreksi basis (0062): beban NBM-nya
+        // pindah, sementara lokasi absen — yang dibuktikan foto & koordinat —
+        // tetap apa adanya. Dua-duanya benar, dan menampilkan cuma salah
+        // satunya membuat orang mengira yang lain hilang.
+        outlet.basisName
+          ? `<div style="font-size:0.72rem;color:var(--color-primary)" title="${escapeHtml(outlet.basisNote || 'Outlet basis NBM untuk baris ini')}">
+               ★ basis: ${escapeHtml(outlet.basisName)}${outlet.basisDikoreksi ? ' ✎' : ''}
+             </div>`
           : ''
       }</td>
       <td>${r.is_storing ? `<span class="badge badge-pending">${tipeOf(r)}</span>` : '<span class="badge badge-approved">Normal</span>'}</td>

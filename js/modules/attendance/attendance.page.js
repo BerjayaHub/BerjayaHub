@@ -56,7 +56,7 @@ export async function renderAttendancePage(container, ctx) {
   const shiftOutletActive = !!baseOutlet?.shift_enabled;
   const [mySchedule, shiftSettings] = shiftOutletActive
     ? await Promise.all([
-        getMyScheduleFor(todayWIB()).catch(() => null),
+        getMyScheduleFor(todayWIB(), nbmBase.outlet_id).catch(() => null),
         getShiftSettings(nbmBase.business_unit_id).catch(() => ({ late_tolerance_minutes: 10 }))
       ])
     : [null, { late_tolerance_minutes: 10 }];

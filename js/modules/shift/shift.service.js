@@ -247,19 +247,33 @@ export async function listMySchedule(from, to) {
 }
 
 /** Jadwal staff yang login untuk SATU tanggal (dipakai saat clock in). */
-export async function getMyScheduleFor(dateStr) {
+/**
+ * Jadwal shift saya pada satu tanggal.
+ *
+ * `outletId` (opsional) = outlet BASIS. Diberikan supaya baris yang dipakai
+ * benar saat seseorang dijadwalkan di lebih dari satu outlet pada hari yang
+ * sama. Versi sebelumnya memakai `.maybeSingle()` tanpa penyaring outlet:
+ * begitu ada dua baris, PostgREST membalas error, error-nya ditelan `catch`,
+ * dan hasilnya `null` — yang lalu dinilai sebagai "Tanpa jadwal" dan status
+ * keterlambatannya hilang. Tidak ada error di layar; hanya penilaian yang salah.
+ */
+export async function getMyScheduleFor(dateStr, outletId = null) {
   const {
     data: { user }
   } = await supabase.auth.getUser();
   if (!user) return null;
-  const { data, error } = await supabase
+  let q = supabase
     .from('shift_schedules')
     .select('is_off, shift_id, outlet_id, outlet_shifts(id, name, start_time, end_time)')
     .eq('user_id', user.id)
-    .eq('work_date', dateStr)
-    .maybeSingle();
+    .eq('work_date', dateStr);
+  if (outletId) q = q.eq('outlet_id', outletId);
+  // limit(1) + ambil elemen pertama, BUKAN maybeSingle(): kalau toh masih ada
+  // lebih dari satu baris, lebih baik memakai salah satunya daripada
+  // menganggap orangnya tidak punya jadwal sama sekali.
+  const { data, error } = await q.order('created_at', { ascending: true }).limit(1);
   if (error) return null;
-  return data;
+  return data?.[0] ?? null;
 }
 
 /**

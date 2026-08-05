@@ -1656,6 +1656,31 @@ Yang **tidak** ditutup oleh ini: konsekuensi nomor 2 (staff tanpa divisi tidak b
 
 Sekarang ambangnya dihitung dalam **menit sejak tengah malam tanpa dibungkus**; nilai ≥ 1440 berarti reminder-nya jatuh di hari berikutnya, dan hari ini dilewati. Lebih baik tidak mengingatkan daripada mengingatkan di waktu yang salah. Diuji `node tools/test-ambang-reminder.mjs` (11 kasus, termasuk shift dekat tengah malam).
 
+## Rekap Presensi: status keterlambatan & outlet basis
+
+### Status terlambat mengikuti jadwal shift, dan disimpan sebagai POTRET
+
+`evaluateLateness()` membandingkan jam clock in dengan **jam mulai shift orang itu hari itu**, bukan jam buka outlet, memakai **toleransi per BU** (`shift_settings.late_tolerance_minutes`). Lima kemungkinan: `ontime`, `tolerance`, `late`, `off_day`, `no_schedule`. Shift lintas tengah malam ditangani dengan menormalkan selisih ke ±12 jam, jadi clock in 00:05 untuk shift 23:00 terbaca +65 menit, bukan −1375.
+
+Dua hal yang harus disadari:
+
+1. **Hasilnya disimpan di baris presensi** (`late_status`, `late_minutes`, `shift_name`), tidak dihitung ulang saat rekap dibuka. Mengubah jadwal seseorang **setelah** dia clock in tidak mengubah penilaian yang sudah tercatat — dan itu memang disengaja: penilaian kehadiran harus mencerminkan aturan yang berlaku **saat itu**, bukan aturan yang diubah belakangan.
+2. **Jadwal diambil dari OUTLET BASIS (★)**, bukan outlet tempat dia absen. Kalau outlet basisnya tidak memakai modul Shift, statusnya kosong dan kolom Shift menampilkan "–".
+
+**Bug yang diperbaiki:** `getMyScheduleFor()` memakai `.maybeSingle()` tanpa menyaring outlet. Begitu seseorang punya dua baris jadwal di tanggal yang sama (dijadwalkan di dua outlet), PostgREST membalas error, error-nya ditelan `catch`, hasilnya `null` — dan orangnya dinilai **"Tanpa jadwal"**. Tidak ada pesan apa pun di layar; hanya penilaian yang salah. Sekarang disaring ke outlet basis dan memakai `limit(1)`: kalau toh masih ada lebih dari satu, lebih baik memakai salah satunya daripada menganggap dia tidak punya jadwal.
+
+### Koreksi basis: apa yang ikut pindah, apa yang tidak
+
+`koreksi_outlet_basis()` (0062) mengubah `nbm_outlet_id` **dan** `nbm_business_unit_id`. Akibatnya di Rekap Presensi — sebelum perbaikan ini — satu baris **berpindah BU tapi tidak berpindah outlet**: daftar barisnya disaring dengan `nbm_business_unit_id`, sementara kolom dan filter outletnya memakai `outlet_id` (lokasi absen). Satu layar memakai dua arti "outlet" sekaligus, tanpa satu pun keterangan.
+
+Sekarang keduanya dinyatakan terpisah, karena **dua-duanya benar dan keduanya dibutuhkan**:
+
+- **Kolom Outlet tetap menampilkan lokasi absen** — itu yang dibuktikan foto selfie dan koordinat geofence. Menggantinya dengan basis berarti membuang bukti fisik demi angka administratif.
+- **Outlet basis ditulis di bawahnya dengan tanda ★** hanya kalau berbeda, plus ✎ dan catatan koreksinya sebagai tooltip.
+- **Pemilih "Outlet yang dicari"**: *Lokasi absen* (bawaan) atau *Outlet basis (NBM)*. Mode basis memakai fallback ke `outlet_id` untuk baris lama yang belum punya basis — tanpa itu, presensi sebelum fitur basis ada akan hilang dari rekap.
+
+Jawaban singkatnya untuk pertanyaan "apakah rekap presensi ikut berpindah setelah koreksi": **sekarang bisa, kalau kamu memintanya.** Bebannya (Rekap NBM) selalu ikut pindah; kehadirannya tetap tercatat di tempat dia benar-benar berdiri.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

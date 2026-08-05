@@ -377,7 +377,19 @@ export async function reverseGeocode(lat, lng) {
  * masuk rekap BU Admin, sementara kolom Outlet tetap menampilkan lokasi fisiknya.
  * Baris lama yang belum punya basis di-fallback ke business_unit_id.
  */
-export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFrom, dateTo }) {
+/**
+ * @param {object} o
+ * @param {'lokasi'|'basis'} [o.outletMode] arti filter outlet:
+ *   'lokasi' (bawaan) = tempat orangnya benar-benar absen (`outlet_id`),
+ *   'basis'           = outlet basis NBM setelah koreksi (`nbm_outlet_id`).
+ *
+ * Dua-duanya sah, dan itulah masalahnya kalau tidak dinyatakan: sebelum ini
+ * filter selalu memakai lokasi absen, sementara baris mana yang muncul
+ * ditentukan BU BASIS. Jadi setelah koreksi basis, satu baris bisa berpindah
+ * BU tapi tetap tinggal di outlet lamanya — dan tidak ada apa pun di layar yang
+ * menjelaskan kenapa.
+ */
+export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFrom, dateTo, outletMode = 'lokasi' }) {
   let query = supabase
     .from('attendance_records')
     // CATATAN: nama outlet/BU lokasi TIDAK di-embed di sini. RLS `outlets_select`
@@ -392,7 +404,15 @@ export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFro
     .order('clock_in_at', { ascending: false })
     .limit(200);
 
-  if (outletId) query = query.eq('outlet_id', outletId);
+  if (outletId) {
+    query =
+      outletMode === 'basis'
+        ? // Baris lama belum punya basis -> jatuh kembali ke lokasi absennya,
+          // pola yang sama dengan penyaring BU di atas. Tanpa fallback ini,
+          // presensi sebelum fitur basis ada akan hilang dari rekap.
+          query.or(`nbm_outlet_id.eq.${outletId},and(nbm_outlet_id.is.null,outlet_id.eq.${outletId})`)
+        : query.eq('outlet_id', outletId);
+  }
   if (dateFrom) query = query.gte('clock_in_at', dateFrom);
   if (dateTo) query = query.lte('clock_in_at', dateTo);
 

@@ -276,6 +276,9 @@ select net.http_post(
   tabel, pemutar untuk halaman penuh). Tidak ada yang perlu diatur; kalau setelah
   deploy ada layar yang tampak polos tanpa animasi, berarti `css/styles.css` belum
   ikut ter-push.
+- **Rekap Presensi** → ada pemilih baru **"Outlet yang dicari"**: *Lokasi absen*
+  (bawaan) atau *Outlet basis (NBM)*. Baris yang basisnya sudah dikoreksi kini
+  menampilkan `★ basis: <outlet>` di bawah nama outlet lokasinya.
 - **Data Staff** → ada **Export .xlsx** di samping Export PDF; PDF-nya tidak lagi
   bertumpuk teks (sel panjang dibungkus, tinggi baris menyesuaikan).
 - **Master User → 🏷️ Kelola Divisi** → isi divisi tiap BU (mis. Kitchen, Bar),
