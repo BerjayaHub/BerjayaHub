@@ -19,6 +19,7 @@ import {
   deleteUnit,
   distinctCategories
 } from './product.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const TABS = [
   { key: 'products', label: 'Produk' },
@@ -55,7 +56,7 @@ async function loadProductsAndCosts(businessUnitId) {
 // ---- Tab: Produk ----
 
 async function renderProductsTab(content, businessUnitId) {
-  content.innerHTML = `<p>Memuat produk...</p>`;
+  content.innerHTML = loadingHtml('Memuat produk…', { baris: 5 });
   let data;
   try {
     data = await loadProductsAndCosts(businessUnitId);
@@ -227,7 +228,7 @@ async function openProductDialog(content, businessUnitId, existing) {
 // ---- Tab: Resep ----
 
 async function renderRecipesTab(content, businessUnitId) {
-  content.innerHTML = `<p>Memuat resep...</p>`;
+  content.innerHTML = loadingHtml('Memuat resep…', { baris: 5 });
   let data;
   try {
     data = await loadProductsAndCosts(businessUnitId);
@@ -319,7 +320,7 @@ async function openImport(content, businessUnitId, kind, refresh) {
 // ---- Tab: Satuan (global) ----
 
 async function renderUnitsTab(content) {
-  content.innerHTML = `<p>Memuat satuan...</p>`;
+  content.innerHTML = loadingHtml('Memuat satuan…', { baris: 5 });
   let units;
   try {
     units = await listUnits();

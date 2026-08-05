@@ -14,6 +14,7 @@ import {
   setBuModules
 } from './organization.service.js';
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const BU_TYPE_OPTIONS = [
   { value: 'cafe', label: 'Cafe' },
@@ -36,7 +37,7 @@ const OUTLET_ROLE_LABEL = {
 };
 
 export async function renderOrganizationAdminPage(container) {
-  container.innerHTML = `<p>Memuat data organisasi...</p>`;
+  container.innerHTML = loadingHtml('Memuat data organisasi…');
 
   let businessUnits, organizations;
   try {

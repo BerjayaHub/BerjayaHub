@@ -20,6 +20,7 @@ import {
   pindahKas,
   todayWIB
 } from './cash.service.js';
+import { loadingHtml, tombolSibuk } from '../../core/loading.js';
 
 /**
  * Penanda "Kas Utama" di dalam <select>.
@@ -43,7 +44,7 @@ const idKantong = (v) => (!v || v === KAS_UTAMA ? null : v);
  * membutuhkannya.
  */
 export async function renderCashPage(container, { userId, businessUnitId }) {
-  container.innerHTML = `<p>Memuat kas...</p>`;
+  container.innerHTML = loadingHtml('Memuat kas…');
 
   let categories, members, accounts, limit, outlets;
   try {
@@ -196,10 +197,10 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
   async function exportPdf() {
     if (!entriTampil.length) return toast('Belum ada transaksi untuk diexport.', 'warning');
 
-    const tombol = container.querySelector('#cash-pdf');
-    const labelAsli = tombol.textContent;
-    tombol.disabled = true;
-    tombol.textContent = 'Menyiapkan…';
+    // Tombolnya dikunci selama proses. Mengompres puluhan foto butuh beberapa
+    // detik tanpa tanda apa pun di layar — dan tombol yang tampak biasa saja
+    // akan ditekan lagi, menghasilkan dua proses berat sekaligus.
+    const pulihkan = tombolSibuk(container.querySelector('#cash-pdf'), 'Menyiapkan…');
 
     try {
       const urlNota = await getCashProofUrls(entriTampil.map((e) => e.proof_path));
@@ -260,8 +261,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     } catch (error) {
       toast(error.message ?? 'Gagal membuat PDF.', 'error');
     } finally {
-      tombol.disabled = false;
-      tombol.textContent = labelAsli;
+      pulihkan();
     }
   }
 

@@ -13,13 +13,14 @@ import {
 import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
 import { getMyBaseScope } from '../../core/base-scope.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
+import { loadingHtml } from '../../core/loading.js';
 
 /**
  * Jadwal Shift (Staff App): tabel jadwal satu minggu — baris staff, kolom tanggal.
  * Default minggu berjalan, bisa geser minggu / pilih tanggal acuan.
  */
 export async function renderShiftPage(container, { userId, businessUnitId, outletId }) {
-  container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat jadwal...</p>`;
+  container.innerHTML = loadingHtml('Memuat jadwal…');
 
   // Basis (★) menentukan APA YANG DIBUKA LEBIH DULU, bukan apa yang boleh dibuka.
   //
@@ -101,7 +102,7 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
   });
 
   async function draw() {
-    grid.innerHTML = `<p>Memuat...</p>`;
+    grid.innerHTML = loadingHtml('Memuat…', { baris: 5 });
     const wk = weekRange(state.anchor);
     let staff, shifts, schedules, policy, holidays;
     try {

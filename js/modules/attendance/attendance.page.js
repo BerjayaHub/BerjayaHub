@@ -20,10 +20,11 @@ import { openCameraCapture, formatWatermarkText } from './camera-capture.js';
 import { openFaceRegistration } from './face-registration.js';
 import { loadFaceModels, isSameFace } from './face-recognition.js';
 import { pushCardHtml, wirePushCard } from '../../core/push-card.js';
+import { loadingHtml } from '../../core/loading.js';
 
 export async function renderAttendancePage(container, ctx) {
   const { userId, businessUnitId, outletId } = ctx;
-  container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat presensi...</p>`;
+  container.innerHTML = loadingHtml('Memuat presensi…');
   loadFaceModels().catch(() => {});
 
   const fallbackBase = { business_unit_id: businessUnitId, outlet_id: outletId };

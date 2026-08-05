@@ -2,11 +2,12 @@ import { listProducts, TYPE_LABEL } from './product.service.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { formatNum } from '../../core/format.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
+import { loadingHtml } from '../../core/loading.js';
 
 // Halaman "Produk" di Staff App — LIHAT SAJA: nama produk & jumlah stok.
 // Tidak ada edit (master produk dikelola admin di Admin Portal).
 export async function renderProductStaffPage(container, { businessUnitId, outletId }) {
-  container.innerHTML = `<p>Memuat produk...</p>`;
+  container.innerHTML = loadingHtml('Memuat produk…');
 
   let outlets, products;
   try {
@@ -43,7 +44,7 @@ export async function renderProductStaffPage(container, { businessUnitId, outlet
 
   async function refresh() {
     const body = container.querySelector('#pv-body');
-    body.innerHTML = `<p>Memuat stok...</p>`;
+    body.innerHTML = loadingHtml('Memuat stok…');
     let map = new Map();
     if (state.outletId) {
       try {

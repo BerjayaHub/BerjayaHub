@@ -22,11 +22,12 @@ import {
 } from './dispatch.service.js';
 import { buildSuratJalanPDF, suratJalanWaText } from './dispatch-pdf.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const ORDER_BADGE = { open: 'badge-pending', fulfilled: 'badge-approved', rejected: 'badge-rejected', cancelled: 'badge-cancelled' };
 
 export async function renderDispatchPage(container, { businessUnitId, outletId }) {
-  container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat pengiriman...</p>`;
+  container.innerHTML = loadingHtml('Memuat pengiriman…');
 
   // DUA daftar yang berbeda, dan bedanya penting:
   //   allOutlets = seluruh outlet BU -> dipakai sebagai TUJUAN kiriman dan untuk
@@ -128,7 +129,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     contentBox.classList.remove('fade-in');
     void contentBox.offsetWidth;
     contentBox.classList.add('fade-in');
-    contentBox.innerHTML = `<p style="color:var(--color-text-muted)">Memuat...</p>`;
+    contentBox.innerHTML = loadingHtml('Memuat…');
     try {
       await tab.render(contentBox);
     } catch (error) {
@@ -249,7 +250,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     box.querySelectorAll('.btn-edit-order').forEach((btn) =>
       btn.addEventListener('click', async () => {
         const editBox = box.querySelector('#ord-edit-box');
-        editBox.innerHTML = `<p style="color:var(--color-text-muted)">Memuat isi order...</p>`;
+        editBox.innerHTML = loadingHtml('Memuat isi order…');
         let items;
         try {
           items = await getOrderItems(btn.dataset.id);

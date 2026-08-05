@@ -4,9 +4,10 @@ import { listProducts, getRecipeForProduct } from '../product/product.service.js
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { getMenuPlans, upsertMenuPlan, todayWIB } from './menu.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
+import { loadingHtml } from '../../core/loading.js';
 
 export async function renderMenuPage(container, { businessUnitId, outletId }) {
-  container.innerHTML = `<p>Memuat menu...</p>`;
+  container.innerHTML = loadingHtml('Memuat menu…');
   const date = todayWIB();
 
   let outlets, products;

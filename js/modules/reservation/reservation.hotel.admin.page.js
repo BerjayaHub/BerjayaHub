@@ -21,6 +21,7 @@ import {
   buildConfirmMessage,
   waNumber
 } from './reservation.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 /**
  * Admin Portal — mode HOTEL.
@@ -99,7 +100,7 @@ async function tabHarian(content, ctx) {
   content.querySelector('#hv-new').addEventListener('click', () => formBooking(null, ctx, gambar));
 
   async function gambar() {
-    host.innerHTML = `<p style="color:var(--color-text-muted)">Memuat…</p>`;
+    host.innerHTML = loadingHtml('Memuat…', { baris: 5 });
     let data;
     try {
       data = await getHotelHarian({ businessUnitId, outletId: state.outletId, date: state.tanggal });
@@ -462,7 +463,7 @@ async function tabSemua(content, ctx) {
   let rows = [];
 
   async function gambar() {
-    list.innerHTML = `<p style="color:var(--color-text-muted)">Memuat…</p>`;
+    list.innerHTML = loadingHtml('Memuat…', { baris: 5 });
     try {
       rows = await listReservations({
         businessUnitId,
@@ -562,7 +563,7 @@ async function tabKamar(content, ctx) {
   content.querySelector('#hk-new').addEventListener('click', () => formTipe(null));
 
   async function gambar() {
-    list.innerHTML = `<p style="color:var(--color-text-muted)">Memuat…</p>`;
+    list.innerHTML = loadingHtml('Memuat…', { baris: 5 });
     let rows;
     try {
       rows = await listRoomTypes(state.outletId, false);

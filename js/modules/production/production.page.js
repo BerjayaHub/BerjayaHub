@@ -3,9 +3,10 @@ import { toast, renderSearchSelect, wireSearchSelect } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { listManufacturable, computeNeeds, recordProduction } from './production.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 export async function renderProductionPage(container, { businessUnitId, outletId }) {
-  container.innerHTML = `<p>Memuat produksi...</p>`;
+  container.innerHTML = loadingHtml('Memuat produksi…');
 
   let outlets, products;
   try {

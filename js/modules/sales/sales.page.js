@@ -3,9 +3,10 @@ import { formatNum, formatRupiah } from '../../core/format.js';
 import { listProducts } from '../product/product.service.js';
 import { recordSales, getSalesSummary, todayWIB } from './sales.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
+import { loadingHtml } from '../../core/loading.js';
 
 export async function renderSalesPage(container, { businessUnitId, outletId }) {
-  container.innerHTML = `<p>Memuat penjualan...</p>`;
+  container.innerHTML = loadingHtml('Memuat penjualan…');
   const date = todayWIB();
 
   let allOutlets, products;

@@ -2,6 +2,7 @@ import { toast, infoDialog } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
 import { listDispatchesAdmin, getDispatchItems, DISPATCH_STATUS } from './dispatch.service.js';
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const STATUS_BADGE = { sent: 'badge-pending', received: 'badge-approved', cancelled: 'badge-cancelled' };
 
@@ -29,7 +30,7 @@ async function load(container, businessUnitId) {
   const from = container.querySelector('#dp-from').value;
   const to = container.querySelector('#dp-to').value;
   const result = container.querySelector('#dp-result');
-  result.innerHTML = `<p>Memuat...</p>`;
+  result.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let rows;
   try {
     rows = await listDispatchesAdmin({

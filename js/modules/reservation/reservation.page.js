@@ -11,6 +11,7 @@ import {
   createReservation,
   listReservations
 } from './reservation.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 /**
  * Reservasi — Staff App.
@@ -19,7 +20,7 @@ import {
  * supaya dua staff yang menyimpan bersamaan tidak sama-sama lolos.
  */
 export async function renderReservationPage(container, { businessUnitId }) {
-  container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat reservasi...</p>`;
+  container.innerHTML = loadingHtml('Memuat reservasi…');
 
   const semua = await listMyOutlets(businessUnitId).catch(() => []);
   // `semua` sudah hasil listMyOutlets() -> jangan disaring dua kali, dan JANGAN
@@ -99,7 +100,7 @@ export async function renderReservationPage(container, { businessUnitId }) {
   );
 
   async function refresh() {
-    list.innerHTML = `<p style="color:var(--color-text-muted)">Memuat…</p>`;
+    list.innerHTML = loadingHtml('Memuat…', { baris: 5 });
     let rows;
     try {
       rows = await listReservations({ businessUnitId, outletId: state.outletId, dateFrom: state.from, dateTo: state.to, mode: 'cafe' });

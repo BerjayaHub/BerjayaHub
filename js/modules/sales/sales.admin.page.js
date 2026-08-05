@@ -2,6 +2,7 @@ import { formatNum, formatRupiah } from '../../core/format.js';
 import { listSalesReport } from './sales.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
+import { loadingHtml } from '../../core/loading.js';
 
 export async function renderSalesAdminPage(container, { businessUnitId }) {
   const outlets = (await listMyOutlets(businessUnitId).catch(() => [])).map((o) => ({ id: o.id, name: o.name }));
@@ -32,7 +33,7 @@ async function load(container, businessUnitId) {
   const from = container.querySelector('#sr-from').value;
   const to = container.querySelector('#sr-to').value;
   const result = container.querySelector('#sr-result');
-  result.innerHTML = `<p>Memuat...</p>`;
+  result.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let rows;
   try {
     rows = await listSalesReport({ businessUnitId, outletId, dateFrom: from || '', dateTo: to || '' });

@@ -14,6 +14,7 @@ import { exportTablePDF } from '../../core/pdf.js';
 import { toast, formDialog, shareDialog, confirmDialog } from '../../core/ui.js';
 import { formatRupiah, formatThousands, parseNumber, attachThousandsInput } from '../../core/format.js';
 import { monthRangeWIB } from '../../core/dates.js';
+import { loadingHtml } from '../../core/loading.js';
 
 /** 'YYYY-MM-DD' -> '01 Agu 2026'. Kosong -> '…' supaya teksnya tetap terbaca. */
 function fmtTanggal(d) {
@@ -28,7 +29,7 @@ let outletNameById = new Map();
 const physOutletName = (r) => outletNameById.get(r.outlet_id) ?? r.outlets?.name ?? '-';
 
 export async function renderNbmReportTab(container, businessUnitId) {
-  container.innerHTML = `<p>Memuat...</p>`;
+  container.innerHTML = loadingHtml('Memuat…');
   const outlets = await listOutletsWithGeofence(businessUnitId);
   outletNameById = new Map((await listAttendanceOutlets().catch(() => [])).map((o) => [o.id, o.name]));
   const range = monthRangeWIB();
@@ -94,7 +95,7 @@ async function runReport(businessUnitId, outlets) {
   const from = document.getElementById('nbm-report-from').value;
   const to = document.getElementById('nbm-report-to').value;
   const resultEl = document.getElementById('nbm-report-result');
-  resultEl.innerHTML = `<p>Menghitung...</p>`;
+  resultEl.innerHTML = loadingHtml('Menghitung…', { baris: 5 });
 
   const records = await listAttendanceForNbm({
     businessUnitId,

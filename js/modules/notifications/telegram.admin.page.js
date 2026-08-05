@@ -10,6 +10,7 @@ import {
   detectTelegramChats,
   getIntegrationStatus
 } from './telegram.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 /**
  * Halaman Notifikasi Telegram (Super Admin).
@@ -20,7 +21,7 @@ import {
  * bisa dipakai mengirim apa pun).
  */
 export async function renderTelegramAdminPage(container) {
-  container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat pengaturan notifikasi...</p>`;
+  container.innerHTML = loadingHtml('Memuat pengaturan notifikasi…');
 
   let routes, bus, integrasi;
   try {

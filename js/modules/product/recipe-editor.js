@@ -1,5 +1,6 @@
 import { toast, renderSearchSelect, wireSearchSelect } from '../../core/ui.js';
 import { TYPE_LABEL, getRecipeForProduct, saveRecipe } from './product.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 export const MODE_LABEL = { production: 'Produksi (CK)', standalone: 'Standalone', served_by_ck: 'Dilayani CK' };
 export const modesForType = (t) => (t === 'semi' ? ['production'] : t === 'finished' ? ['standalone', 'served_by_ck'] : []);
@@ -10,7 +11,7 @@ export const modesForType = (t) => (t === 'semi' ? ['production'] : t === 'finis
  * @param opts     { businessUnitId, product, products, mode, onSaved }
  */
 export async function openRecipeEditor(mountEl, { businessUnitId, product, products, mode, onSaved }) {
-  mountEl.innerHTML = `<p style="color:var(--color-text-muted)">Memuat resep...</p>`;
+  mountEl.innerHTML = loadingHtml('Memuat resep…');
   let current;
   try {
     current = await getRecipeForProduct(product.id, mode);

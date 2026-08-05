@@ -15,6 +15,7 @@ import {
   getChecklistPhotoUrls
 } from './cleaning.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const TABS = [
   { key: 'items', label: 'Item Aktivitas' },
@@ -46,7 +47,7 @@ export async function renderCleaningAdminPage(container, { businessUnitId }) {
 // ---- Tab: Item ----
 
 async function renderItemsTab(content, businessUnitId, outlets = []) {
-  content.innerHTML = `<p>Memuat...</p>`;
+  content.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let items;
   try {
     // Item BU + item SEMUA outlet, supaya tidak ada yang "hilang" karena filter.
@@ -158,7 +159,7 @@ async function openItemDialog(content, businessUnitId, existing, outlets = []) {
 // ---- Tab: Sesi ----
 
 async function renderSessionsTab(content, businessUnitId, outlets = []) {
-  content.innerHTML = `<p>Memuat...</p>`;
+  content.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let sessions;
   try {
     sessions = await listAllSessions(businessUnitId);
@@ -289,7 +290,7 @@ async function loadReport(content, businessUnitId) {
   const dateFrom = content.querySelector('#rep-from').value || '';
   const dateTo = content.querySelector('#rep-to').value || '';
   const result = content.querySelector('#rep-result');
-  result.innerHTML = `<p>Memuat...</p>`;
+  result.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let runs;
   try {
     runs = await listRunsForAdmin({ businessUnitId, outletId, dateFrom, dateTo });

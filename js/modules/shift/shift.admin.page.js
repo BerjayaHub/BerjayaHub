@@ -21,6 +21,7 @@ import {
 } from './shift.service.js';
 import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const TABS = [
   { key: 'schedule', label: 'Jadwal' },
@@ -97,7 +98,7 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
   });
 
   async function draw() {
-    grid.innerHTML = `<p>Memuat jadwal...</p>`;
+    grid.innerHTML = loadingHtml('Memuat jadwal…', { baris: 5 });
     const wk = weekRange(state.anchor);
     let staff, shifts, schedules, policy, holidays;
     try {
@@ -277,7 +278,7 @@ async function renderHoursTab(content, businessUnitId, outlets) {
   });
 
   async function draw() {
-    list.innerHTML = `<p>Memuat...</p>`;
+    list.innerHTML = loadingHtml('Memuat…', { baris: 5 });
     const shifts = await listOutletShifts(state.outletId).catch(() => []);
     const bySlot = new Map(shifts.map((s) => [s.slot, s]));
     const slots = Array.from({ length: settings.shift_count }, (_, i) => i + 1);

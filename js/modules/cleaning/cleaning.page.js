@@ -8,9 +8,10 @@ import {
   submitChecklistRun,
   todayWIB
 } from './cleaning.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 export async function renderCleaningPage(container, { userId, businessUnitId, outletId }) {
-  container.innerHTML = `<p>Memuat daily activities...</p>`;
+  container.innerHTML = loadingHtml('Memuat daily activities…');
 
   let outlets;
   try {
@@ -60,7 +61,7 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
   });
 
   async function renderSessionList() {
-    body.innerHTML = `<p>Memuat...</p>`;
+    body.innerHTML = loadingHtml('Memuat…');
     let done;
     try {
       await muatTemplate();

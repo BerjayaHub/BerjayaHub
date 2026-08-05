@@ -1,6 +1,7 @@
 import { escapeHtml, formDialog, toast } from '../../core/ui.js';
 import { todayWIB } from '../../core/dates.js';
 import { RES_STATUS, RES_BADGE, getHotelHarian, jumlahMalam, staffCheckIn } from './reservation.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 /**
  * Reservasi Hotel — Staff App.
@@ -62,7 +63,7 @@ export async function renderReservationHotelPage(container, { businessUnitId, ou
   });
 
   async function gambar() {
-    body.innerHTML = `<p style="color:var(--color-text-muted)">Memuat…</p>`;
+    body.innerHTML = loadingHtml('Memuat…');
     let data;
     try {
       data = await getHotelHarian({ businessUnitId, outletId: state.outletId, date: state.tanggal });

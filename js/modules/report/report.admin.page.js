@@ -6,6 +6,7 @@ import { listCashCategories } from '../cash/cash.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { REPORTS, getReport } from './report.service.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
+import { loadingHtml } from '../../core/loading.js';
 
 /**
  * Halaman Laporan (Fase 11) — kerangka generik.
@@ -161,7 +162,9 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
     const report = getReport(state.key);
     if (!state.from || !state.to) return toast('Isi periode laporannya dulu.', 'warning');
     if (state.from > state.to) return toast('Tanggal "dari" melewati tanggal "sampai".', 'warning');
-    result.innerHTML = `<p style="color:var(--color-text-muted)">Menghitung ${esc(report.label)}…</p>`;
+    // Label mentah, TANPA esc(): loadingHtml() sudah meng-escape pesannya
+    // sendiri. Meng-escape dua kali membuat "&" muncul sebagai "&amp;".
+    result.innerHTML = loadingHtml(`Menghitung ${report.label}…`, { baris: 5 });
     try {
       const data = await report.build({
         businessUnitId,

@@ -3,6 +3,7 @@ import { formatRupiah, formatThousands, parseNumber, attachThousandsInput } from
 import { fuzzyMatch } from '../../core/ui.js';
 import { listProducts, listRecipesFull, costForMode, updateSalePrice } from '../product/product.service.js';
 import { openRecipeEditor, MODE_LABEL } from '../product/recipe-editor.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const MENU_MODES = ['standalone', 'served_by_ck'];
 
@@ -12,7 +13,7 @@ const MENU_MODES = ['standalone', 'served_by_ck'];
  * pengaturan resep tiap varian.
  */
 export async function renderMenuAdminPage(container, { businessUnitId }) {
-  container.innerHTML = `<h1>Menu</h1><p style="color:var(--color-text-muted)">Memuat menu...</p>`;
+  container.innerHTML = `<h1>Menu</h1>${loadingHtml('Memuat menu…')}`;
 
   let products;
   let recipes;

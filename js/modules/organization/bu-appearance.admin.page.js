@@ -1,8 +1,9 @@
 import { getBusinessUnit, updateBuTheme, uploadBuLogo } from './organization.service.js';
 import { toast, escapeHtml } from '../../core/ui.js';
+import { loadingHtml } from '../../core/loading.js';
 
 export async function renderBuAppearancePage(container, { businessUnitId }) {
-  container.innerHTML = `<p>Memuat...</p>`;
+  container.innerHTML = loadingHtml('Memuat…');
   const bu = await getBusinessUnit(businessUnitId);
 
   container.innerHTML = `

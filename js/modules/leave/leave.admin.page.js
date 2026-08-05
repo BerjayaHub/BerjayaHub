@@ -12,6 +12,7 @@ import {
   setStaffEntitlement,
   removeStaffEntitlement
 } from './leave.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const STATUS_BADGE = {
   pending: { label: 'Menunggu', cls: 'badge-pending' },
@@ -60,13 +61,13 @@ async function renderRequestsTab(content, businessUnitId) {
         <option value="cancelled">Dibatalkan</option>
       </select>
     </div>
-    <div id="leave-req-result"><p>Memuat...</p></div>
+    <div id="leave-req-result">${loadingHtml('Memuat…')}</div>
   `;
   const filter = document.getElementById('leave-status-filter');
   const result = document.getElementById('leave-req-result');
 
   async function refresh() {
-    result.innerHTML = `<p>Memuat...</p>`;
+    result.innerHTML = loadingHtml('Memuat…', { baris: 5 });
     let requests;
     try {
       requests = await listLeaveRequestsForAdmin({ businessUnitId, status: filter.value });
@@ -174,7 +175,7 @@ async function reviewDialog(record, status, refresh) {
 // ---- Tab: Jenis Cuti ----
 
 async function renderTypesTab(content, businessUnitId) {
-  content.innerHTML = `<p>Memuat...</p>`;
+  content.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let types;
   try {
     types = await listLeaveTypesForAdmin(businessUnitId);
@@ -286,7 +287,7 @@ async function openTypeDialog(content, businessUnitId, existing) {
 // ---- Tab: Hak & Jatah (entitlements per staff) ----
 
 async function renderEntitlementsTab(content, businessUnitId) {
-  content.innerHTML = `<p>Memuat...</p>`;
+  content.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let staff;
   let types;
   try {
@@ -339,7 +340,7 @@ async function renderEntitlementsTab(content, businessUnitId) {
 
 async function renderStaffEntitlements(content, businessUnitId, userId, staffName, activeTypes) {
   const detail = content.querySelector('#ent-detail');
-  detail.innerHTML = `<p>Memuat hak & jatah...</p>`;
+  detail.innerHTML = loadingHtml('Memuat hak & jatah…');
   let current;
   try {
     current = await listStaffEntitlements(userId);

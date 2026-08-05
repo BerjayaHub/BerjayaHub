@@ -18,9 +18,10 @@ const STATUS_BADGE = {
 import { todayWIB } from '../../core/dates.js';
 import { getMyBaseScope, punyaBasisTertandai } from '../../core/base-scope.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 export async function renderLeavePage(container, { userId, businessUnitId, outletId }) {
-  container.innerHTML = `<p>Memuat data cuti...</p>`;
+  container.innerHTML = loadingHtml('Memuat data cuti…');
   container.dataset.userId = userId ?? '';
 
   // Cuti MENEMPEL PADA ORANGNYA, bukan pada BU yang kebetulan sedang dibuka.

@@ -10,13 +10,14 @@ import {
   uploadStaffPhoto,
   getStaffPhotoUrl
 } from './profile.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 /**
  * Halaman Profil (Staff App): staff mengisi/mengubah data pribadinya.
  * Scope, role, modul, BU & outlet TIDAK bisa diubah di sini — itu ranah Admin Portal.
  */
 export async function renderProfilePage(container, ctx = {}) {
-  container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat profil...</p>`;
+  container.innerHTML = loadingHtml('Memuat profil…');
   let profile;
   try {
     profile = await getMyProfile();

@@ -29,6 +29,7 @@ import { listBusinessUnitsBasic } from './modules/organization/organization.serv
 import { renderGroupPage } from './core/group-page.js';
 import { canAccessTab } from './core/admin-tabs.js';
 import { getMyAdminTabAccess } from './modules/master-user/master-user.service.js';
+import { loadingHtml } from './core/loading.js';
 
 const app = document.getElementById('app');
 const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
@@ -170,7 +171,7 @@ function renderLogin(errorMessage = '') {
 }
 
 async function renderShell() {
-  app.innerHTML = `<p style="padding:24px">Memuat data admin...</p>`;
+  app.innerHTML = loadingHtml('Memuat data admin…', { penuh: true });
 
   let context;
   try {
@@ -237,7 +238,7 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
     ? 'super_admin'
     : adminScopes.find((s) => s.business_unit_id === activeBuId)?.role ?? adminScopes[0].role;
 
-  app.innerHTML = `<p style="padding:24px">Memuat modul...</p>`;
+  app.innerHTML = loadingHtml('Memuat modul…', { penuh: true });
   const modules = activeBuId ? await getActiveModules(activeBuId) : [];
   // Izin akses menu/tab per user (super admin tidak dibatasi).
   const allowedTabs = isSuperAdmin || !activeBuId ? new Set() : await getMyAdminTabAccess(activeBuId);
@@ -290,7 +291,7 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
           </div>
         </header>
         <main class="app-content" id="module-content">
-          <p>Memuat dashboard...</p>
+          ${loadingHtml('Memuat dashboard…')}
         </main>
       </div>
     </div>

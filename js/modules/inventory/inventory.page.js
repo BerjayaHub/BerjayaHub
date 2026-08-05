@@ -3,9 +3,10 @@ import { formatNum } from '../../core/format.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
 import { getOutletStockMap, recordMovement, transferStock, getAllowStaffOpname, recordMenuWaste } from './inventory.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
+import { loadingHtml } from '../../core/loading.js';
 
 export async function renderInventoryPage(container, { userId, businessUnitId, outletId }) {
-  container.innerHTML = `<p>Memuat inventory...</p>`;
+  container.innerHTML = loadingHtml('Memuat inventory…');
 
   let outlets, products, recipes, allowOpname;
   try {
@@ -62,7 +63,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
 
   async function refresh() {
     const stockDiv = container.querySelector('#inv-stock');
-    stockDiv.innerHTML = `<p>Memuat stok...</p>`;
+    stockDiv.innerHTML = loadingHtml('Memuat stok…');
     let map;
     try {
       map = await getOutletStockMap(businessUnitId, state.outletId);

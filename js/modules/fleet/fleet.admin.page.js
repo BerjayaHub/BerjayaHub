@@ -25,6 +25,7 @@ import {
   listRentals
 } from './fleet.service.js';
 import { importVehicles, downloadVehicleTemplate } from './fleet-import.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const TABS = [
   { key: 'vehicles', label: 'Kendaraan' },
@@ -79,7 +80,7 @@ const modelOptionsFor = (masters, brandName) => {
 
 async function renderVehiclesTab(content, ctx) {
   const { businessUnitId, settings } = ctx;
-  content.innerHTML = `<p style="color:var(--color-text-muted)">Memuat kendaraan...</p>`;
+  content.innerHTML = loadingHtml('Memuat kendaraan…', { baris: 5 });
   let vehicles;
   try {
     vehicles = await listVehicles(businessUnitId);
@@ -585,7 +586,7 @@ async function exportVehicles(rows, settings, subtitle) {
 
 async function renderRentalTab(content, ctx) {
   const { businessUnitId } = ctx;
-  content.innerHTML = `<p style="color:var(--color-text-muted)">Memuat rental...</p>`;
+  content.innerHTML = loadingHtml('Memuat rental…', { baris: 5 });
   let vehicles, rentals;
   try {
     [vehicles, rentals] = await Promise.all([listVehicles(businessUnitId), listRentals(businessUnitId)]);
@@ -648,7 +649,7 @@ async function renderRentalTab(content, ctx) {
 
 async function renderDocsTab(content, ctx) {
   const { businessUnitId, settings } = ctx;
-  content.innerHTML = `<p style="color:var(--color-text-muted)">Memuat dokumen...</p>`;
+  content.innerHTML = loadingHtml('Memuat dokumen…', { baris: 5 });
   let vehicles;
   try {
     vehicles = await listVehicles(businessUnitId);

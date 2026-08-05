@@ -20,6 +20,7 @@ import {
   buildRejectMessage,
   waNumber
 } from './reservation.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const TABS = [
   { key: 'inbox', label: 'Perlu Diproses' },
@@ -76,7 +77,7 @@ export async function renderReservationAdminPage(container, { businessUnitId }) 
 // ---- Tab: Perlu Diproses ----
 
 async function renderInbox(content, ctx) {
-  content.innerHTML = `<p style="color:var(--color-text-muted)">Memuat…</p>`;
+  content.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let rows;
   try {
     // mode: 'cafe' WAJIB — booking hotel tidak pernah berstatus pending, tapi
@@ -255,7 +256,7 @@ async function renderAll(content, ctx) {
   content.querySelector('#ra-pdf').addEventListener('click', exportPdf);
 
   async function go() {
-    result.innerHTML = `<p style="color:var(--color-text-muted)">Memuat…</p>`;
+    result.innerHTML = loadingHtml('Memuat…', { baris: 5 });
     try {
       last = await listReservations({
         businessUnitId: ctx.businessUnitId,
@@ -370,7 +371,7 @@ async function renderSettings(content, ctx) {
 
 async function drawDetail(content, ctx, outletId) {
   const host = content.querySelector('#rs-detail');
-  host.innerHTML = `<p style="color:var(--color-text-muted)">Memuat…</p>`;
+  host.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   const [s, areas] = await Promise.all([
     getReservationSettings(outletId).catch(() => null),
     listReservationAreas(outletId, false).catch(() => [])

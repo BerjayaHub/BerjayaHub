@@ -1611,3 +1611,86 @@ select.sc-cell.is-off {
 .table-freeze-1 tbody tr:hover td:first-child {
   background: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface));
 }
+
+/* =========================================================
+   Tampilan "sedang memuat" (js/core/loading.js)
+
+   Teks polos "Memuat..." tidak bergerak, dan layar yang diam tidak bisa
+   dibedakan dari layar yang macet — orang lalu menekan tombolnya lagi justru
+   saat datanya sedang dalam perjalanan.
+   ========================================================= */
+.loading-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 22px 12px;
+  text-align: center;
+}
+.loading-block-full { min-height: 45vh; }
+
+.loading-text {
+  margin: 0;
+  font-size: 0.86rem;
+  color: var(--color-text-muted);
+}
+
+.loading-spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2.5px solid color-mix(in srgb, var(--color-primary) 22%, transparent);
+  border-top-color: var(--color-primary);
+  animation: loading-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+.loading-spinner-sm {
+  width: 13px;
+  height: 13px;
+  border-width: 2px;
+  display: inline-block;
+  vertical-align: -2px;
+}
+
+@keyframes loading-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Kerangka daftar: bentuknya sudah menyerupai hasil akhir, jadi tata letak
+   tidak melompat saat datanya datang. */
+.skeleton-list {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.skeleton-row {
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-text-muted) 11%, transparent) 25%,
+    color-mix(in srgb, var(--color-text-muted) 20%, transparent) 37%,
+    color-mix(in srgb, var(--color-text-muted) 11%, transparent) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.3s ease-in-out infinite;
+}
+.skeleton-row:first-child {
+  height: 11px;
+  opacity: 0.75;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* Gerakan berulang bisa memicu pusing pada sebagian orang. Kalau sistemnya
+   sudah meminta gerakan dikurangi, animasinya dihentikan — indikatornya tetap
+   terlihat, hanya tidak bergerak. */
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner { animation: none; border-top-color: var(--color-primary); }
+  .skeleton-row { animation: none; }
+}

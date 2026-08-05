@@ -22,6 +22,7 @@ import { GRANTABLE_TABS } from '../../core/admin-tabs.js';
 import { amISuperAdmin } from '../inventory/inventory.service.js';
 import { listRegisteredFaceUserIds, resetFaceDescriptor } from '../attendance/attendance.service.js';
 import { toast, confirmDialog, formDialog, escapeHtml } from '../../core/ui.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const ROLE_LABEL = {
   super_admin: 'Super Admin',
@@ -40,7 +41,7 @@ const ROLE_OPTIONS = [
 export async function renderMasterUserPage(container, ctx = {}) {
   const businessUnitId = ctx.businessUnitId ?? container.dataset.buId ?? null;
   container.dataset.buId = businessUnitId ?? '';
-  container.innerHTML = `<p>Memuat data staff...</p>`;
+  container.innerHTML = loadingHtml('Memuat data staff…');
 
   const [staffList, businessUnits, registeredFaceIds] = await Promise.all([
     listStaffWithScopes(),

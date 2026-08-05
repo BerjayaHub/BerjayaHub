@@ -12,6 +12,7 @@ import {
   getCashProofUrl
 } from './cash.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const DIRECTIONS = [
   { value: 'both', label: 'Masuk & Keluar' },
@@ -53,7 +54,7 @@ export async function renderCashAdminPage(container) {
 // ---- Tab: Saldo & Mutasi ----
 
 async function renderBalancesTab(content) {
-  content.innerHTML = `<p>Memuat...</p>`;
+  content.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let balances, staff;
   try {
     [balances, staff] = await Promise.all([listCashBalances(), listCashMembers()]);
@@ -101,7 +102,7 @@ async function loadMutasi(content) {
   const from = content.querySelector('#cm-from').value;
   const to = content.querySelector('#cm-to').value;
   const result = content.querySelector('#cm-result');
-  result.innerHTML = `<p>Memuat...</p>`;
+  result.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let rows;
   try {
     rows = await listCashEntriesAdmin({ holderId, entryType, dateFrom: from || '', dateTo: to || '' });
@@ -153,7 +154,7 @@ async function loadMutasi(content) {
 // ---- Tab: Kategori ----
 
 async function renderCategoriesTab(content) {
-  content.innerHTML = `<p>Memuat...</p>`;
+  content.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let cats;
   try {
     cats = await listCashCategories(false);

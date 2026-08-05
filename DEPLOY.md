@@ -225,6 +225,10 @@ select net.http_post(
   Mode ini mengikuti **BU basis (★)** staff, bukan BU yang sedang dibuka di portal.
 - **Kas (Staff App) → Riwayat Kas** → tombol **⇩ Export PDF** (portrait), berisi
   kolom **Nota** sebagai foto. Fotonya diperkecil dulu, jadi PDF-nya tetap ringan.
+- **Tampilan memuat** → seluruh layar "Memuat…" kini berupa animasi (kerangka untuk
+  tabel, pemutar untuk halaman penuh). Tidak ada yang perlu diatur; kalau setelah
+  deploy ada layar yang tampak polos tanpa animasi, berarti `css/styles.css` belum
+  ikut ter-push.
 - **Data Staff** → ada **Export .xlsx** di samping Export PDF; PDF-nya tidak lagi
   bertumpuk teks (sel panjang dibungkus, tinggi baris menyesuaikan).
 - **Master User → 🏷️ Kelola Divisi** → isi divisi tiap BU (mis. Kitchen, Bar),

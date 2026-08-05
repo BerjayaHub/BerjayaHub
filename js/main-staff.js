@@ -21,6 +21,7 @@ import { renderShiftPage } from './modules/shift/shift.page.js';
 import { renderProfilePage, initials } from './modules/profile/profile.page.js';
 import { getStaffPhotoUrl } from './modules/profile/profile.service.js';
 import { getMyTodaySession } from './modules/attendance/attendance.service.js';
+import { loadingHtml } from './core/loading.js';
 
 registerModule('attendance', renderAttendancePage);
 registerModule('leave', renderLeavePage);
@@ -95,7 +96,7 @@ function renderLogin(errorMessage = '') {
 }
 
 async function renderShell() {
-  app.innerHTML = `<p style="padding:24px">Memuat data staff...</p>`;
+  app.innerHTML = loadingHtml('Memuat data staff…', { penuh: true });
 
   let context;
   try {
@@ -165,7 +166,7 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
   const scopesInBu = context.scopes.filter((s) => s.business_unit_id === activeBuId);
   const activeScope = scopesInBu.find((s) => s.is_primary) ?? scopesInBu[0] ?? context.scopes[0];
 
-  app.innerHTML = `<p style="padding:24px">Memuat modul...</p>`;
+  app.innerHTML = loadingHtml('Memuat modul…', { penuh: true });
   // Modul aktif BU, lalu disaring lagi oleh akses per user (kalau diatur admin).
   const modules = await getMyAllowedModules(activeBuId, await getActiveModules(activeBuId)).catch(() => []);
 

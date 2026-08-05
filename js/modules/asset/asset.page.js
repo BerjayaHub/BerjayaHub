@@ -13,6 +13,7 @@ import {
   getAssetPhotoUrl,
   getAssetPhotoUrls
 } from './asset.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 /**
  * Inventaris Aset — dipakai Staff App maupun Admin Portal.
@@ -29,7 +30,7 @@ export function renderAssetAdminPage(container, ctx) {
 }
 
 async function render(container, { businessUnitId }, isAdmin) {
-  container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat inventaris…</p>`;
+  container.innerHTML = loadingHtml('Memuat inventaris…');
 
   // Admin maupun staff sama-sama dibatasi scope-nya. Sebelumnya `isAdmin` melewati
   // penyaringan sama sekali, sehingga admin outlet melihat seluruh outlet BU.
@@ -88,7 +89,7 @@ async function render(container, { businessUnitId }, isAdmin) {
   container.querySelector('#as-pdf').addEventListener('click', exportPdf);
 
   async function refresh() {
-    list.innerHTML = `<p style="color:var(--color-text-muted)">Memuat…</p>`;
+    list.innerHTML = loadingHtml('Memuat…', { baris: 5 });
     try {
       rows = await listAssets({ businessUnitId, outletId: state.outletId, condition: state.condition, q: state.q });
     } catch (error) {

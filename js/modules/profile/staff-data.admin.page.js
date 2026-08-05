@@ -4,10 +4,11 @@ import { exportTableXLSX } from '../../core/xlsx.js';
 import { listAttendanceOutlets } from '../attendance/attendance.service.js';
 import { listBusinessUnitsBasic } from '../organization/organization.service.js';
 import { GENDER_LABEL, MARITAL_LABEL, listStaffData, getStaffPhotoUrl } from './profile.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 /** Tab "Data Staff" di grup User: tabel data lengkap staff + filter BU/outlet + export PDF. */
 export async function renderStaffDataPage(container, { businessUnitId }) {
-  container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat data staff...</p>`;
+  container.innerHTML = loadingHtml('Memuat data staff…');
 
   let bus = [];
   let outlets = [];
@@ -65,7 +66,7 @@ export async function renderStaffDataPage(container, { businessUnitId }) {
 
   async function load() {
     const box = container.querySelector('#sd-result');
-    box.innerHTML = `<p>Memuat...</p>`;
+    box.innerHTML = loadingHtml('Memuat…', { baris: 5 });
     try {
       state.rows = await listStaffData(state.buId, state.outletId || undefined);
     } catch (error) {

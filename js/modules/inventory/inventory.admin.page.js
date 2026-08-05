@@ -4,6 +4,7 @@ import { listProducts, listRecipesFull, computeCosts, TYPE_LABEL } from '../prod
 import { listStockBalances, listMovements, MOVEMENT_LABEL, amISuperAdmin, getAllowStaffOpname, setAllowStaffOpname } from './inventory.service.js';
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const TABS = [
   { key: 'stock', label: 'Stok' },
@@ -70,7 +71,7 @@ async function renderStockTab(content, businessUnitId, outlets) {
       <label>Outlet</label>
       <select id="stock-outlet"><option value="">Semua outlet (gabungan)</option>${outlets.map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('')}</select>
     </div>
-    <div id="stock-result"><p>Memuat...</p></div>
+    <div id="stock-result">${loadingHtml('Memuat…')}</div>
   `;
   const sel = content.querySelector('#stock-outlet');
   sel.addEventListener('change', () => loadStock(content, businessUnitId, sel.value));
@@ -79,7 +80,7 @@ async function renderStockTab(content, businessUnitId, outlets) {
 
 async function loadStock(content, businessUnitId, outletId) {
   const result = content.querySelector('#stock-result');
-  result.innerHTML = `<p>Memuat stok...</p>`;
+  result.innerHTML = loadingHtml('Memuat stok…', { baris: 5 });
   let balances, products, recipes;
   try {
     [balances, products, recipes] = await Promise.all([
@@ -156,7 +157,7 @@ async function loadHistory(content, businessUnitId) {
   const from = content.querySelector('#hist-from').value;
   const to = content.querySelector('#hist-to').value;
   const result = content.querySelector('#hist-result');
-  result.innerHTML = `<p>Memuat...</p>`;
+  result.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let rows;
   try {
     rows = await listMovements({

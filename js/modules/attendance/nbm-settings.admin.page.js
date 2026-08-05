@@ -17,11 +17,12 @@ import {
 import { fetchNationalHolidays, holidayLabel, parsePastedHolidays, sourceLinks } from './holiday-api.js';
 import { toast, confirmDialog, formDialog, escapeHtml } from '../../core/ui.js';
 import { formatThousands, formatRupiah, parseNumber, attachThousandsInput } from '../../core/format.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const DAY_NAMES = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
 export async function renderNbmSettingsTab(container, businessUnitId) {
-  container.innerHTML = `<p>Memuat pengaturan NBM...</p>`;
+  container.innerHTML = loadingHtml('Memuat pengaturan NBM…');
   const [outlets, policy] = await Promise.all([
     listOutletsWithGeofence(businessUnitId),
     getBuHolidayPolicy(businessUnitId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] }))
@@ -122,7 +123,7 @@ function renderHolicyCard(host, businessUnitId, policy, hasOutlets) {
 
 async function renderOutletDetail(outletId, businessUnitId) {
   const detail = document.getElementById('nbm-outlet-detail');
-  detail.innerHTML = `<p>Memuat...</p>`;
+  detail.innerHTML = loadingHtml('Memuat…');
 
   const [config, tiers, holidays, outletPolicy, buPolicy] = await Promise.all([
     getNbmConfig(outletId),

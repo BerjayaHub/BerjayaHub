@@ -1599,6 +1599,21 @@ Alur OTP-nya sendiri utuh: admin menerbitkan kode → staff memasukkannya saat m
 
 `created_by` kode OTP juga tidak pernah terisi sejak `0006`. Diisi lewat `DEFAULT auth.uid()`, bukan dititipkan ke client — jejak audit yang bisa diisi sembarang nilai oleh client lebih buruk daripada kolom kosong.
 
+## Tampilan "sedang memuat" (`js/core/loading.js`)
+
+Sebelumnya tiap halaman menulis `<p>Memuat...</p>` sendiri — **77 tempat** dengan gaya yang berbeda-beda. Selain tidak enak dilihat, teks polos itu punya masalah nyata: **ia tidak bergerak**. Layar yang diam tidak bisa dibedakan dari layar yang macet, jadi orang menekan tombolnya lagi — atau menutup aplikasi — justru saat datanya sedang dalam perjalanan.
+
+Sekarang semuanya lewat `loadingHtml()`, dengan dua bentuk. Pilihannya bukan soal selera:
+
+- **Kerangka (skeleton)** untuk area yang akan berubah jadi daftar atau tabel. Bentuknya sudah menyerupai hasil akhir, jadi tata letak tidak melompat saat data datang. Lebar tiap barisnya sengaja tidak seragam — kerangka yang semua barisnya sama panjang terbaca sebagai grafik, bukan sebagai "tulisan yang belum datang".
+- **Pemutar (spinner)** untuk halaman penuh atau sesuatu yang bentuk akhirnya belum diketahui. Kerangka yang salah bentuk lebih mengganggu daripada tidak ada kerangka sama sekali.
+
+`tombolSibuk(btn)` untuk proses di dalam tombol (mis. menyiapkan PDF): ia mengembalikan fungsi pemulih, jadi pemanggil tidak perlu menyimpan label aslinya sendiri — dan tidak akan lupa mengembalikannya.
+
+**Animasinya berhenti kalau sistem meminta `prefers-reduced-motion`.** Gerakan berulang bisa memicu pusing pada sebagian orang, dan itu bukan harga yang pantas dibayar untuk sekadar terlihat manis. Indikatornya tetap terlihat, hanya tidak bergerak.
+
+Semua blok memakai `role="status" aria-live="polite" aria-busy="true"` supaya pembaca layar ikut mengumumkannya — teks "Memuat..." yang lama tidak diumumkan sama sekali.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

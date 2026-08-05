@@ -7,6 +7,7 @@ import { listRecentDispatchActivity } from '../dispatch/dispatch.service.js';
 import { listRecentSalesActivity } from '../sales/sales.service.js';
 import { listRecentCashActivity, ENTRY_LABEL } from '../cash/cash.service.js';
 import { formatRupiah } from '../../core/format.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const PAGE_SIZE = 20;
 
@@ -145,7 +146,7 @@ export async function renderAdminDashboard(container) {
 
     <div class="inline-card" style="max-width:560px">
       <h3 style="margin-top:0">Aktivitas Terbaru</h3>
-      <div class="activity-feed" id="activity-feed"><p style="font-size:0.85rem;color:var(--color-text-muted)">Memuat...</p></div>
+      <div class="activity-feed" id="activity-feed">${loadingHtml('Memuat…')}</div>
       <button id="btn-load-more" style="margin-top:12px;display:none">Muat lebih banyak</button>
       <p style="font-size:0.78rem;color:var(--color-text-muted);margin-top:12px">
         Menggabungkan Presensi, Cuti, Daily Activities, Inventory, Produksi, Pengiriman & Penjualan. Modul lain otomatis ikut tampil begitu dibangun.

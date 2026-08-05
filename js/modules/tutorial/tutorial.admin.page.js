@@ -9,6 +9,7 @@ import {
   thumbUrl,
   watchUrl
 } from './tutorial.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 /**
  * Kelola video tutorial (super admin).
@@ -18,7 +19,7 @@ import {
  * itu tidak terjawab oleh daftar datar yang diurutkan tanggal.
  */
 export async function renderTutorialAdminPage(container) {
-  container.innerHTML = `<p style="color:var(--color-text-muted)">Memuat tutorial…</p>`;
+  container.innerHTML = loadingHtml('Memuat tutorial…');
 
   let modules = [];
   let bus = [];
@@ -49,7 +50,7 @@ export async function renderTutorialAdminPage(container) {
   container.querySelector('#tt-new').addEventListener('click', () => openForm(null));
 
   async function refresh() {
-    list.innerHTML = `<p style="color:var(--color-text-muted)">Memuat…</p>`;
+    list.innerHTML = loadingHtml('Memuat…', { baris: 5 });
     let rows;
     try {
       rows = await listAllTutorials();

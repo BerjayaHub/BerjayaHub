@@ -21,6 +21,7 @@ import { toast, formDialog } from '../../core/ui.js';
 import { exportTablePDF } from '../../core/pdf.js';
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 import { LATE_LABEL, LATE_BADGE } from '../shift/shift.service.js';
+import { loadingHtml } from '../../core/loading.js';
 
 const TABS = [
   { key: 'presensi', label: 'Presensi' },
@@ -54,7 +55,7 @@ export async function renderAttendanceAdminPage(container, { businessUnitId }) {
 }
 
 async function renderPresensiTab(container, businessUnitId) {
-  container.innerHTML = `<p>Memuat presensi...</p>`;
+  container.innerHTML = loadingHtml('Memuat presensi…');
 
   const outlets = await listOutletsWithGeofence(businessUnitId);
   const exitMode = await getExitTaskMode(businessUnitId);

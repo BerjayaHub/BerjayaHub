@@ -2,6 +2,7 @@ import { formatNum } from '../../core/format.js';
 import { listProductionRuns } from './production.service.js';
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
+import { loadingHtml } from '../../core/loading.js';
 
 export async function renderProductionAdminPage(container, { businessUnitId }) {
   const outlets = (await listMyOutlets(businessUnitId).catch(() => [])).map((o) => ({ id: o.id, name: o.name }));
@@ -32,7 +33,7 @@ async function loadRuns(container, businessUnitId) {
   const from = container.querySelector('#pr-from').value;
   const to = container.querySelector('#pr-to').value;
   const result = container.querySelector('#pr-result');
-  result.innerHTML = `<p>Memuat...</p>`;
+  result.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let runs;
   try {
     runs = await listProductionRuns({

@@ -4,6 +4,7 @@
 // =========================================================
 
 import { mountTutorialButton } from './tutorial-button.js';
+import { loadingHtml } from './loading.js';
 
 /**
  * @param container elemen konten
@@ -38,7 +39,7 @@ export async function renderGroupPage(container, ctx, title, tabs) {
     content.classList.remove('fade-in');
     void content.offsetWidth; // restart animasi
     content.classList.add('fade-in');
-    content.innerHTML = `<p style="color:var(--color-text-muted)">Memuat...</p>`;
+    content.innerHTML = loadingHtml('Memuat…', { baris: 5 });
     try {
       await tab.render(content, ctx);
     } catch (error) {
