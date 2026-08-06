@@ -467,9 +467,12 @@ export async function lanjutkanChecklistRun({ runId, outletId, itemStates }, onP
  * Dipakai untuk mengunci item yang sudah punya bukti saat sesi dilanjutkan.
  */
 export async function getRunItemIds(runId) {
-  const { data, error } = await supabase.from('checklist_run_items').select('item_id, checked').eq('run_id', runId);
+  const { data, error } = await supabase
+    .from('checklist_run_items')
+    .select('item_id, checked, photo_path, note, done_at, pengerja:user_profiles!done_by(full_name)')
+    .eq('run_id', runId);
   if (error) throw error;
-  return new Map((data ?? []).map((r) => [r.item_id, r.checked]));
+  return new Map((data ?? []).map((r) => [r.item_id, r]));
 }
 
 /**
@@ -523,7 +526,14 @@ export async function listRunsForAdmin({ businessUnitId, outletId, dateFrom, dat
 export async function getRunItems(runId) {
   const { data, error } = await supabase
     .from('checklist_run_items')
-    .select('checked, note, item_id, photo_path, checklist_items(label)')
+    // `done_by`/`done_at` (0071): pengerjaan menempel pada ITEM, bukan pada
+    // sesi. Satu sesi bisa dikerjakan beberapa orang lintas pergantian shift,
+    // dan mencatat satu nama di tingkat sesi berarti menisbahkan pekerjaan
+    // orang lain kepada siapa pun yang kebetulan menekan Kirim lebih dulu.
+    //
+    // Embed disebutkan FK-nya (`!done_by`) sesuai aturan repo ini, supaya tetap
+    // aman kalau suatu saat ada kolom kedua yang menunjuk user_profiles.
+    .select('checked, note, item_id, photo_path, done_at, done_by, checklist_items(label), pengerja:user_profiles!done_by(full_name)')
     .eq('run_id', runId);
   if (error) throw error;
   return data ?? [];

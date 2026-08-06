@@ -1786,6 +1786,16 @@ Dua hal yang diperbaiki:
 1. **Kemajuan hanya menghitung baris `checked = true`**, bukan semua baris.
 2. **Baris lama yang `checked = false` boleh dilanjutkan** — dengan `UPDATE`, bukan `INSERT`, karena `uq_checklist_run_item` menolak pasangan (run, item) yang sama. Policy `0072` mengizinkannya dengan satu syarat keras di klausa `using`: **hanya baris yang belum selesai**. Item yang sudah berbukti tidak akan pernah cocok dengan policy itu, jadi buktinya aman dari penimpaan.
 
+### Pengerjaan menempel pada ITEM, bukan pada sesi
+
+Nama di tingkat sesi (`checklist_runs.user_id`) hanya menjawab "siapa yang **memulai**". Begitu sesi boleh dilanjutkan rekan satu outlet, nama itu berhenti menjawab "siapa yang mengerjakan pekerjaan ini" — dan menisbahkan pekerjaan orang lain kepada siapa pun yang kebetulan menekan Kirim lebih dulu.
+
+Karena itu `checklist_run_items` membawa `done_by` + `done_at` sendiri, dan ditampilkan **per baris item** di tiga tempat: form lanjutan, dialog rincian Staff App, dan detail rekap admin. Kolom "Oleh" di tabel rekap diberi keterangan *memulai sesi*, supaya tidak dibaca sebagai "yang mengerjakan semuanya".
+
+Di **form lanjutan**, item yang sudah dikerjakan **tetap ditampilkan** — tercentang, dengan fotonya, nama pengerja, dan jamnya — dalam keadaan terkunci. Menyembunyikannya membuat orang yang melanjutkan tidak tahu apa yang sudah beres, dan harus menebak dari ingatan.
+
+**`done_at` sengaja boleh NULL, tanpa default.** Godaannya menulis `not null default now()` — tapi baris yang sudah ada akan ikut terisi jam *migration dijalankan*, bukan jam pekerjaannya. Layar lalu menampilkan "Kebersihan Kitchen · 03.14" dengan penuh percaya diri untuk pekerjaan yang dilakukan pagi kemarin. Jam yang salah tapi terlihat pasti lebih menyesatkan daripada jam yang kosong: tidak ada yang akan curiga pada angka yang tampil rapi. Yang NULL ditampilkan sebagai nama saja, tanpa jam.
+
 Dikunci `node tools/test-kemajuan-sesi.mjs` (11 kasus, termasuk data lama sebelum `0071` dan hari lampau yang tidak boleh diisi surut).
 
 ## Roadmap fase

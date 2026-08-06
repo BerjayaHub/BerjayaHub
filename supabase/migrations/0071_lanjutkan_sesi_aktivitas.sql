@@ -27,7 +27,18 @@
 -- (1) Siapa mengerjakan item ini, dan kapan
 -- ---------------------------------------------------------
 alter table checklist_run_items add column if not exists done_by uuid references user_profiles(id);
-alter table checklist_run_items add column if not exists done_at timestamptz not null default now();
+
+-- `done_at` sengaja BOLEH NULL dan TANPA default.
+--
+-- Godaannya adalah menulis `not null default now()`. Tapi baris yang sudah ada
+-- akan ikut terisi `now()` — yaitu jam migration ini dijalankan, bukan jam
+-- pekerjaannya. Layar lalu menampilkan "Kebersihan Kitchen · 03.14" dengan
+-- penuh percaya diri untuk pekerjaan yang sebenarnya dilakukan pagi kemarin.
+--
+-- Waktu yang tidak diketahui harus terlihat tidak diketahui. Aplikasi mengisi
+-- kolom ini secara eksplisit saat mencatat; yang NULL berarti memang tidak
+-- pernah tercatat, dan layar menampilkan namanya saja tanpa jam.
+alter table checklist_run_items add column if not exists done_at timestamptz;
 
 comment on column checklist_run_items.done_by is
   'Pengerja item INI. Bisa berbeda dari checklist_runs.user_id sejak 0071 — sesi boleh dilanjutkan rekan satu outlet.';

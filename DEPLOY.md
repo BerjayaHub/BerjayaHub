@@ -290,7 +290,10 @@ select net.http_post(
   thumbnail foto per item.
 - **Daily Activities (Staff App)** → ⚠️ `0071` **belum cukup** tanpa `0072`.
   Sesi yang sudah terlanjur dibuat sebelumnya tetap terkunci sampai `0072` jalan
-  — jalankan keduanya. Kartu sesi kini menampilkan **kemajuan**
+  — jalankan keduanya. Di form lanjutan, item yang sudah dikerjakan tetap tampil
+  **terkunci** beserta foto, nama pengerja, dan jamnya; pengerjaan menempel pada
+  **item**, bukan pada sesi. Kolom "Oleh" di rekap admin = yang **memulai** sesi.
+  Kartu sesi kini menampilkan **kemajuan**
   (`3/15 item`) dan ikon ⏳ untuk sesi yang baru sebagian. Diketuk → melanjutkan
   item yang belum dikerjakan; item yang sudah punya bukti dikunci. Rekan satu
   outlet boleh melanjutkan (pergantian shift), dan tiap item tercatat atas nama

@@ -206,7 +206,7 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
       const dicentang = items.filter((i) => i.checked);
       bagian.push(`
         <div style="border-top:1px solid var(--color-border,#eee);padding-top:10px;margin-top:10px">
-          <div style="font-size:0.88rem"><strong>${escapeHtml(run.user_profiles?.full_name ?? 'Staff')}</strong>
+          <div style="font-size:0.88rem">Dimulai <strong>${escapeHtml(run.user_profiles?.full_name ?? 'Staff')}</strong>
             <span style="color:var(--color-text-muted)">· ${jamOf(run.created_at)}</span></div>
           ${run.notes ? `<div style="font-size:0.78rem;color:var(--color-text-muted);margin-top:2px">💬 ${escapeHtml(run.notes)}</div>` : ''}
           <div style="font-size:0.78rem;color:var(--color-text-muted);margin:6px 0">${dicentang.length} dari ${items.length} item dikerjakan</div>
@@ -226,6 +226,13 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
                              style="width:40px;text-align:center;flex-shrink:0${i.checked ? ';color:var(--color-danger)' : ''}">${i.checked ? '⚠️' : '⬜'}</span>`
                     }
                     <span style="font-size:0.85rem${i.checked ? '' : ';color:var(--color-text-muted)'}">${escapeHtml(i.checklist_items?.label ?? '-')}
+                      ${
+                        // Pengerja menempel pada ITEM. Satu sesi bisa dikerjakan
+                        // beberapa orang lintas pergantian shift.
+                        i.checked
+                          ? `<div style="font-size:0.72rem;color:var(--color-text-muted)">${escapeHtml(i.pengerja?.full_name ?? 'Staff')}${i.done_at ? ` · ${jamOf(i.done_at)}` : ''}</div>`
+                          : ''
+                      }
                       ${i.note ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${escapeHtml(i.note)}</div>` : ''}</span>
                   </div>`;
                 })
@@ -248,10 +255,12 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
    */
   async function renderRunForm(session, runLanjutan = null) {
     body.innerHTML = loadingHtml('Memuat item…', { baris: 4 });
-    let items, sudah;
+    let items, sudah, fotoSelesai;
     try {
       items = await muatItem(session.id);
       sudah = runLanjutan ? await getRunItemIds(runLanjutan.id) : new Map();
+      // Signed URL bukti item yang sudah selesai, diambil sekali.
+      fotoSelesai = await getChecklistPhotoUrls([...sudah.values()].map((r) => r.photo_path)).catch(() => new Map());
     } catch (error) {
       body.innerHTML = `<p class="error-text">${escapeHtml(error.message ?? error)}</p>`;
       return;
@@ -259,7 +268,8 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
     // "Sudah dikerjakan" = punya baris DENGAN checked = true. Baris lama yang
     // checked = false berarti item itu belum dikerjakan, dan masih boleh diisi
     // (barisnya diperbarui, bukan disisipkan — lihat migration 0072).
-    const sisa = items.filter((it) => sudah.get(it.id) !== true);
+    const selesaiRow = (id) => (sudah.get(id)?.checked ? sudah.get(id) : null);
+    const sisa = items.filter((it) => !selesaiRow(it.id));
     if (runLanjutan && !sisa.length) {
       // Semua item ternyata sudah tercatat (mis. rekan baru saja menuntaskannya).
       return bukaRincian(session, [runLanjutan]);
@@ -284,12 +294,42 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
           Centang item yang sudah beres, lalu <strong>ambil foto bukti untuk tiap item yang dicentang</strong>.
           ${
             runLanjutan
-              ? `Sesi ini sudah dimulai — <strong>${[...sudah.values()].filter(Boolean).length} item</strong> sudah punya bukti dan tidak bisa diubah lagi.
-                 Yang tampil di bawah tinggal <strong>${sisa.length} item</strong>.`
+              ? `Sesi ini sudah dimulai — <strong>${[...sudah.values()].filter((r) => r.checked).length} dari ${items.length} item</strong>
+                 sudah punya bukti dan terkunci. Sisanya masih bisa kamu kerjakan.`
               : 'Item yang belum sempat dikerjakan bisa <strong>dilanjutkan nanti</strong> — sesi ini tidak akan terkunci.'
           }
         </p>
         <div id="clean-items">
+          ${items
+            .map((it) => {
+              // Item yang SUDAH dikerjakan tetap ditampilkan, dalam keadaan
+              // terkunci: tercentang, dengan fotonya, dan dengan nama pengerja
+              // + jamnya. Menyembunyikannya membuat orang yang melanjutkan tidak
+              // tahu apa yang sudah beres — dan pengerjaan menempel pada ITEM,
+              // bukan pada sesi, karena satu sesi bisa dikerjakan beberapa orang.
+              const done = selesaiRow(it.id);
+              if (!done) return '';
+              const url = fotoSelesai.get(done.photo_path);
+              return `
+            <div class="clean-item-block" style="border:1px solid var(--color-border,#e3e3e3);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--color-bg);opacity:0.9">
+              <div style="display:flex;gap:10px;align-items:flex-start">
+                ${
+                  url
+                    ? `<img src="${escapeHtml(url)}" alt="" class="ck-foto" data-path="${escapeHtml(done.photo_path)}"
+                         style="width:46px;height:46px;object-fit:cover;border-radius:8px;cursor:pointer;flex-shrink:0;border:1px solid var(--color-border)" />`
+                    : '<span style="width:46px;text-align:center;flex-shrink:0">✅</span>'
+                }
+                <span style="flex:1;min-width:0">
+                  <span style="font-weight:600">✅ ${escapeHtml(it.label)}</span>
+                  <div style="font-size:0.74rem;color:var(--color-text-muted)">
+                    ${escapeHtml(done.pengerja?.full_name ?? 'Staff')}${done.done_at ? ` · ${jamOf(done.done_at)}` : ''}
+                  </div>
+                  ${done.note ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${escapeHtml(done.note)}</div>` : ''}
+                </span>
+              </div>
+            </div>`;
+            })
+            .join('')}
           ${sisa
             .map(
               (it) => `
@@ -325,6 +365,7 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
       </div>
     `;
     body.querySelector('#clean-back').addEventListener('click', renderSessionList);
+    sambungkanFotoRincian(); // foto item terkunci bisa diketuk untuk diperbesar
 
     // Satu pembaca foto per item YANG DITAMPILKAN. Memakai `items` di sini akan
     // mencari elemen milik item yang sudah dikunci dan tidak ada di layar.
@@ -406,13 +447,16 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
  * infoDialog, di luar container modul. Dipasang SEKALI di level modul, bukan di
  * dalam render: memasangnya tiap kali halaman dibuka membuat pendengarnya
  * menumpuk, dan satu ketukan akan membuka tab yang sama berkali-kali.
+ *
+ * Berlaku untuk SEMUA `.ck-foto`, bukan hanya yang di dalam dialog — foto item
+ * yang sudah terkunci di form lanjutan juga harus bisa diperbesar.
  */
 let fotoRincianTersambung = false;
 function sambungkanFotoRincian() {
   if (fotoRincianTersambung) return;
   fotoRincianTersambung = true;
   document.addEventListener('click', async (e) => {
-    const img = e.target.closest?.('#ck-rincian .ck-foto');
+    const img = e.target.closest?.('.ck-foto');
     if (!img) return;
     try {
       const url = await getChecklistPhotoUrl(img.dataset.path);

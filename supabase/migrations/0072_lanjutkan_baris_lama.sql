@@ -23,6 +23,37 @@
 -- ini.
 -- =========================================================
 
+-- ---------------------------------------------------------
+-- Perbaikan untuk yang sempat menjalankan versi awal 0071
+--
+-- Versi awal file itu membuat `done_at` sebagai `not null default now()`,
+-- sehingga SELURUH baris lama terisi jam migration dijalankan. Jam yang salah
+-- tapi terlihat pasti lebih menyesatkan daripada jam yang kosong: tidak ada
+-- yang akan curiga pada angka yang tampil rapi.
+--
+-- Baris yang `done_at`-nya justru LEBIH AWAL dari saat run-nya dibuat mustahil
+-- benar, begitu pula yang terpaut lebih dari sehari — keduanya dikosongkan.
+-- Baris yang dicatat aplikasi (selalu setelah run dibuat, di hari yang sama)
+-- tidak tersentuh.
+-- ---------------------------------------------------------
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_name = 'checklist_run_items' and column_name = 'done_at' and is_nullable = 'NO'
+  ) then
+    alter table checklist_run_items alter column done_at drop not null;
+    alter table checklist_run_items alter column done_at drop default;
+  end if;
+end $$;
+
+update checklist_run_items ri
+set done_at = null
+from checklist_runs cr
+where cr.id = ri.run_id
+  and ri.done_at is not null
+  and (ri.done_at < cr.created_at or ri.done_at > cr.created_at + interval '1 day');
+
 drop policy if exists checklist_run_items_update_belum_selesai on checklist_run_items;
 create policy checklist_run_items_update_belum_selesai on checklist_run_items
   for update

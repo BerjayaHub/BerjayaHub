@@ -392,7 +392,8 @@ async function loadReport(content, businessUnitId) {
             <td>${r.run_date}<div style="font-size:0.72rem;color:var(--color-text-muted)">${jamOf(r.created_at)}</div></td>
             <td>${escapeHtml(r.outlets?.name ?? '-')}</td>
             <td>${escapeHtml(r.checklist_sessions?.name ?? '-')}</td>
-            <td>${escapeHtml(r.user_profiles?.full_name ?? '-')}</td>
+            <td>${escapeHtml(r.user_profiles?.full_name ?? '-')}
+              <div style="font-size:0.7rem;color:var(--color-text-muted)">memulai sesi</div></td>
             <td>${selBukti(r)}</td>
             <td>${escapeHtml(r.notes ?? '-')}</td>
             <td><button class="btn-run-detail" data-id="${r.id}">Detail</button></td>
@@ -453,6 +454,14 @@ async function loadReport(content, businessUnitId) {
                   }
                   <span style="flex:1;min-width:0">
                     <span style="font-weight:600">${i.checked ? '✅' : '⬜'} ${escapeHtml(i.checklist_items?.label ?? '-')}</span>
+                    ${
+                      // Pengerja per ITEM (0071). Satu sesi bisa dilanjutkan
+                      // rekan satu outlet, jadi nama di tingkat sesi tidak cukup
+                      // — ia hanya menyebut siapa yang memulai.
+                      i.checked
+                        ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${escapeHtml(i.pengerja?.full_name ?? 'Staff')}${i.done_at ? ` · ${jamOf(i.done_at)}` : ''}</div>`
+                        : ''
+                    }
                     ${i.note ? `<div style="font-size:0.76rem;color:var(--color-text-muted)">${escapeHtml(i.note)}</div>` : ''}
                   </span>
                 </div>`;
