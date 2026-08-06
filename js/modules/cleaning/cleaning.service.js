@@ -401,7 +401,13 @@ export async function lanjutkanChecklistRun({ runId, outletId, itemStates }, onP
     throw new Error(`${tanpaFoto.length} item yang dicentang belum ada fotonya. Setiap pekerjaan yang diceklis harus punya bukti.`);
   }
 
+  // Data LAMA menyimpan baris untuk item yang tidak dicentang juga. Untuk item
+  // seperti itu, melanjutkan berarti MEMPERBARUI barisnya — `uq_checklist_run_item`
+  // menolak insert kedua untuk pasangan (run, item) yang sama.
+  const barisAda = await getRunItemIds(runId).catch(() => new Map());
+
   const rows = [];
+  const perbarui = [];
   const terunggah = [];
   try {
     let ke = 0;
@@ -416,17 +422,36 @@ export async function lanjutkanChecklistRun({ runId, outletId, itemStates }, onP
         .upload(photoPath, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
       if (upErr) throw upErr;
       terunggah.push(photoPath);
-      rows.push({ run_id: runId, item_id: s.item_id, checked: true, note: s.note || null, photo_path: photoPath, done_by: uid });
+      const isi = { checked: true, note: s.note || null, photo_path: photoPath, done_by: uid, done_at: new Date().toISOString() };
+      if (barisAda.has(s.item_id)) perbarui.push({ item_id: s.item_id, isi });
+      else rows.push({ run_id: runId, item_id: s.item_id, ...isi });
     }
 
-    const { data, error } = await supabase.from('checklist_run_items').insert(rows).select('id');
-    if (error) throw error;
-    // Penolakan RLS tidak selalu berupa error — baris yang tersaring diam-diam
-    // menghasilkan "sukses" dengan jumlah yang lebih sedikit.
-    if ((data ?? []).length !== rows.length) {
-      throw new Error('Sebagian item tidak tersimpan. Coba muat ulang halamannya.');
+    if (rows.length) {
+      const { data, error } = await supabase.from('checklist_run_items').insert(rows).select('id');
+      if (error) throw error;
+      // Penolakan RLS tidak selalu berupa error — baris yang tersaring diam-diam
+      // menghasilkan "sukses" dengan jumlah yang lebih sedikit.
+      if ((data ?? []).length !== rows.length) {
+        throw new Error('Sebagian item tidak tersimpan. Coba muat ulang halamannya.');
+      }
     }
-    return rows.length;
+
+    for (const u of perbarui) {
+      const { data, error } = await supabase
+        .from('checklist_run_items')
+        .update(u.isi)
+        .eq('run_id', runId)
+        .eq('item_id', u.item_id)
+        // Syarat ini juga ada di policy 0072. Ditulis lagi di sini supaya
+        // penolakannya jelas: bukti yang sudah ada tidak boleh tertimpa.
+        .eq('checked', false)
+        .select('id');
+      if (error) throw error;
+      if (!data?.length) throw new Error('Item ini sudah dikerjakan orang lain barusan. Muat ulang halamannya.');
+    }
+
+    return rows.length + perbarui.length;
   } catch (err) {
     // Foto yang terlanjur naik tapi barisnya gagal dibuat akan jadi file yatim
     // yang memakan kuota tanpa membuktikan apa pun.

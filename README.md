@@ -1775,7 +1775,18 @@ Sekarang dibedakan di rekap admin maupun di Staff App:
 
 Sekarang hanya item yang **dikerjakan** yang dicatat, dan artinya jadi tegas: ada baris = dikerjakan dan ada buktinya; tidak ada baris = belum dikerjakan, masih bisa dilanjutkan hari itu.
 
-Dikunci `node tools/test-kemajuan-sesi.mjs` (7 kasus, termasuk hari lampau yang tidak boleh bisa diisi surut).
+### Dan perbaikan itu masih meleset untuk data lama (migration `0072`)
+
+Aturan `0071` — "ada baris = item itu sudah dikerjakan" — benar untuk data **baru**, karena sejak `0071` hanya item yang dikerjakan yang dicatat. Tapi data **lama** menyimpan baris untuk semua item, termasuk yang tidak dicentang. Jadi sesi yang benar-benar baru terisi 1 dari 6 punya 6 baris, terbaca "6 dari 6", tuntas — dan kartunya mati lagi.
+
+Perbaikan `0071` tidak salah; asumsinya yang salah, yaitu bahwa semua data mengikuti bentuk baru. Ini jenis kesalahan yang paling mudah lolos: **diuji dengan data yang dibuat setelah perbaikannya**.
+
+Dua hal yang diperbaiki:
+
+1. **Kemajuan hanya menghitung baris `checked = true`**, bukan semua baris.
+2. **Baris lama yang `checked = false` boleh dilanjutkan** — dengan `UPDATE`, bukan `INSERT`, karena `uq_checklist_run_item` menolak pasangan (run, item) yang sama. Policy `0072` mengizinkannya dengan satu syarat keras di klausa `using`: **hanya baris yang belum selesai**. Item yang sudah berbukti tidak akan pernah cocok dengan policy itu, jadi buktinya aman dari penimpaan.
+
+Dikunci `node tools/test-kemajuan-sesi.mjs` (11 kasus, termasuk data lama sebelum `0071` dan hari lampau yang tidak boleh diisi surut).
 
 ## Roadmap fase
 

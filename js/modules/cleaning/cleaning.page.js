@@ -114,7 +114,13 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
     const kemajuan = (sesiId) => {
       const run = runPerSesi.get(sesiId);
       const total = itemPerSesi.get(sesiId)?.length ?? 0;
-      const selesai = run ? (run.checklist_run_items ?? []).length : 0;
+      // HANYA baris yang benar-benar DIKERJAKAN yang dihitung.
+      //
+      // Data sebelum 0071 menyimpan baris untuk item yang tidak dicentang juga,
+      // jadi menghitung semua baris membuat sesi yang baru terisi 1 dari 6
+      // terbaca "6 dari 6" — tuntas, kartunya mati, dan bug yang baru saja
+      // diperbaiki muncul lagi untuk data lama.
+      const selesai = run ? (run.checklist_run_items ?? []).filter((i) => i.checked).length : 0;
       return { total, selesai, tuntas: total > 0 && selesai >= total };
     };
     if (!sessions.length) {
@@ -250,7 +256,10 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
       body.innerHTML = `<p class="error-text">${escapeHtml(error.message ?? error)}</p>`;
       return;
     }
-    const sisa = items.filter((it) => !sudah.has(it.id));
+    // "Sudah dikerjakan" = punya baris DENGAN checked = true. Baris lama yang
+    // checked = false berarti item itu belum dikerjakan, dan masih boleh diisi
+    // (barisnya diperbarui, bukan disisipkan — lihat migration 0072).
+    const sisa = items.filter((it) => sudah.get(it.id) !== true);
     if (runLanjutan && !sisa.length) {
       // Semua item ternyata sudah tercatat (mis. rekan baru saja menuntaskannya).
       return bukaRincian(session, [runLanjutan]);
@@ -275,7 +284,7 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
           Centang item yang sudah beres, lalu <strong>ambil foto bukti untuk tiap item yang dicentang</strong>.
           ${
             runLanjutan
-              ? `Sesi ini sudah dimulai — <strong>${sudah.size} item</strong> sudah punya bukti dan tidak bisa diubah lagi.
+              ? `Sesi ini sudah dimulai — <strong>${[...sudah.values()].filter(Boolean).length} item</strong> sudah punya bukti dan tidak bisa diubah lagi.
                  Yang tampil di bawah tinggal <strong>${sisa.length} item</strong>.`
               : 'Item yang belum sempat dikerjakan bisa <strong>dilanjutkan nanti</strong> — sesi ini tidak akan terkunci.'
           }

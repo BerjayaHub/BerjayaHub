@@ -38,6 +38,7 @@ pernah dijalankan.
 | 0069 | `0069_item_per_sesi.sql` | Item aktivitas bisa berbeda per sesi (tanpa penugasan = berlaku di semua sesi) |
 | 0070 | `0070_foto_item_wajib.sql` | **Perbaikan bug**: item yang dicentang bisa dikirim tanpa foto — aturannya hanya ada di tampilan |
 | 0071 | `0071_lanjutkan_sesi_aktivitas.sql` | **Perbaikan bug**: mengisi 1 item mengunci seluruh sesi seharian; sesi kini bisa dilanjutkan, tiap item punya pengerjanya sendiri |
+| 0072 | `0072_lanjutkan_baris_lama.sql` | **Perbaikan bug**: sesi yang dibuat SEBELUM 0071 tetap terkunci, karena baris "tidak dicentang" ikut terhitung selesai |
 
 > ⚠️ `0063` mendefinisikan ulang `laporan_kas_user()` dengan **parameter baru**
 > (`p_category`). Versi lama (4 argumen) di-`drop` di awal file — halaman Laporan
@@ -287,7 +288,9 @@ select net.http_post(
   mulai terlihat di rekap — itu jejak bug lama, bukan bug baru.
 - **Daily Activities (Admin Portal → Rekap)** → ada kolom **Bukti** berisi
   thumbnail foto per item.
-- **Daily Activities (Staff App)** → kartu sesi kini menampilkan **kemajuan**
+- **Daily Activities (Staff App)** → ⚠️ `0071` **belum cukup** tanpa `0072`.
+  Sesi yang sudah terlanjur dibuat sebelumnya tetap terkunci sampai `0072` jalan
+  — jalankan keduanya. Kartu sesi kini menampilkan **kemajuan**
   (`3/15 item`) dan ikon ⏳ untuk sesi yang baru sebagian. Diketuk → melanjutkan
   item yang belum dikerjakan; item yang sudah punya bukti dikunci. Rekan satu
   outlet boleh melanjutkan (pergantian shift), dan tiap item tercatat atas nama
