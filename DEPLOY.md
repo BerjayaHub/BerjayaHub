@@ -39,6 +39,7 @@ pernah dijalankan.
 | 0070 | `0070_foto_item_wajib.sql` | **Perbaikan bug**: item yang dicentang bisa dikirim tanpa foto — aturannya hanya ada di tampilan |
 | 0071 | `0071_lanjutkan_sesi_aktivitas.sql` | **Perbaikan bug**: mengisi 1 item mengunci seluruh sesi seharian; sesi kini bisa dilanjutkan, tiap item punya pengerjanya sendiri |
 | 0072 | `0072_lanjutkan_baris_lama.sql` | **Perbaikan bug**: sesi yang dibuat SEBELUM 0071 tetap terkunci, karena baris "tidak dicentang" ikut terhitung selesai |
+| 0073 | `0073_staff_koreksi_item_sendiri.sql` | Staff bisa memperbaiki & menghapus item yang **dia sendiri** kerjakan, **hari itu juga**; pemilik run tidak lagi bisa menyunting bukti rekannya |
 
 > ⚠️ `0063` mendefinisikan ulang `laporan_kas_user()` dengan **parameter baru**
 > (`p_category`). Versi lama (4 argumen) di-`drop` di awal file — halaman Laporan
@@ -293,6 +294,9 @@ select net.http_post(
   — jalankan keduanya. Di form lanjutan, item yang sudah dikerjakan tetap tampil
   **terkunci** beserta foto, nama pengerja, dan jamnya; pengerjaan menempel pada
   **item**, bukan pada sesi. Kolom "Oleh" di rekap admin = yang **memulai** sesi.
+  Item yang sudah dikerjakan **tidak lagi hilang** dari ceklis — tetap tampil
+  sebagai informasi (foto, pengerja, jam), dan yang miliknya sendiri punya
+  tombol **✎ Perbaiki** dan **🗑 Hapus** (hari itu juga saja).
   Kartu sesi kini menampilkan **kemajuan**
   (`3/15 item`) dan ikon ⏳ untuk sesi yang baru sebagian. Diketuk → melanjutkan
   item yang belum dikerjakan; item yang sudah punya bukti dikunci. Rekan satu

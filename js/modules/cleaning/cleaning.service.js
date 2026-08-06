@@ -463,13 +463,78 @@ export async function lanjutkanChecklistRun({ runId, outletId, itemStates }, onP
 }
 
 /**
+ * Perbaiki satu item yang DIA SENDIRI kerjakan (hari ini saja — policy 0073).
+ *
+ * Foto baru ditulis ke path yang SAMA (`upsert`), jadi tidak ada file lama yang
+ * tertinggal. Kalau `file` kosong, hanya catatannya yang diperbarui.
+ */
+export async function ubahItemRun({ runId, itemId, outletId, note, file }) {
+  const uid = await currentUserId();
+  if (!uid) throw new Error('Sesi tidak ditemukan, silakan login ulang.');
+
+  const isi = { note: note || null, done_by: uid, done_at: new Date().toISOString() };
+  if (file) {
+    const kecil = await compressImage(file, { preset: 'aktivitas' });
+    const ext = kecil.type === 'image/webp' ? 'webp' : 'jpg';
+    const photoPath = `${outletId}/${runId}/${itemId}.${ext}`;
+    const { error: upErr } = await supabase.storage
+      .from('checklist-photos')
+      .upload(photoPath, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
+    if (upErr) throw upErr;
+    isi.photo_path = photoPath;
+  }
+
+  const { data, error } = await supabase
+    .from('checklist_run_items')
+    .update(isi)
+    .eq('run_id', runId)
+    .eq('item_id', itemId)
+    .select('id');
+  if (error) throw error;
+  // Penolakan RLS pada UPDATE tidak menghasilkan error — hanya 0 baris.
+  if (!data?.length) {
+    throw new Error('Tidak bisa diubah. Kamu hanya boleh memperbaiki pekerjaanmu sendiri, dan hanya di hari yang sama.');
+  }
+}
+
+/**
+ * Hapus catatan satu item — mengembalikannya ke keadaan "belum dikerjakan"
+ * supaya bisa diulang dengan bukti yang benar.
+ *
+ * Barisnya dihapus DULU, baru fotonya. Kalau dibalik dan penghapusan baris
+ * ditolak, yang tersisa adalah baris yang menunjuk foto yang sudah tidak ada —
+ * "bukti" berupa gambar rusak, yang lebih buruk daripada tidak ada apa-apa.
+ */
+export async function hapusItemRun({ runId, itemId, photoPath }) {
+  const { data, error } = await supabase
+    .from('checklist_run_items')
+    .delete()
+    .eq('run_id', runId)
+    .eq('item_id', itemId)
+    .select('id');
+  if (error) throw error;
+  if (!data?.length) {
+    throw new Error('Tidak bisa dihapus. Kamu hanya boleh menghapus pekerjaanmu sendiri, dan hanya di hari yang sama.');
+  }
+  if (photoPath) {
+    // Gagal menghapus foto tidak dilaporkan sebagai kegagalan: catatannya sudah
+    // hilang, dan file yatim bukan sesuatu yang bisa diperbuat staff.
+    await supabase.storage.from('checklist-photos').remove([photoPath]).catch(() => {});
+  }
+}
+
+/**
  * Item mana saja yang SUDAH tercatat di sebuah run.
  * Dipakai untuk mengunci item yang sudah punya bukti saat sesi dilanjutkan.
  */
 export async function getRunItemIds(runId) {
   const { data, error } = await supabase
     .from('checklist_run_items')
-    .select('item_id, checked, photo_path, note, done_at, pengerja:user_profiles!done_by(full_name)')
+        // `done_by` (skalar) WAJIB ikut, bukan cuma embed namanya: layar memakainya
+    // untuk memutuskan siapa yang boleh menekan Perbaiki/Hapus. Tanpa kolom ini
+    // tombolnya tidak pernah muncul untuk siapa pun — gagal senyap, karena
+    // tampilannya tetap normal.
+    .select('item_id, checked, photo_path, note, done_at, done_by, pengerja:user_profiles!done_by(full_name)')
     .eq('run_id', runId);
   if (error) throw error;
   return new Map((data ?? []).map((r) => [r.item_id, r]));

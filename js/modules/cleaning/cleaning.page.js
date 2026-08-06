@@ -1,4 +1,4 @@
-import { toast, infoDialog } from '../../core/ui.js';
+import { toast, infoDialog, formDialog, confirmDialog } from '../../core/ui.js';
 import { photoInputHtml, wirePhotoInput } from '../../core/photo-input.js';
 import {
   listBuOutlets,
@@ -9,6 +9,8 @@ import {
   getRunItemIds,
   getItemsPerSession,
   lanjutkanChecklistRun,
+  ubahItemRun,
+  hapusItemRun,
   getChecklistPhotoUrl,
   getChecklistPhotoUrls,
   submitChecklistRun,
@@ -180,9 +182,16 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
         //   belum ada run          -> isi dari awal
         //   ada run & belum tuntas -> lanjutkan item yang belum dikerjakan
         //   tuntas / hari lampau   -> lihat rinciannya saja
+        // Selalu buka LAYAR SESI, bukan dialog — juga saat sudah tuntas.
+        // Di situlah staff melihat apa saja yang sudah dikerjakan, oleh siapa,
+        // dan bisa memperbaiki miliknya sendiri.
         if (!run) return renderRunForm(sesi);
-        if (!btn.dataset.tuntas && hariIni) return renderRunForm(sesi, run);
-        bukaRincian(sesi, runs.filter((r) => r.session_id === sesi.id));
+        if (hariIni) return renderRunForm(sesi, run);
+        // Hari lampau: kalau satu sesi punya beberapa run, dialog rincian yang
+        // bisa menampilkan semuanya sekaligus.
+        const runSesi = runs.filter((r) => r.session_id === sesi.id);
+        if (runSesi.length > 1) return bukaRincian(sesi, runSesi);
+        renderRunForm(sesi, run);
       });
     });
   }
@@ -249,31 +258,37 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
   }
 
   /**
-   * Form pengisian sesi.
-   * @param {object|null} runLanjutan run yang sudah ada -> mode LANJUTKAN:
-   *   item yang sudah punya bukti dikunci, hanya sisanya yang bisa diisi.
+   * Satu layar untuk satu sesi — dipakai untuk mengisi, melanjutkan, maupun
+   * sekadar melihat.
+   *
+   * SELURUH item selalu ditampilkan, termasuk yang sudah dikerjakan. Versi
+   * sebelumnya menghilangkan item begitu terkirim, sehingga staff kehilangan
+   * satu-satunya tempat untuk melihat apa yang sudah beres — padahal itulah
+   * pertanyaan yang paling sering muncul di tengah shift.
+   *
+   * @param {object|null} runAda run hari itu kalau sudah ada
    */
-  async function renderRunForm(session, runLanjutan = null) {
+  async function renderRunForm(session, runAda = null) {
+    const hariIni = state.tanggal === todayWIB();
     body.innerHTML = loadingHtml('Memuat item…', { baris: 4 });
+
     let items, sudah, fotoSelesai;
     try {
       items = await muatItem(session.id);
-      sudah = runLanjutan ? await getRunItemIds(runLanjutan.id) : new Map();
-      // Signed URL bukti item yang sudah selesai, diambil sekali.
+      sudah = runAda ? await getRunItemIds(runAda.id) : new Map();
       fotoSelesai = await getChecklistPhotoUrls([...sudah.values()].map((r) => r.photo_path)).catch(() => new Map());
     } catch (error) {
       body.innerHTML = `<p class="error-text">${escapeHtml(error.message ?? error)}</p>`;
       return;
     }
+
     // "Sudah dikerjakan" = punya baris DENGAN checked = true. Baris lama yang
-    // checked = false berarti item itu belum dikerjakan, dan masih boleh diisi
-    // (barisnya diperbarui, bukan disisipkan — lihat migration 0072).
+    // checked = false berarti belum dikerjakan, dan masih boleh diisi (barisnya
+    // diperbarui, bukan disisipkan — lihat migration 0072).
     const selesaiRow = (id) => (sudah.get(id)?.checked ? sudah.get(id) : null);
     const sisa = items.filter((it) => !selesaiRow(it.id));
-    if (runLanjutan && !sisa.length) {
-      // Semua item ternyata sudah tercatat (mis. rekan baru saja menuntaskannya).
-      return bukaRincian(session, [runLanjutan]);
-    }
+    const bisaIsi = hariIni && sisa.length > 0;
+
     if (!items.length) {
       body.innerHTML = `
         <div class="inline-card" style="max-width:520px">
@@ -286,89 +301,151 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
       body.querySelector('#clean-back').addEventListener('click', renderSessionList);
       return;
     }
+
+    const jumlahSelesai = items.filter((it) => selesaiRow(it.id)).length;
+
+    /** Kartu item yang SUDAH dikerjakan — informasi, bukan isian. */
+    const kartuSelesai = (it, done) => {
+      const url = fotoSelesai.get(done.photo_path);
+      // Perbaiki/hapus hanya untuk pekerjaan SENDIRI, dan hanya di hari yang
+      // sama. Batas ini yang membuat isinya tetap layak disebut bukti; sama
+      // persis dengan yang ditegakkan policy 0073 di database.
+      const milikku = done.done_by === userId && hariIni;
+      return `
+        <div class="clean-item-block" style="border:1px solid var(--color-border,#e3e3e3);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--color-bg)">
+          <div style="display:flex;gap:10px;align-items:flex-start">
+            ${
+              url
+                ? `<img src="${escapeHtml(url)}" alt="" class="ck-foto" data-path="${escapeHtml(done.photo_path)}"
+                     style="width:52px;height:52px;object-fit:cover;border-radius:8px;cursor:pointer;flex-shrink:0;border:1px solid var(--color-border)" />`
+                : '<span style="width:52px;text-align:center;flex-shrink:0;font-size:1.3rem">✅</span>'
+            }
+            <span style="flex:1;min-width:0">
+              <span style="font-weight:600">✅ ${escapeHtml(it.label)}</span>
+              <div style="font-size:0.74rem;color:var(--color-text-muted)">
+                ${escapeHtml(done.pengerja?.full_name ?? 'Staff')}${done.done_at ? ` · ${jamOf(done.done_at)}` : ''}
+              </div>
+              ${done.note ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${escapeHtml(done.note)}</div>` : ''}
+            </span>
+          </div>
+          ${
+            milikku
+              ? `<div style="display:flex;gap:6px;margin-top:8px">
+                   <button class="ck-edit" data-item="${escapeHtml(it.id)}" data-label="${escapeHtml(it.label)}">✎ Perbaiki</button>
+                   <button class="ck-hapus" data-item="${escapeHtml(it.id)}" data-label="${escapeHtml(it.label)}"
+                     data-path="${escapeHtml(done.photo_path ?? '')}">🗑 Hapus</button>
+                 </div>`
+              : ''
+          }
+        </div>`;
+    };
+
     body.innerHTML = `
       <div class="inline-card" style="max-width:520px">
         <button class="btn-home" id="clean-back">← Kembali</button>
         <h3 style="margin:12px 0 4px">${escapeHtml(session.name)}</h3>
         <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 12px">
-          Centang item yang sudah beres, lalu <strong>ambil foto bukti untuk tiap item yang dicentang</strong>.
+          <strong>${jumlahSelesai} dari ${items.length} item</strong> sudah dikerjakan.
           ${
-            runLanjutan
-              ? `Sesi ini sudah dimulai — <strong>${[...sudah.values()].filter((r) => r.checked).length} dari ${items.length} item</strong>
-                 sudah punya bukti dan terkunci. Sisanya masih bisa kamu kerjakan.`
-              : 'Item yang belum sempat dikerjakan bisa <strong>dilanjutkan nanti</strong> — sesi ini tidak akan terkunci.'
+            !hariIni
+              ? 'Ini riwayat hari sebelumnya — hanya bisa dilihat.'
+              : bisaIsi
+                ? 'Centang item yang sudah beres, lalu <strong>ambil foto bukti untuk tiap item yang dicentang</strong>. Yang belum sempat bisa dilanjutkan nanti.'
+                : 'Semua item sesi ini sudah beres. 🎉'
           }
         </p>
         <div id="clean-items">
           ${items
             .map((it) => {
-              // Item yang SUDAH dikerjakan tetap ditampilkan, dalam keadaan
-              // terkunci: tercentang, dengan fotonya, dan dengan nama pengerja
-              // + jamnya. Menyembunyikannya membuat orang yang melanjutkan tidak
-              // tahu apa yang sudah beres — dan pengerjaan menempel pada ITEM,
-              // bukan pada sesi, karena satu sesi bisa dikerjakan beberapa orang.
               const done = selesaiRow(it.id);
-              if (!done) return '';
-              const url = fotoSelesai.get(done.photo_path);
+              if (done) return kartuSelesai(it, done);
+              if (!hariIni) {
+                return `
+            <div class="clean-item-block" style="border:1px dashed var(--color-border,#e3e3e3);border-radius:10px;padding:10px;margin-bottom:8px">
+              <span style="color:var(--color-text-muted)">⬜ ${escapeHtml(it.label)} — tidak dikerjakan</span>
+            </div>`;
+              }
               return `
-            <div class="clean-item-block" style="border:1px solid var(--color-border,#e3e3e3);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--color-bg);opacity:0.9">
-              <div style="display:flex;gap:10px;align-items:flex-start">
-                ${
-                  url
-                    ? `<img src="${escapeHtml(url)}" alt="" class="ck-foto" data-path="${escapeHtml(done.photo_path)}"
-                         style="width:46px;height:46px;object-fit:cover;border-radius:8px;cursor:pointer;flex-shrink:0;border:1px solid var(--color-border)" />`
-                    : '<span style="width:46px;text-align:center;flex-shrink:0">✅</span>'
-                }
-                <span style="flex:1;min-width:0">
-                  <span style="font-weight:600">✅ ${escapeHtml(it.label)}</span>
-                  <div style="font-size:0.74rem;color:var(--color-text-muted)">
-                    ${escapeHtml(done.pengerja?.full_name ?? 'Staff')}${done.done_at ? ` · ${jamOf(done.done_at)}` : ''}
-                  </div>
-                  ${done.note ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${escapeHtml(done.note)}</div>` : ''}
-                </span>
+            <div class="clean-item-block" data-block="${escapeHtml(it.id)}" style="border:1px solid var(--color-border,#e3e3e3);border-radius:10px;padding:10px;margin-bottom:8px">
+              <label class="clean-item" style="margin:0">
+                <input type="checkbox" class="clean-check" data-item="${escapeHtml(it.id)}" />
+                <span>${escapeHtml(it.label)}</span>
+              </label>
+              <div class="clean-photo-wrap" data-for="${escapeHtml(it.id)}" hidden style="margin-top:8px">
+                ${photoInputHtml({ name: `foto-${it.id}`, label: 'Foto bukti item ini', facing: 'environment' })}
               </div>
             </div>`;
             })
             .join('')}
-          ${sisa
-            .map(
-              (it) => `
-            <div class="clean-item-block" data-block="${it.id}" style="border:1px solid var(--color-border,#e3e3e3);border-radius:10px;padding:10px;margin-bottom:8px">
-              <label class="clean-item" style="margin:0">
-                <input type="checkbox" class="clean-check" data-item="${it.id}" />
-                <span>${escapeHtml(it.label)}</span>
-              </label>
-              <!-- Bagian foto disembunyikan sampai itemnya dicentang: menampilkan
-                   10 tombol kamera sekaligus membuat form terasa mustahil dikerjakan. -->
-              <div class="clean-photo-wrap" data-for="${it.id}" hidden style="margin-top:8px">
-                ${photoInputHtml({
-                  name: `foto-${it.id}`,
-                  label: 'Foto bukti item ini',
-                  facing: 'environment'
-                })}
-              </div>
-            </div>`
-            )
-            .join('')}
         </div>
         ${
-          runLanjutan
-            ? ''
-            : `<div class="field">
+          bisaIsi && !runAda
+            ? `<div class="field">
                  <label>Catatan (opsional)</label>
                  <input type="text" id="clean-notes" placeholder="mis. kran wastafel bocor" />
                </div>`
+            : ''
         }
-        <button class="primary" id="clean-submit">${runLanjutan ? 'Tambahkan ke Sesi Ini' : 'Kirim Aktivitas'}</button>
+        ${bisaIsi ? `<button class="primary" id="clean-submit">${runAda ? 'Tambahkan ke Sesi Ini' : 'Kirim Aktivitas'}</button>` : ''}
         <p class="error-text" id="clean-error"></p>
         <p id="clean-progress" style="font-size:0.8rem;color:var(--color-text-muted);margin:6px 0 0"></p>
       </div>
     `;
-    body.querySelector('#clean-back').addEventListener('click', renderSessionList);
-    sambungkanFotoRincian(); // foto item terkunci bisa diketuk untuk diperbesar
 
-    // Satu pembaca foto per item YANG DITAMPILKAN. Memakai `items` di sini akan
-    // mencari elemen milik item yang sudah dikunci dan tidak ada di layar.
+    body.querySelector('#clean-back').addEventListener('click', renderSessionList);
+    sambungkanFotoRincian(); // foto item selesai bisa diketuk untuk diperbesar
+
+    // ---- Perbaiki / hapus item milik sendiri ----
+    body.querySelectorAll('.ck-edit').forEach((btn) =>
+      btn.addEventListener('click', async () => {
+        const values = await formDialog({
+          title: `Perbaiki "${btn.dataset.label}"`,
+          description: 'Ambil foto pengganti kalau fotonya kurang jelas. Kalau hanya catatannya yang salah, biarkan fotonya kosong.',
+          fields: [
+            { name: 'note', label: 'Catatan (opsional)', type: 'text', value: sudah.get(btn.dataset.item)?.note ?? '' },
+            { name: 'file', label: 'Foto pengganti (opsional)', type: 'photo', facing: 'environment' }
+          ],
+          submitText: 'Simpan Perbaikan'
+        });
+        if (!values) return;
+        try {
+          await ubahItemRun({
+            runId: runAda.id,
+            itemId: btn.dataset.item,
+            outletId: state.outletId,
+            note: values.note,
+            file: values.file
+          });
+          toast('Item diperbarui.', 'success');
+          await renderRunForm(session, runAda);
+        } catch (error) {
+          toast(error.message ?? 'Gagal memperbarui.', 'error');
+        }
+      })
+    );
+
+    body.querySelectorAll('.ck-hapus').forEach((btn) =>
+      btn.addEventListener('click', async () => {
+        const ok = await confirmDialog({
+          title: `Hapus catatan "${btn.dataset.label}"?`,
+          message: 'Foto buktinya ikut dihapus, dan item ini kembali jadi "belum dikerjakan" sehingga bisa diulang.',
+          confirmText: 'Hapus',
+          danger: true
+        });
+        if (!ok) return;
+        try {
+          await hapusItemRun({ runId: runAda.id, itemId: btn.dataset.item, photoPath: btn.dataset.path || null });
+          toast('Catatan item dihapus.', 'success');
+          await renderRunForm(session, runAda);
+        } catch (error) {
+          toast(error.message ?? 'Gagal menghapus.', 'error');
+        }
+      })
+    );
+
+    if (!bisaIsi) return;
+
+    // Satu pembaca foto per item YANG BISA DIISI.
     const bacaFoto = new Map(sisa.map((it) => [it.id, wirePhotoInput(body, `foto-${it.id}`)]));
 
     body.querySelectorAll('.clean-check').forEach((c) =>
@@ -397,8 +474,8 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
       const tanpaFoto = dicentang.filter((s) => !s.file);
       if (tanpaFoto.length) {
         // Sebut BERAPA yang kurang dan bawa layar ke item pertamanya — daftar
-        // 15 item terlalu panjang untuk dicari sendiri oleh orang yang sedang
-        // berdiri sambil memegang alat pel.
+        // panjang terlalu melelahkan untuk dicari sendiri oleh orang yang
+        // sedang berdiri sambil memegang alat pel.
         errorEl.textContent = `${tanpaFoto.length} item yang dicentang belum ada fotonya.`;
         body.querySelector(`.clean-item-block[data-block="${CSS.escape(tanpaFoto[0].item_id)}"]`)
           ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -407,9 +484,9 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
 
       e.target.disabled = true;
       try {
-        if (runLanjutan) {
+        if (runAda) {
           const n = await lanjutkanChecklistRun(
-            { runId: runLanjutan.id, outletId: state.outletId, itemStates },
+            { runId: runAda.id, outletId: state.outletId, itemStates },
             (pesan) => (progressEl.textContent = pesan)
           );
           progressEl.textContent = '';
@@ -421,20 +498,29 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
               outletId: state.outletId,
               sessionId: session.id,
               itemStates,
-              notes: body.querySelector('#clean-notes').value
+              notes: body.querySelector('#clean-notes')?.value ?? ''
             },
             (pesan) => (progressEl.textContent = pesan)
           );
           progressEl.textContent = '';
           toast(`Aktivitas "${session.name}" terkirim. Terima kasih! ✅`, 'success');
         }
-        renderSessionList();
+        // Tetap di layar sesi ini, bukan kembali ke daftar: setelah mengirim,
+        // yang ingin dilihat orang adalah hasilnya — dan item apa yang masih
+        // tersisa.
+        await renderRunForm(session, runAda ?? (await cariRunSesi(session.id)));
       } catch (error) {
         progressEl.textContent = '';
         errorEl.textContent = error.message ?? 'Gagal mengirim aktivitas.';
         e.target.disabled = false;
       }
     });
+  }
+
+  /** Run hari ini untuk satu sesi — dipakai setelah pengiriman pertama. */
+  async function cariRunSesi(sessionId) {
+    const daftar = await listSessionRuns(state.outletId, state.tanggal).catch(() => []);
+    return daftar.find((r) => r.session_id === sessionId) ?? null;
   }
 
   renderSessionList();

@@ -1796,6 +1796,29 @@ Di **form lanjutan**, item yang sudah dikerjakan **tetap ditampilkan** — terce
 
 **`done_at` sengaja boleh NULL, tanpa default.** Godaannya menulis `not null default now()` — tapi baris yang sudah ada akan ikut terisi jam *migration dijalankan*, bukan jam pekerjaannya. Layar lalu menampilkan "Kebersihan Kitchen · 03.14" dengan penuh percaya diri untuk pekerjaan yang dilakukan pagi kemarin. Jam yang salah tapi terlihat pasti lebih menyesatkan daripada jam yang kosong: tidak ada yang akan curiga pada angka yang tampil rapi. Yang NULL ditampilkan sebagai nama saja, tanpa jam.
 
+### Item yang sudah dikerjakan tetap terlihat di ceklisnya
+
+Versi sebelumnya menghilangkan item begitu terkirim. Sekilas masuk akal — yang tersisa memang yang perlu dikerjakan — tapi itu membuang satu-satunya tempat staff bisa melihat **apa yang sudah beres**, padahal itu pertanyaan yang paling sering muncul di tengah shift. Sekarang seluruh item selalu ditampilkan dalam satu layar: yang selesai sebagai kartu berisi foto, nama pengerja, dan jamnya; yang belum sebagai isian.
+
+Kartu sesi juga **selalu** membuka layar ini, termasuk saat sudah tuntas. Dialog rincian hanya dipakai untuk hari lampau yang kebetulan punya lebih dari satu run.
+
+Setelah mengirim, layar **tetap di sesi itu** — yang ingin dilihat orang setelah menekan Kirim adalah hasilnya dan apa yang masih tersisa, bukan kembali ke daftar sesi.
+
+### Staff boleh memperbaiki & menghapus pekerjaannya sendiri (migration `0073`)
+
+Salah foto, salah item, foto buram — semuanya terjadi, dan sebelum ini satu-satunya jalan keluar adalah membiarkannya. Bukti salah yang tidak bisa dibetulkan bukan bukti yang lebih kuat; ia hanya membuat orang berhenti menganggap serius seluruh ceklisnya.
+
+Dua batas yang membuatnya tetap layak disebut bukti, ditegakkan di **policy**, bukan hanya di tombol:
+
+1. **Hanya item yang dia sendiri kerjakan** (`done_by = auth.uid()`). Memperbaiki pekerjaan orang lain bukan koreksi, itu penyuntingan.
+2. **Hanya pada hari yang sama.** Bukti kemarin yang masih bisa diubah hari ini sama saja dengan tidak ada bukti — dan justru periode lampau itulah yang dibaca saat audit.
+
+Admin outlet tetap bisa membereskan apa pun di outletnya kapan pun. Itu yang membuat batas "hari ini" aman: kesalahan yang ketahuan terlambat tetap ada yang bisa membetulkan, hanya saja lewat orang yang memang bertanggung jawab.
+
+**Yang dicabut:** policy `checklist_run_items_all_own` (0016) memberi pemilik **run** kuasa penuh atas semua baris di dalamnya. Sejak `0071` satu run bisa berisi pekerjaan beberapa orang — jadi policy itu berarti siapa pun yang kebetulan memulai sesi boleh menyunting dan menghapus bukti rekan-rekannya. Diganti izin per-baris yang lebih sempit.
+
+Menghapus baris juga menghapus fotonya, dan **barisnya dihapus lebih dulu**: kalau dibalik dan penghapusan baris ditolak, yang tersisa adalah baris yang menunjuk foto yang sudah tidak ada — "bukti" berupa gambar rusak, yang lebih buruk daripada tidak ada apa-apa. Policy Storage juga ditambah agar pengunggah bisa menghapus filenya sendiri; tanpa itu setiap penghapusan meninggalkan file yatim yang hanya bisa dibersihkan admin.
+
 Dikunci `node tools/test-kemajuan-sesi.mjs` (11 kasus, termasuk data lama sebelum `0071` dan hari lampau yang tidak boleh diisi surut).
 
 ## Roadmap fase
