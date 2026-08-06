@@ -1755,6 +1755,28 @@ Sekarang dibedakan di rekap admin maupun di Staff App:
 - **"tidak dikerjakan"** (abu-abu) — item tidak dicentang.
 - **"tanpa bukti"** (merah) — dicentang tapi tidak ada fotonya. Setelah `0070` ini hanya mungkin berasal dari data lama, dan detail rekap menyebutkannya di atas daftar.
 
+## Bug: satu item mengunci seluruh sesi seharian (migration `0071`)
+
+**Gejalanya:** staff mengerjakan 1 dari 15 item lalu menekan Kirim. Kartunya berubah jadi "✅ Selesai", dan 14 item sisanya **tidak bisa diisi oleh siapa pun sampai besok**.
+
+**Penyebabnya gabungan dua keputusan yang masing-masing masuk akal:** `checklist_runs` punya `unique (outlet_id, session_id, run_date)` — satu sesi satu run per hari — sementara halaman staff hanya menuntut "centang minimal satu item". Tidak ada error, tidak ada peringatan; rekapnya bahkan menyatakan sesi itu beres. Laporan yang salah tapi terlihat rapi adalah bentuk kegagalan yang paling mahal.
+
+**Perbaikannya mengubah arti `checklist_runs`:** ia berhenti berarti "sekali kerja" dan menjadi **wadah** untuk satu sesi pada satu hari. Yang mencatat pekerjaan adalah barisnya di `checklist_run_items`, dan tiap baris kini membawa `done_by` + `done_at` sendiri.
+
+- Kartu sesi menampilkan **kemajuan** (`3/15 item`) dengan tiga keadaan, bukan dua: 🧹 belum · ⏳ sebagian · ✅ tuntas. "Ada run" tidak lagi sama dengan "selesai".
+- Sesi yang belum tuntas bisa **dilanjutkan**; item yang sudah punya bukti dikunci dan tidak ditampilkan lagi di form.
+- **Rekan satu outlet boleh melanjutkan.** Pergantian shift adalah hal biasa, dan tiap item tetap tercatat atas nama pengerjanya masing-masing — bukan atas nama orang pertama yang kebetulan menekan Kirim.
+- `unique (run_id, item_id)` membuat item yang sudah berbukti tidak bisa ditimpa diam-diam: penolakannya berupa error yang terlihat, bukan bukti yang tergantikan tanpa jejak.
+- Policy baru hanya membuka **INSERT**. Mengubah & menghapus tetap milik pembuatnya dan admin outlet — melanjutkan pekerjaan orang lain itu wajar, menyunting buktinya sama sekali bukan hal yang sama.
+
+### Yang nyaris membatalkan seluruh perbaikan ini
+
+`submitChecklistRun()` dulu juga menyimpan baris untuk item yang **tidak** dicentang. Sekilas rapi — tapi artinya setelah pengiriman pertama semua item sudah "punya baris", sehingga sesi yang baru terisi 1 dari 15 akan tetap terhitung tuntas. Fitur melanjutkan yang baru dibuat akan langsung mati.
+
+Sekarang hanya item yang **dikerjakan** yang dicatat, dan artinya jadi tegas: ada baris = dikerjakan dan ada buktinya; tidak ada baris = belum dikerjakan, masih bisa dilanjutkan hari itu.
+
+Dikunci `node tools/test-kemajuan-sesi.mjs` (7 kasus, termasuk hari lampau yang tidak boleh bisa diisi surut).
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

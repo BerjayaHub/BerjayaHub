@@ -273,7 +273,7 @@ export async function getTodayDoneSessions(outletId) {
 export async function listSessionRuns(outletId, tanggal) {
   const { data, error } = await supabase
     .from('checklist_runs')
-    .select('id, session_id, run_date, notes, created_at, user_id, user_profiles(full_name), checklist_sessions(name)')
+    .select('id, session_id, run_date, notes, created_at, user_id, user_profiles(full_name), checklist_sessions(name), checklist_run_items(item_id, checked)')
     .eq('outlet_id', outletId)
     .eq('run_date', tanggal)
     .order('created_at', { ascending: true });
@@ -329,24 +329,36 @@ export async function submitChecklistRun({ businessUnitId, outletId, sessionId, 
   // tersimpan dalam satu insert. Kalau ada unggahan yang gagal, seluruh
   // pengiriman dibatalkan dan run-nya dihapus — lebih baik staff mengulang
   // daripada tersimpan sesi yang itemnya kehilangan bukti tanpa ketahuan.
+  // HANYA item yang dikerjakan yang dicatat.
+  //
+  // Versi sebelumnya juga menyimpan baris untuk item yang TIDAK dicentang.
+  // Sekilas rapi, tapi itu berarti setelah pengiriman pertama semua item sudah
+  // "punya baris" — dan sesi yang baru terisi 1 dari 15 akan terhitung tuntas,
+  // persis membatalkan kemampuan melanjutkan yang baru saja dibuat.
+  //
+  // Sekarang artinya tegas: ada baris = dikerjakan & ada buktinya; tidak ada
+  // baris = belum dikerjakan, dan masih bisa dilanjutkan hari itu.
   const rows = [];
   try {
-    const berfoto = (itemStates ?? []).filter((s) => s.file);
     let ke = 0;
-    for (const s of itemStates ?? []) {
-      let photoPath = null;
-      if (s.file) {
-        ke++;
-        onProgress?.(`Mengunggah foto ${ke} dari ${berfoto.length}…`);
-        const kecil = await compressImage(s.file, { preset: 'aktivitas' });
-        const ext = kecil.type === 'image/webp' ? 'webp' : 'jpg';
-        photoPath = `${outletId}/${run.id}/${s.item_id}.${ext}`;
-        const { error: upErr } = await supabase.storage
-          .from('checklist-photos')
-          .upload(photoPath, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
-        if (upErr) throw upErr;
-      }
-      rows.push({ run_id: run.id, item_id: s.item_id, checked: !!s.checked, note: s.note || null, photo_path: photoPath });
+    for (const s of dicentang) {
+      ke++;
+      onProgress?.(`Mengunggah foto ${ke} dari ${dicentang.length}…`);
+      const kecil = await compressImage(s.file, { preset: 'aktivitas' });
+      const ext = kecil.type === 'image/webp' ? 'webp' : 'jpg';
+      const photoPath = `${outletId}/${run.id}/${s.item_id}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('checklist-photos')
+        .upload(photoPath, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
+      if (upErr) throw upErr;
+      rows.push({
+        run_id: run.id,
+        item_id: s.item_id,
+        checked: true,
+        note: s.note || null,
+        photo_path: photoPath,
+        done_by: uid
+      });
     }
 
     if (rows.length) {
@@ -362,6 +374,103 @@ export async function submitChecklistRun({ businessUnitId, outletId, sessionId, 
   }
 
   return run;
+}
+
+/**
+ * Tambahkan item ke run yang SUDAH ADA — melanjutkan sesi yang belum tuntas.
+ *
+ * Kenapa perlu: `unique (outlet_id, session_id, run_date)` membuat satu sesi
+ * hanya boleh punya satu run per hari. Sebelum 0071 itu berarti staff yang
+ * mengerjakan 1 dari 15 item lalu menekan Kirim akan MENGUNCI sesi itu seharian
+ * — 14 sisanya tidak bisa diisi siapa pun, dan rekapnya tetap menyatakan sesi
+ * itu beres.
+ *
+ * Item yang sudah punya baris TIDAK bisa ditimpa: `uq_checklist_run_item`
+ * menolaknya dengan error yang terlihat, bukan mengganti bukti tanpa jejak.
+ *
+ * @returns {Promise<number>} jumlah item yang berhasil ditambahkan
+ */
+export async function lanjutkanChecklistRun({ runId, outletId, itemStates }, onProgress) {
+  const uid = await currentUserId();
+  if (!uid) throw new Error('Sesi tidak ditemukan, silakan login ulang.');
+
+  const dicentang = (itemStates ?? []).filter((s) => s.checked);
+  if (!dicentang.length) throw new Error('Centang minimal satu item dulu.');
+  const tanpaFoto = dicentang.filter((s) => !s.file);
+  if (tanpaFoto.length) {
+    throw new Error(`${tanpaFoto.length} item yang dicentang belum ada fotonya. Setiap pekerjaan yang diceklis harus punya bukti.`);
+  }
+
+  const rows = [];
+  const terunggah = [];
+  try {
+    let ke = 0;
+    for (const s of dicentang) {
+      ke++;
+      onProgress?.(`Mengunggah foto ${ke} dari ${dicentang.length}…`);
+      const kecil = await compressImage(s.file, { preset: 'aktivitas' });
+      const ext = kecil.type === 'image/webp' ? 'webp' : 'jpg';
+      const photoPath = `${outletId}/${runId}/${s.item_id}.${ext}`;
+      const { error: upErr } = await supabase.storage
+        .from('checklist-photos')
+        .upload(photoPath, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
+      if (upErr) throw upErr;
+      terunggah.push(photoPath);
+      rows.push({ run_id: runId, item_id: s.item_id, checked: true, note: s.note || null, photo_path: photoPath, done_by: uid });
+    }
+
+    const { data, error } = await supabase.from('checklist_run_items').insert(rows).select('id');
+    if (error) throw error;
+    // Penolakan RLS tidak selalu berupa error — baris yang tersaring diam-diam
+    // menghasilkan "sukses" dengan jumlah yang lebih sedikit.
+    if ((data ?? []).length !== rows.length) {
+      throw new Error('Sebagian item tidak tersimpan. Coba muat ulang halamannya.');
+    }
+    return rows.length;
+  } catch (err) {
+    // Foto yang terlanjur naik tapi barisnya gagal dibuat akan jadi file yatim
+    // yang memakan kuota tanpa membuktikan apa pun.
+    for (const path of terunggah) {
+      await supabase.storage.from('checklist-photos').remove([path]).catch(() => {});
+    }
+    throw err;
+  }
+}
+
+/**
+ * Item mana saja yang SUDAH tercatat di sebuah run.
+ * Dipakai untuk mengunci item yang sudah punya bukti saat sesi dilanjutkan.
+ */
+export async function getRunItemIds(runId) {
+  const { data, error } = await supabase.from('checklist_run_items').select('item_id, checked').eq('run_id', runId);
+  if (error) throw error;
+  return new Map((data ?? []).map((r) => [r.item_id, r.checked]));
+}
+
+/**
+ * Item aktif per SESI untuk satu outlet, dalam DUA query saja.
+ *
+ * Dipakai layar daftar sesi untuk menghitung kemajuan tiap sesi. Memanggil
+ * `listActiveItems()` sekali per sesi berarti 2 query per sesi — untuk outlet
+ * dengan 4 sesi itu 8 permintaan hanya untuk menggambar empat kartu.
+ */
+export async function getItemsPerSession(businessUnitId, outletId, sessions) {
+  const semua = await listActiveItems(businessUnitId, outletId);
+  const peta = new Map();
+  if (!semua.length || !sessions?.length) {
+    for (const s of sessions ?? []) peta.set(s.id, []);
+    return peta;
+  }
+  const tugas = await getItemSessionMap(semua.map((i) => i.id));
+  const punyaTugas = new Set([...tugas.keys()]);
+  for (const s of sessions) {
+    peta.set(
+      s.id,
+      // Aturan 0069: item tanpa penugasan berlaku di semua sesi.
+      semua.filter((i) => !punyaTugas.has(i.id) || (tugas.get(i.id) ?? []).includes(s.id))
+    );
+  }
+  return peta;
 }
 
 // ---- Admin: rekap ----

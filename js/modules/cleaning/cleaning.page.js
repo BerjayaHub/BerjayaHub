@@ -6,6 +6,9 @@ import {
   listActiveItems,
   listSessionRuns,
   getRunItems,
+  getRunItemIds,
+  getItemsPerSession,
+  lanjutkanChecklistRun,
   getChecklistPhotoUrl,
   getChecklistPhotoUrls,
   submitChecklistRun,
@@ -98,6 +101,22 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
     // kartu adalah yang PERTAMA, sisanya tetap terbaca di dialog rinciannya.
     const runPerSesi = new Map();
     for (const r of runs) if (!runPerSesi.has(r.session_id)) runPerSesi.set(r.session_id, r);
+
+    // Berapa item yang SEHARUSNYA ada di tiap sesi. Tanpa angka ini, sesi yang
+    // baru terisi 1 dari 15 item tetap tampil "Selesai" — dan itu persis bug
+    // yang membuat 14 item sisanya tidak pernah dikerjakan.
+    let itemPerSesi = new Map();
+    try {
+      itemPerSesi = await getItemsPerSession(businessUnitId, state.outletId, sessions);
+    } catch {
+      // Gagal menghitung -> kartunya tidak menampilkan kemajuan, tapi tetap bisa dibuka.
+    }
+    const kemajuan = (sesiId) => {
+      const run = runPerSesi.get(sesiId);
+      const total = itemPerSesi.get(sesiId)?.length ?? 0;
+      const selesai = run ? (run.checklist_run_items ?? []).length : 0;
+      return { total, selesai, tuntas: total > 0 && selesai >= total };
+    };
     if (!sessions.length) {
       body.innerHTML = `<p style="color:var(--color-text-muted)">Admin belum mengatur sesi aktivitas untuk outlet ini.</p>`;
       return;
@@ -107,25 +126,34 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
         ${sessions
           .map((s) => {
             const run = runPerSesi.get(s.id);
+            const k = kemajuan(s.id);
             // Kartu yang sudah selesai TIDAK lagi mati. Versi lama menonaktifkan
             // tombolnya, jadi setelah semua sesi beres halamannya cuma deretan
             // kotak abu-abu — tidak ada cara melihat siapa yang mengerjakan,
             // jam berapa, atau apa buktinya. Sekarang kartunya jadi pintu ke
             // rinciannya.
             const belumBisaIsi = !hariIni && !run;
+            // Tiga keadaan, bukan dua. "Ada run" TIDAK sama dengan "selesai".
+            const ikon = !run ? (belumBisaIsi ? '—' : '🧹') : k.tuntas ? '✅' : '⏳';
             return `
-            <button class="module-card ${run ? 'session-done' : ''}"
+            <button class="module-card ${k.tuntas ? 'session-done' : ''}"
               data-session="${escapeHtml(s.id)}" data-run="${escapeHtml(run?.id ?? '')}"
+              data-tuntas="${k.tuntas ? '1' : ''}"
               ${belumBisaIsi ? 'disabled' : ''}>
-              <span class="module-card-icon">${run ? '✅' : belumBisaIsi ? '—' : '🧹'}</span>
+              <span class="module-card-icon">${ikon}</span>
               <span class="module-card-label">${escapeHtml(s.name)}</span>
               <span style="font-size:0.72rem;color:var(--color-text-muted)">${
                 run
-                  ? `${escapeHtml(run.user_profiles?.full_name ?? 'Staff')} · ${jamOf(run.created_at)}`
+                  ? `${k.total ? `${k.selesai}/${k.total} item · ` : ''}${escapeHtml(run.user_profiles?.full_name ?? 'Staff')} · ${jamOf(run.created_at)}`
                   : belumBisaIsi
                     ? 'Tidak dikerjakan'
-                    : 'Belum · ketuk untuk mulai'
+                    : `${k.total ? `${k.total} item · ` : ''}Belum · ketuk untuk mulai`
               }</span>
+              ${
+                run && !k.tuntas && hariIni
+                  ? '<span style="font-size:0.68rem;color:var(--color-primary)">Ketuk untuk lanjutkan</span>'
+                  : ''
+              }
             </button>`;
           })
           .join('')}
@@ -141,9 +169,14 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
     body.querySelectorAll('[data-session]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const sesi = sessions.find((x) => x.id === btn.dataset.session);
-        // Sudah dikerjakan -> lihat rinciannya. Belum & hari ini -> isi.
-        if (btn.dataset.run) bukaRincian(sesi, runs.filter((r) => r.session_id === sesi.id));
-        else renderRunForm(sesi);
+        const run = runPerSesi.get(sesi.id);
+        // Tiga jalan, sesuai tiga keadaan:
+        //   belum ada run          -> isi dari awal
+        //   ada run & belum tuntas -> lanjutkan item yang belum dikerjakan
+        //   tuntas / hari lampau   -> lihat rinciannya saja
+        if (!run) return renderRunForm(sesi);
+        if (!btn.dataset.tuntas && hariIni) return renderRunForm(sesi, run);
+        bukaRincian(sesi, runs.filter((r) => r.session_id === sesi.id));
       });
     });
   }
@@ -202,14 +235,25 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
     });
   }
 
-  async function renderRunForm(session) {
+  /**
+   * Form pengisian sesi.
+   * @param {object|null} runLanjutan run yang sudah ada -> mode LANJUTKAN:
+   *   item yang sudah punya bukti dikunci, hanya sisanya yang bisa diisi.
+   */
+  async function renderRunForm(session, runLanjutan = null) {
     body.innerHTML = loadingHtml('Memuat item…', { baris: 4 });
-    let items;
+    let items, sudah;
     try {
       items = await muatItem(session.id);
+      sudah = runLanjutan ? await getRunItemIds(runLanjutan.id) : new Map();
     } catch (error) {
       body.innerHTML = `<p class="error-text">${escapeHtml(error.message ?? error)}</p>`;
       return;
+    }
+    const sisa = items.filter((it) => !sudah.has(it.id));
+    if (runLanjutan && !sisa.length) {
+      // Semua item ternyata sudah tercatat (mis. rekan baru saja menuntaskannya).
+      return bukaRincian(session, [runLanjutan]);
     }
     if (!items.length) {
       body.innerHTML = `
@@ -229,10 +273,15 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
         <h3 style="margin:12px 0 4px">${escapeHtml(session.name)}</h3>
         <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 12px">
           Centang item yang sudah beres, lalu <strong>ambil foto bukti untuk tiap item yang dicentang</strong>.
-          Item yang tidak dicentang tidak perlu foto.
+          ${
+            runLanjutan
+              ? `Sesi ini sudah dimulai — <strong>${sudah.size} item</strong> sudah punya bukti dan tidak bisa diubah lagi.
+                 Yang tampil di bawah tinggal <strong>${sisa.length} item</strong>.`
+              : 'Item yang belum sempat dikerjakan bisa <strong>dilanjutkan nanti</strong> — sesi ini tidak akan terkunci.'
+          }
         </p>
         <div id="clean-items">
-          ${items
+          ${sisa
             .map(
               (it) => `
             <div class="clean-item-block" data-block="${it.id}" style="border:1px solid var(--color-border,#e3e3e3);border-radius:10px;padding:10px;margin-bottom:8px">
@@ -253,19 +302,24 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
             )
             .join('')}
         </div>
-        <div class="field">
-          <label>Catatan (opsional)</label>
-          <input type="text" id="clean-notes" placeholder="mis. kran wastafel bocor" />
-        </div>
-        <button class="primary" id="clean-submit">Kirim Aktivitas</button>
+        ${
+          runLanjutan
+            ? ''
+            : `<div class="field">
+                 <label>Catatan (opsional)</label>
+                 <input type="text" id="clean-notes" placeholder="mis. kran wastafel bocor" />
+               </div>`
+        }
+        <button class="primary" id="clean-submit">${runLanjutan ? 'Tambahkan ke Sesi Ini' : 'Kirim Aktivitas'}</button>
         <p class="error-text" id="clean-error"></p>
         <p id="clean-progress" style="font-size:0.8rem;color:var(--color-text-muted);margin:6px 0 0"></p>
       </div>
     `;
     body.querySelector('#clean-back').addEventListener('click', renderSessionList);
 
-    // Satu pembaca foto per item.
-    const bacaFoto = new Map(items.map((it) => [it.id, wirePhotoInput(body, `foto-${it.id}`)]));
+    // Satu pembaca foto per item YANG DITAMPILKAN. Memakai `items` di sini akan
+    // mencari elemen milik item yang sudah dikunci dan tidak ada di layar.
+    const bacaFoto = new Map(sisa.map((it) => [it.id, wirePhotoInput(body, `foto-${it.id}`)]));
 
     body.querySelectorAll('.clean-check').forEach((c) =>
       c.addEventListener('change', () => {
@@ -303,18 +357,27 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
 
       e.target.disabled = true;
       try {
-        await submitChecklistRun(
-          {
-            businessUnitId,
-            outletId: state.outletId,
-            sessionId: session.id,
-            itemStates,
-            notes: body.querySelector('#clean-notes').value
-          },
-          (pesan) => (progressEl.textContent = pesan)
-        );
-        progressEl.textContent = '';
-        toast(`Aktivitas "${session.name}" terkirim. Terima kasih! ✅`, 'success');
+        if (runLanjutan) {
+          const n = await lanjutkanChecklistRun(
+            { runId: runLanjutan.id, outletId: state.outletId, itemStates },
+            (pesan) => (progressEl.textContent = pesan)
+          );
+          progressEl.textContent = '';
+          toast(`${n} item ditambahkan ke "${session.name}". ✅`, 'success');
+        } else {
+          await submitChecklistRun(
+            {
+              businessUnitId,
+              outletId: state.outletId,
+              sessionId: session.id,
+              itemStates,
+              notes: body.querySelector('#clean-notes').value
+            },
+            (pesan) => (progressEl.textContent = pesan)
+          );
+          progressEl.textContent = '';
+          toast(`Aktivitas "${session.name}" terkirim. Terima kasih! ✅`, 'success');
+        }
         renderSessionList();
       } catch (error) {
         progressEl.textContent = '';
