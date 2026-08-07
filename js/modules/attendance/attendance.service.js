@@ -554,11 +554,32 @@ export async function koreksiOutletBasisMassal({ userId, from, to, outletId, not
 }
 
 export async function correctAttendanceRecord(id, { clock_in_at, clock_out_at, notes }) {
-  const { error } = await supabase
+  // .select() WAJIB: penolakan RLS pada UPDATE tidak menghasilkan error, hanya
+  // 0 baris — dan admin melihat "koreksi tersimpan" untuk perubahan yang tidak
+  // pernah terjadi.
+  const { data, error } = await supabase
     .from('attendance_records')
     .update({ clock_in_at, clock_out_at, notes })
-    .eq('id', id);
+    .eq('id', id)
+    .select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('Koreksi tidak tersimpan — kamu bukan admin outlet presensi ini.');
+}
+
+/**
+ * Hitung ulang status terlambat satu presensi dari jadwal shift yang berlaku.
+ *
+ * Dipakai saat jadwal baru disusun SETELAH orangnya clock in: statusnya adalah
+ * potret yang diambil saat itu, jadi barisnya tetap "Tanpa jadwal" sampai
+ * dihitung ulang. Bawaannya hanya menyentuh baris yang belum pernah dinilai —
+ * penilaian yang sudah terjadi tidak diubah diam-diam.
+ *
+ * @returns {Promise<{status: string, menit: number|null, nama_shift: string|null}|null>}
+ */
+export async function hitungUlangStatusShift(recordId, paksa = false) {
+  const { data, error } = await supabase.rpc('hitung_ulang_status_shift', { p_record: recordId, p_paksa: paksa });
+  if (error) throw error;
+  return data?.[0] ?? null;
 }
 
 // ---- Push notification subscriptions (reminder clock in) ----

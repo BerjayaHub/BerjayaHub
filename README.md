@@ -1848,6 +1848,32 @@ Kartu "sedang bekerja" juga menyebut **tanggal** kalau clock in-nya bukan hari i
 
 Dikunci `node tools/test-shift-lintas-hari.mjs` (8 kasus, termasuk tepat di batas 18 jam, dan shift malam berikutnya di hari yang sama setelah menutup shift semalam).
 
+## Bug: "Tanpa jadwal" padahal jadwalnya ada (migration `0074`)
+
+Tiga sebab berbeda, dan ketiganya menghasilkan tampilan yang sama persis.
+
+### 1. Statusnya POTRET — jadwal yang dibuat belakangan tidak pernah menyusul
+
+`late_status` dihitung sekali saat clock in, lalu disimpan. Itu keputusan yang benar: penilaian kehadiran harus memakai aturan yang berlaku **saat itu**, bukan aturan yang diubah belakangan.
+
+Tapi akibatnya tidak pernah disebut di mana pun: kalau admin baru menyusun jadwal **setelah** orangnya clock in, baris itu tetap "Tanpa jadwal" selamanya. Admin lalu membuka Jadwal Shift, melihat jadwalnya ada, dan menyimpulkan aplikasinya salah. Yang salah bukan aplikasinya — yang tidak ada adalah **caranya memperbaiki**.
+
+Sekarang ada tombol **↻** di kolom Shift, hanya pada baris yang memang belum pernah dinilai. RPC `hitung_ulang_status_shift()` menolak menyentuh baris berstatus `late`/`ontime`/`tolerance`/`off_day` kecuali dipaksa lewat parameter — penilaian yang sudah terjadi bukan sesuatu yang pantas berubah dengan satu ketukan.
+
+### 2. Penyaring outlet yang saya tambahkan sendiri, dan salah
+
+Saat memperbaiki bug `.maybeSingle()` di `getMyScheduleFor()`, saya menambahkan `.eq('outlet_id', outletBasis)`. Kelihatan lebih tepat. Akibatnya: orang yang **dijadwalkan membantu di outlet lain** jadi dianggap tidak punya jadwal sama sekali.
+
+Menolak jadwal yang nyata-nyata ada hanya karena outletnya berbeda jauh lebih merugikan daripada memakai baris yang kurang tepat. Sekarang semua jadwal orang itu pada tanggal tersebut diambil, lalu outlet basis **diutamakan** — bukan disaring.
+
+### 3. Modul Shift tidak aktif di outlet BASIS-nya
+
+`shiftOutletActive` dibaca dari `baseOutlet.shift_enabled`. Kalau seseorang dijadwalkan di outlet yang memakai Shift tapi outlet **basis (★)** miliknya tidak mengaktifkan modul itu, statusnya kosong sama sekali (kolom Shift jadi "–", bukan "Tanpa jadwal"). Ini bukan bug, tapi perlu diketahui saat menelusuri.
+
+### Sekalian: koreksi presensi yang berbohong
+
+`correctAttendanceRecord()` melakukan UPDATE tanpa `.select()`. Penolakan RLS tidak menghasilkan error — hanya 0 baris — jadi admin yang bukan admin outlet presensi itu melihat "koreksi tersimpan" untuk perubahan yang tidak pernah terjadi. Sudah diperiksa.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

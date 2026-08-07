@@ -262,18 +262,24 @@ export async function getMyScheduleFor(dateStr, outletId = null) {
     data: { user }
   } = await supabase.auth.getUser();
   if (!user) return null;
-  let q = supabase
+  // SEMUA jadwal orang ini pada tanggal itu diambil, lalu outlet basis
+  // DIUTAMAKAN — bukan disaring.
+  //
+  // Menyaringnya (`.eq('outlet_id', outletId)`) tampak lebih rapi, tapi orang
+  // yang dijadwalkan membantu di outlet lain jadi dianggap TIDAK punya jadwal,
+  // dan presensinya tercatat "Tanpa jadwal" selamanya. Menolak jadwal yang
+  // nyata-nyata ada hanya karena outletnya berbeda adalah kerugian yang jauh
+  // lebih besar daripada memakai baris yang kurang tepat.
+  const { data, error } = await supabase
     .from('shift_schedules')
     .select('is_off, shift_id, outlet_id, outlet_shifts(id, name, start_time, end_time)')
     .eq('user_id', user.id)
-    .eq('work_date', dateStr);
-  if (outletId) q = q.eq('outlet_id', outletId);
-  // limit(1) + ambil elemen pertama, BUKAN maybeSingle(): kalau toh masih ada
-  // lebih dari satu baris, lebih baik memakai salah satunya daripada
-  // menganggap orangnya tidak punya jadwal sama sekali.
-  const { data, error } = await q.order('created_at', { ascending: true }).limit(1);
+    .eq('work_date', dateStr)
+    .order('created_at', { ascending: true });
   if (error) return null;
-  return data?.[0] ?? null;
+  const baris = data ?? [];
+  if (!baris.length) return null;
+  return baris.find((b) => b.outlet_id === outletId) ?? baris[0];
 }
 
 /**

@@ -4,6 +4,7 @@ import {
   listAttendanceForAdmin,
   correctAttendanceRecord,
   koreksiOutletBasis,
+  hitungUlangStatusShift,
   listOutletsWithGeofence,
   listAttendanceOutlets,
   setOutletLocation,
@@ -160,6 +161,25 @@ async function renderPresensiTab(container, businessUnitId) {
     wireEditButtons(container, outlets ?? []);
     wirePhotoButtons(container);
     wireAddressButtons(container);
+    container.querySelectorAll('.btn-recalc-shift').forEach((btn) =>
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          const hasil = await hitungUlangStatusShift(btn.dataset.id);
+          if (!hasil || hasil.status === 'no_schedule') {
+            // Dikatakan apa adanya. Menampilkan "berhasil" untuk hitungan yang
+            // tidak menemukan apa pun hanya membuat admin mencoba lagi.
+            toast('Tetap tanpa jadwal — belum ada jadwal shift untuk staff ini pada tanggal tersebut.', 'warning');
+          } else {
+            toast(`Status diperbarui: ${LATE_LABEL[hasil.status] ?? hasil.status}.`, 'success');
+          }
+          await refresh();
+        } catch (error) {
+          toast(error.message ?? 'Gagal menghitung ulang.', 'error');
+          btn.disabled = false;
+        }
+      })
+    );
   }
 
   container.innerHTML = `
@@ -365,11 +385,20 @@ function tipeOf(r) {
 
 /** Keterangan shift + status keterlambatan (kalau modul Shift dipakai). */
 function shiftCell(r) {
-  if (!r.late_status) return '<span style="color:var(--color-text-muted)">-</span>';
+  // Tombol ↻ HANYA untuk baris yang belum pernah dinilai. Status di sini adalah
+  // POTRET saat clock in: kalau jadwalnya baru disusun setelah orangnya masuk,
+  // barisnya tetap "Tanpa jadwal" selamanya sampai dihitung ulang. Yang sudah
+  // dinilai tidak diberi tombol — penilaian yang sudah terjadi bukan sesuatu
+  // yang pantas diubah dengan satu ketukan.
+  const bisaHitungUlang = !r.late_status || r.late_status === 'no_schedule';
+  const tombol = bisaHitungUlang
+    ? ` <button class="btn-recalc-shift" data-id="${r.id}" title="Hitung ulang dari jadwal shift yang berlaku">↻</button>`
+    : '';
+  if (!r.late_status) return `<span style="color:var(--color-text-muted)">-</span>${tombol}`;
   const label = LATE_LABEL[r.late_status] ?? r.late_status;
   const badge = LATE_BADGE[r.late_status] ?? '';
   const detail = r.late_minutes ? ` ${r.late_minutes} mnt` : '';
-  return `${r.shift_name ? `${escapeHtml(r.shift_name)}<br>` : ''}<span class="badge ${badge}">${label}${detail}</span>`;
+  return `${r.shift_name ? `${escapeHtml(r.shift_name)}<br>` : ''}<span class="badge ${badge}">${label}${detail}</span>${tombol}`;
 }
 
 /** Teks ringkas untuk export PDF. */
