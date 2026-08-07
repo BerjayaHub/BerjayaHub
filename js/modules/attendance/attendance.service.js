@@ -582,6 +582,24 @@ export async function hitungUlangStatusShift(recordId, paksa = false) {
   return data?.[0] ?? null;
 }
 
+/**
+ * Hitung ulang untuk satu RENTANG tanggal sekaligus.
+ *
+ * Kasus yang paling sering terjadi: jadwal seminggu penuh baru disusun setelah
+ * beberapa hari presensi berjalan. Menekan ↻ satu per satu untuk dua puluh
+ * baris bukan perbaikan, itu hukuman.
+ */
+export async function hitungUlangStatusShiftMassal({ from, to, outletId = null, paksa = false }) {
+  const { data, error } = await supabase.rpc('hitung_ulang_status_shift_massal', {
+    p_from: from,
+    p_to: to,
+    p_outlet: outletId || null,
+    p_paksa: paksa
+  });
+  if (error) throw error;
+  return data?.[0] ?? { diproses: 0, jadi_dinilai: 0 };
+}
+
 // ---- Push notification subscriptions (reminder clock in) ----
 
 export async function getMyPushSubscriptionEndpoints() {

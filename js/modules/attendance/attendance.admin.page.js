@@ -5,6 +5,7 @@ import {
   correctAttendanceRecord,
   koreksiOutletBasis,
   hitungUlangStatusShift,
+  hitungUlangStatusShiftMassal,
   listOutletsWithGeofence,
   listAttendanceOutlets,
   setOutletLocation,
@@ -260,6 +261,7 @@ async function renderPresensiTab(container, businessUnitId) {
       <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="filter-from" value="${range.from}" /></div>
       <div class="field" style="margin:0"><label>Sampai tanggal</label><input type="date" id="filter-to" value="${range.to}" /></div>
       <button class="primary" id="btn-filter" style="max-width:120px">Filter</button>
+      <button id="btn-recalc-all" title="Untuk presensi yang terlanjur Tanpa jadwal karena jadwalnya baru dibuat belakangan">↻ Hitung Ulang Shift</button>
       <button id="btn-export-att">⇩ Export PDF</button>
     </div>
 
@@ -364,6 +366,33 @@ async function renderPresensiTab(container, businessUnitId) {
       toast('PDF rekap presensi terunduh.', 'success');
     } catch (error) {
       toast(error.message ?? 'Gagal membuat PDF.', 'error');
+    }
+  });
+
+  document.getElementById('btn-recalc-all').addEventListener('click', async (e) => {
+    const dari = document.getElementById('filter-from').value;
+    const sampai = document.getElementById('filter-to').value;
+    if (!dari || !sampai) return toast('Isi rentang tanggalnya dulu.', 'warning');
+    e.target.disabled = true;
+    try {
+      const hasil = await hitungUlangStatusShiftMassal({
+        from: dari,
+        to: sampai,
+        outletId: document.getElementById('filter-outlet').value || null
+      });
+      // Dua angka, bukan satu: "diproses" saja akan terbaca sebagai keberhasilan
+      // padahal bisa jadi tidak satu pun menemukan jadwal.
+      toast(
+        hasil.diproses
+          ? `${hasil.jadi_dinilai} dari ${hasil.diproses} presensi kini punya status shift.`
+          : 'Tidak ada presensi tanpa jadwal di rentang ini.',
+        hasil.jadi_dinilai ? 'success' : 'warning'
+      );
+      await refresh();
+    } catch (error) {
+      toast(error.message ?? 'Gagal menghitung ulang.', 'error');
+    } finally {
+      e.target.disabled = false;
     }
   });
 

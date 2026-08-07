@@ -82,6 +82,18 @@ begin
     return;
   end if;
 
+  -- Baris jadwal ADA tapi tidak menunjuk shift mana pun (shift_id kosong, dan
+  -- bukan Libur). Tanpa jam mulai tidak ada yang bisa dibandingkan — dan
+  -- membiarkannya lewat akan menghasilkan `v_selisih` NULL yang jatuh ke cabang
+  -- terakhir dan mencap orangnya "Terlambat" tanpa satu pun angka.
+  if not v_jadwal.is_off and v_jadwal.start_time is null then
+    update attendance_records
+       set late_status = 'no_schedule', late_minutes = null
+     where id = p_record;
+    return query select 'no_schedule'::text, null::int, null::text;
+    return;
+  end if;
+
   if v_jadwal.is_off then
     update attendance_records
        set late_status = 'off_day', late_minutes = null, shift_name = null
@@ -126,3 +138,54 @@ comment on function hitung_ulang_status_shift(uuid, boolean) is
 
 revoke all on function hitung_ulang_status_shift(uuid, boolean) from public;
 grant execute on function hitung_ulang_status_shift(uuid, boolean) to authenticated;
+
+
+-- ---------------------------------------------------------
+-- Versi MASSAL — untuk kasus yang paling sering terjadi: jadwal seminggu penuh
+-- baru disusun setelah beberapa hari presensi berjalan.
+--
+-- Menekan ↻ satu per satu untuk dua puluh baris bukan perbaikan, itu hukuman.
+-- Sama seperti versi satuan, bawaannya HANYA menyentuh baris yang belum pernah
+-- dinilai.
+-- ---------------------------------------------------------
+create or replace function hitung_ulang_status_shift_massal(
+  p_from date,
+  p_to date,
+  p_outlet uuid default null,
+  p_paksa boolean default false
+)
+returns table (diproses int, jadi_dinilai int)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  r record;
+  v_proses int := 0;
+  v_ok int := 0;
+  v_hasil record;
+begin
+  for r in
+    select ar.id
+    from attendance_records ar
+    where (ar.clock_in_at at time zone 'Asia/Jakarta')::date between p_from and p_to
+      and (p_outlet is null or coalesce(ar.nbm_outlet_id, ar.outlet_id) = p_outlet or ar.outlet_id = p_outlet)
+      and (p_paksa or ar.late_status is null or ar.late_status = 'no_schedule')
+      and is_admin_of_outlet(auth.uid(), ar.outlet_id)
+    order by ar.clock_in_at
+  loop
+    v_proses := v_proses + 1;
+    select * into v_hasil from hitung_ulang_status_shift(r.id, p_paksa);
+    if v_hasil.status is distinct from 'no_schedule' then
+      v_ok := v_ok + 1;
+    end if;
+  end loop;
+  return query select v_proses, v_ok;
+end;
+$$;
+
+comment on function hitung_ulang_status_shift_massal(date, date, uuid, boolean) is
+  'Hitung ulang status shift untuk satu rentang tanggal. Hanya baris yang belum pernah dinilai, kecuali p_paksa.';
+
+revoke all on function hitung_ulang_status_shift_massal(date, date, uuid, boolean) from public;
+grant execute on function hitung_ulang_status_shift_massal(date, date, uuid, boolean) to authenticated;
