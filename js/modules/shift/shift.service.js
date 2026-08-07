@@ -275,7 +275,11 @@ export async function getMyScheduleFor(dateStr, outletId = null) {
     .select('is_off, shift_id, outlet_id, outlet_shifts(id, name, start_time, end_time)')
     .eq('user_id', user.id)
     .eq('work_date', dateStr)
-    .order('created_at', { ascending: true });
+    // `updated_at` — shift_schedules TIDAK punya kolom `created_at`. Memakai
+    // kolom yang tidak ada membuat PostgREST membalas error, error-nya ditelan
+    // `catch`, hasilnya null, dan orangnya dicap "Tanpa jadwal". Persis bug
+    // yang sedang diperbaiki, dibuat ulang oleh perbaikannya sendiri.
+    .order('updated_at', { ascending: true });
   if (error) return null;
   const baris = data ?? [];
   if (!baris.length) return null;

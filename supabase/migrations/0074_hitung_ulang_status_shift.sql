@@ -71,7 +71,10 @@ begin
   left join outlet_shifts os on os.id = ss.shift_id
   where ss.user_id = r.user_id
     and ss.work_date = v_tanggal
-  order by (ss.outlet_id = r.outlet_efektif) desc, ss.created_at
+  -- `updated_at`, BUKAN `created_at`: tabel shift_schedules tidak punya kolom
+  -- itu. Kesalahan yang sama pernah lolos ke sini karena hampir semua tabel
+  -- lain punya `created_at` — kebiasaan mengetik yang tidak diperiksa ke skema.
+  order by (ss.outlet_id = r.outlet_efektif) desc, ss.updated_at
   limit 1;
 
   if not found then

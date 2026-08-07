@@ -40,7 +40,12 @@ pernah dijalankan.
 | 0071 | `0071_lanjutkan_sesi_aktivitas.sql` | **Perbaikan bug**: mengisi 1 item mengunci seluruh sesi seharian; sesi kini bisa dilanjutkan, tiap item punya pengerjanya sendiri |
 | 0072 | `0072_lanjutkan_baris_lama.sql` | **Perbaikan bug**: sesi yang dibuat SEBELUM 0071 tetap terkunci, karena baris "tidak dicentang" ikut terhitung selesai |
 | 0073 | `0073_staff_koreksi_item_sendiri.sql` | Staff bisa memperbaiki & menghapus item yang **dia sendiri** kerjakan, **hari itu juga**; pemilik run tidak lagi bisa menyunting bukti rekannya |
-| 0074 | `0074_hitung_ulang_status_shift.sql` | RPC hitung ulang status terlambat untuk presensi yang terlanjur "Tanpa jadwal" (jadwal disusun setelah orangnya clock in) |
+| 0074 | `0074_hitung_ulang_status_shift.sql` | RPC hitung ulang status terlambat untuk presensi yang terlanjur "Tanpa jadwal" (jadwal disusun setelah orangnya clock in) + versi massal |
+
+> ⚠️ Kalau `0074` sudah terlanjur dijalankan sebelum 7 Agustus sore, **jalankan
+> ulang** — versi pertamanya memakai `ss.created_at`, kolom yang tidak ada di
+> `shift_schedules`, sehingga tombol ↻ selalu gagal dengan
+> *"column ss.created_at does not exist"*.
 
 > ⚠️ `0063` mendefinisikan ulang `laporan_kas_user()` dengan **parameter baru**
 > (`p_category`). Versi lama (4 argumen) di-`drop` di awal file — halaman Laporan
@@ -345,6 +350,7 @@ node tools/audit-owner-filter.cjs
 node tools/audit-outlet-scope.cjs
 node tools/audit-embed-ambigu.cjs
 node tools/audit-select-wajib.cjs
+node tools/audit-kolom-tabel.cjs
 node tools/test-youtube-parser.mjs
 node tools/test-image-compress.mjs
 node tools/test-pdf-lebar.mjs

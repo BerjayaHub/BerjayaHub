@@ -1870,6 +1870,16 @@ Menolak jadwal yang nyata-nyata ada hanya karena outletnya berbeda jauh lebih me
 
 `shiftOutletActive` dibaca dari `baseOutlet.shift_enabled`. Kalau seseorang dijadwalkan di outlet yang memakai Shift tapi outlet **basis (★)** miliknya tidak mengaktifkan modul itu, statusnya kosong sama sekali (kolom Shift jadi "–", bukan "Tanpa jadwal"). Ini bukan bug, tapi perlu diketahui saat menelusuri.
 
+### Dan perbaikannya sendiri gagal karena kolom yang tidak ada
+
+Versi pertama `0074` (dan `getMyScheduleFor()`) mengurutkan jadwal dengan `created_at`. **`shift_schedules` tidak punya kolom itu** — yang ada `updated_at`. Hampir semua tabel lain di repo ini punya `created_at`, jadi jari mengetiknya begitu saja tanpa diperiksa ke skema.
+
+Di SQL, akibatnya terlihat: *"column ss.created_at does not exist"*. Di JS jauh lebih buruk — PostgREST membalas error, error-nya ditelan `catch`, hasilnya `null`, dan orangnya dicap **"Tanpa jadwal"**. Perbaikan untuk bug "Tanpa jadwal" menghasilkan bug "Tanpa jadwal" yang baru, lewat jalur yang sama sekali berbeda.
+
+Karena kelas kesalahan ini akan terulang, sekarang dijaga `node tools/audit-kolom-tabel.cjs`: skema dibaca langsung dari `supabase/migrations` (create table + alter table add/drop column), lalu setiap `.eq()`, `.order()`, `.gte()` dan sejenisnya di `js/` dicocokkan ke tabelnya. 312 pemakaian kolom terhadap 62 tabel.
+
+Audit itu sendiri sempat salah: versi pertamanya memakai spasi literal antar kata, sehingga `alter table` yang ditulis berbaris-baris — bentuk yang justru paling sering dipakai di repo ini — terlewat seluruhnya. Audit yang melewatkan bentuk yang paling umum lebih berbahaya daripada tidak ada audit: ia memberi rasa aman palsu. Sekarang diuji dengan sengaja menyalahkan satu kolom lalu memastikan auditnya benar-benar menolak.
+
 ### Sekalian: koreksi presensi yang berbohong
 
 `correctAttendanceRecord()` melakukan UPDATE tanpa `.select()`. Penolakan RLS tidak menghasilkan error — hanya 0 baris — jadi admin yang bukan admin outlet presensi itu melihat "koreksi tersimpan" untuk perubahan yang tidak pernah terjadi. Sudah diperiksa.
