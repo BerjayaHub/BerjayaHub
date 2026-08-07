@@ -1,6 +1,8 @@
 import { toast, formDialog, confirmDialog } from '../../core/ui.js';
 import {
   getMyTodaySession,
+  getMyOpenSession,
+  getMySesiTertinggal,
   getMyRecentAttendance,
   clockIn,
   clockOut,
@@ -28,8 +30,12 @@ export async function renderAttendancePage(container, ctx) {
   loadFaceModels().catch(() => {});
 
   const fallbackBase = { business_unit_id: businessUnitId, outlet_id: outletId };
-  const [todaySession, recent, myFaceDescriptor, allOutlets, nbmBase] = await Promise.all([
+  const [todaySession, sesiTerbuka, sesiTertinggal, recent, myFaceDescriptor, allOutlets, nbmBase] = await Promise.all([
     getMyTodaySession(),
+    // Sesi yang masih terbuka APA PUN TANGGALNYA — inilah yang membuat shift
+    // malam bisa clock out esok paginya.
+    getMyOpenSession().catch(() => null),
+    getMySesiTertinggal().catch(() => null),
     getMyRecentAttendance(),
     getMyFaceDescriptor(),
     listAttendanceOutlets().catch(() => []),
@@ -43,7 +49,14 @@ export async function renderAttendancePage(container, ctx) {
     return;
   }
 
-  const openSession = todaySession && !todaySession.clock_out_at ? todaySession : null;
+  // Sesi terbuka lintas hari didahulukan. Sebelumnya baris ini hanya melihat
+  // presensi HARI INI, jadi shift 6 Agustus 22:00 tidak terlihat lagi pada 7
+  // Agustus pagi: tombol Clock Out tak pernah muncul, dan orangnya malah bisa
+  // clock in lagi sementara baris kemarin menggantung tanpa jam pulang.
+  const openSession = sesiTerbuka ?? (todaySession && !todaySession.clock_out_at ? todaySession : null);
+  // "Sudah selesai hari ini" hanya berlaku untuk sesi yang MULAI hari ini.
+  // Kalau yang tadi pagi ditutup itu shift semalam, malam ini dia berhak
+  // clock in lagi — itu shift berikutnya, bukan pengulangan.
   const doneToday = todaySession && todaySession.clock_out_at ? todaySession : null;
 
   const outletName = (id) => allOutlets.find((o) => o.id === id)?.name ?? 'Outlet';
@@ -74,6 +87,22 @@ export async function renderAttendancePage(container, ctx) {
 
   container.innerHTML = `
     <h1>Presensi</h1>
+    ${
+      // Sesi yang lebih dari 18 jam belum ditutup TIDAK dipakai sebagai sesi
+      // aktif — kalau dipakai, satu kali lupa clock out akan memblokir presensi
+      // berhari-hari. Tapi ia juga tidak boleh didiamkan: baris tanpa jam pulang
+      // tidak dihitung NBM sama sekali, dan orangnya baru sadar saat gajian.
+      sesiTertinggal
+        ? `<div class="inline-card" style="border-color:var(--color-danger)">
+             <strong style="font-size:0.9rem">⚠️ Ada presensi yang belum clock out</strong>
+             <p style="font-size:0.82rem;color:var(--color-text-muted);margin:6px 0 0">
+               Clock in <strong>${esc(fmtTanggalPendek(sesiTertinggal.clock_in_at))} ${esc(formatTime(sesiTertinggal.clock_in_at))}</strong>
+               di ${esc(outletName(sesiTertinggal.outlet_id))} tidak pernah ditutup, jadi hari itu belum terhitung NBM.
+               Minta admin membetulkannya lewat Master Presensi. Kamu tetap bisa presensi seperti biasa hari ini.
+             </p>
+           </div>`
+        : ''
+    }
     <div id="att-main"></div>
     ${pushCardHtml({ title: 'Notifikasi Pengingat Clock In' })}
     <h2 style="font-size:1rem;margin-top:24px">Riwayat Terakhir</h2>
@@ -115,7 +144,11 @@ export async function renderAttendancePage(container, ctx) {
     let capturedOut = null;
     main.innerHTML = `
       <div class="att-card fade-in">
-        <div class="att-status-line"><span class="att-dot"></span> Sedang bekerja sejak <strong>${formatTime(openSession.clock_in_at)}</strong></div>
+        <div class="att-status-line"><span class="att-dot"></span> Sedang bekerja sejak <strong>${formatTime(openSession.clock_in_at)}</strong>${
+          // Tanggal disebut HANYA kalau clock in-nya bukan hari ini. Tanpa itu,
+          // "sejak 22.00" pada pukul 7 pagi terbaca seperti kekeliruan.
+          sameDayWIB(openSession.clock_in_at) ? '' : ` <span class="badge badge-pending" style="font-size:0.68rem">${esc(fmtTanggalPendek(openSession.clock_in_at))}</span>`
+        }</div>
         <p class="att-hint">Lokasi: ${esc(outletName(openSession.outlet_id))}${openSession.is_storing ? ' · <strong>Tugas Luar</strong>' : ''}</p>
         <div class="att-photo-row">
           <button type="button" class="att-shoot" id="btn-shoot-out"><span>📷</span> Ambil Foto Selfie</button>
@@ -447,6 +480,17 @@ function renderFaceRegistrationGate(container, ctx) {
       e.target.disabled = false;
     }
   });
+}
+
+/** Apakah timestamp ini jatuh di tanggal yang sama dengan sekarang, menurut WIB? */
+function sameDayWIB(iso) {
+  const opsi = { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' };
+  return new Date(iso).toLocaleDateString('sv-SE', opsi) === new Date().toLocaleDateString('sv-SE', opsi);
+}
+
+/** 'Rab, 06 Agu' — dipakai menandai sesi yang dimulai hari sebelumnya. */
+function fmtTanggalPendek(iso) {
+  return new Date(iso).toLocaleDateString('id-ID', { weekday: 'short', day: '2-digit', month: 'short', timeZone: 'Asia/Jakarta' });
 }
 
 function formatTime(iso) {

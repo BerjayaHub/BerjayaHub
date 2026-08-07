@@ -1821,6 +1821,33 @@ Menghapus baris juga menghapus fotonya, dan **barisnya dihapus lebih dulu**: kal
 
 Dikunci `node tools/test-kemajuan-sesi.mjs` (11 kasus, termasuk data lama sebelum `0071` dan hari lampau yang tidak boleh diisi surut).
 
+## Shift lintas tengah malam: clock out esok pagi
+
+**Kasus:** clock in 6 Agustus 22:00, clock out 7 Agustus 07:00. **Satu hari kerja**, dan tanpa perlu jadwal shift diatur.
+
+### Yang sudah benar sejak awal
+
+Perhitungannya mengikat hari kerja ke tanggal **clock in**, bukan clock out. Jadi shift itu tercatat sebagai **satu** hari di tanggal 6 — bukan dua, bukan nol. Lembur pun dihitung dari selisih sejak clock in (`minutesSinceClockInMidnight`), yang memang menangani pergantian hari.
+
+Jadwal shift **tidak wajib**. Tanpa jadwal, statusnya hanya kosong (kolom Shift menampilkan "–") dan tidak ada penilaian terlambat — presensinya sendiri tetap tercatat utuh. Jadwal hanya menentukan Tepat waktu / Toleransi / Terlambat.
+
+### Yang rusak, dan sekarang diperbaiki
+
+Halaman presensi hanya memakai `getMyTodaySession()` — yang bertanya *"apa saya clock in HARI INI"*. Pada 7 Agustus pukul 07:00 jawabannya **tidak**, karena clock in-nya tanggal 6. Akibatnya:
+
+- Tombol **Clock Out tidak pernah muncul**. Orangnya tidak punya cara menutup shiftnya.
+- Ia malah bisa **clock in lagi**, sementara baris tanggal 6 menggantung tanpa jam pulang — dan baris tanpa `clock_out_at` **tidak dihitung NBM sama sekali**. Yang bersangkutan baru sadar saat gajian.
+
+`getMyOpenSession()` sebenarnya sudah ada di service sejak lama, tapi **tidak pernah dipanggil**. Sekarang dipakai, dan sesi terbuka lintas hari didahulukan.
+
+**Batas 18 jam.** Tanpa batas, satu kali lupa clock out akan membuat aplikasi terus menampilkan "sedang bekerja" dan **memblokir presensi berhari-hari**. Shift yang benar-benar berjalan lebih dari 18 jam tidak ada; yang lewat dari itu hampir pasti lupa clock out.
+
+Tapi yang lewat batas juga tidak boleh didiamkan — baris menggantung yang tidak pernah disebut akan diam-diam hilang dari NBM. Jadi ia ditampilkan sebagai **peringatan terpisah** di atas kartu presensi, menyebut tanggal dan outletnya, sambil menegaskan bahwa presensi hari ini tetap bisa berjalan.
+
+Kartu "sedang bekerja" juga menyebut **tanggal** kalau clock in-nya bukan hari ini — "sejak 22.00" pada pukul 7 pagi terbaca seperti kekeliruan tanpa itu.
+
+Dikunci `node tools/test-shift-lintas-hari.mjs` (8 kasus, termasuk tepat di batas 18 jam, dan shift malam berikutnya di hari yang sama setelah menutup shift semalam).
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

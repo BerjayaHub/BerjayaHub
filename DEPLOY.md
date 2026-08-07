@@ -282,6 +282,12 @@ select net.http_post(
   tabel, pemutar untuk halaman penuh). Tidak ada yang perlu diatur; kalau setelah
   deploy ada layar yang tampak polos tanpa animasi, berarti `css/styles.css` belum
   ikut ter-push.
+- **Presensi (Staff App)** → shift lintas tengah malam kini bisa **clock out
+  esok paginya** (masuk 6 Agu 22:00 → pulang 7 Agu 07:00, terhitung 1 hari kerja
+  di tanggal 6). Tidak perlu jadwal shift. Sesi yang lebih dari **18 jam** belum
+  ditutup dianggap tertinggal: tidak memblokir presensi hari ini, tapi
+  ditampilkan sebagai peringatan supaya diminta koreksi ke admin.
+  **Ini murni perubahan kode — tidak ada migration.**
 - **Daily Activities (Staff App)** → kartu sesi yang sudah selesai kini
   menampilkan **nama pengerja + jam** dan bisa diketuk untuk melihat rincian +
   foto bukti tiap item. Ada pemilih **tanggal** untuk melihat hari sebelumnya.
@@ -340,6 +346,7 @@ node tools/test-ambang-reminder.mjs
 node tools/test-jenjang-admin.mjs
 node tools/test-item-per-sesi.mjs
 node tools/test-kemajuan-sesi.mjs
+node tools/test-shift-lintas-hari.mjs
 ```
 
 `audit-syntax` yang paling penting: satu SyntaxError membuat **seluruh**

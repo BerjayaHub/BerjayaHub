@@ -78,19 +78,59 @@ async function currentUserId() {
   return user?.id ?? null;
 }
 
-/** Sesi presensi yang masih terbuka (belum clock out) milik user yang login, kalau ada. */
-export async function getMyOpenSession() {
+/**
+ * Sesi presensi yang MASIH TERBUKA milik user yang login — apa pun tanggalnya.
+ *
+ * Ini yang membuat shift malam bisa clock out esok paginya. Halaman presensi
+ * dulu hanya memakai `getMyTodaySession()`, yang bertanya "apa saya clock in
+ * HARI INI". Untuk yang masuk 6 Agustus 22:00, pada 7 Agustus jam 07:00
+ * jawabannya "tidak" — sesinya tak terlihat, tombol Clock Out tak pernah
+ * muncul, dan orangnya malah bisa clock in lagi sementara baris kemarin
+ * menggantung selamanya tanpa jam pulang.
+ *
+ * `maxJam` membatasinya, dan batas itu penting: tanpa batas, satu sesi yang
+ * lupa ditutup tiga hari lalu akan terus tampil "sedang bekerja" dan memblokir
+ * presensi hari ini. Shift yang benar-benar berjalan lebih dari 18 jam tidak
+ * ada; yang lewat dari itu hampir pasti lupa clock out, dan itu urusan koreksi
+ * admin — bukan sesuatu yang boleh menyandera presensi berikutnya.
+ */
+export async function getMyOpenSession(maxJam = 18) {
   const uid = await currentUserId();
   if (!uid) return null;
+  const batas = new Date(Date.now() - maxJam * 3600 * 1000).toISOString();
   const { data, error } = await supabase
     .from('attendance_records')
     .select('*')
     .eq('user_id', uid)
     .is('clock_out_at', null)
+    .gte('clock_in_at', batas)
     .order('clock_in_at', { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) throw error;
+  return data;
+}
+
+/**
+ * Sesi terbuka yang sudah TERLALU LAMA (lewat `maxJam`) — hampir pasti lupa
+ * clock out. Tidak dipakai untuk alur presensi, hanya untuk memberi tahu
+ * orangnya supaya minta koreksi ke admin. Baris menggantung yang tidak pernah
+ * disebut akan diam-diam hilang dari perhitungan NBM.
+ */
+export async function getMySesiTertinggal(maxJam = 18) {
+  const uid = await currentUserId();
+  if (!uid) return null;
+  const batas = new Date(Date.now() - maxJam * 3600 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from('attendance_records')
+    .select('id, clock_in_at, outlet_id')
+    .eq('user_id', uid)
+    .is('clock_out_at', null)
+    .lt('clock_in_at', batas)
+    .order('clock_in_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return null;
   return data;
 }
 
