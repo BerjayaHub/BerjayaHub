@@ -41,6 +41,7 @@ pernah dijalankan.
 | 0072 | `0072_lanjutkan_baris_lama.sql` | **Perbaikan bug**: sesi yang dibuat SEBELUM 0071 tetap terkunci, karena baris "tidak dicentang" ikut terhitung selesai |
 | 0073 | `0073_staff_koreksi_item_sendiri.sql` | Staff bisa memperbaiki & menghapus item yang **dia sendiri** kerjakan, **hari itu juga**; pemilik run tidak lagi bisa menyunting bukti rekannya |
 | 0074 | `0074_hitung_ulang_status_shift.sql` | RPC hitung ulang status terlambat untuk presensi yang terlanjur "Tanpa jadwal" (jadwal disusun setelah orangnya clock in) + versi massal |
+| 0075 | `0075_akurasi_lokasi_presensi.sql` | Simpan **ketelitian** GPS saat clock in/out, supaya keluhan "saya di outlet tapi ditolak" bisa ditelusuri |
 
 > ⚠️ Kalau `0074` sudah terlanjur dijalankan sebelum 7 Agustus sore, **jalankan
 > ulang** — versi pertamanya memakai `ss.created_at`, kolom yang tidak ada di
@@ -293,6 +294,14 @@ select net.http_post(
   ulang dari jadwal yang berlaku. Baris yang sudah dinilai (Tepat waktu /
   Terlambat / dst) **tidak** diberi tombol — penilaian yang sudah terjadi bukan
   sesuatu yang pantas diubah dengan satu ketukan.
+- **Presensi (Staff App) → deteksi lokasi** dirombak: pencarian lebih sabar
+  (sampai 20 dtk, akurasi tinggi, berhenti lebih awal kalau sudah ±50 m), pesan
+  kegagalan **per jenis** (izin ditolak / GPS mati / kelamaan), tombol **↻ Coba
+  Deteksi Lagi**, dan banner menyebut **jarak ke outlet terdekat + ketelitian**.
+  Presensi diterima juga kalau lingkaran ketelitian menyentuh area outlet
+  (maksimal ±250 m) — angkanya tercatat, jadi bukan kelonggaran diam-diam.
+- **Rekap Presensi** → kolom Clock In menampilkan `±N m` (merah) kalau ketelitian
+  GPS-nya di atas 100 m.
 - **Presensi (Staff App)** → shift lintas tengah malam kini bisa **clock out
   esok paginya** (masuk 6 Agu 22:00 → pulang 7 Agu 07:00, terhitung 1 hari kerja
   di tanggal 6). Tidak perlu jadwal shift. Sesi yang lebih dari **18 jam** belum
@@ -359,6 +368,7 @@ node tools/test-jenjang-admin.mjs
 node tools/test-item-per-sesi.mjs
 node tools/test-kemajuan-sesi.mjs
 node tools/test-shift-lintas-hari.mjs
+node tools/test-geofence-akurasi.mjs
 ```
 
 `audit-syntax` yang paling penting: satu SyntaxError membuat **seluruh**

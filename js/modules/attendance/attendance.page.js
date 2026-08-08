@@ -23,6 +23,7 @@ import { openFaceRegistration } from './face-registration.js';
 import { loadFaceModels, isSameFace } from './face-recognition.js';
 import { pushCardHtml, wirePushCard } from '../../core/push-card.js';
 import { loadingHtml } from '../../core/loading.js';
+import { dapatkanLokasi, pesanAkurasiBuruk } from '../../core/geolocation.js';
 
 export async function renderAttendancePage(container, ctx) {
   const { userId, businessUnitId, outletId } = ctx;
@@ -221,6 +222,7 @@ export async function renderAttendancePage(container, ctx) {
     <div class="att-card fade-in">
       ${shiftInfoHtml}
       <div class="detect-banner" id="detect-banner">📍 Mendeteksi lokasi kamu…</div>
+      <button type="button" id="btn-retry-loc" style="display:none;max-width:200px;margin:6px 0 0">↻ Coba Deteksi Lagi</button>
       <div id="storing-zone"></div>
       <div class="att-photo-row">
         <button type="button" class="att-shoot" id="btn-shoot-in" disabled><span>📷</span> Ambil Foto Selfie</button>
@@ -232,6 +234,10 @@ export async function renderAttendancePage(container, ctx) {
 
   const errorEl = main.querySelector('#att-error');
   const banner = main.querySelector('#detect-banner');
+  const retryBtn = main.querySelector('#btn-retry-loc');
+  // Ketelitian fix yang dipakai untuk deteksi, ikut disimpan ke baris presensi.
+  let lokasiAkurasi = null;
+  retryBtn.addEventListener('click', () => runDetection());
   const storingZone = main.querySelector('#storing-zone');
   const shootBtn = main.querySelector('#btn-shoot-in');
   const clockInBtn = main.querySelector('#btn-clock-in');
@@ -328,31 +334,114 @@ export async function renderAttendancePage(container, ctx) {
     toast('Mode Tugas Luar aktif. Silakan ambil foto selfie.', 'success');
   }
 
+  /**
+   * Ambang ketelitian yang masih boleh dipakai untuk MENERIMA presensi lewat
+   * lingkaran ketelitian. Di atas ini, angkanya terlalu kabur untuk berarti
+   * apa pun — HP yang bilang "saya di suatu tempat dalam radius 1 km" tidak
+   * sedang membuktikan dia ada di outlet.
+   *
+   * KONSEKUENSINYA HARUS DISADARI: radius efektif jadi `radius + akurasi`,
+   * paling jauh `radius + 250 m`. Itu kelonggaran yang nyata, dan dipilih
+   * sadar — fix berbasis wifi/menara di dalam gedung memang jatuh di kisaran
+   * 50-250 m, dan itulah kasus orang jujur yang selama ini tertolak.
+   *
+   * Yang di atas 250 m (mis. "Lokasi Presisi" mati, yang memberi 1-3 km) TIDAK
+   * dilonggarkan — orangnya justru diberi tahu cara membetulkannya. Menerima
+   * angka sekabur itu tidak akan menolong siapa pun; ia hanya memindahkan
+   * kesalahan ke tempat yang lebih sulit dilihat.
+   */
+  const AKURASI_MAKS_TOLERANSI = 250;
+
   async function runDetection() {
-    const loc = await getGeolocation();
+    banner.className = 'detect-banner';
+    banner.innerHTML = '📍 Mencari lokasi kamu…';
+    retryBtn.style.display = 'none';
+    lokasiAkurasi = null;
+
+    let loc = null;
+    let galat = null;
+    try {
+      loc = await dapatkanLokasi({
+        akurasiTarget: 50,
+        timeoutMs: 20000,
+        // Menunggu 20 detik di depan layar yang diam terasa seperti macet.
+        // Angka akurasinya diperlihatkan supaya terlihat ada kemajuan.
+        onProgress: ({ accuracy, detik }) => {
+          banner.innerHTML = `📍 Mencari lokasi kamu… ketelitian ±${Math.round(accuracy)} m (${detik} dtk)`;
+        }
+      });
+    } catch (e) {
+      galat = e;
+    }
+    lokasiAkurasi = loc?.accuracy ?? null;
+
     const withCoords = allOutlets.filter((o) => o.latitude != null && o.longitude != null);
     let best = null;
     let bestDist = Infinity;
+    let terdekat = null;
+    let jarakTerdekat = Infinity;
+    let lewatToleransi = false;
+
     if (loc) {
       for (const o of withCoords) {
         const d = distanceMeters(loc.lat, loc.lng, o.latitude, o.longitude);
-        if (d <= (o.geofence_radius_m ?? 100) && d < bestDist) {
+        const radius = o.geofence_radius_m ?? 100;
+        if (d < jarakTerdekat) {
+          jarakTerdekat = d;
+          terdekat = o;
+        }
+        // Diterima kalau titiknya di dalam radius, ATAU kalau lingkaran
+        // ketelitiannya masih menyentuh area outlet. Alasannya: HP yang
+        // melaporkan "±300 m" tidak sedang mengatakan orangnya di luar — ia
+        // sedang mengatakan tidak tahu. Menolak ketidaktahuan sebagai
+        // pelanggaran adalah cara membuat orang yang benar-benar hadir tidak
+        // bisa absen.
+        //
+        // Kelonggaran ini dibatasi AKURASI_MAKS_TOLERANSI dan angka akurasinya
+        // IKUT DISIMPAN (0075), jadi bisa dipertanggungjawabkan — bukan
+        // kelonggaran diam-diam.
+        const cocok = d <= radius;
+        const cocokLonggar = !cocok && loc.accuracy <= AKURASI_MAKS_TOLERANSI && d - loc.accuracy <= radius;
+        if ((cocok || cocokLonggar) && d < bestDist) {
           best = o;
           bestDist = d;
+          lewatToleransi = !cocok;
         }
       }
     }
+
     if (best) {
       detected = best;
       mode = 'inside';
       banner.className = 'detect-banner detect-in';
-      banner.innerHTML = `✅ Terdeteksi di <strong>${esc(best.business_unit_name)}</strong> / <strong>${esc(best.name)}</strong>`;
+      banner.innerHTML =
+        `✅ Terdeteksi di <strong>${esc(best.business_unit_name)}</strong> / <strong>${esc(best.name)}</strong>` +
+        `<div style="font-size:0.74rem;opacity:0.85">${Math.round(bestDist)} m dari titik outlet · ketelitian ±${Math.round(loc.accuracy)} m${
+          lewatToleransi ? ' · diterima lewat batas ketelitian' : ''
+        }</div>`;
       toast(`Terdeteksi di ${best.name}. Silakan ambil foto selfie.`, 'success');
     } else {
       detected = null;
       mode = 'outside';
       banner.className = 'detect-banner detect-out';
-      banner.innerHTML = loc ? `⚠️ Kamu <strong>di luar area outlet</strong> Berjaya manapun.` : `⚠️ Lokasi tidak terdeteksi (GPS mati / izin ditolak).`;
+      retryBtn.style.display = 'inline-block';
+
+      if (!loc) {
+        // Pesan sesuai JENIS kegagalannya, bukan satu kalimat untuk semua.
+        // "GPS mati / izin ditolak" menyuruh orang memeriksa hal yang sudah
+        // benar, dan menyembunyikan hal yang sebenarnya salah.
+        banner.innerHTML = `⚠️ ${galat?.pesan ?? 'Lokasi tidak bisa diambil.'}`;
+      } else if (loc.accuracy > AKURASI_MAKS_TOLERANSI) {
+        // Inilah kasus "izin sudah diberikan, orangnya memang di outlet, tapi
+        // tetap ditolak". Sebelum ini tidak ada satu pun petunjuk kenapa.
+        banner.innerHTML = `⚠️ ${pesanAkurasiBuruk(loc.accuracy)}`;
+      } else {
+        banner.innerHTML =
+          `⚠️ Kamu <strong>di luar area outlet</strong> Berjaya manapun.` +
+          (terdekat
+            ? `<div style="font-size:0.74rem;opacity:0.85">Terdekat: ${esc(terdekat.name)} — ${Math.round(jarakTerdekat)} m (radius ${terdekat.geofence_radius_m ?? 100} m) · ketelitian ±${Math.round(loc.accuracy)} m</div>`
+            : '');
+      }
     }
     renderStoringZone();
     syncButtons();
@@ -404,6 +493,10 @@ export async function renderAttendancePage(container, ctx) {
 
       const photoPath = await uploadAttendanceSelfie({ outletId: recordOutletId, kind: 'in', file: capturedIn.blob });
       const location = await getGeolocation();
+      // Kalau fix untuk pencatatan tidak membawa akurasi, pakai angka dari
+      // deteksi tadi — lebih baik daripada kolomnya kosong dan keluhan
+      // berikutnya kembali mustahil ditelusuri.
+      if (location && location.accuracy == null && lokasiAkurasi != null) location.accuracy = lokasiAkurasi;
       await clockIn({
         userId,
         businessUnitId: recordBuId,

@@ -482,7 +482,15 @@ function rowHtml(r, outlet, pushAktif) {
       <td>${r.is_storing ? `<span class="badge badge-pending">${tipeOf(r)}</span>` : '<span class="badge badge-approved">Normal</span>'}</td>
       <td style="font-size:0.8rem;max-width:180px">${r.is_storing ? (r.exit_reason ? escapeHtml(r.exit_reason) : '<span style="color:var(--color-text-muted)">tanpa keterangan</span>') : '-'}</td>
       <td style="font-size:0.8rem">${shiftCell(r)}</td>
-      <td>${formatTime(r.clock_in_at)}</td>
+      <td>${formatTime(r.clock_in_at)}${
+        // Ketelitian GPS ditampilkan HANYA kalau meragukan (>100 m). Selalu
+        // menampilkannya membuat angka yang tidak penting ikut ramai; tidak
+        // pernah menampilkannya membuat keluhan "saya di outlet tapi ditolak"
+        // mustahil ditelusuri.
+        r.clock_in_accuracy_m != null && r.clock_in_accuracy_m > 100
+          ? `<div style="font-size:0.7rem;color:var(--color-danger)" title="Ketelitian GPS saat clock in — makin besar makin tidak bisa dipastikan lokasinya">±${r.clock_in_accuracy_m} m</div>`
+          : ''
+      }</td>
       <td>${faceMatchBadgeHtml(r.clock_in_face_match)}${r.clock_out_at ? '<br>' + faceMatchBadgeHtml(r.clock_out_face_match) : ''}</td>
       <td>${fotoButtons || '-'}</td>
       <td style="font-size:0.78rem;max-width:180px" class="address-cell">

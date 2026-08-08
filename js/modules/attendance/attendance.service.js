@@ -2,13 +2,25 @@ import { supabase } from '../../config/supabase-client.js';
 import { compressImage } from '../../core/image-compress.js';
 import { getMyBaseScope } from '../../core/base-scope.js';
 
+/**
+ * Lokasi untuk keperluan PENCATATAN (bukan penentuan area).
+ *
+ * Tetap gagal-diam (`null`) karena presensi tidak boleh batal hanya karena
+ * koordinatnya tidak dapat — yang menentukan area sudah diputuskan lebih dulu
+ * lewat `dapatkanLokasi()` di core/geolocation.js, yang punya pesan kesalahan
+ * sendiri.
+ *
+ * Bedanya dengan versi lama: akurasi tinggi, waktu tunggu lebih masuk akal, dan
+ * fix berumur <30 detik boleh dipakai ulang. Timeout 5 detik dulu memotong
+ * pencarian tepat sebelum GPS berhasil mengunci di dalam ruangan.
+ */
 export function getGeolocation() {
   return new Promise((resolve) => {
     if (!navigator.geolocation) return resolve(null);
     navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => resolve(null), // staff tetap bisa absen walau lokasi ditolak/gagal
-      { timeout: 5000 }
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
     );
   });
 }
@@ -225,6 +237,10 @@ export async function clockIn({
       nbm_outlet_id: nbmOutletId ?? null,
       clock_in_lat: loc?.lat ?? null,
       clock_in_lng: loc?.lng ?? null,
+      // Ketelitian ikut disimpan (0075): koordinat tanpa angka ini adalah
+      // setengah informasi, dan keluhan "saya di outlet tapi ditolak" jadi
+      // mustahil ditelusuri setelah kejadian.
+      clock_in_accuracy_m: loc?.accuracy != null ? Math.round(loc.accuracy) : null,
       is_storing: !!isStoring,
       exit_method: isStoring ? exitMethod ?? null : null,
       exit_reason: isStoring ? exitReason ?? null : null,
@@ -245,6 +261,7 @@ export async function clockOut(recordId, { photoPath, faceMatch } = {}) {
       clock_out_at: new Date().toISOString(),
       clock_out_lat: loc?.lat ?? null,
       clock_out_lng: loc?.lng ?? null,
+      clock_out_accuracy_m: loc?.accuracy != null ? Math.round(loc.accuracy) : null,
       ...(photoPath ? { clock_out_photo_path: photoPath } : {}),
       clock_out_face_match: faceMatch === undefined ? null : faceMatch
     })
@@ -439,7 +456,7 @@ export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFro
     // `user_id` WAJIB ikut: dipakai UI untuk mencocokkan penanda 🔕 (status
     // langganan push). Tanpa kolom ini pencocokannya meleset diam-diam dan
     // SEMUA staff ditandai belum mengaktifkan notifikasi.
-    .select('id, user_id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, shift_name, late_minutes, late_status, business_unit_id, nbm_business_unit_id, nbm_outlet_id, nbm_outlet_note, outlet_id, user_profiles!user_id(full_name)')
+    .select('id, user_id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, clock_in_accuracy_m, shift_name, late_minutes, late_status, business_unit_id, nbm_business_unit_id, nbm_outlet_id, nbm_outlet_note, outlet_id, user_profiles!user_id(full_name)')
     .or(`nbm_business_unit_id.eq.${businessUnitId},and(nbm_business_unit_id.is.null,business_unit_id.eq.${businessUnitId})`)
     .order('clock_in_at', { ascending: false })
     .limit(200);
