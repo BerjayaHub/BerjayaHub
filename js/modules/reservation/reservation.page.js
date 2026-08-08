@@ -1,7 +1,8 @@
 import { listMyOutlets } from '../../core/my-outlets.js';
+import { idSaya } from '../../core/base-scope.js';
 import { renderReservationHotelPage } from './reservation.hotel.page.js';
-import { toast, formDialog } from '../../core/ui.js';
-import { todayWIB } from '../../core/dates.js';
+import { toast, formDialog, infoDialog } from '../../core/ui.js';
+import { todayWIB, monthEndWIB, geserHari } from '../../core/dates.js';
 import {
   RES_STATUS,
   RES_BADGE,
@@ -10,9 +11,13 @@ import {
   getAvailability,
   createReservation,
   listReservations,
-  getReservationTerms
+  getReservationTerms,
+  catatDpReservasi,
+  uploadDepositProof,
+  getDepositProofUrl
 } from './reservation.service.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
+import { formatRupiah } from '../../core/format.js';
 
 /**
  * Reservasi — Staff App.
@@ -41,10 +46,25 @@ export async function renderReservationPage(container, { businessUnitId }) {
     return renderReservationHotelPage(container, { businessUnitId, outlets: outletHotel });
   }
 
-  // Default HARI INI, bukan sebulan penuh: yang dibutuhkan staff saat membuka
-  // halaman ini adalah tamu yang datang hari ini, bukan riwayat sebulan.
+  // Default: HARI INI sampai AKHIR BULAN INI.
+  //
+  // Tanggal yang sudah lewat sengaja tidak ikut. Modul ini dipakai untuk
+  // bersiap, bukan untuk mengenang: yang berguna saat layarnya dibuka adalah
+  // tamu yang BELUM datang. Rentang yang dimulai dari tanggal 1 hanya membuat
+  // baris hari ini terdorong ke bawah oleh reservasi yang sudah selesai.
+  //
+  // Konsekuensi yang perlu diketahui: menjelang akhir bulan rentang bawaannya
+  // jadi pendek, dan reservasi awal bulan depan tidak ikut terlihat. Karena itu
+  // ada pintasan "30 hari" — satu ketukan, bukan mengetik dua tanggal.
   const hariIni = todayWIB();
-  const state = { outletId: outlets[0].id, from: hariIni, to: hariIni };
+  const akhirBulan = monthEndWIB();
+  const state = { outletId: outlets[0].id, from: hariIni, to: akhirBulan };
+
+  // Dipakai HANYA untuk memutuskan tombol "Catat DP" pantas muncul atau tidak.
+  // Database tetap yang menolak; ini supaya staff tidak ditawari tombol yang
+  // sudah pasti gagal — tombol semacam itu melatih orang mengabaikan pesan
+  // error, dan sesudah itu pesan error yang benar-benar penting ikut diabaikan.
+  const sayaId = await idSaya().catch(() => null);
 
   container.innerHTML = `
     <div class="page-header">
@@ -57,13 +77,13 @@ export async function renderReservationPage(container, { businessUnitId }) {
         <select id="rv-outlet">${outlets.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}</select>
       </div>
       <div class="field" style="margin:0;max-width:165px"><label>Dari tanggal</label><input type="date" id="rv-from" value="${hariIni}" /></div>
-      <div class="field" style="margin:0;max-width:165px"><label>Sampai tanggal</label><input type="date" id="rv-to" value="${hariIni}" /></div>
-      <button class="primary" id="rv-refresh" style="max-width:120px">Tampilkan</button>
+      <div class="field" style="margin:0;max-width:165px"><label>Sampai tanggal</label><input type="date" id="rv-to" value="${akhirBulan}" /></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="rv-quick" data-range="today">Hari ini</button>
         <button class="rv-quick" data-range="tomorrow">Besok</button>
         <button class="rv-quick" data-range="week">7 hari</button>
-        <button class="rv-quick" data-range="month">Bulan ini</button>
+        <button class="rv-quick" data-range="month">Sisa bulan ini</button>
+        <button class="rv-quick" data-range="30">30 hari</button>
       </div>
     </div>
 
@@ -75,25 +95,33 @@ export async function renderReservationPage(container, { businessUnitId }) {
     state.outletId = e.target.value;
     refresh();
   });
-  container.querySelector('#rv-from').addEventListener('change', (e) => (state.from = e.target.value));
-  container.querySelector('#rv-to').addEventListener('change', (e) => (state.to = e.target.value));
-  container.querySelector('#rv-refresh').addEventListener('click', refresh);
+  // Tombol "Tampilkan" dihapus: mengubah tanggal LALU menekan tombol berarti
+  // setiap perubahan punya dua langkah, dan langkah kedua itu mudah terlupakan —
+  // gejalanya staff menatap daftar yang tidak sesuai tanggal di layarnya sendiri
+  // dan mengira reservasinya hilang. Sekarang daftarnya ikut begitu tanggalnya
+  // diubah.
+  container.querySelector('#rv-from').addEventListener('change', (e) => {
+    state.from = e.target.value;
+    refresh();
+  });
+  container.querySelector('#rv-to').addEventListener('change', (e) => {
+    state.to = e.target.value;
+    refresh();
+  });
   container.querySelector('#rv-new').addEventListener('click', openForm);
 
   // Pintasan rentang — rentang lain tetap bisa diisi manual lewat dua kolom tanggal.
   container.querySelectorAll('.rv-quick').forEach((b) =>
     b.addEventListener('click', () => {
       const t = todayWIB();
-      const geser = (n) => {
-        const d = new Date(t + 'T00:00:00');
-        d.setDate(d.getDate() + n);
-        const pad = (x) => String(x).padStart(2, '0');
-        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-      };
+      const geser = (n) => geserHari(t, n);
       if (b.dataset.range === 'today') [state.from, state.to] = [t, t];
       if (b.dataset.range === 'tomorrow') [state.from, state.to] = [geser(1), geser(1)];
       if (b.dataset.range === 'week') [state.from, state.to] = [t, geser(6)];
-      if (b.dataset.range === 'month') [state.from, state.to] = [t.slice(0, 8) + '01', geser(0)];
+      // "Bulan ini" menatap ke DEPAN (hari ini → akhir bulan), bukan ke belakang
+      // seperti di modul laporan. Reservasi kemarin tidak bisa disiapkan lagi.
+      if (b.dataset.range === 'month') [state.from, state.to] = [t, monthEndWIB()];
+      if (b.dataset.range === '30') [state.from, state.to] = [t, geser(30)];
       container.querySelector('#rv-from').value = state.from;
       container.querySelector('#rv-to').value = state.to;
       refresh();
@@ -117,7 +145,7 @@ export async function renderReservationPage(container, { businessUnitId }) {
       </p>
       <div class="table-scroll">
         <table class="data-table table-freeze-1">
-          <thead><tr><th>Kode</th><th>Tanggal &amp; Jam</th><th>Customer</th><th>Tamu</th><th>Area</th><th>Sumber</th><th>Status</th></tr></thead>
+          <thead><tr><th>Kode</th><th>Tanggal &amp; Jam</th><th>Customer</th><th>Tamu</th><th>Area</th><th>DP</th><th>Sumber</th><th>Status</th></tr></thead>
           <tbody>
             ${
               rows
@@ -131,17 +159,85 @@ export async function renderReservationPage(container, { businessUnitId }) {
                       ${r.notes ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">💬 ${esc(r.notes)}</div>` : ''}</td>
                     <td style="text-align:right">${r.pax}</td>
                     <td style="font-size:0.82rem">${esc(r.reservation_areas?.name ?? '-')}</td>
+                    <td style="font-size:0.8rem;white-space:nowrap">
+                      ${
+                        r.deposit_amount
+                          ? `${esc(formatRupiah(Number(r.deposit_amount)))}${
+                              r.deposit_proof_path
+                                ? ` <button class="rv-bukti" data-id="${r.id}" title="Lihat bukti transfer" style="padding:2px 6px;font-size:0.72rem">📎</button>`
+                                : ' <span title="Belum ada bukti transfer" style="color:var(--color-danger)">⚠</span>'
+                            }`
+                          : !r.created_by || r.created_by === sayaId
+                            ? `<button class="rv-dp" data-id="${r.id}" style="padding:4px 8px;font-size:0.75rem">💰 Catat DP</button>`
+                            : '<span style="color:var(--color-text-muted);font-size:0.75rem" title="DP reservasi ini dicatat oleh staff yang membuatnya, atau oleh admin">—</span>'
+                      }
+                    </td>
                     <td style="font-size:0.78rem">${esc(SOURCE_LABEL[r.source] ?? r.source)}</td>
                     <td><span class="badge ${RES_BADGE[r.status] ?? ''}">${RES_STATUS[r.status] ?? r.status}</span>
                       ${r.review_note ? `<div style="font-size:0.72rem;color:var(--color-text-muted)">${esc(r.review_note)}</div>` : ''}</td>
                   </tr>`
                 )
-                .join('') || '<tr><td colspan="7">Belum ada reservasi pada rentang ini.</td></tr>'
+                .join('') || '<tr><td colspan="8">Belum ada reservasi pada rentang ini.</td></tr>'
             }
           </tbody>
         </table>
       </div>
     `;
+
+    // 📎 harus bisa DIBUKA. Penanda yang tidak bisa diklik hanya memberi tahu
+    // bahwa buktinya ada di suatu tempat — dan pertanyaannya selalu "berapa yang
+    // ditransfer", bukan "apakah ada filenya".
+    list.querySelectorAll('.rv-bukti').forEach((b) =>
+      b.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const r = rows.find((x) => x.id === b.dataset.id);
+          const url = await getDepositProofUrl(r?.deposit_proof_path).catch(() => null);
+          if (!url) return toast('Bukti transfer tidak bisa dibuka.', 'error');
+          infoDialog({
+            title: `Bukti transfer ${r.code ?? ''}`.trim(),
+            bodyHtml: `<img src="${url}" alt="Bukti transfer" style="width:100%;border-radius:8px" />
+              <p style="font-size:0.78rem;color:var(--color-text-muted);margin:8px 0 0">DP ${esc(formatRupiah(Number(r.deposit_amount ?? 0)))}</p>`
+          });
+        })
+      )
+    );
+
+    // Catat DP belakangan. Bukti transfer sering baru dikirim customer
+    // beberapa jam setelah menelepon; memaksa DP diisi bersamaan dengan
+    // pembuatan reservasi berarti sebagian besar DP tidak akan pernah tercatat.
+    list.querySelectorAll('.rv-dp').forEach((b) =>
+      b.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const r = rows.find((x) => x.id === b.dataset.id);
+          if (!r) return;
+          const values = await formDialog({
+            title: `Catat DP ${r.code ?? ''}`.trim(),
+            description: `${r.customer_name} · ${r.pax} orang · ${fmtDate(r.reserve_date)} ${String(r.reserve_time).slice(0, 5)}`,
+            fields: [
+              { name: 'deposit_amount', label: 'DP diterima (Rp)', type: 'money', required: true, value: '' },
+              {
+                name: 'deposit_proof',
+                label: 'Foto bukti transfer',
+                type: 'photo',
+                facing: 'environment',
+                required: true,
+                // Wajib di sini, tidak seperti di form reservasi baru: di sana
+                // DP-nya boleh dilewati sama sekali, tapi begitu seseorang
+                // menekan "Catat DP", nominal tanpa bukti justru yang paling
+                // sulit dipertanggungjawabkan belakangan.
+                help: 'Nominalnya percuma kalau buktinya tidak ikut.'
+              }
+            ],
+            submitText: 'Simpan DP'
+          });
+          if (!values) return;
+          const ok = await simpanDp(r, values.deposit_amount, values.deposit_proof);
+          if (ok) await refresh();
+        })
+      )
+    );
   }
 
   async function openForm() {
@@ -178,6 +274,26 @@ export async function renderReservationPage(container, { businessUnitId }) {
         },
         { name: 'referral_source', label: 'Tahu dari mana (opsional)', type: 'text', placeholder: 'Instagram, teman, Google Maps…' },
         { name: 'notes', label: 'Permintaan khusus (opsional)', type: 'text', placeholder: 'ulang tahun, kursi bayi, alergi…' },
+        // DP dicatat DI SINI, bukan hanya di Admin Portal.
+        //
+        // Yang menerima bukti transfer di WhatsApp adalah staff yang mengangkat
+        // teleponnya. Selama jalurnya cuma ada di admin, buktinya berhenti di
+        // galeri HP staff — dan saat dia libur, tidak ada yang bisa menjawab
+        // berapa DP yang sudah masuk untuk reservasi ini.
+        {
+          name: 'deposit_amount',
+          label: 'DP diterima (Rp) — opsional',
+          type: 'money',
+          value: '',
+          help: 'Kosongkan kalau DP-nya belum masuk. Bisa dicatat belakangan lewat tombol 💰 di daftar.'
+        },
+        {
+          name: 'deposit_proof',
+          label: 'Foto bukti transfer',
+          type: 'photo',
+          facing: 'environment',
+          help: 'Simpan buktinya di sini, bukan di galeri pribadi.'
+        },
         // S&K ditampilkan DI DALAM form, bukan sebagai tautan terpisah. Yang
         // dibaca orang adalah yang ada di depan matanya; ketentuan yang harus
         // diklik dulu praktis tidak pernah dibuka, dan itu justru yang jadi
@@ -263,9 +379,43 @@ export async function renderReservationPage(container, { businessUnitId }) {
         termsAccepted: !!values.terms_accepted
       });
       toast(`Reservasi ${row?.code ?? ''} tersimpan.`, 'success');
+      // DP dicatat SETELAH reservasinya jadi, karena path fotonya memuat ID
+      // reservasi. Kegagalan di sini tidak boleh membatalkan reservasinya —
+      // yang sudah dijanjikan ke tamu adalah mejanya, bukan catatan DP-nya.
+      await simpanDp(row, values.deposit_amount, values.deposit_proof);
       await refresh();
     } catch (error) {
       toast(error.message ?? 'Gagal menyimpan reservasi.', 'error');
+    }
+  }
+
+  /**
+   * Catat DP untuk sebuah reservasi yang sudah ada.
+   * @returns {Promise<boolean>} tersimpan atau tidak
+   */
+  async function simpanDp(row, nominal, foto) {
+    // Field `money` mengembalikan 0 untuk isian kosong, bukan ''. Tanpa
+    // pemeriksaan > 0, membiarkan kolom DP kosong akan mencatat "DP Rp 0" —
+    // angka yang terlihat pasti padahal artinya justru "tidak ada DP", dan
+    // sesudah itu tombol Catat DP tidak muncul lagi.
+    const adaNominal = Number(nominal) > 0;
+    if (!adaNominal && !foto) return false;
+    if (!row?.id) {
+      toast('DP belum tercatat — reservasinya tersimpan, tapi ID-nya tidak terbaca. Catat lewat Admin Portal.', 'warning');
+      return false;
+    }
+    try {
+      // Foto diunggah dulu supaya nominal dan buktinya masuk dalam satu
+      // panggilan. Kalau unggahannya gagal, tidak ada yang tercatat sama
+      // sekali — nominal tanpa bukti justru yang paling sulit diperiksa
+      // belakangan.
+      const path = foto ? await uploadDepositProof({ outletId: row.outlet_id ?? state.outletId, reservationId: row.id, file: foto }) : null;
+      await catatDpReservasi({ id: row.id, deposit: adaNominal ? Number(nominal) : null, depositProof: path });
+      toast('DP tercatat.', 'success');
+      return true;
+    } catch (error) {
+      toast(`Reservasi tersimpan, tapi DP GAGAL dicatat: ${error.message ?? error}. Coba lagi lewat tombol 💰.`, 'error');
+      return false;
     }
   }
 

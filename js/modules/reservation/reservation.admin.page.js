@@ -294,7 +294,12 @@ function wireActions(host, rows, reload) {
           pax: Number(values.pax),
           areaId: values.area_id || null,
           notes: values.notes ?? '',
-          deposit: values.deposit_amount === '' || values.deposit_amount == null ? null : Number(values.deposit_amount),
+          // Field `money` mengembalikan 0 untuk isian kosong, bukan ''. Di form
+          // KOREKSI, kolomnya sudah terisi nilai lama — jadi mengosongkannya
+          // adalah niat "DP ini salah, hapus", bukan "biarkan saja". RPC
+          // memaknai 0 sebagai penghapusan (0079); tanpa itu DP yang tercatat
+          // di reservasi yang keliru tidak akan pernah bisa dicabut.
+          deposit: Number(values.deposit_amount) > 0 ? Number(values.deposit_amount) : 0,
           depositProof: path
         });
         toast('Reservasi diperbarui.', 'success');

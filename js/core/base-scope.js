@@ -39,6 +39,21 @@ export async function getMyBaseScope(fallback = {}) {
   return fallback;
 }
 
+/**
+ * UUID user yang sedang masuk, atau null.
+ *
+ * Dipakai untuk memutuskan tombol mana yang PANTAS ditampilkan — bukan untuk
+ * mengamankan apa pun. Yang menegakkan izin tetap RLS dan RPC di database;
+ * kalau nilai ini salah, yang terjadi paling jauh adalah tombol yang keliru
+ * muncul lalu ditolak server, bukan data yang bocor.
+ */
+export async function idSaya() {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  return user?.id ?? null;
+}
+
 /** Apakah basisnya benar-benar dari ★, bukan sekadar fallback konteks aktif. */
 export async function punyaBasisTertandai() {
   const {

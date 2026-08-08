@@ -45,6 +45,7 @@ pernah dijalankan.
 | 0076 | `0076_item_multi_outlet.sql` | Item Daily Activities bisa berlaku di **beberapa outlet** (mis. Serpong + Sentul, CK tidak) |
 | 0077 | `0077_jam_reservasi_fleksibel_dan_syarat.sql` | Jam reservasi bebas (kuota dihitung per slot), + **Syarat & Ketentuan per outlet** dan pencatatan persetujuannya |
 | 0078 | `0078_reservasi_dp_dan_koreksi.sql` | **DP + foto bukti transfer**, bucket `reservation-proofs`, dan RPC koreksi/reschedule reservasi dengan kuota dihitung ulang |
+| 0079 | `0079_dp_dari_staff_app.sql` | **DP bisa dicatat dari Staff App** (RPC `catat_dp_reservasi`), kolom `deposit_by`, nominal 0 = hapus DP, dan bukti transfer tidak lagi bisa ditimpa sembarang orang |
 
 > ⚠️ Kalau `0074` sudah terlanjur dijalankan sebelum 7 Agustus sore, **jalankan
 > ulang** — versi pertamanya memakai `ss.created_at`, kolom yang tidak ada di
@@ -307,6 +308,18 @@ select net.http_post(
   ⚠️ **Isi dulu sebelum dipakai** — teks inilah yang ikut di pesan WhatsApp
   konfirmasi, form Staff App, dan halaman publik. Gading Serpong dan Sentul diisi
   masing-masing.
+- **Reservasi (Staff App)** → daftarnya **langsung tampil** saat modul dibuka,
+  bawaan **hari ini → akhir bulan ini**, dan ikut berubah begitu tanggalnya
+  diganti (tombol "Tampilkan" dihapus). Tanggal yang sudah lewat sengaja tidak
+  ikut; untuk melihat awal bulan depan pakai pintasan **30 hari**.
+- **Reservasi (Staff App) → DP** → nominal DP + foto bukti transfer bisa diisi
+  langsung di form Reservasi Baru, atau belakangan lewat tombol **💰 Catat DP**
+  di kolom DP. Bukti yang sudah ada dibuka lewat **📎**.
+  ⚠️ Staff hanya bisa **mengisi DP yang masih kosong**, di reservasi yang **dia
+  buat sendiri** atau yang **datang dari website** (reservasi website tidak punya
+  pembuat). Mengubah DP yang sudah tercatat adalah pekerjaan admin (Reservasi →
+  Semua Reservasi → ✎ Koreksi), dan di sana **mengosongkan kolom DP = menghapus
+  DP-nya**. Butuh `0079`.
 - **Reservasi → form staff** → **Jam kini bebas** (tidak harus .00). Sisa kursi
   slotnya tampil sebagai keterangan setelah tanggal & jam dipilih.
   ⚠️ `0077` mengganti `create_reservation` dengan versi 11 argumen dan

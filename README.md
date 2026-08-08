@@ -2043,6 +2043,35 @@ Argumen `NULL` berarti "jangan diubah", dibedakan dari "kosongkan". Form yang me
 
 Hapus permanen disediakan, tapi dialognya menyarankan **ubah status jadi Dibatalkan** untuk pembatalan biasa: jejaknya tetap ada untuk laporan, dan kursi yang dilepas juga sudah kembali ke kuota karena `reservation_slot_usage()` hanya menghitung status `pending`/`confirmed`.
 
+## Reservasi Staff App: DP & rentang bawaan (migration `0079`)
+
+### DP dicatat di tempat uangnya diterima
+
+`0078` hanya membuka jalur DP di Admin Portal. Tapi yang menerima bukti transfer di WhatsApp adalah staff yang mengangkat teleponnya, bukan admin — jadi buktinya berhenti di galeri HP staff, persis keadaan yang mau dihindari `0078`.
+
+Sekarang DP bisa diisi di **form Reservasi Baru**, dan — karena bukti transfer sering baru dikirim customer beberapa jam kemudian — juga belakangan lewat tombol **💰 Catat DP** di kolom DP. Kalau DP dipaksa harus diisi bersamaan dengan pembuatan reservasi, sebagian besar DP tidak akan pernah tercatat.
+
+**Staff mencatat, admin mengoreksi.** Staff hanya boleh mengisi DP yang masih **kosong**, di reservasi yang **dia buat sendiri** — atau yang **datang dari website**, karena reservasi website tidak punya pembuat dan memaksakan pagar "hanya pembuatnya" di situ berarti DP-nya tidak akan pernah bisa dicatat siapa pun kecuali admin, padahal yang menerima transfernya tetap staff yang sama; database (`catat_dp_reservasi`) yang menegakkannya, bukan tampilannya. Membiarkan staff menimpa nominal yang sudah tercatat berarti angka DP bisa turun tanpa jejak, dan yang menanggung selisihnya adalah orang yang menerima uangnya. `deposit_by` menjawab pertanyaan yang selalu muncul saat angkanya diragukan: bukan "kapan", tapi "siapa".
+
+Dua jebakan yang ditutup di jalan ini:
+
+- **Field `money` mengembalikan `0` untuk isian kosong, bukan `''`.** Tanpa pemeriksaan `> 0`, mengosongkan kolom DP akan mencatat "DP Rp 0" — angka yang terlihat pasti padahal artinya justru "tidak ada DP", dan sesudah itu tombol Catat DP tidak muncul lagi karena barisnya sudah dianggap terisi.
+- **`0` di form koreksi admin berarti HAPUS.** Di sana kolomnya sudah terisi nilai lama, jadi mengosongkannya memang niat menghapus. Tanpa arti ini, DP yang tercatat di reservasi yang keliru tidak akan pernah bisa dicabut — hanya bisa diganti angka lain, dan angka apa pun di situ tetap salah.
+
+Policy Storage `0078` juga diperketat: menimpa bukti transfer yang sudah ada kini hanya boleh oleh **pengunggahnya sendiri** atau **admin outlet**. Nama filenya bisa ditebak (`{outlet_id}/{reservation_id}`), jadi sebelumnya bukti yang sudah diperiksa admin bisa diganti siapa pun di outlet itu tanpa jejak. Pengunggahnya tetap boleh menimpa — foto buram itu lumrah, dan tanpa jalur perbaikan orang berhenti mengunggah sama sekali.
+
+Aturannya dikunci `node tools/test-dp-reservasi.mjs` (25 kasus).
+
+### Rentang bawaan: hari ini → akhir bulan, tanpa menekan apa pun
+
+Modul ini dipakai untuk **bersiap**, bukan untuk mengenang: yang berguna saat layarnya dibuka adalah tamu yang belum datang. Karena itu bawaannya **hari ini sampai akhir bulan ini**, tanggal yang sudah lewat tidak ikut, dan "Bulan ini" di sini artinya kebalikan dari "Bulan ini" di modul laporan (yang menoleh ke belakang, tanggal 1 → hari ini).
+
+Tombol **"Tampilkan" dihapus.** Mengubah tanggal lalu menekan tombol berarti setiap perubahan punya dua langkah, dan langkah kedua itu mudah terlupakan — gejalanya staff menatap daftar yang tidak sesuai dengan tanggal di layarnya sendiri, lalu mengira reservasinya hilang.
+
+**Konsekuensi yang perlu diketahui:** menjelang akhir bulan rentang bawaannya jadi pendek (tanggal 29 → 3 hari), dan reservasi awal bulan depan tidak ikut terlihat. Itu sebabnya ada pintasan **30 hari** — satu ketukan, bukan mengetik dua tanggal.
+
+Dikunci `node tools/test-rentang-reservasi.mjs` (24 kasus). Yang dijaga: rentangnya tidak pernah terbalik (`dari > sampai`). Rentang terbalik tidak menghasilkan error apa pun — query-nya sah, hasilnya kosong — dan gejalanya persis sama dengan "tidak ada reservasi".
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
@@ -2062,5 +2091,5 @@ Hapus permanen disediakan, tapi dialognya menyarankan **ubah status jadi Dibatal
 - [x] **Modul Reservasi** — input Staff App + halaman publik `reservasi.html`, kuota per slot, approval Admin Portal, notifikasi Telegram & Web Push
 - [x] **Mode Reservasi Hotel** — booking kamar (rentang tanggal + tipe kamar), kuota per tipe dijaga trigger database, check-in/check-out, tanpa persetujuan & tanpa jalur website
 - [x] **Video Tutorial per modul** — tombol ❓ di header modul (Staff App + Admin Portal) **dan daftar per modul di Beranda Staff**, video YouTube Unlisted, global atau khusus BU, dikelola super admin
-- [x] **Reservasi: jam bebas, S&K per outlet, DP + bukti transfer, koreksi/reschedule oleh admin** — jam tidak harus .00 (kuota tetap dihitung per slot), S&K ikut di pesan WhatsApp, DP dicatat beserta fotonya (**tidak masuk modul Kas**)
+- [x] **Reservasi: jam bebas, S&K per outlet, DP + bukti transfer, koreksi/reschedule oleh admin** — jam tidak harus .00 (kuota tetap dihitung per slot), S&K ikut di pesan WhatsApp, DP dicatat beserta fotonya **dari Staff App maupun Admin Portal** (**tidak masuk modul Kas**)
 - [x] **Kantong kas (sub-kas) & outlet peruntukan** — form Kas Masuk/Keluar dibedakan, jumlah kantong per user diatur admin, pindah saldo antar kantong sendiri, Laporan Kas bisa disaring per outlet & kategori

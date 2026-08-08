@@ -377,6 +377,27 @@ export async function updateReservation({ id, name, phone, email, date, time, pa
 }
 
 /**
+ * Catat DP dari Staff App (0079).
+ *
+ * Dipisah dari `createReservation` karena path fotonya memuat ID reservasi —
+ * fotonya baru bisa diunggah setelah barisnya ada. Nominal dan path dikirim
+ * dalam SATU panggilan supaya "DP tercatat" berarti satu hal saja, bukan
+ * setengah nominal setengah bukti.
+ *
+ * Staff hanya boleh mengisi DP yang masih kosong di reservasi buatannya
+ * sendiri; database yang menegakkannya, bukan tampilan ini.
+ */
+export async function catatDpReservasi({ id, deposit, depositProof }) {
+  const { data, error } = await supabase.rpc('catat_dp_reservasi', {
+    p_id: id,
+    p_deposit: deposit ?? null,
+    p_proof: depositProof ?? null
+  });
+  if (error) throw error;
+  return data;
+}
+
+/**
  * Unggah bukti transfer DP. Path: {outlet_id}/{reservation_id}.{ext}
  *
  * Path diawali outlet_id karena policy Storage-nya berbasis PREFIX — pelajaran
@@ -406,7 +427,7 @@ export async function listReservations({ businessUnitId, outletId, status, dateF
   let q = supabase
     .from('reservations')
     .select(
-      'id, code, outlet_id, mode, customer_name, phone, email, reserve_date, reserve_time, pax, check_in, check_out, adults, children, room_no, room_type_id, checked_in_at, checked_out_at, notes, referral_source, source, status, review_note, reviewed_at, created_at, deposit_amount, deposit_proof_path, deposit_at, terms_accepted_at, room_types(name), reservation_areas(name), outlets!outlet_id(name), creator:user_profiles!created_by(full_name), reviewer:user_profiles!reviewed_by(full_name)'
+      'id, code, outlet_id, mode, customer_name, phone, email, reserve_date, reserve_time, pax, check_in, check_out, adults, children, room_no, room_type_id, checked_in_at, checked_out_at, notes, referral_source, source, status, review_note, reviewed_at, created_at, created_by, deposit_amount, deposit_proof_path, deposit_at, terms_accepted_at, room_types(name), reservation_areas(name), outlets!outlet_id(name), creator:user_profiles!created_by(full_name), reviewer:user_profiles!reviewed_by(full_name)'
     )
     .eq('business_unit_id', businessUnitId)
     .order('reserve_date', { ascending: false })
