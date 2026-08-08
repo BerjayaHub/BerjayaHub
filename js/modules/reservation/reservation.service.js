@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { compressImage } from '../../core/image-compress.js';
 
 export const RES_STATUS = {
   pending: 'Menunggu',
@@ -347,12 +348,65 @@ export async function deleteReservation(id) {
   if (!data?.length) throw new Error('Tidak bisa menghapus booking ini — kamu bukan admin outletnya.');
 }
 
+/**
+ * Koreksi / reschedule reservasi (0078).
+ *
+ * Lewat RPC, bukan UPDATE langsung, karena mengubah tanggal/jam/pax berarti
+ * kuota harus dihitung ulang. UPDATE biasa akan memindahkan rombongan 30 orang
+ * ke slot yang sudah penuh tanpa satu pun penolakan.
+ *
+ * `undefined` berarti "jangan diubah" — dikirim sebagai null ke RPC, yang
+ * memaknainya sama.
+ */
+export async function updateReservation({ id, name, phone, email, date, time, pax, areaId, notes, deposit, depositProof }) {
+  const { data, error } = await supabase.rpc('update_reservation', {
+    p_id: id,
+    p_name: name ?? null,
+    p_phone: phone ?? null,
+    p_email: email ?? null,
+    p_date: date ?? null,
+    p_time: time ?? null,
+    p_pax: pax ?? null,
+    p_area: areaId ?? null,
+    p_notes: notes ?? null,
+    p_deposit: deposit ?? null,
+    p_deposit_proof: depositProof ?? null
+  });
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Unggah bukti transfer DP. Path: {outlet_id}/{reservation_id}.{ext}
+ *
+ * Path diawali outlet_id karena policy Storage-nya berbasis PREFIX — pelajaran
+ * dari 0050: izin yang bergantung pada kolom tabel yang baru diisi setelah
+ * unggahan membuat file baru tidak bisa dibaca pengunggahnya sendiri.
+ */
+export async function uploadDepositProof({ outletId, reservationId, file }) {
+  const kecil = await compressImage(file, { preset: 'bukti' });
+  const ext = kecil.type === 'image/webp' ? 'webp' : 'jpg';
+  const path = `${outletId}/${reservationId}.${ext}`;
+  const { error } = await supabase.storage
+    .from('reservation-proofs')
+    .upload(path, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
+  if (error) throw error;
+  return path;
+}
+
+export async function getDepositProofUrl(path) {
+  if (!path) return null;
+  const { data, error } = await supabase.storage.from('reservation-proofs').createSignedUrl(path, 600);
+  if (error) return null;
+  return data?.signedUrl ?? null;
+}
+
 /** Riwayat reservasi — dipakai Staff App maupun Admin Portal, kedua mode. */
 export async function listReservations({ businessUnitId, outletId, status, dateFrom, dateTo, mode, limit = 300 }) {
   let q = supabase
     .from('reservations')
     .select(
-      'id, code, outlet_id, mode, customer_name, phone, email, reserve_date, reserve_time, pax, check_in, check_out, adults, children, room_no, room_type_id, checked_in_at, checked_out_at, notes, referral_source, source, status, review_note, reviewed_at, created_at, room_types(name), reservation_areas(name), outlets!outlet_id(name), creator:user_profiles!created_by(full_name), reviewer:user_profiles!reviewed_by(full_name)'
+      'id, code, outlet_id, mode, customer_name, phone, email, reserve_date, reserve_time, pax, check_in, check_out, adults, children, room_no, room_type_id, checked_in_at, checked_out_at, notes, referral_source, source, status, review_note, reviewed_at, created_at, deposit_amount, deposit_proof_path, deposit_at, terms_accepted_at, room_types(name), reservation_areas(name), outlets!outlet_id(name), creator:user_profiles!created_by(full_name), reviewer:user_profiles!reviewed_by(full_name)'
     )
     .eq('business_unit_id', businessUnitId)
     .order('reserve_date', { ascending: false })

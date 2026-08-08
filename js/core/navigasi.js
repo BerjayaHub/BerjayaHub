@@ -163,6 +163,36 @@ export function bersihkanLapis() {
   tumpukan.length = 0;
 }
 
+/**
+ * Lapis untuk SUB-HALAMAN di dalam modul (form, rincian, layar isian) yang
+ * digambar di tempat, bukan sebagai dialog.
+ *
+ * KENAPA ADA: versi pertama hanya memberi lapis pada modul, jadi Back dari
+ * form di tengah modul melompat langsung ke Beranda. Orangnya lalu harus
+ * masuk lagi ke modul yang sama hanya untuk kembali ke daftar yang tadi dia
+ * tinggalkan — hukuman untuk gerakan yang maksudnya cuma "batal".
+ *
+ * Dengan ini urutannya jadi wajar: form → daftar modul → Beranda.
+ *
+ * @param {string} nama
+ * @param {() => void} kembaliKeDaftar menggambar ulang layar utama modulnya
+ * @returns {() => void} pembersih untuk tombol "← Kembali" di layar itu
+ */
+export function dorongSubHalaman(nama, kembaliKeDaftar) {
+  let lewatBack = false;
+  const lepas = dorongLapis(`sub:${nama}`, () => {
+    lewatBack = true;
+    kembaliKeDaftar();
+  });
+  // Sama seperti dialog: kalau tombol Kembali yang dipakai, entri history-nya
+  // harus dibuang sendiri. Kalau Back yang dipakai, browser sudah membuangnya —
+  // membuangnya lagi akan memundurkan satu langkah tambahan dan melempar
+  // orangnya keluar modul.
+  return () => {
+    if (!lewatBack) lepas();
+  };
+}
+
 /** Berapa lapis yang sedang terbuka — untuk pemeriksaan. */
 export function jumlahLapis() {
   return tumpukan.length;

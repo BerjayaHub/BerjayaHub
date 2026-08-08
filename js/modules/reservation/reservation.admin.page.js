@@ -20,9 +20,14 @@ import {
   buildRejectMessage,
   getReservationTerms,
   saveReservationTerms,
+  updateReservation,
+  uploadDepositProof,
+  getDepositProofUrl,
+  deleteReservation,
   waNumber
 } from './reservation.service.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
+import { formatRupiah } from '../../core/format.js';
 
 const TABS = [
   { key: 'inbox', label: 'Perlu Diproses' },
@@ -226,6 +231,103 @@ function wireActions(host, rows, reload) {
     })
   );
 
+  host.querySelectorAll('.rv-edit').forEach((b) =>
+    b.addEventListener('click', sekaliJalan(async () => {
+      const r = byId(b.dataset.id);
+      const areas = await listReservationAreas(r.outlet_id).catch(() => []);
+      const buktiUrl = await getDepositProofUrl(r.deposit_proof_path).catch(() => null);
+      const values = await formDialog({
+        title: `Koreksi ${r.code ?? 'Reservasi'}`,
+        description:
+          'Untuk reschedule atau ralat data dari customer. Kuota slot dihitung ulang otomatis kalau tanggal, jam, ' +
+          'atau jumlah tamunya berubah — jadi pemindahan ke slot yang sudah penuh akan ditolak, bukan diterima diam-diam.',
+        fields: [
+          { name: 'customer_name', label: 'Nama customer', type: 'text', required: true, value: r.customer_name ?? '' },
+          { name: 'phone', label: 'No. WhatsApp', type: 'tel', required: true, value: r.phone ?? '' },
+          { name: 'email', label: 'Email', type: 'email', value: r.email ?? '' },
+          { name: 'reserve_date', label: 'Tanggal', type: 'date', required: true, value: r.reserve_date ?? '' },
+          { name: 'reserve_time', label: 'Jam', type: 'time', required: true, value: String(r.reserve_time ?? '').slice(0, 5) },
+          { name: 'pax', label: 'Jumlah tamu', type: 'number', required: true, min: 1, value: String(r.pax ?? 1) },
+          {
+            name: 'area_id',
+            label: 'Area',
+            type: 'select',
+            value: r.area_id ?? '',
+            options: [{ value: '', label: '-- tidak ditentukan --' }, ...areas.map((a) => ({ value: a.id, label: a.name }))]
+          },
+          { name: 'notes', label: 'Permintaan khusus', type: 'text', value: r.notes ?? '' },
+          {
+            name: 'deposit_amount',
+            label: 'DP diterima (Rp)',
+            type: 'money',
+            value: r.deposit_amount ?? '',
+            help: buktiUrl ? 'Sudah ada bukti transfer terlampir. Unggah ulang hanya kalau perlu diganti.' : 'Kosongkan kalau belum ada DP.'
+          },
+          {
+            name: 'deposit_proof',
+            label: buktiUrl ? 'Ganti foto bukti transfer' : 'Foto bukti transfer',
+            type: 'photo',
+            facing: 'environment',
+            currentUrl: buktiUrl ?? '',
+            help: 'Simpan bukti transfernya di sini, bukan di galeri pribadi — saat yang menerima transfer libur, tidak ada yang bisa menjawab berapa DP yang sudah masuk.'
+          }
+        ],
+        submitText: 'Simpan Koreksi'
+      });
+      if (!values) return;
+
+      try {
+        // Foto diunggah DULU supaya path-nya ikut dalam satu koreksi. Kalau
+        // unggahannya gagal, tidak ada perubahan sama sekali — lebih baik
+        // daripada nominal DP tersimpan tanpa buktinya.
+        let path = null;
+        if (values.deposit_proof) {
+          path = await uploadDepositProof({ outletId: r.outlet_id, reservationId: r.id, file: values.deposit_proof });
+        }
+        await updateReservation({
+          id: r.id,
+          name: values.customer_name,
+          phone: values.phone,
+          email: values.email ?? '',
+          date: values.reserve_date,
+          time: values.reserve_time,
+          pax: Number(values.pax),
+          areaId: values.area_id || null,
+          notes: values.notes ?? '',
+          deposit: values.deposit_amount === '' || values.deposit_amount == null ? null : Number(values.deposit_amount),
+          depositProof: path
+        });
+        toast('Reservasi diperbarui.', 'success');
+        await reload();
+      } catch (error) {
+        toast(error.message ?? 'Gagal menyimpan koreksi.', 'error');
+      }
+    }))
+  );
+
+  host.querySelectorAll('.rv-del').forEach((b) =>
+    b.addEventListener('click', sekaliJalan(async () => {
+      const r = byId(b.dataset.id);
+      const ok = await confirmDialog({
+        title: `Hapus reservasi ${r.code ?? ''}?`,
+        message:
+          `${r.customer_name} · ${r.pax} orang · ${r.reserve_date} ${String(r.reserve_time ?? '').slice(0, 5)}. ` +
+          'Data ini hilang permanen dan kursinya langsung kembali ke kuota. ' +
+          'Untuk pembatalan biasa, lebih baik ubah statusnya jadi "Dibatalkan" — jejaknya tetap ada untuk rekap.',
+        confirmText: 'Hapus permanen',
+        danger: true
+      });
+      if (!ok) return;
+      try {
+        await deleteReservation(r.id);
+        toast('Reservasi dihapus.', 'success');
+        await reload();
+      } catch (error) {
+        toast(error.message ?? 'Gagal menghapus.', 'error');
+      }
+    }))
+  );
+
   host.querySelectorAll('.rv-status').forEach((sel) =>
     sel.addEventListener('change', async () => {
       try {
@@ -295,7 +397,7 @@ async function renderAll(content, ctx) {
       </p>
       <div class="table-scroll">
         <table class="data-table table-freeze-1">
-          <thead><tr><th>Kode</th><th>Tanggal &amp; Jam</th><th>Customer</th><th>Tamu</th><th>Outlet / Area</th><th>Sumber</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Kode</th><th>Tanggal &amp; Jam</th><th>Customer</th><th>Tamu</th><th>Outlet / Area</th><th>Sumber</th><th>Status</th><th>Aksi</th></tr></thead>
           <tbody>
             ${
               last
@@ -304,7 +406,14 @@ async function renderAll(content, ctx) {
                     <td style="font-family:ui-monospace,Menlo,monospace;font-size:0.78rem">${esc(r.code ?? '-')}</td>
                     <td style="font-size:0.85rem">${fmtDate(r.reserve_date)}<div style="font-weight:600">${String(r.reserve_time).slice(0, 5)}</div></td>
                     <td>${esc(r.customer_name)}<div style="font-size:0.74rem;color:var(--color-text-muted)">${esc(r.phone)}</div></td>
-                    <td style="text-align:right">${r.pax}</td>
+                    <td style="text-align:right">${r.pax}
+                      ${
+                        r.deposit_amount
+                          ? `<div style="font-size:0.7rem;color:var(--color-text-muted)">DP ${esc(formatRupiah(Number(r.deposit_amount)))}${
+                              r.deposit_proof_path ? ' 📎' : ''
+                            }</div>`
+                          : ''
+                      }</td>
                     <td style="font-size:0.82rem">${esc(r.outlets?.name ?? '-')}${
                       r.reservation_areas?.name ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${esc(r.reservation_areas.name)}</div>` : ''
                     }</td>
@@ -315,7 +424,11 @@ async function renderAll(content, ctx) {
                       </select>
                       <div><span class="badge ${RES_BADGE[r.status] ?? ''}" style="font-size:0.65rem">${RES_STATUS[r.status] ?? r.status}</span></div>
                     </td>
-                    <td><button class="rv-wa" data-id="${r.id}">WA</button></td>
+                    <td style="white-space:nowrap">
+                      <button class="rv-wa" data-id="${r.id}">WA</button>
+                      <button class="rv-edit" data-id="${r.id}" title="Koreksi / reschedule">✎</button>
+                      <button class="rv-del" data-id="${r.id}" title="Hapus permanen">🗑</button>
+                    </td>
                   </tr>`
                 )
                 .join('') || '<tr><td colspan="8">Tidak ada data.</td></tr>'

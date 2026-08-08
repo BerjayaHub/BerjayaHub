@@ -23,6 +23,7 @@ import { amISuperAdmin } from '../inventory/inventory.service.js';
 import { listRegisteredFaceUserIds, resetFaceDescriptor } from '../attendance/attendance.service.js';
 import { toast, confirmDialog, formDialog, escapeHtml } from '../../core/ui.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
+import { dorongSubHalaman } from '../../core/navigasi.js';
 
 const ROLE_LABEL = {
   super_admin: 'Super Admin',
@@ -268,6 +269,12 @@ function staffRowHtml(s, registeredFaceIds) {
 
 function renderNewStaffForm(container, businessUnits) {
   const wrap = container.querySelector('#new-staff-form-wrap');
+  // Form ini digambar DI DALAM halaman, bukan sebagai dialog. Tanpa lapis
+  // sendiri, Back di tengah mengisi akan melompat ke Dashboard dan seluruh
+  // isian hilang — padahal maksud gerakannya cuma "batal".
+  const lepasLapis = dorongSubHalaman('staff-baru', () => {
+    wrap.innerHTML = '';
+  });
   wrap.innerHTML = `
     <form class="inline-card" id="new-staff-form">
       <h3>Tambah Staff Baru</h3>
@@ -311,6 +318,7 @@ function renderNewStaffForm(container, businessUnits) {
   });
 
   document.getElementById('btn-cancel-new-staff').addEventListener('click', () => {
+    lepasLapis();
     wrap.innerHTML = '';
   });
 

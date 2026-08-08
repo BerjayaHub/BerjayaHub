@@ -17,6 +17,7 @@ import {
   todayWIB
 } from './cleaning.service.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
+import { dorongSubHalaman } from '../../core/navigasi.js';
 
 export async function renderCleaningPage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = loadingHtml('Memuat daily activities…');
@@ -298,7 +299,11 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
             Minta admin menambahkannya lewat Admin Portal → Daily Activities → Item.
           </p>
         </div>`;
-      body.querySelector('#clean-back').addEventListener('click', renderSessionList);
+      const lepasLapis = dorongSubHalaman('aktivitas-kosong', renderSessionList);
+      body.querySelector('#clean-back').addEventListener('click', () => {
+        lepasLapis();
+        renderSessionList();
+      });
       return;
     }
 
@@ -392,7 +397,12 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
       </div>
     `;
 
-    body.querySelector('#clean-back').addEventListener('click', renderSessionList);
+    // Back dari layar sesi kembali ke DAFTAR SESI, bukan ke Beranda.
+    const lepasLapis = dorongSubHalaman(`sesi:${session.id}`, renderSessionList);
+    body.querySelector('#clean-back').addEventListener('click', () => {
+      lepasLapis();
+      renderSessionList();
+    });
     sambungkanFotoRincian(); // foto item selesai bisa diketuk untuk diperbesar
 
     // ---- Perbaiki / hapus item milik sendiri ----

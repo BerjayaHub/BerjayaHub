@@ -1945,6 +1945,14 @@ Yang dicari audit itu sengaja disempitkan ke aksi yang **mengubah** data. Tombol
 
 Tombolnya dipulihkan di `finally`, **termasuk saat handler melempar error**. Tombol yang mati permanen setelah satu kegagalan jaringan memaksa orang memuat ulang halaman — kehilangan yang lebih besar daripada masalah yang sedang dicegah.
 
+### Sub-halaman punya lapisnya sendiri
+
+Versi pertama hanya memberi lapis pada **modul**, jadi Back dari form di tengah modul melompat langsung ke Beranda. Orangnya lalu harus masuk lagi ke modul yang sama hanya untuk kembali ke daftar yang tadi ditinggalkan — hukuman untuk gerakan yang maksudnya cuma "batal".
+
+`dorongSubHalaman()` menutup itu: layar yang digambar **di tempat** (bukan dialog) — form sesi Daily Activities, form Tambah Staff — mendaftarkan lapisnya sendiri. Urutannya jadi wajar: **form → daftar modul → Beranda → keluar**.
+
+Jebakannya sama dengan dialog, dan dua arah: tombol "← Kembali" harus membuang lapisnya sendiri (kalau tidak, Back berikutnya terasa tidak melakukan apa-apa), sementara penutupan yang datang *dari* Back tidak boleh membuangnya lagi (entri history-nya sudah dipakai browser).
+
 ## Konfirmasi sebelum meninggalkan isian yang belum tersimpan
 
 Back dari modul dulu langsung membuang isian tanpa bertanya. Aman untuk layar baca, mahal untuk form panjang seperti Inventaris Aset atau Tambah Staff.
@@ -2012,6 +2020,29 @@ Dari satu sumber itu, teksnya muncul di tiga tempat, masing-masing dengan alasan
 
 Pemetaan slotnya dikunci `node tools/test-slot-fleksibel.mjs` (14 kasus, termasuk slot 30/45 menit dan jam buka yang bukan .00).
 
+## Reservasi: DP & koreksi/reschedule (migration `0078`)
+
+### DP: nominal + foto bukti transfer
+
+S&K menyebut "deposit 50% … deposit tidak dapat dibatalkan". Kebijakan sebesar itu tidak boleh hidup hanya di teks: kalau nominal dan buktinya tidak tercatat, satu-satunya yang tahu berapa yang sudah masuk adalah orang yang kebetulan menerima transfernya — dan saat dia libur, tidak ada yang bisa menjawab.
+
+Tiga kolom di `reservations`: `deposit_amount` (rupiah, NULL = belum ada DP), `deposit_proof_path`, `deposit_at`. Fotonya masuk bucket **privat** `reservation-proofs`. Privat karena bukti transfer memuat nama dan nomor rekening pengirim; bucket publik berarti siapa pun yang menebak nama filenya bisa membacanya. Policy-nya berbasis **prefix path** (`{outlet_id}/…`), bukan berdasarkan kolom di tabel reservasi — pelajaran dari `0050`: izin yang bergantung pada kolom yang baru diisi *setelah* file diunggah membuat file yang baru ditulis tidak bisa dibaca oleh pengunggahnya sendiri.
+
+**DP tidak masuk modul Kas — ini keputusan, bukan kelalaian.** DP ditransfer ke rekening perusahaan, bukan ke kantong kas seseorang, sementara `cash_entries` seluruhnya dibangun di atas gagasan "uang yang dipegang seorang **user** dan jadi tanggung jawabnya". Mencatatnya di kas berarti menambah saldo seseorang atas uang yang tidak pernah ada di tangannya, dan saat rekonsiliasi kas dia harus menjelaskan selisih yang bukan urusannya. Angka DP hidup di reservasinya saja. Catatan ini ditulis juga di dalam migration-nya, supaya tidak ada yang membangun jembatannya belakangan dengan niat baik.
+
+### Koreksi lewat RPC, bukan UPDATE langsung
+
+Reschedule dan ralat nomor telepon itu kejadian harian, bukan pengecualian. Tanpa jalur koreksi, admin membatalkan lalu membuat ulang — dan itu memutus kode reservasi yang sudah terlanjur dikirim ke tamu, sekaligus menghapus jejak bahwa perubahannya pernah terjadi.
+
+`update_reservation(...)` dipakai karena mengubah tanggal/jam/pax berarti **kuota harus dihitung ulang**. UPDATE biasa akan memindahkan rombongan 30 orang ke slot yang sudah penuh tanpa satu pun penolakan. Dua detail yang gampang salah:
+
+- Kuota **hanya** dihitung ulang kalau tanggal/slot/jumlahnya benar-benar berubah. Kalau admin cuma membetulkan ejaan nama, memaksa pemeriksaan kuota bisa menolak reservasi yang sudah sah — slotnya memang penuh, oleh reservasi itu sendiri.
+- Saat slotnya tidak berpindah, **pax barisnya sendiri dikurangkan** dari pemakaian. Tanpa itu ia bersaing melawan dirinya sendiri, dan menaikkan 20 → 21 orang ditolak karena "sudah ada 20".
+
+Argumen `NULL` berarti "jangan diubah", dibedakan dari "kosongkan". Form yang mengirim seluruh kolom apa adanya akan menghapus catatan hanya karena kolomnya tidak diisi ulang.
+
+Hapus permanen disediakan, tapi dialognya menyarankan **ubah status jadi Dibatalkan** untuk pembatalan biasa: jejaknya tetap ada untuk laporan, dan kursi yang dilepas juga sudah kembali ke kuota karena `reservation_slot_usage()` hanya menghitung status `pending`/`confirmed`.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
@@ -2031,4 +2062,5 @@ Pemetaan slotnya dikunci `node tools/test-slot-fleksibel.mjs` (14 kasus, termasu
 - [x] **Modul Reservasi** — input Staff App + halaman publik `reservasi.html`, kuota per slot, approval Admin Portal, notifikasi Telegram & Web Push
 - [x] **Mode Reservasi Hotel** — booking kamar (rentang tanggal + tipe kamar), kuota per tipe dijaga trigger database, check-in/check-out, tanpa persetujuan & tanpa jalur website
 - [x] **Video Tutorial per modul** — tombol ❓ di header modul (Staff App + Admin Portal) **dan daftar per modul di Beranda Staff**, video YouTube Unlisted, global atau khusus BU, dikelola super admin
+- [x] **Reservasi: jam bebas, S&K per outlet, DP + bukti transfer, koreksi/reschedule oleh admin** — jam tidak harus .00 (kuota tetap dihitung per slot), S&K ikut di pesan WhatsApp, DP dicatat beserta fotonya (**tidak masuk modul Kas**)
 - [x] **Kantong kas (sub-kas) & outlet peruntukan** — form Kas Masuk/Keluar dibedakan, jumlah kantong per user diatur admin, pindah saldo antar kantong sendiri, Laporan Kas bisa disaring per outlet & kategori

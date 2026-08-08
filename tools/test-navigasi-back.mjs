@@ -125,3 +125,40 @@ console.log('\nPerilaku tombol Back benar untuk 9 kasus. ✅');
   if (gagal2) { console.error(`\n${gagal2} perilaku penjaga isian salah.`); process.exit(1); }
   console.log('Penjaga isian belum tersimpan benar untuk 5 kasus. ✅');
 }
+
+// ---- Sub-halaman di dalam modul ----
+//
+// Versi pertama hanya memberi lapis pada MODUL, jadi Back dari form di tengah
+// modul melompat langsung ke Beranda. Orangnya lalu harus masuk lagi ke modul
+// yang sama hanya untuk kembali ke daftar yang tadi dia tinggalkan — hukuman
+// untuk gerakan yang maksudnya cuma "batal".
+{
+  let gagal3 = 0;
+  const cek3 = (ok, ket) => { console.log(`${ok ? '✓' : '✗'} ${ket}`); if (!ok) gagal3++; };
+
+  const h = new HistoryPalsu();
+  const nav = buatNavigasi(h);
+  let layar = 'beranda';
+
+  nav.dorong('modul:daily', () => (layar = 'beranda'));
+  layar = 'daftar-sesi';
+  const lepasSub = nav.dorong('sub:sesi', () => (layar = 'daftar-sesi'));
+  layar = 'form-sesi';
+
+  cek3(nav.back() === 'lapis' && layar === 'daftar-sesi', 'Back dari form -> DAFTAR SESI, bukan Beranda');
+  cek3(nav.back() === 'lapis' && layar === 'beranda', 'Back sekali lagi -> baru Beranda');
+  cek3(nav.back() === 'keluar', 'Back di Beranda -> keluar aplikasi');
+
+  // Tombol "← Kembali" di layar sub juga harus membuang lapisnya.
+  const h2 = new HistoryPalsu();
+  const nav2 = buatNavigasi(h2);
+  let l2 = 'beranda';
+  nav2.dorong('modul:daily', () => (l2 = 'beranda'));
+  const lepas2 = nav2.dorong('sub:sesi', () => (l2 = 'daftar-sesi'));
+  lepas2();                       // ditutup lewat tombol Kembali
+  cek3(nav2.dalam === 1, 'tombol Kembali membuang lapis sub, menyisakan lapis modul');
+  cek3(nav2.back() === 'lapis' && l2 === 'beranda', 'Back setelah itu langsung ke Beranda');
+
+  if (gagal3) { console.error(`\n${gagal3} perilaku sub-halaman salah.`); process.exit(1); }
+  console.log('Lapis sub-halaman benar untuk 5 kasus. ✅');
+}

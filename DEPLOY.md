@@ -44,6 +44,7 @@ pernah dijalankan.
 | 0075 | `0075_akurasi_lokasi_presensi.sql` | Simpan **ketelitian** GPS saat clock in/out, supaya keluhan "saya di outlet tapi ditolak" bisa ditelusuri |
 | 0076 | `0076_item_multi_outlet.sql` | Item Daily Activities bisa berlaku di **beberapa outlet** (mis. Serpong + Sentul, CK tidak) |
 | 0077 | `0077_jam_reservasi_fleksibel_dan_syarat.sql` | Jam reservasi bebas (kuota dihitung per slot), + **Syarat & Ketentuan per outlet** dan pencatatan persetujuannya |
+| 0078 | `0078_reservasi_dp_dan_koreksi.sql` | **DP + foto bukti transfer**, bucket `reservation-proofs`, dan RPC koreksi/reschedule reservasi dengan kuota dihitung ulang |
 
 > ⚠️ Kalau `0074` sudah terlanjur dijalankan sebelum 7 Agustus sore, **jalankan
 > ulang** — versi pertamanya memakai `ss.created_at`, kolom yang tidak ada di
@@ -296,6 +297,12 @@ select net.http_post(
   ulang dari jadwal yang berlaku. Baris yang sudah dinilai (Tepat waktu /
   Terlambat / dst) **tidak** diberi tombol — penilaian yang sudah terjadi bukan
   sesuatu yang pantas diubah dengan satu ketukan.
+- **Reservasi → Semua Reservasi** → tiap baris punya **✎ Koreksi** (ubah nama,
+  telepon, tanggal, jam, jumlah tamu, area, catatan, **DP + foto bukti
+  transfer**) dan **🗑 Hapus**. Reschedule ke slot yang penuh **ditolak** —
+  kuotanya dihitung ulang, bukan diterima diam-diam.
+  Untuk pembatalan biasa lebih baik ubah **status** jadi Dibatalkan; jejaknya
+  tetap ada untuk rekap.
 - **Reservasi → Pengaturan & Area** → ada kotak **Syarat & Ketentuan** per outlet.
   ⚠️ **Isi dulu sebelum dipakai** — teks inilah yang ikut di pesan WhatsApp
   konfirmasi, form Staff App, dan halaman publik. Gading Serpong dan Sentul diisi
