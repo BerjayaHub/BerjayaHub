@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { pesanTolakan } from '../../core/my-outlets.js';
 
 export const LATE_LABEL = {
   ontime: 'Tepat waktu',
@@ -191,7 +192,10 @@ export async function setSchedule({ businessUnitId, outletId, userId, workDate, 
     },
     { onConflict: 'outlet_id,user_id,work_date' }
   );
-  if (error) throw error;
+  // INSERT yang ditolak RLS memang melempar error (beda dengan UPDATE/DELETE,
+  // yang balasannya sukses dengan 0 baris). Yang perlu diterjemahkan cuma
+  // kalimatnya.
+  if (error) throw new Error(pesanTolakan(error, 'mengatur jadwal'));
 }
 
 /**

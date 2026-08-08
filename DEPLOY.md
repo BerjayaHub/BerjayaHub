@@ -47,6 +47,7 @@ pernah dijalankan.
 | 0078 | `0078_reservasi_dp_dan_koreksi.sql` | **DP + foto bukti transfer**, bucket `reservation-proofs`, dan RPC koreksi/reschedule reservasi dengan kuota dihitung ulang |
 | 0079 | `0079_dp_dari_staff_app.sql` | **DP bisa dicatat dari Staff App** (RPC `catat_dp_reservasi`), kolom `deposit_by`, nominal 0 = hapus DP, dan bukti transfer tidak lagi bisa ditimpa sembarang orang |
 | 0080 | `0080_batas_pesan_h_min.sql` | **Batas pemesanan H- sekian HARI** + jam batas di hari itu (bukan cuma H- sekian jam), berlaku di jalur website |
+| 0081 | `0081_outlet_yang_saya_kelola.sql` | **Perbaikan bug**: admin outlet dapat *"new row violates row-level security policy"* saat mengatur Jadwal Shift — dropdown-nya memakai daftar outlet yang boleh DILIHAT, bukan yang boleh DIATUR |
 
 > ⚠️ Kalau `0074` sudah terlanjur dijalankan sebelum 7 Agustus sore, **jalankan
 > ulang** — versi pertamanya memakai `ss.created_at`, kolom yang tidak ada di
@@ -324,6 +325,15 @@ select net.http_post(
   ⚠️ **Isi dulu sebelum dipakai** — teks inilah yang ikut di pesan WhatsApp
   konfirmasi, form Staff App, dan halaman publik. Gading Serpong dan Sentul diisi
   masing-masing.
+- **Shift → Jadwal** → dropdown outletnya kini berisi outlet yang benar-benar
+  boleh **diatur** akun itu (RPC `outlets_saya_kelola`, memakai `is_admin_of_outlet()`
+  yang sama dengan RLS). Butuh `0081`.
+  ⚠️ Kalau setelah update daftarnya jadi **kosong** dan muncul pesan "belum
+  tercatat sebagai admin outlet di satu pun", itu bukan aplikasi yang rusak —
+  itu penyebab error lamanya, sekarang terbaca. Perbaikannya di **Master User**:
+  scope orang tersebut harus menyebut **outlet**-nya. Peran "Admin Outlet" yang
+  scope-nya dibuat di level BU (tanpa outlet) tidak memberi wewenang atas outlet
+  mana pun — dia hanya bisa *melihat*.
 - **Reservasi (Staff App)** → daftarnya **langsung tampil** saat modul dibuka,
   bawaan **hari ini → akhir bulan ini**, dan ikut berubah begitu tanggalnya
   diganti (tombol "Tampilkan" dihapus). Tanggal yang sudah lewat sengaja tidak

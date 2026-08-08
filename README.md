@@ -2104,6 +2104,30 @@ Aturannya dikunci `node tools/test-batas-pesan.mjs` (23 kasus, termasuk tepi jam
 - **`audit-kolom-tabel.cjs` sebelumnya melewatkan justru query terpanjang.** Jendela pembacaannya 600 karakter, sementara `listReservations` punya `.select()` yang jauh lebih panjang dari itu — tanda kutip penutupnya tidak pernah ketemu, jadi seluruh rantai itu diam-diam tidak diperiksa. Sekarang kolom polos di dalam `.select()` ikut dicocokkan ke skema (885 pemeriksaan, naik dari 321). Embed dan alias tetap dilewati: audit yang sering salah tuduh akan berhenti dipercaya lalu diabaikan.
 - **`audit-syntax.cjs` tidak pernah menyentuh HTML.** `reservasi.html` memuat logika sungguhan di dalam `<script type="module">` — dan halaman itu justru yang dilihat **calon tamu**. Kalau ia mati karena satu backtick liar, tidak ada satu pun staff yang tahu; yang tahu cuma orang yang sudah pergi ke tempat lain. Sekarang blok modul di dalam HTML ikut di-parse.
 
+## "Boleh melihat" ≠ "boleh mengatur" (migration `0081`)
+
+**Gejalanya:** admin outlet membuka Jadwal Shift, memilih shift di sebuah sel, dan mendapat *"new row violates row-level security policy"*. Tidak ada yang bisa dia lakukan dengan pesan itu, dan yang terdengar adalah "aplikasinya rusak".
+
+**Sebabnya bukan izin yang salah — izinnya justru bekerja persis seperti seharusnya.** Dropdown outlet di layar admin diisi `listMyOutlets()`, yang menjawab pertanyaan *"outlet mana yang boleh kulihat"*. Aturannya membuka **seluruh outlet BU** untuk siapa pun yang punya scope tanpa `outlet_id` — termasuk orang berperan `outlet_admin` yang scope-nya terlanjur dibuat di level BU, dan termasuk admin outlet yang punya scope tambahan level BU. Sementara yang menentukan boleh-tidaknya **menulis** adalah `is_admin_of_outlet()`, yang untuk `outlet_admin` mensyaratkan `ms.outlet_id` menyebut outletnya persis.
+
+Jadi orangnya ditawari outlet yang tidak pernah boleh dia sentuh, dan baru tahu setelah menekan sesuatu. Yang salah adalah layar yang memakai jawaban dari pertanyaan yang keliru.
+
+**Perbaikannya berlapis:**
+
+1. **RPC `outlets_saya_kelola(p_bu)`** — memanggil `is_admin_of_outlet()` yang sama persis dipakai RLS. Dua sumber jawaban untuk satu pertanyaan pasti akan menyimpang; yang ini tidak bisa, karena sumbernya memang satu.
+2. **Layar Shift memakai RPC itu**, bukan `listMyOutlets()`. Kalau hasilnya kosong padahal ada outlet yang bisa dilihat, tab-nya **tidak digambar sama sekali** dan yang muncul adalah kalimat yang menyebut penyebab **dan** tempat memperbaikinya (Master User → scope harus menyebut outlet). Tiga tab yang semuanya buntu hanya membuat orang menekan ketiganya dulu sebelum percaya.
+3. **Penolakan RLS diterjemahkan** (`pesanTolakan()`) jadi kalimat yang bisa ditindaklanjuti. Ini lapis kedua, bukan pengganti lapis pertama: pesan error yang bagus untuk sesuatu yang seharusnya tidak pernah muncul bukan alasan untuk membiarkannya muncul.
+
+**Wewenangnya tidak diubah sedikit pun.** Menambal ini dengan melonggarkan `is_admin_of_outlet()` (mis. "outlet_admin tanpa outlet_id = admin seluruh BU") akan diam-diam memberi wewenang baru di **seluruh** modul yang memakainya — kas, presensi, reservasi, aktivitas harian — hanya demi memperbaiki satu dropdown.
+
+Aturan MELIHAT dipindah ke `js/core/aturan-outlet.js` yang **tanpa impor sama sekali**, semata-mata supaya bisa diuji: `my-outlets.js` mengimpor klien Supabase, yang mengimpor dari CDN, jadi tidak bisa dijalankan di luar browser. Aturan yang tidak bisa diuji hanya diperiksa dengan cara membacanya ulang — dan aturan inilah yang diam-diam menyimpang.
+
+Selisihnya dikunci `node tools/test-wewenang-outlet.mjs` (23 kasus). Yang dijaga: setiap bentuk scope, "yang bisa diatur" harus **selalu bagian dari** "yang bisa dilihat" — dan bentuk yang memicu bug ini diuji dengan namanya sendiri.
+
+### Layar admin lain yang masih memakai pola lama
+
+`reservation.admin`, `inventory.admin`, `production.admin`, dan `sales.admin` masih mengisi dropdown outletnya dengan `listMyOutlets()`. Selama scope semua adminnya menyebut outlet, tidak ada gejala; begitu ada satu yang dibuat di level BU, layar-layar itu akan menunjukkan gejala yang sama persis. Belum diubah karena belum diminta, bukan karena sudah aman.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

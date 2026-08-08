@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabase-client.js';
 import { listAttendanceOutlets } from '../modules/attendance/attendance.service.js';
+import { saringPerBu } from './aturan-outlet.js';
 
 /**
  * Outlet yang boleh diakses AKUN YANG LOGIN di sebuah BU.
@@ -66,6 +67,49 @@ export async function listMyOutletsAllBu(semuaOutlet = null) {
 }
 
 /**
+ * Outlet yang benar-benar boleh DIATUR akun ini di sebuah BU.
+ *
+ * BEDA dengan `listMyOutlets()`, dan bedanya penting. `listMyOutlets()`
+ * menjawab "mana yang boleh kulihat" — dan aturannya membuka seluruh outlet BU
+ * untuk siapa pun yang punya scope tanpa `outlet_id`. Untuk MENULIS, yang
+ * menentukan adalah `is_admin_of_outlet()` di database, yang untuk
+ * `outlet_admin` mensyaratkan outletnya disebut persis.
+ *
+ * Selisih antara keduanya muncul ke user sebagai *"new row violates row-level
+ * security policy"* setelah dia menekan sesuatu — pesan yang tidak bisa
+ * ditindaklanjuti siapa pun. Karena itu layar ADMIN harus memakai fungsi ini,
+ * bukan `listMyOutlets()`.
+ *
+ * Jawabannya datang dari RPC yang memanggil `is_admin_of_outlet()` yang sama
+ * persis dipakai RLS (migration 0081). Menyalin aturannya ke JavaScript akan
+ * menghasilkan dua sumber jawaban yang cepat atau lambat menyimpang — dan
+ * penyimpangannya baru ketahuan sebagai tombol yang ditolak.
+ *
+ * GAGAL TERTUTUP: kalau RPC-nya gagal, hasilnya array kosong, bukan semua
+ * outlet.
+ */
+export async function listOutletsSayaKelola(businessUnitId) {
+  const { data, error } = await supabase.rpc('outlets_saya_kelola', { p_bu: businessUnitId ?? null });
+  if (error) {
+    console.warn('[outlet] daftar outlet yang dikelola tidak terbaca:', error.message);
+    return [];
+  }
+  return data ?? [];
+}
+
+/**
+ * Pesan saat seseorang bisa MELIHAT outlet tapi tidak boleh MENGATUR satu pun.
+ *
+ * Menyebut sebabnya, bukan cuma "tidak ada outlet". Penyebab tersering: perannya
+ * `outlet_admin` tapi scope-nya dibuat di level BU (tanpa outlet), jadi tidak ada
+ * satu outlet pun yang tercatat sebagai miliknya.
+ */
+export const PESAN_TANPA_OUTLET_KELOLA =
+  'Kamu bisa melihat outlet di BU ini, tapi belum tercatat sebagai <strong>admin outlet</strong> di satu pun. ' +
+  'Minta super admin membuka <strong>Master User</strong> lalu memastikan scope-mu menyebut <em>outlet</em>-nya — ' +
+  'peran "Admin Outlet" yang scope-nya dibuat di level BU tidak memberi wewenang atas outlet mana pun.';
+
+/**
  * Scope milik akun yang login.
  * @returns {Promise<Array|null>} null berarti TIDAK TAHU (belum login / query
  *   gagal) — pemanggil wajib menutup, bukan menampilkan semuanya.
@@ -93,18 +137,28 @@ async function bacaScopeSaya() {
   return data ?? [];
 }
 
-/** Aturan penyaringan untuk SATU BU. Satu-satunya tempat aturannya ditulis. */
-function saringPerBu(semua, scopes, businessUnitId) {
-  const diBu = semua.filter((o) => o.business_unit_id === businessUnitId);
-  if (scopes.some((s) => s.role === 'super_admin')) return diBu;
 
-  const diBuIni = scopes.filter((s) => s.business_unit_id === businessUnitId);
-  if (!diBuIni.length) return [];
-
-  if (diBuIni.some((s) => s.role === 'bu_admin' || s.outlet_id == null)) return diBu;
-
-  const ids = new Set(diBuIni.map((s) => s.outlet_id).filter(Boolean));
-  return diBu.filter((o) => ids.has(o.id));
+/**
+ * Terjemahkan penolakan RLS jadi kalimat yang bisa ditindaklanjuti.
+ *
+ * *"new row violates row-level security policy for table shift_schedules"*
+ * benar secara teknis dan tidak berguna bagi siapa pun yang membacanya di HP.
+ * Ia juga menyesatkan: yang terdengar adalah "aplikasinya rusak", padahal yang
+ * terjadi adalah izin bekerja persis seperti seharusnya.
+ *
+ * Dipakai sebagai lapis KEDUA. Lapis pertama tetap tidak menawarkan pilihan
+ * yang pasti ditolak — pesan error yang bagus untuk sesuatu yang seharusnya
+ * tidak pernah muncul bukan pengganti mencegahnya muncul.
+ *
+ * @param {unknown} error
+ * @param {string} konteks apa yang sedang dicoba, mis. 'mengubah jadwal'
+ */
+export function pesanTolakan(error, konteks = 'melakukan perubahan') {
+  const teks = String(error?.message ?? error ?? '');
+  if (/row-level security|violates row-level|insufficient_privilege|42501/i.test(teks)) {
+    return `Kamu tidak punya wewenang ${konteks} di outlet ini. Yang bisa hanya admin outlet yang bersangkutan — minta super admin memeriksa scope-mu di Master User.`;
+  }
+  return teks || `Gagal ${konteks}.`;
 }
 
 /**

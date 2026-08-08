@@ -20,7 +20,7 @@ import {
   kelompokkanPerDivisi
 } from './shift.service.js';
 import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
-import { listMyOutlets } from '../../core/my-outlets.js';
+import { listMyOutlets, listOutletsSayaKelola, PESAN_TANPA_OUTLET_KELOLA } from '../../core/my-outlets.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 const TABS = [
@@ -30,6 +30,32 @@ const TABS = [
 ];
 
 export async function renderShiftAdminPage(container, { businessUnitId }) {
+  container.innerHTML = loadingHtml('Memuat modul shift…');
+
+  // Layar ini MENULIS, jadi daftarnya harus daftar outlet yang boleh DIATUR —
+  // bukan yang boleh dilihat. `listMyOutlets()` membuka seluruh outlet BU untuk
+  // siapa pun yang punya scope tanpa outlet_id; kalau dipakai di sini, admin
+  // outlet ditawari outlet yang pasti ditolak RLS, dan yang dia dapat cuma
+  // "new row violates row-level security policy" setelah menekan sesuatu.
+  const [outlets, bisaDilihat] = await Promise.all([
+    listOutletsSayaKelola(businessUnitId),
+    listMyOutlets(businessUnitId).catch(() => [])
+  ]);
+
+  // Dibedakan dengan sengaja: "tidak punya outlet sama sekali" dan "punya, tapi
+  // bukan sebagai adminnya" adalah dua masalah dengan dua jalan keluar berbeda.
+  // Satu pesan untuk keduanya akan mengirim orang ke tempat yang salah.
+  //
+  // Tab-nya tidak digambar sama sekali di keadaan ini: tiga tab yang semuanya
+  // buntu hanya membuat orang menekan ketiganya dulu sebelum percaya.
+  if (!outlets.length && bisaDilihat.length) {
+    container.innerHTML = `
+      <h1>Shift</h1>
+      <p style="color:var(--color-text-muted);max-width:560px;line-height:1.55">${PESAN_TANPA_OUTLET_KELOLA}</p>
+    `;
+    return;
+  }
+
   container.innerHTML = `
     <h1>Shift</h1>
     <div class="tab-bar">
@@ -38,7 +64,6 @@ export async function renderShiftAdminPage(container, { businessUnitId }) {
     <div id="shift-content"></div>
   `;
   const content = container.querySelector('#shift-content');
-  const outlets = await listMyOutlets(businessUnitId).catch(() => []);
 
   async function showTab(key) {
     container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));
