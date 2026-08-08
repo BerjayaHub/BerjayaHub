@@ -9,7 +9,8 @@ import {
   listReservationAreas,
   getAvailability,
   createReservation,
-  listReservations
+  listReservations,
+  getReservationTerms
 } from './reservation.service.js';
 import { loadingHtml } from '../../core/loading.js';
 
@@ -145,6 +146,9 @@ export async function renderReservationPage(container, { businessUnitId }) {
 
   async function openForm() {
     const areas = await listReservationAreas(state.outletId).catch(() => []);
+    // S&K dibaca di sini, bukan di dalam onReady: dialognya harus sudah tahu
+    // apakah field persetujuan perlu ditampilkan SEBELUM digambar.
+    const terms = await getReservationTerms(state.outletId).catch(() => '');
     // Slot dimuat ulang tiap kali tanggal berganti supaya sisa kuotanya akurat.
     const slotOptions = [{ value: '', label: 'pilih tanggal dulu…' }];
 
@@ -156,7 +160,15 @@ export async function renderReservationPage(container, { businessUnitId }) {
         { name: 'phone', label: 'No. WhatsApp', type: 'tel', required: true, placeholder: '0812xxxxxxx' },
         { name: 'email', label: 'Email (opsional)', type: 'email' },
         { name: 'reserve_date', label: 'Tanggal', type: 'date', required: true, value: todayWIB() },
-        { name: 'reserve_time', label: 'Jam', type: 'select', required: true, options: slotOptions },
+        // Jam BEBAS, bukan daftar slot. Rombongan datang 18:15 atau 19:30 itu
+        // hal biasa; memaksa .00 membuat staff memilih jam yang salah lalu
+        // menulis jam sebenarnya di kolom catatan — dan catatan tidak pernah
+        // ikut terhitung di mana pun.
+        //
+        // Kuotanya tetap dijaga: 0077 menghitung pemakaian per SLOT tempat jam
+        // itu jatuh, jadi 18:00 dan 18:15 tetap berebut kursi yang sama.
+        { name: 'reserve_time', label: 'Jam', type: 'time', required: true, value: '' },
+        { name: 'info_slot', label: 'Sisa kursi', type: 'text', value: '', help: 'Terisi otomatis setelah tanggal & jam dipilih.' },
         { name: 'pax', label: 'Jumlah tamu', type: 'number', required: true, min: 1, value: '2' },
         {
           name: 'area_id',
@@ -165,38 +177,71 @@ export async function renderReservationPage(container, { businessUnitId }) {
           options: [{ value: '', label: '-- tidak ditentukan --' }, ...areas.map((a) => ({ value: a.id, label: a.name }))]
         },
         { name: 'referral_source', label: 'Tahu dari mana (opsional)', type: 'text', placeholder: 'Instagram, teman, Google Maps…' },
-        { name: 'notes', label: 'Permintaan khusus (opsional)', type: 'text', placeholder: 'ulang tahun, kursi bayi, alergi…' }
+        { name: 'notes', label: 'Permintaan khusus (opsional)', type: 'text', placeholder: 'ulang tahun, kursi bayi, alergi…' },
+        // S&K ditampilkan DI DALAM form, bukan sebagai tautan terpisah. Yang
+        // dibaca orang adalah yang ada di depan matanya; ketentuan yang harus
+        // diklik dulu praktis tidak pernah dibuka, dan itu justru yang jadi
+        // pangkal perselisihan soal deposit.
+        ...(terms
+          ? [
+              { name: 'terms_view', label: 'Syarat & Ketentuan', type: 'textarea', rows: 10, value: terms },
+              {
+                name: 'terms_accepted',
+                label: 'Customer sudah diberi tahu & menyetujui S&K di atas',
+                type: 'checkbox',
+                value: false,
+                help: 'Dicatat beserta waktunya. Kalau reservasi lewat telepon, bacakan dulu poin depositnya.'
+              }
+            ]
+          : [])
       ],
       submitText: 'Simpan Reservasi',
       onReady: (form, { setError }) => {
+        // S&K hanya untuk DIBACA di sini. Mengubahnya adalah urusan Pengaturan
+        // di Admin Portal — kalau bisa disunting dari form reservasi, tiap
+        // reservasi berpotensi punya ketentuannya sendiri tanpa ada yang tahu.
+        if (form.elements['terms_view']) form.elements['terms_view'].readOnly = true;
         const tgl = form.elements['reserve_date'];
         const jam = form.elements['reserve_time'];
+        const info = form.elements['info_slot'];
+        info.readOnly = true;
 
+        // Slot tidak lagi membatasi PILIHAN, tapi tetap ditampilkan sebagai
+        // KETERANGAN. Staff perlu tahu sisa kursinya sebelum menjanjikan meja —
+        // dan angka itu jauh lebih berguna daripada daftar jam yang kaku.
+        let slots = [];
         const muatSlot = async () => {
-          jam.innerHTML = `<option value="">memuat…</option>`;
+          info.value = 'memuat…';
           try {
-            const slots = await getAvailability(state.outletId, tgl.value);
-            const open = slots.filter((s) => s.is_open);
-            jam.innerHTML = open.length
-              ? open
-                  .map(
-                    (s) =>
-                      `<option value="${String(s.slot_time).slice(0, 5)}">${String(s.slot_time).slice(0, 5)} — sisa ${
-                        s.max_pax - s.used_pax
-                      } kursi</option>`
-                  )
-                  .join('')
-              : `<option value="">tidak ada slot tersedia</option>`;
-            setError(
-              open.length ? '' : 'Tanggal ini penuh, di luar jam operasional, atau pengaturan reservasi outlet belum diisi admin.'
-            );
+            slots = await getAvailability(state.outletId, tgl.value);
+            tampilkanSisa();
+            setError(slots.length ? '' : 'Pengaturan reservasi outlet ini belum diisi admin, atau tanggalnya di luar jangkauan.');
           } catch (e) {
-            jam.innerHTML = `<option value="">gagal memuat slot</option>`;
+            slots = [];
+            info.value = '';
             setError(e.message ?? String(e));
           }
         };
 
+        const tampilkanSisa = () => {
+          if (!jam.value || !slots.length) {
+            info.value = '';
+            return;
+          }
+          // Cari slot tempat jam ini jatuh: slot terakhir yang mulainya <= jam.
+          const menit = (t) => Number(String(t).slice(0, 2)) * 60 + Number(String(t).slice(3, 5));
+          const j = menit(jam.value);
+          const cocok = slots.filter((s) => menit(s.slot_time) <= j).pop();
+          if (!cocok) {
+            info.value = 'di luar jam operasional';
+            return;
+          }
+          const sisa = cocok.max_pax - cocok.used_pax;
+          info.value = `slot ${String(cocok.slot_time).slice(0, 5)} — sisa ${sisa} kursi${cocok.is_open ? '' : ' (tertutup)'}`;
+        };
+
         tgl.addEventListener('change', muatSlot);
+        jam.addEventListener('change', tampilkanSisa);
         muatSlot();
       }
     });
@@ -214,7 +259,8 @@ export async function renderReservationPage(container, { businessUnitId }) {
         areaId: values.area_id,
         email: values.email,
         notes: values.notes,
-        referral: values.referral_source
+        referral: values.referral_source,
+        termsAccepted: !!values.terms_accepted
       });
       toast(`Reservasi ${row?.code ?? ''} tersimpan.`, 'success');
       await refresh();

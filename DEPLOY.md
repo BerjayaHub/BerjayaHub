@@ -43,6 +43,7 @@ pernah dijalankan.
 | 0074 | `0074_hitung_ulang_status_shift.sql` | RPC hitung ulang status terlambat untuk presensi yang terlanjur "Tanpa jadwal" (jadwal disusun setelah orangnya clock in) + versi massal |
 | 0075 | `0075_akurasi_lokasi_presensi.sql` | Simpan **ketelitian** GPS saat clock in/out, supaya keluhan "saya di outlet tapi ditolak" bisa ditelusuri |
 | 0076 | `0076_item_multi_outlet.sql` | Item Daily Activities bisa berlaku di **beberapa outlet** (mis. Serpong + Sentul, CK tidak) |
+| 0077 | `0077_jam_reservasi_fleksibel_dan_syarat.sql` | Jam reservasi bebas (kuota dihitung per slot), + **Syarat & Ketentuan per outlet** dan pencatatan persetujuannya |
 
 > ⚠️ Kalau `0074` sudah terlanjur dijalankan sebelum 7 Agustus sore, **jalankan
 > ulang** — versi pertamanya memakai `ss.created_at`, kolom yang tidak ada di
@@ -295,6 +296,15 @@ select net.http_post(
   ulang dari jadwal yang berlaku. Baris yang sudah dinilai (Tepat waktu /
   Terlambat / dst) **tidak** diberi tombol — penilaian yang sudah terjadi bukan
   sesuatu yang pantas diubah dengan satu ketukan.
+- **Reservasi → Pengaturan & Area** → ada kotak **Syarat & Ketentuan** per outlet.
+  ⚠️ **Isi dulu sebelum dipakai** — teks inilah yang ikut di pesan WhatsApp
+  konfirmasi, form Staff App, dan halaman publik. Gading Serpong dan Sentul diisi
+  masing-masing.
+- **Reservasi → form staff** → **Jam kini bebas** (tidak harus .00). Sisa kursi
+  slotnya tampil sebagai keterangan setelah tanggal & jam dipilih.
+  ⚠️ `0077` mengganti `create_reservation` dengan versi 11 argumen dan
+  **men-drop yang 10 argumen** — halaman lama yang masih terbuka akan error
+  sampai di-refresh.
 - **Penanda offline** muncul di atas layar saat permintaan benar-benar gagal
   (bukan sekadar `navigator.onLine`), dan hilang setelah ada permintaan yang
   berhasil. Balasan 403/500 **tidak** dianggap offline.
@@ -396,6 +406,7 @@ node tools/test-geofence-akurasi.mjs
 node tools/test-cakupan-item.mjs
 node tools/test-navigasi-back.mjs
 node tools/test-koneksi.mjs
+node tools/test-slot-fleksibel.mjs
 ```
 
 `audit-syntax` yang paling penting: satu SyntaxError membuat **seluruh**

@@ -90,9 +90,39 @@ export async function getAvailability(outletId, date) {
   return data ?? [];
 }
 
+/**
+ * Syarat & Ketentuan outlet. Dikembalikan apa adanya (teks bebas).
+ *
+ * Gagal = string kosong, bukan lempar error: S&K itu pelengkap, dan reservasi
+ * tidak boleh batal hanya karena teksnya tidak terbaca.
+ */
+export async function getReservationTerms(outletId) {
+  if (!outletId) return '';
+  const { data, error } = await supabase
+    .from('reservation_settings')
+    .select('terms')
+    .eq('outlet_id', outletId)
+    .maybeSingle();
+  if (error) {
+    console.warn('[reservasi] S&K tidak terbaca:', error.message);
+    return '';
+  }
+  return data?.terms ?? '';
+}
+
+export async function saveReservationTerms(outletId, terms) {
+  const { data, error } = await supabase
+    .from('reservation_settings')
+    .update({ terms: terms?.trim() || null })
+    .eq('outlet_id', outletId)
+    .select('outlet_id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('Tidak tersimpan — pengaturan reservasi outlet ini belum dibuat, atau kamu tidak punya izin.');
+}
+
 // ---- Reservasi ----
 
-export async function createReservation({ outletId, name, phone, date, time, pax, areaId, email, notes, referral }) {
+export async function createReservation({ outletId, name, phone, date, time, pax, areaId, email, notes, referral, termsAccepted = false }) {
   const { data, error } = await supabase.rpc('create_reservation', {
     p_outlet: outletId,
     p_name: name,
@@ -103,7 +133,8 @@ export async function createReservation({ outletId, name, phone, date, time, pax
     p_area: areaId || null,
     p_email: email || null,
     p_notes: notes || null,
-    p_referral: referral || null
+    p_referral: referral || null,
+    p_terms_accepted: !!termsAccepted
   });
   if (error) throw error;
   return data;
@@ -435,6 +466,15 @@ export function buildConfirmMessage(r) {
     r.notes ? `Catatan       : ${r.notes}` : '',
     '',
     'Mohon datang tepat waktu. Kursi kami tahan 15 menit dari jam reservasi.',
+    // S&K ditaruh SETELAH detail reservasi, bukan sebelumnya.
+    //
+    // Yang pertama dicari orang saat membuka pesan konfirmasi adalah tanggal
+    // dan jamnya. Menaruh dua puluh baris ketentuan di atasnya membuat
+    // informasi terpenting terdorong ke bawah lipatan WhatsApp — dan yang
+    // terjadi berikutnya adalah tamu bertanya "jadi jam berapa ya?" lewat
+    // pesan susulan.
+    r.terms ? `\n———\n${String(r.terms).trim()}` : '',
+    '',
     'Terima kasih 🙏'
   ]
     .filter(Boolean)

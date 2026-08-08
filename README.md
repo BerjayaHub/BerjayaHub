@@ -1986,6 +1986,32 @@ Bilahnya ditempel di **atas** layar, bukan bawah: yang di bawah tertutup papan k
 
 Dikunci `node tools/test-koneksi.mjs` (7 kasus, termasuk 403 dan 500 yang tidak boleh dianggap offline).
 
+## Reservasi: jam bebas & Syarat/Ketentuan (migration `0077`)
+
+### Jam bebas — yang berbahaya bukan jamnya, tapi kuotanya
+
+Kolomnya sudah `time`, jadi 18:15 sebenarnya selalu bisa disimpan; yang membatasi cuma daftar pilihan di layar. Tapi melepasnya begitu saja akan **mematahkan kuota tanpa satu pun error**: `reservation_slot_usage()` menghitung dengan `reserve_time = p_time`, sehingga 18:00 dan 18:05 terhitung slot berbeda. Dua rombongan 20 orang bisa masuk berbarengan di ruangan yang muat 20, dan sistemnya melaporkan semuanya baik-baik saja sampai tamunya datang.
+
+Jadi jamnya dibebaskan, tapi hitungannya dipindah ke **ember**: setiap jam dipetakan ke slot tempat ia jatuh (`reservation_slot_of`). Kuotanya kembali berarti, dan staff tetap bisa menulis 18:15 seperti yang sebenarnya dijanjikan ke tamu.
+
+Layar staff berubah dari *dropdown slot* jadi *input jam* + **keterangan sisa kursi** slot yang bersangkutan. Angka sisa kursi itu tetap ditampilkan karena staff perlu tahu sebelum menjanjikan meja — yang dibuang cuma kekakuannya.
+
+Jam di luar jam operasional tetap ditolak di database. Menerima 03:00 hanya melahirkan reservasi yang mustahil dilayani, dan yang menanggungnya staff di lapangan.
+
+### S&K: satu sumber, tiga tempat tampil
+
+Ditaruh **per outlet di `reservation_settings.terms`**, bukan di dalam kode. Minimal purchase, nomor rekening deposit, dan lama pemakaian ruangan berubah tanpa memerlukan programmer — begitu ada di kode, setiap perubahan kecil antre menunggu deploy. Gading Serpong dan Sentul juga bisa berbeda tanpa percabangan apa pun.
+
+Dari satu sumber itu, teksnya muncul di tiga tempat, masing-masing dengan alasannya:
+
+1. **Pesan WhatsApp konfirmasi** — diminta, dan memang tempat paling penting: itulah dokumen yang dipegang tamu. Ditaruh **setelah** detail reservasi, bukan sebelum. Yang pertama dicari orang saat membuka konfirmasi adalah tanggal dan jamnya; dua puluh baris ketentuan di atasnya mendorong informasi terpenting ke bawah lipatan WhatsApp, dan yang terjadi berikutnya adalah tamu bertanya "jadi jam berapa ya?" lewat pesan susulan.
+2. **Form reservasi Staff App** — ditampilkan **di dalam** form, bukan sebagai tautan. Yang dibaca orang adalah yang ada di depan matanya; ketentuan yang harus diklik dulu praktis tidak pernah dibuka, dan itu justru yang jadi pangkal perselisihan soal deposit. Ada centang "customer sudah diberi tahu & menyetujui".
+3. **Halaman publik** — lewat `public_note`/S&K yang sama.
+
+**`reservations.terms_accepted_at` mencatat kapan disetujui.** Untuk kebijakan yang menyebut "deposit tidak dapat dibatalkan", persetujuan yang tidak tercatat sama saja dengan tidak ada — dan yang menanggung akibatnya adalah kasir di depan tamu yang merasa tidak pernah diberi tahu. NULL berarti memang tidak tercatat (mis. reservasi telepon), bukan berarti menolak.
+
+Pemetaan slotnya dikunci `node tools/test-slot-fleksibel.mjs` (14 kasus, termasuk slot 30/45 menit dan jam buka yang bukan .00).
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

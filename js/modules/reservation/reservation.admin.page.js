@@ -18,6 +18,8 @@ import {
   deleteReservationArea,
   buildConfirmMessage,
   buildRejectMessage,
+  getReservationTerms,
+  saveReservationTerms,
   waNumber
 } from './reservation.service.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
@@ -27,6 +29,18 @@ const TABS = [
   { key: 'all', label: 'Semua Reservasi' },
   { key: 'settings', label: 'Pengaturan & Area' }
 ];
+
+/**
+ * Pesan konfirmasi + S&K outlet yang bersangkutan.
+ *
+ * S&K diambil SAAT AKAN DIKIRIM, bukan ikut dimuat bersama daftar reservasi.
+ * Teksnya panjang dan sama untuk semua baris — membawanya di setiap baris hanya
+ * memperberat daftar demi sesuatu yang dipakai sekali per pengiriman.
+ */
+async function pesanKonfirmasi(r) {
+  const terms = await getReservationTerms(r.outlet_id).catch(() => '');
+  return buildConfirmMessage({ ...r, terms });
+}
 
 export async function renderReservationAdminPage(container, { businessUnitId }) {
   const outlets = await listMyOutlets(businessUnitId).catch(() => []);
@@ -154,7 +168,7 @@ function wireActions(host, rows, reload) {
           title: 'Kirim Konfirmasi ke Customer',
           helper:
             'Nomor WhatsApp dan alamat email diambil otomatis dari formulir reservasi (Staff App maupun website) — admin tidak perlu menyimpan kontak customer lebih dulu.',
-          defaultMessage: buildConfirmMessage(r),
+          defaultMessage: await pesanKonfirmasi(r),
           phone: waNumber(r.phone),
           email: r.email ?? '',
           subject: `Konfirmasi Reservasi ${r.code ?? ''}`.trim()
@@ -195,12 +209,16 @@ function wireActions(host, rows, reload) {
   );
 
   host.querySelectorAll('.rv-wa').forEach((b) =>
-    b.addEventListener('click', () => {
+    // `async` karena S&K diambil dulu sebelum dialognya dibuka. Tanpa itu,
+    // `await` di dalam handler biasa adalah SyntaxError yang mematikan seluruh
+    // file — dan file yang gagal di-parse membuat halamannya berhenti di
+    // "Memuat…" tanpa pesan apa pun.
+    b.addEventListener('click', async () => {
       const r = byId(b.dataset.id);
-      shareDialog({
+      await shareDialog({
         title: `WhatsApp ke ${r.customer_name}`,
         helper: 'Nomor WhatsApp dan alamat email diambil otomatis dari formulir reservasi — admin tidak perlu menyimpan kontak customer.',
-        defaultMessage: buildConfirmMessage(r),
+        defaultMessage: await pesanKonfirmasi(r),
         phone: waNumber(r.phone),
         email: r.email ?? '',
         subject: `Konfirmasi Reservasi ${r.code ?? ''}`.trim()
@@ -417,6 +435,18 @@ async function drawDetail(content, ctx, outletId) {
         <span class="field-help">Kalau dimatikan (default), reservasi dari staff pun tetap perlu disetujui di tab Perlu Diproses.</span>
       </div>
 
+      <h3 style="margin-top:18px">Syarat &amp; Ketentuan</h3>
+      <div class="field">
+        <label>Teks S&amp;K reservasi outlet ini</label>
+        <textarea name="terms" rows="12"
+          placeholder="Minimal purchase, ketentuan deposit, lama pemakaian ruangan, dsb.">${esc(v('terms', '') ?? '')}</textarea>
+        <span class="field-help">
+          Teks ini ikut di <strong>pesan WhatsApp konfirmasi</strong>, tampil di form reservasi Staff App, dan di halaman
+          publik. Ditulis per outlet, jadi ketentuan Gading Serpong dan Sentul boleh berbeda. Kosongkan kalau outlet ini
+          tidak punya ketentuan khusus.
+        </span>
+      </div>
+
       <button class="primary" type="submit" style="max-width:180px">Simpan Pengaturan</button>
       <p class="error-text" id="rs-error"></p>
     </form>
@@ -456,7 +486,8 @@ async function drawDetail(content, ctx, outletId) {
         max_days_ahead: Number(f.max_days_ahead.value) || 60,
         is_public_enabled: f.is_public_enabled.checked,
         staff_input_auto_confirm: f.staff_input_auto_confirm.checked,
-        public_note: f.public_note.value.trim() || null
+        public_note: f.public_note.value.trim() || null,
+        terms: f.terms.value.trim() || null
       });
       toast('Pengaturan reservasi disimpan.', 'success');
       await drawDetail(content, ctx, outletId);
