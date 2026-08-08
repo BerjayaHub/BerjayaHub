@@ -14,7 +14,7 @@ import { exportTablePDF } from '../../core/pdf.js';
 import { toast, formDialog, shareDialog, confirmDialog } from '../../core/ui.js';
 import { formatRupiah, formatThousands, parseNumber, attachThousandsInput } from '../../core/format.js';
 import { monthRangeWIB } from '../../core/dates.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 /** 'YYYY-MM-DD' -> '01 Agu 2026'. Kosong -> '…' supaya teksnya tetap terbaca. */
 function fmtTanggal(d) {
@@ -345,7 +345,7 @@ async function runReport(businessUnitId, outlets) {
   });
 
   resultEl.querySelectorAll('.btn-reset-nbm').forEach((btn) =>
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       try {
         await removeNbmAdjustment(btn.dataset.record);
         toast('Nominal dikembalikan ke hitungan sistem.', 'success');
@@ -353,7 +353,7 @@ async function runReport(businessUnitId, outlets) {
       } catch (error) {
         toast(error.message ?? 'Gagal mengembalikan nominal.', 'error');
       }
-    })
+    }))
   );
 }
 

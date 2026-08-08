@@ -20,7 +20,7 @@ import {
   buildRejectMessage,
   waNumber
 } from './reservation.service.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 const TABS = [
   { key: 'inbox', label: 'Perlu Diproses' },
@@ -137,7 +137,7 @@ function wireActions(host, rows, reload) {
   const byId = (id) => rows.find((r) => r.id === id);
 
   host.querySelectorAll('.rv-ok').forEach((b) =>
-    b.addEventListener('click', async () => {
+    b.addEventListener('click', sekaliJalan(async () => {
       const r = byId(b.dataset.id);
       const ok = await confirmDialog({
         title: `Setujui reservasi ${r.code ?? ''}?`,
@@ -163,7 +163,7 @@ function wireActions(host, rows, reload) {
       } catch (error) {
         toast(error.message ?? 'Gagal menyetujui.', 'error');
       }
-    })
+    }))
   );
 
   host.querySelectorAll('.rv-no').forEach((b) =>
@@ -466,7 +466,7 @@ async function drawDetail(content, ctx, outletId) {
     }
   });
 
-  host.querySelector('#rs-add-area').addEventListener('click', async () => {
+  host.querySelector('#rs-add-area').addEventListener('click', sekaliJalan(async () => {
     const values = await formDialog({
       title: 'Tambah Area',
       fields: [{ name: 'name', label: 'Nama area', type: 'text', required: true, placeholder: 'mis. Outdoor' }],
@@ -480,10 +480,10 @@ async function drawDetail(content, ctx, outletId) {
     } catch (error) {
       toast(error.message ?? 'Gagal menambah area.', 'error');
     }
-  });
+  }));
 
   host.querySelectorAll('.rs-ren').forEach((b) =>
-    b.addEventListener('click', async () => {
+    b.addEventListener('click', sekaliJalan(async () => {
       const values = await formDialog({
         title: 'Ubah Nama Area',
         fields: [
@@ -500,11 +500,11 @@ async function drawDetail(content, ctx, outletId) {
       } catch (error) {
         toast(error.message ?? 'Gagal memperbarui.', 'error');
       }
-    })
+    }))
   );
 
   host.querySelectorAll('.rs-del').forEach((b) =>
-    b.addEventListener('click', async () => {
+    b.addEventListener('click', sekaliJalan(async () => {
       const ok = await confirmDialog({
         title: `Hapus area "${b.dataset.name}"?`,
         message: 'Reservasi lama yang memakai area ini tetap tersimpan, hanya kolom areanya jadi kosong.',
@@ -519,7 +519,7 @@ async function drawDetail(content, ctx, outletId) {
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus.', 'error');
       }
-    })
+    }))
   );
 }
 

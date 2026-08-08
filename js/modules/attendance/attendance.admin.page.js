@@ -23,7 +23,7 @@ import { toast, formDialog } from '../../core/ui.js';
 import { exportTablePDF } from '../../core/pdf.js';
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 import { LATE_LABEL, LATE_BADGE } from '../shift/shift.service.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 const TABS = [
   { key: 'presensi', label: 'Presensi' },
@@ -522,7 +522,7 @@ function outletGeofenceRowHtml(o) {
 
 function wireOutletGeofenceButtons(container, businessUnitId) {
   container.querySelectorAll('.btn-set-geofence').forEach((btn) => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const values = await formDialog({
         title: 'Atur Lokasi Outlet',
         description: 'Isi koordinat GPS outlet & radius toleransi geofence.',
@@ -547,7 +547,7 @@ function wireOutletGeofenceButtons(container, businessUnitId) {
       } catch (error) {
         toast(error.message ?? 'Gagal menyimpan lokasi outlet.', 'error');
       }
-    });
+    }));
   });
 }
 
@@ -565,7 +565,7 @@ function outletWorkHoursRowHtml(o) {
 
 function wireOutletWorkHoursButtons(container, businessUnitId) {
   container.querySelectorAll('.btn-set-workhours').forEach((btn) => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const values = await formDialog({
         title: 'Atur Jam Kerja Outlet',
         description: 'Jam masuk dipakai untuk reminder clock in. Kosongkan jam masuk untuk mematikan reminder.',
@@ -589,7 +589,7 @@ function wireOutletWorkHoursButtons(container, businessUnitId) {
       } catch (error) {
         toast(error.message ?? 'Gagal menyimpan jam kerja outlet.', 'error');
       }
-    });
+    }));
   });
 }
 
@@ -628,7 +628,7 @@ function wireAddressButtons(container) {
 
 function wireEditButtons(container, outletPilihan = []) {
   container.querySelectorAll('.btn-edit').forEach((btn) => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const row = container.querySelector(`tr[data-record-id="${btn.dataset.recordId}"]`);
       const currentIn = row.children[5].textContent;
       const currentOut = row.children[9].textContent === '—' ? '' : row.children[9].textContent;
@@ -679,7 +679,7 @@ function wireEditButtons(container, outletPilihan = []) {
       } catch (error) {
         toast(error.message ?? 'Gagal koreksi presensi.', 'error');
       }
-    });
+    }));
   });
 }
 

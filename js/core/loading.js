@@ -75,3 +75,61 @@ export function tombolSibuk(btn, teks = 'Menyiapkan…') {
     btn.disabled = nonaktif;
   };
 }
+
+/**
+ * Bungkus handler klik ASINKRON supaya tombolnya terkunci selama proses.
+ *
+ * KENAPA PERLU: di jaringan lambat, tombol yang ditekan tidak memberi tanda apa
+ * pun. Orang menekannya lagi — refleks yang sepenuhnya wajar. Untuk tombol
+ * "Kirim", itu berarti DUA transaksi kas, atau dua baris presensi. Kerugiannya
+ * bukan tampilan, melainkan data yang salah dan sulit ditelusuri kemudian.
+ *
+ * Tombolnya dikembalikan seperti semula di `finally` — termasuk saat handler
+ * melempar error. Tombol yang mati permanen setelah satu kegagalan jaringan
+ * memaksa orang memuat ulang halaman, dan itu justru kehilangan yang lebih
+ * besar daripada masalah yang sedang dicegah.
+ *
+ * Kalau tombolnya sudah hilang dari layar (halaman digambar ulang setelah
+ * sukses), tidak ada yang perlu dikembalikan — dan itu bukan kesalahan.
+ *
+ * @param {(e: Event) => Promise<void>} handler
+ * @param {{teks?: string}} [opsi] teks sementara selama proses berjalan
+ */
+export function sekaliJalan(handler, { teks, jagaGulir = true } = {}) {
+  return async function (e) {
+    const btn = e.currentTarget instanceof HTMLButtonElement ? e.currentTarget : null;
+    if (btn?.disabled) return; // ketukan kedua saat proses pertama masih jalan
+    const pulih = btn ? (teks ? tombolSibuk(btn, teks) : ((btn.disabled = true), () => (btn.disabled = false))) : () => {};
+    const gulirAwal = window.scrollY;
+    try {
+      await handler.call(this, e);
+    } finally {
+      pulih();
+      // Posisi gulir dikembalikan. Hampir semua aksi ini diakhiri dengan
+      // menggambar ulang seluruh daftar, dan menggambar ulang melempar layar
+      // kembali ke atas. Untuk admin yang sedang menyunting baris ke-40 di
+      // Rekap Presensi, itu berarti menggulir turun lagi setiap kali menyimpan
+      // satu koreksi — friksi kecil yang berulang puluhan kali.
+      if (jagaGulir && gulirAwal > 100) pulihkanGulir(gulirAwal);
+    }
+  };
+}
+
+/**
+ * Kembalikan posisi gulir SETELAH DOM-nya selesai digambar.
+ *
+ * Dua frame, bukan satu: frame pertama biasanya baru menyisipkan HTML-nya,
+ * tingginya belum final. Memulihkan terlalu cepat menghasilkan lompatan yang
+ * justru lebih mengganggu daripada tidak dipulihkan sama sekali.
+ *
+ * Dijepit ke tinggi halaman yang BARU. Kalau daftarnya memendek (mis. satu
+ * baris dihapus), memaksa posisi lama akan menampilkan ruang kosong di bawah.
+ */
+function pulihkanGulir(y) {
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      const maks = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      window.scrollTo({ top: Math.min(y, maks), behavior: 'auto' });
+    })
+  );
+}

@@ -22,7 +22,7 @@ import { GRANTABLE_TABS } from '../../core/admin-tabs.js';
 import { amISuperAdmin } from '../inventory/inventory.service.js';
 import { listRegisteredFaceUserIds, resetFaceDescriptor } from '../attendance/attendance.service.js';
 import { toast, confirmDialog, formDialog, escapeHtml } from '../../core/ui.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 const ROLE_LABEL = {
   super_admin: 'Super Admin',
@@ -400,7 +400,7 @@ function wireRowActions(container, businessUnits) {
   });
 
   container.querySelectorAll('.btn-edit').forEach((btn) => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       // Nilai awal diambil dari data-* baris, BUKAN dari urutan kolom tabel.
       // Versi lama membaca row.children[1] — dulu itu kolom Telp, tapi sejak
       // kolom Email disisipkan di posisi kedua, kotak "No. Telp" jadi terisi
@@ -447,11 +447,11 @@ function wireRowActions(container, businessUnits) {
       } catch (error) {
         toast(error.message ?? 'Gagal memperbarui staff.', 'error');
       }
-    });
+    }));
   });
 
   container.querySelectorAll('.scope-remove').forEach((btn) => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const ok = await confirmDialog({
         title: 'Hapus scope?',
         message: 'Akses staff ke BU/outlet ini akan dicabut.',
@@ -466,7 +466,7 @@ function wireRowActions(container, businessUnits) {
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus scope.', 'error');
       }
-    });
+    }));
   });
 
   container.querySelectorAll('.btn-add-scope').forEach((btn) => {
@@ -823,7 +823,7 @@ async function openDivisionManager(container, businessUnits) {
     );
 
     overlay.querySelectorAll('.dv-del').forEach((b) =>
-      b.addEventListener('click', async () => {
+      b.addEventListener('click', sekaliJalan(async () => {
         const d = divisi.find((x) => x.id === b.dataset.id);
         tutup();
         const ok = await confirmDialog({
@@ -843,7 +843,7 @@ async function openDivisionManager(container, businessUnits) {
           }
         }
         await dialogManual();
-      })
+      }))
     );
   }
 

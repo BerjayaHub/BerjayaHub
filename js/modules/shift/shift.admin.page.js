@@ -21,7 +21,7 @@ import {
 } from './shift.service.js';
 import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 const TABS = [
   { key: 'schedule', label: 'Jadwal' },
@@ -307,7 +307,7 @@ async function renderHoursTab(content, businessUnitId, outlets) {
       </table>`;
 
     list.querySelectorAll('.btn-edit-shift').forEach((btn) =>
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', sekaliJalan(async () => {
         const existing = btn.dataset.json ? JSON.parse(btn.dataset.json) : null;
         const slot = Number(btn.dataset.slot);
         const values = await formDialog({
@@ -337,11 +337,11 @@ async function renderHoursTab(content, businessUnitId, outlets) {
         } catch (error) {
           toast(error.message ?? 'Gagal menyimpan jam shift.', 'error');
         }
-      })
+      }))
     );
 
     list.querySelectorAll('.btn-del-shift').forEach((btn) =>
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', sekaliJalan(async () => {
         const ok = await confirmDialog({ title: 'Hapus jam shift?', message: 'Jadwal yang memakai shift ini ikut terhapus.', confirmText: 'Hapus', danger: true });
         if (!ok) return;
         try {
@@ -351,7 +351,7 @@ async function renderHoursTab(content, businessUnitId, outlets) {
         } catch (error) {
           toast(error.message ?? 'Gagal menghapus.', 'error');
         }
-      })
+      }))
     );
   }
 

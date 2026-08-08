@@ -17,7 +17,7 @@ import {
 import { fetchNationalHolidays, holidayLabel, parsePastedHolidays, sourceLinks } from './holiday-api.js';
 import { toast, confirmDialog, formDialog, escapeHtml } from '../../core/ui.js';
 import { formatThousands, formatRupiah, parseNumber, attachThousandsInput } from '../../core/format.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 const DAY_NAMES = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 
@@ -326,7 +326,7 @@ async function renderOutletDetail(outletId, businessUnitId) {
     }
   });
 
-  document.getElementById('btn-pull-holidays').addEventListener('click', async () => {
+  document.getElementById('btn-pull-holidays').addEventListener('click', sekaliJalan(async () => {
     const tahun = await formDialog({
       title: 'Tarik Hari Libur Nasional',
       description:
@@ -378,10 +378,10 @@ async function renderOutletDetail(outletId, businessUnitId) {
     } catch (error) {
       toast(error.message ?? 'Gagal menyimpan hari libur.', 'error');
     }
-  });
+  }));
 
   document.querySelectorAll('.btn-remove-tier').forEach((btn) => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const ok = await confirmDialog({ title: 'Hapus tingkatan lembur?', confirmText: 'Hapus', danger: true });
       if (!ok) return;
       try {
@@ -391,11 +391,11 @@ async function renderOutletDetail(outletId, businessUnitId) {
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus.', 'error');
       }
-    });
+    }));
   });
 
   document.querySelectorAll('.btn-remove-holiday').forEach((btn) => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const ok = await confirmDialog({ title: 'Hapus hari libur?', confirmText: 'Hapus', danger: true });
       if (!ok) return;
       try {
@@ -405,7 +405,7 @@ async function renderOutletDetail(outletId, businessUnitId) {
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus.', 'error');
       }
-    });
+    }));
   });
 }
 

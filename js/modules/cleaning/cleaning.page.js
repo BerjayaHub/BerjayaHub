@@ -16,7 +16,7 @@ import {
   submitChecklistRun,
   todayWIB
 } from './cleaning.service.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 export async function renderCleaningPage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = loadingHtml('Memuat daily activities…');
@@ -397,7 +397,7 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
 
     // ---- Perbaiki / hapus item milik sendiri ----
     body.querySelectorAll('.ck-edit').forEach((btn) =>
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', sekaliJalan(async () => {
         const values = await formDialog({
           title: `Perbaiki "${btn.dataset.label}"`,
           description: 'Ambil foto pengganti kalau fotonya kurang jelas. Kalau hanya catatannya yang salah, biarkan fotonya kosong.',
@@ -421,11 +421,11 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
         } catch (error) {
           toast(error.message ?? 'Gagal memperbarui.', 'error');
         }
-      })
+      }))
     );
 
     body.querySelectorAll('.ck-hapus').forEach((btn) =>
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', sekaliJalan(async () => {
         const ok = await confirmDialog({
           title: `Hapus catatan "${btn.dataset.label}"?`,
           message: 'Foto buktinya ikut dihapus, dan item ini kembali jadi "belum dikerjakan" sehingga bisa diulang.',
@@ -440,7 +440,7 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
         } catch (error) {
           toast(error.message ?? 'Gagal menghapus.', 'error');
         }
-      })
+      }))
     );
 
     if (!bisaIsi) return;

@@ -25,7 +25,7 @@ import {
   listRentals
 } from './fleet.service.js';
 import { importVehicles, downloadVehicleTemplate } from './fleet-import.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 const TABS = [
   { key: 'vehicles', label: 'Kendaraan' },
@@ -247,7 +247,7 @@ async function renderVehiclesTab(content, ctx) {
       })
     );
     list.querySelectorAll('.fl-del').forEach((b) =>
-      b.addEventListener('click', async () => {
+      b.addEventListener('click', sekaliJalan(async () => {
         const ok = await confirmDialog({ title: 'Hapus kendaraan?', message: 'Riwayat rental kendaraan ini ikut terhapus.', confirmText: 'Hapus', danger: true });
         if (!ok) return;
         try {
@@ -257,7 +257,7 @@ async function renderVehiclesTab(content, ctx) {
         } catch (error) {
           toast(error.message ?? 'Gagal menghapus.', 'error');
         }
-      })
+      }))
     );
   }
 
@@ -890,7 +890,7 @@ function drawMasters(host, ctx) {
     drawMasters(host, ctx);
   };
 
-  host.querySelector('#fl-add-brand')?.addEventListener('click', async () => {
+  host.querySelector('#fl-add-brand')?.addEventListener('click', sekaliJalan(async () => {
     const v = await formDialog({ title: 'Tambah Merk', fields: [{ name: 'name', label: 'Nama merk', type: 'text', required: true }], submitText: 'Tambah' });
     if (!v) return;
     try {
@@ -900,9 +900,9 @@ function drawMasters(host, ctx) {
     } catch (error) {
       toast(error.message ?? 'Gagal menambah merk.', 'error');
     }
-  });
+  }));
 
-  host.querySelector('#fl-add-area')?.addEventListener('click', async () => {
+  host.querySelector('#fl-add-area')?.addEventListener('click', sekaliJalan(async () => {
     const v = await formDialog({ title: 'Tambah Area Rental', fields: [{ name: 'name', label: 'Nama area', type: 'text', required: true }], submitText: 'Tambah' });
     if (!v) return;
     try {
@@ -912,10 +912,10 @@ function drawMasters(host, ctx) {
     } catch (error) {
       toast(error.message ?? 'Gagal menambah area.', 'error');
     }
-  });
+  }));
 
   host.querySelectorAll('.fl-add-model').forEach((btn) =>
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const v = await formDialog({
         title: `Tambah Tipe — ${btn.dataset.name}`,
         fields: [{ name: 'name', label: 'Nama tipe', type: 'text', required: true, placeholder: 'mis. Avanza' }],
@@ -929,11 +929,11 @@ function drawMasters(host, ctx) {
       } catch (error) {
         toast(error.message ?? 'Gagal menambah tipe.', 'error');
       }
-    })
+    }))
   );
 
   host.querySelectorAll('.fl-ren').forEach((btn) =>
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const v = await formDialog({
         title: 'Ubah Nama',
         fields: [{ name: 'name', label: 'Nama baru', type: 'text', required: true, value: btn.dataset.name }],
@@ -951,11 +951,11 @@ function drawMasters(host, ctx) {
       } catch (error) {
         toast(error.message ?? 'Gagal mengubah nama.', 'error');
       }
-    })
+    }))
   );
 
   host.querySelectorAll('.fl-delm').forEach((btn) =>
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const ok = await confirmDialog({
         title: `Hapus "${btn.dataset.name}"?`,
         message:
@@ -973,7 +973,7 @@ function drawMasters(host, ctx) {
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus.', 'error');
       }
-    })
+    }))
   );
 }
 

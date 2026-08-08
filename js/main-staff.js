@@ -5,6 +5,7 @@ import { listBusinessUnitsBasic } from './modules/organization/organization.serv
 import { toast, confirmDialog, formDialog, escapeHtml } from './core/ui.js';
 import { mountTutorialButton, openTutorialDialog, ensureTutorialStyles } from './core/tutorial-button.js';
 import { listTutorialsByModule } from './modules/tutorial/tutorial.service.js';
+import { pasangNavigasi, dorongLapis, bersihkanLapis, bersihkanIsian } from './core/navigasi.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
 import { renderLeavePage } from './modules/leave/leave.page.js';
 import { renderCleaningPage } from './modules/cleaning/cleaning.page.js';
@@ -21,7 +22,8 @@ import { renderShiftPage } from './modules/shift/shift.page.js';
 import { renderProfilePage, initials } from './modules/profile/profile.page.js';
 import { getStaffPhotoUrl } from './modules/profile/profile.service.js';
 import { getMyTodaySession } from './modules/attendance/attendance.service.js';
-import { loadingHtml } from './core/loading.js';
+import { loadingHtml, sekaliJalan } from './core/loading.js';
+import { pasangPenandaKoneksi } from './core/koneksi.js';
 
 registerModule('attendance', renderAttendancePage);
 registerModule('leave', renderLeavePage);
@@ -273,7 +275,7 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
     if (ok) signOut();
   });
 
-  document.getElementById('btn-change-password').addEventListener('click', async () => {
+  document.getElementById('btn-change-password').addEventListener('click', sekaliJalan(async () => {
     const values = await formDialog({
       title: 'Ubah Password',
       description: 'Masukkan password baru untuk akun kamu.',
@@ -289,7 +291,7 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
     } catch (error) {
       toast(error.message ?? 'Gagal ubah password.', 'error');
     }
-  });
+  }));
 
   // Kembali ke modul terakhir, bukan selalu ke Beranda.
   //
@@ -333,6 +335,9 @@ async function renderHome(context, modules, moduleCtx) {
   // Kembali ke Beranda secara sengaja -> lupakan modul terakhir, supaya
   // refresh berikutnya tetap di Beranda seperti yang orangnya harapkan.
   simpanModulTerakhir(null);
+  // Tumpukan Back dikosongkan: dari Beranda, Back berikutnya memang seharusnya
+  // keluar aplikasi seperti yang diharapkan pengguna Android.
+  bersihkanLapis();
   const content = document.getElementById('module-content');
   const firstName = (context.profile.full_name || '').split(' ')[0] || 'Halo';
   // Hanya tampilkan modul yang punya halaman Staff App + sesuai peran outlet:
@@ -497,7 +502,13 @@ function pilihModulTutorial(punya, perModul) {
   document.body.appendChild(overlay);
   requestAnimationFrame(() => overlay.classList.add('show'));
 
+  let lewatBack = false;
+  const lepasLapis = dorongLapis('pilih-tutorial', () => {
+    lewatBack = true;
+    tutup();
+  });
   function tutup() {
+    if (!lewatBack) lepasLapis();
     overlay.classList.remove('show');
     setTimeout(() => overlay.remove(), 200);
     document.removeEventListener('keydown', onEsc);
@@ -527,6 +538,14 @@ function fmtClock(iso) {
 
 function openModule(code, context, modules, moduleCtx) {
   simpanModulTerakhir(code);
+  // Halaman baru selalu dimulai dari atas. Tanpa ini, membuka modul setelah
+  // menggulir jauh akan menampilkan layar yang tampak kosong — orangnya
+  // mengira modulnya belum jadi, padahal isinya ada di atas.
+  window.scrollTo({ top: 0, behavior: 'instant' in document.documentElement.style ? 'instant' : 'auto' });
+  bersihkanIsian(); // halaman baru: belum ada yang diketik
+  // Satu lapis Back untuk seluruh modul: dari mana pun di dalamnya, Back
+  // membawa orangnya kembali ke Beranda — bukan keluar dari aplikasi.
+  dorongLapis(`modul:${code}`, () => renderHome(context, modules, moduleCtx), { penjaga: true });
   const content = document.getElementById('module-content');
   const mod = modules.find((m) => m.code === code);
   content.innerHTML = `
@@ -564,4 +583,8 @@ function applyBuTheme(businessUnit) {
   if (meta) meta.setAttribute('content', color || '#f5f5f5');
 }
 
+// Dipasang SEBELUM bootstrap: entri history akar harus sudah ada sebelum
+// layar pertama sempat mendorong lapis apa pun.
+pasangNavigasi();
+pasangPenandaKoneksi();
 bootstrap();

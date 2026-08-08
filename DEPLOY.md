@@ -295,6 +295,17 @@ select net.http_post(
   ulang dari jadwal yang berlaku. Baris yang sudah dinilai (Tepat waktu /
   Terlambat / dst) **tidak** diberi tombol — penilaian yang sudah terjadi bukan
   sesuatu yang pantas diubah dengan satu ketukan.
+- **Penanda offline** muncul di atas layar saat permintaan benar-benar gagal
+  (bukan sekadar `navigator.onLine`), dan hilang setelah ada permintaan yang
+  berhasil. Balasan 403/500 **tidak** dianggap offline.
+- **Posisi gulir dipertahankan** setelah aksi yang menggambar ulang daftar.
+- **Tombol aksi kebal ketukan ganda** — 44 tombol yang mengubah data kini
+  terkunci selama prosesnya berjalan. **Tidak ada migration.**
+- **Konfirmasi sebelum meninggalkan isian** — Back dari modul saat ada yang
+  diketik akan bertanya dulu ("Tinggalkan" / "Lanjut mengisi").
+- **Tombol Back perangkat** kini ditangani: dari modul kembali ke **Beranda**
+  (Staff) / **Dashboard** (Admin), dari dialog menutup dialognya. Sebelum ini
+  Back **keluar dari aplikasi**. **Tidak ada migration** — murni kode.
 - **Presensi (Staff App) → deteksi lokasi** dirombak: pencarian lebih sabar
   (sampai 20 dtk, akurasi tinggi, berhenti lebih awal kalau sudah ±50 m), pesan
   kegagalan **per jenis** (izin ditolak / GPS mati / kelamaan), tombol **↻ Coba
@@ -372,6 +383,7 @@ node tools/audit-outlet-scope.cjs
 node tools/audit-embed-ambigu.cjs
 node tools/audit-select-wajib.cjs
 node tools/audit-kolom-tabel.cjs
+node tools/audit-klik-ganda.cjs
 node tools/test-youtube-parser.mjs
 node tools/test-image-compress.mjs
 node tools/test-pdf-lebar.mjs
@@ -382,6 +394,8 @@ node tools/test-kemajuan-sesi.mjs
 node tools/test-shift-lintas-hari.mjs
 node tools/test-geofence-akurasi.mjs
 node tools/test-cakupan-item.mjs
+node tools/test-navigasi-back.mjs
+node tools/test-koneksi.mjs
 ```
 
 `audit-syntax` yang paling penting: satu SyntaxError membuat **seluruh**

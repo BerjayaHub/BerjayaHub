@@ -14,7 +14,7 @@ import {
   setBuModules
 } from './organization.service.js';
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 const BU_TYPE_OPTIONS = [
   { value: 'cafe', label: 'Cafe' },
@@ -142,7 +142,7 @@ function wireActions(container, businessUnits, organizations, outletsByBu) {
   });
 
   container.querySelectorAll('.btn-del-bu').forEach((btn) => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const ok = await confirmDialog({
         title: 'Hapus Business Unit?',
         message: 'Semua outlet, staff-scope, dan data di BU ini ikut terhapus. Tindakan ini tidak bisa dibatalkan.',
@@ -157,7 +157,7 @@ function wireActions(container, businessUnits, organizations, outletsByBu) {
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus BU.', 'error');
       }
-    });
+    }));
   });
 
   container.querySelectorAll('.btn-add-outlet').forEach((btn) => {
@@ -173,7 +173,7 @@ function wireActions(container, businessUnits, organizations, outletsByBu) {
   });
 
   container.querySelectorAll('.btn-del-outlet').forEach((btn) => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const ok = await confirmDialog({
         title: 'Hapus outlet?',
         message: 'Data terkait outlet ini akan ikut terhapus.',
@@ -188,7 +188,7 @@ function wireActions(container, businessUnits, organizations, outletsByBu) {
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus outlet.', 'error');
       }
-    });
+    }));
   });
 }
 

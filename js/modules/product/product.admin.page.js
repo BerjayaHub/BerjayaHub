@@ -19,7 +19,7 @@ import {
   deleteUnit,
   distinctCategories
 } from './product.service.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 const TABS = [
   { key: 'products', label: 'Produk' },
@@ -91,7 +91,7 @@ async function renderProductsTab(content, businessUnitId) {
     btn.addEventListener('click', () => openProductDialog(content, businessUnitId, JSON.parse(btn.dataset.json)))
   );
   content.querySelectorAll('.btn-del-product').forEach((btn) =>
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const ok = await confirmDialog({ title: 'Hapus produk?', message: 'Produk & resep terkait akan terhapus. Bahan yang masih dipakai resep lain tidak bisa dihapus.', confirmText: 'Hapus', danger: true });
       if (!ok) return;
       try {
@@ -101,7 +101,7 @@ async function renderProductsTab(content, businessUnitId) {
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus (mungkin masih dipakai resep lain).', 'error');
       }
-    })
+    }))
   );
 }
 
@@ -341,7 +341,7 @@ async function renderUnitsTab(content) {
       </tbody>
     </table>
   `;
-  document.getElementById('btn-new-unit').addEventListener('click', async () => {
+  document.getElementById('btn-new-unit').addEventListener('click', sekaliJalan(async () => {
     const v = await formDialog({ title: 'Tambah Satuan', fields: [{ name: 'name', label: 'Nama Satuan', type: 'text', required: true, placeholder: 'mis. gram' }], submitText: 'Simpan' });
     if (!v) return;
     try {
@@ -351,9 +351,9 @@ async function renderUnitsTab(content) {
     } catch (error) {
       toast(error.message ?? 'Gagal menambah (hanya Super Admin).', 'error');
     }
-  });
+  }));
   content.querySelectorAll('.btn-del-unit').forEach((btn) =>
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const ok = await confirmDialog({ title: 'Hapus satuan?', confirmText: 'Hapus', danger: true });
       if (!ok) return;
       try {
@@ -363,7 +363,7 @@ async function renderUnitsTab(content) {
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus.', 'error');
       }
-    })
+    }))
   );
 }
 

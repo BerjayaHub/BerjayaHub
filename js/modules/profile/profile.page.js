@@ -10,7 +10,7 @@ import {
   uploadStaffPhoto,
   getStaffPhotoUrl
 } from './profile.service.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 /**
  * Halaman Profil (Staff App): staff mengisi/mengubah data pribadinya.
@@ -118,7 +118,7 @@ export async function renderProfilePage(container, ctx = {}) {
   );
   container.querySelector('#btn-photo-gallery').addEventListener('click', () => inputGaleri.click());
 
-  container.querySelector('#btn-edit-profile').addEventListener('click', async () => {
+  container.querySelector('#btn-edit-profile').addEventListener('click', sekaliJalan(async () => {
     const values = await formDialog({
       title: 'Data Diri',
       description: 'Lengkapi data berikut. Data ini dipakai untuk keperluan administrasi HR.',
@@ -149,7 +149,7 @@ export async function renderProfilePage(container, ctx = {}) {
     } catch (error) {
       toast(error.message ?? 'Gagal menyimpan data.', 'error');
     }
-  });
+  }));
 }
 
 export function initials(name) {

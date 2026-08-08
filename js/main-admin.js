@@ -1,4 +1,5 @@
 import { escapeHtml } from './core/ui.js';
+import { pasangNavigasi, dorongLapis, bersihkanLapis, bersihkanIsian } from './core/navigasi.js';
 import { mountTutorialButton, clearFloatingTutorialButton } from './core/tutorial-button.js';
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
 import { getActiveModules, getModuleRenderer, registerModule } from './core/module-loader.js';
@@ -30,6 +31,7 @@ import { renderGroupPage } from './core/group-page.js';
 import { canAccessTab } from './core/admin-tabs.js';
 import { getMyAdminTabAccess } from './modules/master-user/master-user.service.js';
 import { loadingHtml } from './core/loading.js';
+import { pasangPenandaKoneksi } from './core/koneksi.js';
 
 const app = document.getElementById('app');
 const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
@@ -397,6 +399,17 @@ function menuTerakhir() {
 
 function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = false, allowedTabs = new Set()) {
   simpanMenuTerakhir(code);
+  // Halaman baru selalu dimulai dari atas. Tanpa ini, membuka modul setelah
+  // menggulir jauh akan menampilkan layar yang tampak kosong — orangnya
+  // mengira modulnya belum jadi, padahal isinya ada di atas.
+  window.scrollTo({ top: 0, behavior: 'instant' in document.documentElement.style ? 'instant' : 'auto' });
+  bersihkanIsian(); // halaman baru: belum ada yang diketik
+  // Back dari menu mana pun kembali ke Dashboard. Dashboard sendiri tidak
+  // mendorong lapis — di sana Back memang berarti keluar.
+  bersihkanLapis();
+  if (code !== 'dashboard') {
+    dorongLapis(`menu:${code}`, () => openModule('dashboard', businessUnitId, activeModules, isSuperAdmin, allowedTabs), { penjaga: true });
+  }
   const content = document.getElementById('module-content');
   const ctx = { businessUnitId, isAdmin: true };
   content.classList.remove('fade-in');
@@ -445,4 +458,8 @@ function applyBuTheme(businessUnit) {
   if (meta) meta.setAttribute('content', color || '#f5f5f5');
 }
 
+// Dipasang SEBELUM bootstrap: entri history akar harus sudah ada sebelum
+// layar pertama sempat mendorong lapis apa pun.
+pasangNavigasi();
+pasangPenandaKoneksi();
 bootstrap();

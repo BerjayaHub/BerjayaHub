@@ -19,7 +19,7 @@ import {
   setItemCakupan
 } from './cleaning.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 const TABS = [
   { key: 'items', label: 'Item Aktivitas' },
@@ -123,7 +123,7 @@ async function renderItemsTab(content, businessUnitId, outlets = []) {
     btn.addEventListener('click', () => openItemDialog(content, businessUnitId, JSON.parse(btn.dataset.json), outlets, petaOutlet))
   );
   content.querySelectorAll('.btn-del-item').forEach((btn) =>
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const ok = await confirmDialog({ title: 'Hapus item?', confirmText: 'Hapus', danger: true });
       if (!ok) return;
       try {
@@ -133,7 +133,7 @@ async function renderItemsTab(content, businessUnitId, outlets = []) {
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus.', 'error');
       }
-    })
+    }))
   );
 }
 
@@ -319,7 +319,7 @@ async function renderSessionsTab(content, businessUnitId, outlets = []) {
     btn.addEventListener('click', () => openSessionDialog(content, businessUnitId, JSON.parse(btn.dataset.json), outlets))
   );
   content.querySelectorAll('.btn-del-session').forEach((btn) =>
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const ok = await confirmDialog({ title: 'Hapus sesi?', confirmText: 'Hapus', danger: true });
       if (!ok) return;
       try {
@@ -329,7 +329,7 @@ async function renderSessionsTab(content, businessUnitId, outlets = []) {
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus.', 'error');
       }
-    })
+    }))
   );
 }
 

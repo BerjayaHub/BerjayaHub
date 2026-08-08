@@ -10,7 +10,7 @@ import {
   detectTelegramChats,
   getIntegrationStatus
 } from './telegram.service.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 /**
  * Halaman Notifikasi Telegram (Super Admin).
@@ -194,7 +194,7 @@ on conflict (key) do update set value = excluded.value, updated_at = now();</pre
       })
     );
     host.querySelectorAll('.tg-del').forEach((b) =>
-      b.addEventListener('click', async () => {
+      b.addEventListener('click', sekaliJalan(async () => {
         const ok = await confirmDialog({
           title: 'Hapus rute ini?',
           message: 'Event ini tidak akan mengirim notifikasi sampai rutenya diatur lagi.',
@@ -209,7 +209,7 @@ on conflict (key) do update set value = excluded.value, updated_at = now();</pre
         } catch (error) {
           toast(error.message ?? 'Gagal menghapus.', 'error');
         }
-      })
+      }))
     );
   }
 

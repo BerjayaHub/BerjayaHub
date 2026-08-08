@@ -20,7 +20,7 @@ import {
   pindahKas,
   todayWIB
 } from './cash.service.js';
-import { loadingHtml, tombolSibuk } from '../../core/loading.js';
+import { loadingHtml, tombolSibuk, sekaliJalan } from '../../core/loading.js';
 
 /**
  * Penanda "Kas Utama" di dalam <select>.
@@ -584,7 +584,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
   container.querySelector('#cash-move')?.addEventListener('click', openPindah);
   container.querySelector('#cash-manage')?.addEventListener('click', openKelola);
 
-  container.querySelector('#cash-transfer').addEventListener('click', async () => {
+  container.querySelector('#cash-transfer').addEventListener('click', sekaliJalan(async () => {
     if (!others.length) return toast('Belum ada pengguna lain yang bisa menerima transfer.', 'warning');
     const values = await formDialog({
       title: 'Transfer Kas ke Pengguna Lain',
@@ -611,7 +611,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     } catch (error) {
       toast(error.message ?? 'Gagal transfer.', 'error');
     }
-  });
+  }));
 
   await refresh();
 }

@@ -1694,3 +1694,36 @@ select.sc-cell.is-off {
   .loading-spinner { animation: none; border-top-color: var(--color-primary); }
   .skeleton-row { animation: none; }
 }
+
+/* =========================================================
+   Penanda koneksi (js/core/koneksi.js)
+
+   Ditempel di ATAS layar, bukan di bawah: yang di bawah tertutup papan ketik
+   saat orang sedang mengisi form — persis saat kabar ini paling dibutuhkan.
+   ========================================================= */
+.penanda-koneksi {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  padding: 8px 14px;
+  font-size: 0.82rem;
+  text-align: center;
+  color: #fff;
+  animation: koneksi-turun 0.22s ease;
+}
+.penanda-koneksi.offline { background: var(--color-danger); }
+/* Hijau ditulis langsung: palet tema ini tidak punya --color-success, dan
+   menambah variabel baru hanya untuk satu penanda berarti satu lagi hal yang
+   harus diingat saat temanya diubah. */
+.penanda-koneksi.pulih { background: #1d7a55; }
+
+@keyframes koneksi-turun {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .penanda-koneksi { animation: none; }
+}

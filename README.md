@@ -1918,6 +1918,74 @@ Sekarang bisa diubah saat mengedit, dengan konfirmasi yang menyebut **dari mana 
 
 Satu pembersihan ikut dilakukan: penugasan sesi (`0069`) yang menunjuk sesi milik **outlet lain** dihapus saat cakupan menyempit. Itemnya toh tidak akan muncul di sana lagi — badge yang menyebut sesi yang tidak mungkin terjadi hanya menyesatkan pembacanya.
 
+## Tombol Back perangkat (`js/core/navigasi.js`)
+
+**Sebelum ini aplikasi tidak pernah menyentuh History API sama sekali.** Akibatnya menekan Back di HP — gerakan paling refleks yang ada — **keluar dari aplikasi**: di PWA terpasang ia menutup aplikasinya, di browser melompat ke situs sebelumnya. Yang sedang diisi hilang, tanpa konfirmasi apa pun.
+
+Sekarang setiap kali orang "masuk lebih dalam", satu **lapis** didorong bersama satu entri history:
+
+- **Modul → Back → Beranda** (Staff App) / **Dashboard** (Admin Portal).
+- **Dialog → Back → dialog tertutup**, tetap di modul. Back saat dialog terbuka secara naluri berarti "batal"; sebelumnya justru melempar orangnya keluar.
+- **Beranda → Back → keluar aplikasi.** Itu memang yang diharapkan pengguna Android, jadi tidak dihalangi.
+
+Satu jebakan yang harus ditangani: kalau dialog ditutup lewat tombol Batal, lapisnya **wajib dilepas** — kalau tidak, ia jadi lapis hantu dan Back berikutnya "tidak melakukan apa-apa", yang membuat orang mengira aplikasinya menggantung. Sebaliknya, kalau penutupan datang **dari** Back, entri history-nya sudah dikonsumsi browser; memanggil pelepas lagi akan memundurkan satu langkah tambahan dan justru melempar orangnya keluar modul. Kedua arah itu diuji `node tools/test-navigasi-back.mjs` (9 kasus).
+
+### Dua perbaikan kecil yang ikut dikerjakan
+
+- **Toast kesalahan bertahan 7 detik**, bukan 3,4. Cukup untuk "Tersimpan", tidak cukup untuk "Koreksi tidak tersimpan — kamu bukan admin outlet presensi ini." Pesan yang hilang sebelum selesai dibaca sama saja dengan tidak pernah ada — dan justru pesan kesalahan yang paling perlu sampai.
+- **Buka modul selalu mulai dari atas layar.** Tanpa itu, membuka modul setelah menggulir jauh menampilkan layar yang tampak kosong, dan orangnya mengira modulnya belum jadi.
+
+## Tombol aksi kebal ketukan ganda (`sekaliJalan`)
+
+Di dapur dan gudang, sinyal satu bar itu biasa. Tombol yang ditekan tidak memberi tanda apa pun selama beberapa detik, lalu orang menekannya lagi — refleks yang sepenuhnya wajar. Untuk tombol "Kirim", itu berarti **dua transaksi kas**, atau dua baris presensi. Kerugiannya bukan tampilan, melainkan data yang salah dan sulit ditelusuri kemudian.
+
+`node tools/audit-klik-ganda.cjs` menemukan **44 tombol** seperti itu: handler klik `async` yang berisi `await` dan memanggil operasi pengubah data, tanpa satu pun penguncian. Semuanya kini dibungkus `sekaliJalan()`.
+
+Yang dicari audit itu sengaja disempitkan ke aksi yang **mengubah** data. Tombol yang hanya membaca — filter, muat ulang, buka foto — boleh saja ditekan dua kali; hasilnya sama, dan menguncinya hanya membuat aplikasi terasa lamban.
+
+Tombolnya dipulihkan di `finally`, **termasuk saat handler melempar error**. Tombol yang mati permanen setelah satu kegagalan jaringan memaksa orang memuat ulang halaman — kehilangan yang lebih besar daripada masalah yang sedang dicegah.
+
+## Konfirmasi sebelum meninggalkan isian yang belum tersimpan
+
+Back dari modul dulu langsung membuang isian tanpa bertanya. Aman untuk layar baca, mahal untuk form panjang seperti Inventaris Aset atau Tambah Staff.
+
+Pelacakannya sengaja **tidak** didaftarkan per halaman. Kalau tiap modul harus mendaftar sendiri, satu modul yang lupa akan diam-diam kehilangan perlindungan ini — dan justru modul yang jarang disentuh yang paling mudah terlupakan. Jadi: satu pendengar `input` di `document`, menyala kalau peristiwanya berasal dari `#module-content` dan bukan dari dalam dialog (dialog punya lapisnya sendiri, dan Back di sana memang berarti batal).
+
+Tandanya dimatikan saat modul dibuka dan saat muncul **toast sukses** — satu-satunya isyarat "tersimpan" yang dipakai seragam di aplikasi ini.
+
+**Ini heuristik, dan kesalahannya sengaja diarahkan ke satu sisi.** Ia bisa bertanya padahal tidak perlu (orang mengetik lalu menghapusnya lagi), tapi jarang diam padahal seharusnya bertanya. Untuk sebuah konfirmasi, pertanyaan berlebih hanya mengganggu; isian yang hilang tidak bisa dibatalkan.
+
+Bagian tersulitnya ada di `popstate`: browser **sudah** memundurkan history sebelum kita sempat bertanya. Jadi entri itu didorong kembali **secara sinkron** sebelum dialognya muncul — kalau ditunda sampai jawaban datang, posisi history bergeser dan Back berikutnya melompati satu lapis. Saat orangnya memilih "Tinggalkan", `history.back()` dipanggil dengan penanda `abaikanSekali` supaya popstate yang dihasilkannya tidak ikut memakan lapis berikutnya.
+
+Dikunci `node tools/test-navigasi-back.mjs` (14 kasus, gabungan lapis Back dan penjaga isian).
+
+## Posisi gulir dipertahankan setelah aksi
+
+Hampir semua aksi diakhiri dengan menggambar ulang seluruh daftar, dan menggambar ulang melempar layar kembali ke atas. Untuk admin yang sedang menyunting baris ke-40 di Rekap Presensi, itu berarti menggulir turun lagi setiap kali menyimpan satu koreksi — friksi kecil yang berulang puluhan kali dalam satu duduk.
+
+Diselesaikan di `sekaliJalan()`, bukan di tiap halaman: seluruh aksi pengubah data sudah lewat sana, jadi satu tempat menutup semuanya sekaligus.
+
+Dua hal yang membuatnya tidak berbalik jadi gangguan baru:
+
+- **Dua frame, bukan satu.** Frame pertama biasanya baru menyisipkan HTML-nya; tingginya belum final. Memulihkan terlalu cepat menghasilkan lompatan yang justru lebih mengganggu daripada tidak dipulihkan sama sekali.
+- **Dijepit ke tinggi halaman yang BARU.** Kalau daftarnya memendek — misalnya satu baris dihapus — memaksa posisi lama hanya menampilkan ruang kosong.
+
+Posisi di bawah 100 px tidak dipulihkan: di sana orangnya praktis masih di atas, dan memaksa gulir malah terasa seperti halaman yang bergerak sendiri.
+
+## Penanda "sedang offline" (`js/core/koneksi.js`)
+
+PWA ini dipakai di dapur, gudang, dan halaman parkir. Sinyal hilang itu wajar — tapi sebelum ini tidak ada satu pun tanda. Yang muncul cuma tombol yang gagal dengan pesan teknis, dan orangnya menyimpulkan aplikasinya rusak lalu menekan tombol yang sama berkali-kali.
+
+**`navigator.onLine` tidak cukup, dan tidak dijadikan sumber kebenaran.** Nilainya berarti "ada antarmuka jaringan", bukan "internet bisa dipakai" — HP yang tersambung wifi tanpa login tetap melaporkan `true`. Jadi tandanya juga dinyalakan oleh **kegagalan fetch yang sebenarnya**, lewat `fetch` khusus yang dipasang di klien Supabase. Itu satu-satunya bukti yang tidak bisa dibantah, dan semua permintaan aplikasi lewat sana.
+
+Yang membedakannya dari penanda naif: **balasan 403 atau 500 justru MELEPAS tanda offline.** Server yang membalas apa pun adalah server yang terjangkau. Penanda offline yang menyala saat masalahnya sebenarnya izin akan membuat orang mencari sinyal selama sepuluh menit untuk masalah yang tidak ada hubungannya dengan sinyal.
+
+Peristiwa `offline` bawaan browser tetap dipakai karena bereaksi seketika saat mode pesawat dinyalakan. Tapi peristiwa `online` **tidak** dipercaya untuk melepas tanda — tersambungnya antarmuka bukan jaminan servernya bisa dihubungi. Yang melepas hanya permintaan yang sungguh berhasil.
+
+Bilahnya ditempel di **atas** layar, bukan bawah: yang di bawah tertutup papan ketik saat orang sedang mengisi form — persis saat kabar ini paling dibutuhkan. Saat koneksi pulih, kabarnya ditampilkan sebentar lalu hilang sendiri; kalau langsung dihilangkan, orang yang sempat melihat peringatannya tidak pernah tahu keadaannya sudah beres.
+
+Dikunci `node tools/test-koneksi.mjs` (7 kasus, termasuk 403 dan 500 yang tidak boleh dianggap offline).
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

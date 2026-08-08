@@ -1,5 +1,6 @@
 import { escapeHtml } from './ui.js';
 import { listTutorials, embedUrl, thumbUrl, watchUrl } from '../modules/tutorial/tutorial.service.js';
+import { dorongLapis } from './navigasi.js';
 
 /**
  * Tombol ❓ "Tutorial" di header modul, plus dialog pemutarnya.
@@ -129,10 +130,19 @@ export function openTutorialDialog(videos, judul = '📺 Tutorial') {
 
   const body = overlay.querySelector('#tut-body');
 
+  // Back menutup pemutar, bukan meninggalkan modul. Untuk video yang sedang
+  // berjalan ini penting: refleks orang saat ingin berhenti menonton adalah
+  // menekan Back, bukan mencari tombol Tutup.
+  let lewatBack = false;
+  const lepasLapis = dorongLapis('tutorial', () => {
+    lewatBack = true;
+    tutup();
+  });
   function tutup() {
     // Hapus iframe dulu supaya audionya berhenti; sebagian browser terus
     // memutar suara kalau elemennya masih ada saat overlay dilepas.
     overlay.querySelectorAll('iframe').forEach((f) => f.remove());
+    if (!lewatBack) lepasLapis();
     overlay.classList.remove('show');
     setTimeout(() => overlay.remove(), 200);
     document.removeEventListener('keydown', onEsc);

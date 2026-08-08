@@ -12,7 +12,7 @@ import {
   getCashProofUrl
 } from './cash.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 const DIRECTIONS = [
   { value: 'both', label: 'Masuk & Keluar' },
@@ -189,7 +189,7 @@ async function renderCategoriesTab(content) {
   document.getElementById('btn-new-cat').addEventListener('click', () => openCatDialog(content, null));
   content.querySelectorAll('.btn-edit-cat').forEach((btn) => btn.addEventListener('click', () => openCatDialog(content, JSON.parse(btn.dataset.json))));
   content.querySelectorAll('.btn-del-cat').forEach((btn) =>
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const ok = await confirmDialog({ title: 'Hapus kategori?', confirmText: 'Hapus', danger: true });
       if (!ok) return;
       try {
@@ -199,7 +199,7 @@ async function renderCategoriesTab(content) {
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus.', 'error');
       }
-    })
+    }))
   );
 }
 

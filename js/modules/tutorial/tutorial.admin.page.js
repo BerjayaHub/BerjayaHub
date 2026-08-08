@@ -9,7 +9,7 @@ import {
   thumbUrl,
   watchUrl
 } from './tutorial.service.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 /**
  * Kelola video tutorial (super admin).
@@ -90,7 +90,7 @@ export async function renderTutorialAdminPage(container) {
       b.addEventListener('click', () => openForm(rows.find((r) => r.id === b.dataset.id)))
     );
     list.querySelectorAll('.tt-del').forEach((b) =>
-      b.addEventListener('click', async () => {
+      b.addEventListener('click', sekaliJalan(async () => {
         const r = rows.find((x) => x.id === b.dataset.id);
         const ok = await confirmDialog({
           title: `Hapus "${r.title}"?`,
@@ -106,7 +106,7 @@ export async function renderTutorialAdminPage(container) {
         } catch (error) {
           toast(error.message ?? 'Gagal menghapus.', 'error');
         }
-      })
+      }))
     );
   }
 

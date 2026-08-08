@@ -21,7 +21,7 @@ import {
   buildConfirmMessage,
   waNumber
 } from './reservation.service.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 /**
  * Admin Portal — mode HOTEL.
@@ -236,7 +236,7 @@ function wireAksi(host, rows, ctx, reload) {
   );
 
   host.querySelectorAll('.hv-del').forEach((b) =>
-    b.addEventListener('click', async () => {
+    b.addEventListener('click', sekaliJalan(async () => {
       const r = cari(b.dataset.id);
       // Dibedakan tegas dari Batalkan, karena keduanya sama-sama "membebaskan
       // kamar" tapi hanya satu yang menyisakan jejak.
@@ -256,7 +256,7 @@ function wireAksi(host, rows, ctx, reload) {
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus.', 'error');
       }
-    })
+    }))
   );
 
   host.querySelectorAll('.hv-wa').forEach((b) =>
@@ -595,7 +595,7 @@ async function tabKamar(content, ctx) {
     `;
     list.querySelectorAll('.hk-edit').forEach((b) => b.addEventListener('click', () => formTipe(rows.find((t) => t.id === b.dataset.id))));
     list.querySelectorAll('.hk-del').forEach((b) =>
-      b.addEventListener('click', async () => {
+      b.addEventListener('click', sekaliJalan(async () => {
         const t = rows.find((x) => x.id === b.dataset.id);
         const ok = await confirmDialog({
           title: `Hapus tipe "${t.name}"?`,
@@ -616,7 +616,7 @@ async function tabKamar(content, ctx) {
             : error.message ?? 'Gagal menghapus.';
           toast(pesan, 'error');
         }
-      })
+      }))
     );
   }
 

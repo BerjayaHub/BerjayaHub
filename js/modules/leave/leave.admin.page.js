@@ -12,7 +12,7 @@ import {
   setStaffEntitlement,
   removeStaffEntitlement
 } from './leave.service.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 const STATUS_BADGE = {
   pending: { label: 'Menunggu', cls: 'badge-pending' },
@@ -202,7 +202,7 @@ async function renderTypesTab(content, businessUnitId) {
     btn.addEventListener('click', () => openTypeDialog(content, businessUnitId, JSON.parse(btn.dataset.type)));
   });
   content.querySelectorAll('.btn-del-type').forEach((btn) => {
-    btn.addEventListener('click', async () => {
+    btn.addEventListener('click', sekaliJalan(async () => {
       const ok = await confirmDialog({ title: 'Hapus jenis cuti?', message: 'Jenis ini akan dihapus.', confirmText: 'Hapus', danger: true });
       if (!ok) return;
       try {
@@ -212,7 +212,7 @@ async function renderTypesTab(content, businessUnitId) {
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus (mungkin jenis global).', 'error');
       }
-    });
+    }));
   });
 }
 

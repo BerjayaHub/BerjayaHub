@@ -3,7 +3,7 @@ import { formatNum } from '../../core/format.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
 import { getOutletStockMap, recordMovement, transferStock, getAllowStaffOpname, recordMenuWaste } from './inventory.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 export async function renderInventoryPage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = loadingHtml('Memuat inventory…');
@@ -89,7 +89,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
 
   let stockMap = await refresh();
 
-  container.querySelector('#inv-receive').addEventListener('click', async () => {
+  container.querySelector('#inv-receive').addEventListener('click', sekaliJalan(async () => {
     const v = await formDialog({
       title: 'Terima dari Supplier',
       description: 'Catat bahan yang baru datang dari supplier.',
@@ -102,11 +102,11 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     });
     if (!v) return;
     await doMovement('receive', v.product_id, Number(v.qty), v.notes);
-  });
+  }));
 
   const menuOptions = menuProducts.map((p) => ({ value: p.id, label: `${p.name} (${p.base_unit})` }));
 
-  container.querySelector('#inv-waste').addEventListener('click', async () => {
+  container.querySelector('#inv-waste').addEventListener('click', sekaliJalan(async () => {
     const v = await formDialog({
       title: 'Catat Waste / Spoil',
       description: 'Waste = menu jadi yang terbuang (bahan dipotong sesuai resep). Spoil = bahan rusak/kedaluwarsa.',
@@ -159,7 +159,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     }
     if (!v.product_spoil) return toast('Pilih bahan yang rusak.', 'warning');
     await doMovement('waste', v.product_spoil, -qty, v.notes ? `Spoil: ${v.notes}` : 'Spoil');
-  });
+  }));
 
   // ---- Stok Opname: tabel yang langsung diisi (bukan pop up per produk) ----
   const opnameState = { open: false, category: '', q: '' };
@@ -314,7 +314,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     renderRows();
   }
 
-  container.querySelector('#inv-transfer').addEventListener('click', async () => {
+  container.querySelector('#inv-transfer').addEventListener('click', sekaliJalan(async () => {
     const dests = outlets.filter((o) => o.id !== state.outletId);
     if (!dests.length) {
       toast('Tidak ada outlet tujuan lain di BU ini.', 'warning');
@@ -345,7 +345,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     } catch (error) {
       toast(error.message ?? 'Gagal transfer.', 'error');
     }
-  });
+  }));
 
   async function doMovement(type, productId, qtyDelta, notes) {
     try {

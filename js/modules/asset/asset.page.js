@@ -13,7 +13,7 @@ import {
   getAssetPhotoUrl,
   getAssetPhotoUrls
 } from './asset.service.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 /**
  * Inventaris Aset — dipakai Staff App maupun Admin Portal.
@@ -152,7 +152,7 @@ async function render(container, { businessUnitId }, isAdmin) {
     );
     list.querySelectorAll('.as-edit').forEach((b) => b.addEventListener('click', () => openForm(rows.find((a) => a.id === b.dataset.id))));
     list.querySelectorAll('.as-del').forEach((b) =>
-      b.addEventListener('click', async () => {
+      b.addEventListener('click', sekaliJalan(async () => {
         const a = rows.find((x) => x.id === b.dataset.id);
         const ok = await confirmDialog({
           title: `Hapus "${a.name}"?`,
@@ -168,7 +168,7 @@ async function render(container, { businessUnitId }, isAdmin) {
         } catch (error) {
           toast(error.message ?? 'Gagal menghapus.', 'error');
         }
-      })
+      }))
     );
   }
 

@@ -1,3 +1,4 @@
+import { dorongLapis, pasangPenanyaKeluar, bersihkanIsian } from './navigasi.js';
 // =========================================================
 // UI helpers bersama: toast (pop up notifikasi) + modal
 // (konfirmasi & form dengan dropdown). Dipakai Staff App & Admin Portal
@@ -22,8 +23,34 @@ function ensureToastRoot() {
 
 const TOAST_ICON = { success: '✓', error: '✕', info: 'ℹ', warning: '⚠' };
 
-/** Tampilkan pop up notifikasi singkat di pojok layar. */
-export function toast(message, type = 'success', timeout = 3400) {
+// Penanya untuk konfirmasi "tinggalkan isian?". Disuntik dari sini karena
+// confirmDialog ada di file ini — navigasi.js sengaja tidak mengimpornya balik.
+pasangPenanyaKeluar(() =>
+  confirmDialog({
+    title: 'Tinggalkan halaman ini?',
+    message: 'Ada isian yang belum disimpan. Kalau keluar sekarang, isian itu hilang.',
+    confirmText: 'Tinggalkan',
+    cancelText: 'Lanjut mengisi',
+    danger: true
+  })
+);
+
+/**
+ * Tampilkan pop up notifikasi singkat di pojok layar.
+ *
+ * @param {number} [timeout] ms. Bawaannya beda per jenis: pesan KESALAHAN
+ *   bertahan dua kali lebih lama.
+ *
+ *   3,4 detik cukup untuk "Tersimpan", tapi tidak cukup untuk kalimat seperti
+ *   "Koreksi tidak tersimpan — kamu bukan admin outlet presensi ini." Pesan
+ *   yang hilang sebelum selesai dibaca sama saja dengan tidak pernah ada, dan
+ *   justru pesan kesalahan yang paling perlu sampai.
+ */
+export function toast(message, type = 'success', timeout = type === 'error' || type === 'warning' ? 7000 : 3400) {
+  // Toast SUKSES adalah isyarat "tersimpan" yang dipakai seragam di seluruh
+  // aplikasi. Dipakai juga untuk mematikan tanda "ada isian belum tersimpan",
+  // supaya orang tidak ditanya lagi setelah menyimpan.
+  if (type === 'success') bersihkanIsian();
   const root = ensureToastRoot();
   const el = document.createElement('div');
   el.className = `toast toast-${type}`;
@@ -53,6 +80,31 @@ function buildOverlay() {
 }
 
 /**
+ * Daftarkan dialog ini sebagai satu lapis Back.
+ *
+ * Tanpa ini, menekan Back saat dialog terbuka akan meninggalkan halaman —
+ * gerakan yang secara naluri berarti "batal", tapi berakibat keluar dari modul
+ * atau bahkan dari aplikasi. Sekarang Back menutup dialognya, persis seperti
+ * yang diharapkan orang.
+ *
+ * @param {() => void} tutup fungsi penutup dialog
+ * @returns {() => void} pembersih, dipanggil kalau dialog ditutup lewat tombol
+ */
+function lapisDialog(nama, tutup) {
+  let lewatBack = false;
+  const lepas = dorongLapis(nama, () => {
+    lewatBack = true;
+    tutup();
+  });
+  // Kalau penutupan datang dari Back, entri history-nya sudah dikonsumsi
+  // browser — memanggil `lepas()` lagi akan memundurkan satu langkah TAMBAHAN
+  // dan melempar orangnya keluar modul.
+  return () => {
+    if (!lewatBack) lepas();
+  };
+}
+
+/**
  * Modal konfirmasi. Return Promise<boolean> — true kalau user klik tombol utama.
  */
 export function confirmDialog({
@@ -78,11 +130,16 @@ export function confirmDialog({
     document.body.appendChild(overlay);
     requestAnimationFrame(() => overlay.classList.add('show'));
 
+    let lepasLapis = () => {};
     const close = (result) => {
+      lepasLapis();
       overlay.classList.remove('show');
       setTimeout(() => overlay.remove(), 200);
       resolve(result);
     };
+    // Back = batal. Itu arti yang paling wajar, dan sebelumnya justru berarti
+    // keluar dari modul.
+    lepasLapis = lapisDialog('konfirmasi', () => close(false));
     overlay.querySelector('[data-act="ok"]').addEventListener('click', () => close(true));
     overlay.querySelector('[data-act="cancel"]').addEventListener('click', () => close(false));
     overlay.addEventListener('click', (e) => {
@@ -145,11 +202,14 @@ export function formDialog({
     fields.filter((f) => f.type === 'photo').forEach((f) => bacaFoto.set(f.name, wirePhotoInput(form, f.name)));
 
     const errorEl = overlay.querySelector('.modal-error');
+    let lepasLapis = () => {};
     const close = (result) => {
+      lepasLapis();
       overlay.classList.remove('show');
       setTimeout(() => overlay.remove(), 200);
       resolve(result);
     };
+    lepasLapis = lapisDialog('form', () => close(null));
 
     const submit = () => {
       const values = {};
@@ -227,11 +287,14 @@ export function infoDialog({ title = 'Detail', bodyHtml = '' } = {}) {
     `;
     document.body.appendChild(overlay);
     requestAnimationFrame(() => overlay.classList.add('show'));
+    let lepasLapis = () => {};
     const close = () => {
+      lepasLapis();
       overlay.classList.remove('show');
       setTimeout(() => overlay.remove(), 200);
       resolve();
     };
+    lepasLapis = lapisDialog('dialog', () => close());
     overlay.querySelector('[data-act="close"]').addEventListener('click', close);
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) close();
@@ -287,11 +350,14 @@ export function shareDialog({ title = 'Bagikan', helper = '', defaultMessage = '
     ta.value = defaultMessage;
     requestAnimationFrame(() => overlay.classList.add('show'));
 
+    let lepasLapis = () => {};
     const close = () => {
+      lepasLapis();
       overlay.classList.remove('show');
       setTimeout(() => overlay.remove(), 200);
       resolve();
     };
+    lepasLapis = lapisDialog('dialog', () => close());
     overlay.querySelector('[data-act="close"]').addEventListener('click', close);
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) close();
