@@ -98,13 +98,35 @@ Deno.serve(async (req) => {
     return json({ error: 'Nomor ini sudah mengirim beberapa reservasi hari ini. Silakan hubungi kami langsung.' }, 429);
   }
 
+  // Batas H- diperiksa TERPISAH supaya alasannya bisa disebut apa adanya.
+  // Kalau hanya mengandalkan `is_open`, satu-satunya kalimat yang bisa dikirim
+  // adalah "penuh atau terlalu mepet" — dan tamu yang sebenarnya cuma perlu
+  // memundurkan tanggalnya akan menyimpulkan tempatnya penuh, lalu pergi.
+  const { data: infoTgl } = await admin.rpc('reservation_info_tanggal', { p_outlet: outletId, p_date: date });
+  const infoBaris = Array.isArray(infoTgl) ? infoTgl[0] : infoTgl;
+  if (infoBaris && infoBaris.boleh === false) {
+    return json({ error: infoBaris.alasan ?? 'Tanggal itu tidak bisa dipesan.' }, 409);
+  }
+
   // Ketersediaan dihitung DATABASE, sumber aturan yang sama dengan Staff App.
   const { data: slots, error: avErr } = await admin.rpc('reservation_availability', { p_outlet: outletId, p_date: date });
   if (avErr) return json({ error: avErr.message }, 500);
   // deno-lint-ignore no-explicit-any
   const slot = (slots ?? []).find((s: any) => String(s.slot_time).slice(0, 5) === time.slice(0, 5));
   if (!slot) return json({ error: 'Jam itu di luar jam operasional outlet.' }, 400);
-  if (!slot.is_open) return json({ error: 'Jam itu sudah penuh atau terlalu mepet. Silakan pilih jam lain.' }, 409);
+  if (!slot.is_open) {
+    // Sisa kursi masih ada -> yang menutup adalah WAKTU, bukan kuota.
+    const sisa = slot.max_pax - slot.used_pax;
+    return json(
+      {
+        error:
+          sisa > 0
+            ? `Jam itu sudah terlalu mepet — pemesanan online ditutup ${setting.min_lead_hours} jam sebelum jam reservasi. Silakan pilih jam atau tanggal lain.`
+            : 'Jam itu sudah penuh. Silakan pilih jam lain.'
+      },
+      409
+    );
+  }
   if (slot.used_pax + pax > slot.max_pax) {
     return json({ error: `Sisa kursi di jam itu tinggal ${Math.max(slot.max_pax - slot.used_pax, 0)}.` }, 409);
   }

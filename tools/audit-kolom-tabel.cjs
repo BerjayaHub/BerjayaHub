@@ -14,9 +14,14 @@
  * jadi audit ini ikut bergerak sendiri saat skemanya berubah.
  *
  * TERBATAS pada pemakaian yang bisa dibaca dengan yakin: .eq/.order/.gte/dst
- * dengan nama kolom literal, di dalam rantai yang diawali .from('tabel').
- * Embed dan kolom di dalam .select() sengaja TIDAK diperiksa — sintaksnya
- * terlalu kaya untuk ditebak, dan audit yang sering salah tuduh akan diabaikan.
+ * dengan nama kolom literal, di dalam rantai yang diawali .from('tabel'), plus
+ * kolom POLOS di dalam .select().
+ *
+ * Di dalam .select(), yang diperiksa hanya potongan yang berupa nama kolom apa
+ * adanya. Embed (`outlets!outlet_id(name)`), alias (`creator:user_profiles(...)`),
+ * `*`, dan apa pun yang mengandung tanda kurung dilewati — sintaksnya terlalu
+ * kaya untuk ditebak, dan audit yang sering salah tuduh akan berhenti dipercaya
+ * lalu diabaikan. Lebih baik memeriksa sedikit hal dengan yakin.
  */
 
 const fs = require('fs');
@@ -70,12 +75,43 @@ function daftarFile(dir, out = []) {
 
 const PENYARING = /\.(eq|neq|gt|gte|lt|lte|is|like|ilike|in|order)\(\s*'([a-z_]+)'/g;
 
+/**
+ * Nama kolom POLOS di dalam sebuah string .select().
+ *
+ * Dipecah per koma di kedalaman 0 saja: `outlets!outlet_id(name)` punya koma di
+ * dalam kurungnya pada kasus lain, dan memecahnya mentah-mentah akan
+ * menghasilkan potongan seperti `full_name)` yang lalu dituduh sebagai kolom
+ * yang tidak ada. Tuduhan palsu seperti itu yang membuat orang berhenti
+ * menjalankan audit sama sekali.
+ */
+function kolomPolos(select) {
+  const potongan = [];
+  let dalam = 0;
+  let kini = '';
+  for (const c of select) {
+    if (c === '(') dalam++;
+    if (c === ')') dalam--;
+    if (c === ',' && dalam === 0) {
+      potongan.push(kini);
+      kini = '';
+    } else kini += c;
+  }
+  potongan.push(kini);
+  // Hanya yang benar-benar berupa nama kolom. Sisanya (embed, alias, `*`,
+  // penggantian nama, cast) sengaja dilewati.
+  return potongan.map((p) => p.trim()).filter((p) => /^[a-z_][a-z0-9_]*$/.test(p));
+}
+
 let masalah = 0;
 let diperiksa = 0;
 
 for (const file of daftarFile(JS)) {
   const isi = fs.readFileSync(file, 'utf8');
-  for (const m of isi.matchAll(/\.from\('([a-z_]+)'\)([\s\S]{0,600}?)(?=\n\s*(?:const|let|return|\}|export|async|function)|;\s*\n)/g)) {
+  // Jendelanya harus muat SELURUH rantai. Dengan batas 600 karakter, select
+  // panjang seperti `listReservations` terpotong di tengah — tanda kutip
+  // penutupnya tidak pernah ketemu, jadi seluruh rantai itu diam-diam tidak
+  // diperiksa sama sekali. Justru query terpanjang yang paling butuh diperiksa.
+  for (const m of isi.matchAll(/\.from\('([a-z_]+)'\)([\s\S]{0,2000}?)(?=\n\s*(?:const|let|return|\}|export|async|function)|;\s*\n)/g)) {
     const tabel = m[1];
     const kolomTabel = skema.get(tabel);
     if (!kolomTabel) continue; // view / tabel dari luar migration -> lewati
@@ -87,6 +123,18 @@ for (const file of daftarFile(JS)) {
         console.error(`✗ ${path.relative(AKAR, file)}:${baris}`);
         console.error(`  .${u[1]}('${kolom}') pada tabel ${tabel} — kolom itu tidak ada di skema.`);
         masalah++;
+      }
+    }
+
+    for (const sel of m[2].matchAll(/\.select\(\s*(['"`])([\s\S]*?)\1/g)) {
+      for (const kolom of kolomPolos(sel[2])) {
+        diperiksa++;
+        if (!kolomTabel.has(kolom)) {
+          const baris = isi.slice(0, m.index + sel.index).split('\n').length;
+          console.error(`✗ ${path.relative(AKAR, file)}:${baris}`);
+          console.error(`  .select() menyebut '${kolom}' pada tabel ${tabel} — kolom itu tidak ada di skema.`);
+          masalah++;
+        }
       }
     }
   }

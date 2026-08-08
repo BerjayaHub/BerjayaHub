@@ -46,6 +46,7 @@ pernah dijalankan.
 | 0077 | `0077_jam_reservasi_fleksibel_dan_syarat.sql` | Jam reservasi bebas (kuota dihitung per slot), + **Syarat & Ketentuan per outlet** dan pencatatan persetujuannya |
 | 0078 | `0078_reservasi_dp_dan_koreksi.sql` | **DP + foto bukti transfer**, bucket `reservation-proofs`, dan RPC koreksi/reschedule reservasi dengan kuota dihitung ulang |
 | 0079 | `0079_dp_dari_staff_app.sql` | **DP bisa dicatat dari Staff App** (RPC `catat_dp_reservasi`), kolom `deposit_by`, nominal 0 = hapus DP, dan bukti transfer tidak lagi bisa ditimpa sembarang orang |
+| 0080 | `0080_batas_pesan_h_min.sql` | **Batas pemesanan H- sekian HARI** + jam batas di hari itu (bukan cuma H- sekian jam), berlaku di jalur website |
 
 > ⚠️ Kalau `0074` sudah terlanjur dijalankan sebelum 7 Agustus sore, **jalankan
 > ulang** — versi pertamanya memakai `ss.created_at`, kolom yang tidak ada di
@@ -78,6 +79,12 @@ supabase functions deploy purge-old-selfies
 supabase functions deploy create-staff-user
 supabase functions deploy reset-staff-password
 ```
+
+> `submit-reservation` di daftar di atas **harus di-deploy setelah `0080`**.
+> Tanpa deploy ulang, tamu yang memesan di luar batas H- tetap ditolak (aturannya
+> sudah di database), tapi kalimatnya masih *"penuh atau terlalu mepet"* — dan
+> tamu yang sebenarnya cuma perlu memundurkan tanggal akan menyimpulkan
+> tempatnya penuh, lalu pergi.
 
 ### WAJIB — perbaikan ambang reminder shift dekat tengah malam
 
@@ -304,6 +311,15 @@ select net.http_post(
   kuotanya dihitung ulang, bukan diterima diam-diam.
   Untuk pembatalan biasa lebih baik ubah **status** jadi Dibatalkan; jejaknya
   tetap ada untuk rekap.
+- **Reservasi → Pengaturan & Area** → ada **Minimal pesan H- (hari)** + **Batas
+  jam di hari itu**. Dihitung per **tanggal kalender**, seperti orang mengucapkan
+  "H-3" — bukan 72 jam. H-3 dengan batas 17.00 = reservasi tanggal 20 ditutup
+  tanggal 17 pukul 17.00; memesan tanggal 16 malam tetap diterima. Kosongkan
+  jamnya kalau boleh sampai akhir hari. Butuh `0080`.
+  ⚠️ Batasnya **hanya berlaku di website**, sama seperti batas H- jam selama ini —
+  `create_reservation` dari Staff App memang tidak pernah memeriksa lead time.
+  Staff tetap bisa mencatat reservasi mendadak, dan diberi tahu kalau tanggal itu
+  sudah ditutup untuk publik.
 - **Reservasi → Pengaturan & Area** → ada kotak **Syarat & Ketentuan** per outlet.
   ⚠️ **Isi dulu sebelum dipakai** — teks inilah yang ikut di pesan WhatsApp
   konfirmasi, form Staff App, dan halaman publik. Gading Serpong dan Sentul diisi

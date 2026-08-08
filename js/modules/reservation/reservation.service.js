@@ -92,6 +92,29 @@ export async function getAvailability(outletId, date) {
 }
 
 /**
+ * Apakah tanggal ini masih boleh dipesan lewat website, beserta alasannya (0080).
+ *
+ * Alasannya ikut dibawa, bukan cuma boolean. Halaman yang hanya tahu "tidak
+ * boleh" akan menampilkan daftar jam kosong — dan tamu menyimpulkan tempatnya
+ * penuh lalu pergi, padahal yang perlu dia ubah cuma tanggalnya.
+ *
+ * Gagal = dianggap BOLEH. Fungsi ini keterangan, bukan penjaga: yang menolak
+ * tetap `reservation_availability` dan Edge Function `submit-reservation`.
+ * Menutup form hanya karena keterangannya tidak terbaca akan menolak tamu yang
+ * sebenarnya boleh memesan.
+ */
+export async function getInfoTanggal(outletId, date) {
+  if (!outletId || !date) return { boleh: true, alasan: null };
+  const { data, error } = await supabase.rpc('reservation_info_tanggal', { p_outlet: outletId, p_date: date });
+  if (error) {
+    console.warn('[reservasi] info tanggal tidak terbaca:', error.message);
+    return { boleh: true, alasan: null };
+  }
+  const baris = Array.isArray(data) ? data[0] : data;
+  return { boleh: baris?.boleh !== false, alasan: baris?.alasan ?? null, batas: baris?.batas ?? null };
+}
+
+/**
  * Syarat & Ketentuan outlet. Dikembalikan apa adanya (teks bebas).
  *
  * Gagal = string kosong, bukan lempar error: S&K itu pelengkap, dan reservasi

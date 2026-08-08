@@ -175,6 +175,22 @@
       async function loadSlots() {
         const box = document.getElementById('f-slots');
         box.innerHTML = `<span style="color:var(--color-text-muted);font-size:0.85rem">Memuat jam…</span>`;
+
+        // Alasannya ditanyakan DULU. Kalau tanggalnya sudah lewat batas H-,
+        // seluruh jamnya akan tertutup — dan deretan tombol mati berlabel
+        // "penuh" membuat tamu menyimpulkan tempatnya penuh lalu pergi, padahal
+        // yang perlu dia ubah cuma tanggalnya.
+        const { data: info } = await supabase.rpc('reservation_info_tanggal', {
+          p_outlet: state.outletId,
+          p_date: state.date
+        });
+        const baris = Array.isArray(info) ? info[0] : info;
+        if (baris && baris.boleh === false) {
+          state.time = '';
+          box.innerHTML = `<span style="font-size:0.85rem;color:var(--color-danger)">${esc(baris.alasan ?? 'Tanggal ini tidak bisa dipesan.')}</span>`;
+          return;
+        }
+
         const { data, error } = await supabase.rpc('reservation_availability', { p_outlet: state.outletId, p_date: state.date });
         if (error) {
           box.innerHTML = `<span class="error-text">${esc(error.message)}</span>`;
@@ -190,7 +206,7 @@
             const jam = String(s.slot_time).slice(0, 5);
             const sisa = s.max_pax - s.used_pax;
             return `<button type="button" class="rv-slot" data-time="${jam}" aria-pressed="${state.time === jam}" ${s.is_open ? '' : 'disabled'}>
-              ${jam}<small>${s.is_open ? `sisa ${sisa}` : 'penuh'}</small>
+              ${jam}<small>${s.is_open ? `sisa ${sisa}` : sisa > 0 ? 'tutup' : 'penuh'}</small>
             </button>`;
           })
           .join('');

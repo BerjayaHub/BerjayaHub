@@ -13,6 +13,7 @@ import {
   listReservations,
   getReservationTerms,
   catatDpReservasi,
+  getInfoTanggal,
   uploadDepositProof,
   getDepositProofUrl
 } from './reservation.service.js';
@@ -326,12 +327,22 @@ export async function renderReservationPage(container, { businessUnitId }) {
         // KETERANGAN. Staff perlu tahu sisa kursinya sebelum menjanjikan meja —
         // dan angka itu jauh lebih berguna daripada daftar jam yang kaku.
         let slots = [];
+        // Batas H- hanya mengikat WEBSITE. Staff tetap boleh menyimpan — telepon
+        // "meja untuk besok" harus bisa dicatat di aplikasi, bukan di kertas.
+        // Tapi staff perlu TAHU kalau tanggal itu sudah ditutup untuk publik:
+        // itu yang menjelaskan kenapa tamu bilang "di website tidak bisa".
+        let catatanBatas = '';
         const muatSlot = async () => {
           info.value = 'memuat…';
           try {
-            slots = await getAvailability(state.outletId, tgl.value);
+            const [hasil, kabar] = await Promise.all([
+              getAvailability(state.outletId, tgl.value),
+              getInfoTanggal(state.outletId, tgl.value)
+            ]);
+            slots = hasil;
+            catatanBatas = kabar.boleh ? '' : `⚠ ${kabar.alasan ?? 'Tanggal ini sudah ditutup untuk pemesanan online.'} Kamu tetap bisa menyimpannya dari sini.`;
             tampilkanSisa();
-            setError(slots.length ? '' : 'Pengaturan reservasi outlet ini belum diisi admin, atau tanggalnya di luar jangkauan.');
+            setError(catatanBatas || (slots.length ? '' : 'Pengaturan reservasi outlet ini belum diisi admin, atau tanggalnya di luar jangkauan.'));
           } catch (e) {
             slots = [];
             info.value = '';
@@ -353,7 +364,11 @@ export async function renderReservationPage(container, { businessUnitId }) {
             return;
           }
           const sisa = cocok.max_pax - cocok.used_pax;
-          info.value = `slot ${String(cocok.slot_time).slice(0, 5)} — sisa ${sisa} kursi${cocok.is_open ? '' : ' (tertutup)'}`;
+          // "(tertutup)" dulu berarti dua hal sekaligus — kuota habis atau lewat
+          // batas waktu — dan staff tidak bisa membedakannya. Sekarang
+          // kuotanyalah yang menentukan katanya.
+          const tutup = cocok.is_open ? '' : sisa > 0 ? ' (tutup untuk online)' : ' (penuh)';
+          info.value = `slot ${String(cocok.slot_time).slice(0, 5)} — sisa ${sisa} kursi${tutup}`;
         };
 
         tgl.addEventListener('change', muatSlot);

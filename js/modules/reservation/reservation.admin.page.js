@@ -535,9 +535,25 @@ async function drawDetail(content, ctx, outletId) {
         <span class="field-help">Rem utama supaya tidak overbooking. Hanya reservasi Menunggu &amp; Dikonfirmasi yang memakan kuota.</span>
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="field" style="max-width:200px"><label>Minimal pesan H- (hari)</label><input type="number" name="min_lead_days" min="0" value="${v('min_lead_days', 0)}" /></div>
+        <div class="field" style="max-width:200px"><label>Batas jam di hari itu</label><input type="time" name="booking_cutoff_time" value="${String(v('booking_cutoff_time', '') ?? '').slice(0, 5)}" /></div>
+      </div>
+      <span class="field-help" style="display:block;margin:-6px 0 12px">
+        Dihitung per <strong>tanggal kalender</strong>, seperti orang mengucapkan "H-3" — bukan 72 jam.
+        Contoh: H-3 dengan batas 17.00 berarti reservasi tanggal 20 ditutup tanggal 17 pukul 17.00; memesan tanggal 16
+        malam tetap diterima. Kosongkan jamnya kalau boleh sampai akhir hari. <strong>H-0</strong> berarti hari itu juga
+        masih boleh — dan jam batasnya jadi jam tutup pemesanan hari yang sama.
+      </span>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
         <div class="field" style="max-width:200px"><label>Minimal pesan H- (jam)</label><input type="number" name="min_lead_hours" min="0" value="${v('min_lead_hours', 2)}" /></div>
         <div class="field" style="max-width:200px"><label>Paling jauh (hari)</label><input type="number" name="max_days_ahead" min="1" value="${v('max_days_ahead', 60)}" /></div>
       </div>
+      <span class="field-help" style="display:block;margin:-6px 0 12px">
+        Batas <strong>jam</strong> tetap berlaku berdampingan: jarak sependek ini dari sekarang ke jam reservasinya
+        selalu ditolak, walau aturan H- harinya lolos. Keduanya harus terpenuhi.
+        <strong>Semua batas ini hanya berlaku di website</strong> — staff tetap bisa mencatat reservasi mendadak
+        lewat telepon atau walk-in.
+      </span>
 
       <h3 style="margin-top:18px">Halaman Publik</h3>
       <div class="field field-check">
@@ -601,6 +617,11 @@ async function drawDetail(content, ctx, outletId) {
         slot_minutes: Number(f.slot_minutes.value),
         max_pax_per_slot: Number(f.max_pax_per_slot.value),
         min_lead_hours: Number(f.min_lead_hours.value) || 0,
+        min_lead_days: Number(f.min_lead_days.value) || 0,
+        // Kosong = sampai akhir hari, BUKAN 00:00. Menyimpan '' apa adanya akan
+        // ditolak Postgres sebagai `time`; menyimpan '00:00' justru menutup
+        // pemesanan sepanjang hari batas — kebalikan dari yang dimaksud.
+        booking_cutoff_time: f.booking_cutoff_time.value || null,
         max_days_ahead: Number(f.max_days_ahead.value) || 60,
         is_public_enabled: f.is_public_enabled.checked,
         staff_input_auto_confirm: f.staff_input_auto_confirm.checked,

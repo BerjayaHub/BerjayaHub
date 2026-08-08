@@ -2072,6 +2072,38 @@ Tombol **"Tampilkan" dihapus.** Mengubah tanggal lalu menekan tombol berarti set
 
 Dikunci `node tools/test-rentang-reservasi.mjs` (24 kasus). Yang dijaga: rentangnya tidak pernah terbalik (`dari > sampai`). Rentang terbalik tidak menghasilkan error apa pun — query-nya sah, hasilnya kosong — dan gejalanya persis sama dengan "tidak ada reservasi".
 
+## Reservasi: batas pemesanan "H- sekian hari" (migration `0080`)
+
+`min_lead_hours` sudah ada sejak `0044`, tapi satuannya **jam**. Untuk aturan yang diucapkan sehari-hari sebagai "H-3", jam adalah satuan yang salah: orang menghitung H-3 lewat **tanggal di kalender**, bukan lewat 72 jam. Memaksakannya ke jam membuat tamu yang memesan tanggal 17 malam untuk tanggal 20 ditolak — padahal menurut dia, dan menurut S&K yang dia baca, itu masih H-3.
+
+Dua kolom baru di `reservation_settings`:
+
+- **`min_lead_days`** — H- berapa hari, dihitung per tanggal kalender.
+- **`booking_cutoff_time`** — batas jam di hari terakhir itu. NULL = sampai akhir hari.
+
+H-3 dengan batas 17.00, untuk reservasi tanggal 20: pemesanan ditutup **tanggal 17 pukul 17.00**. Memesan tanggal 17 pukul 16.59 masih diterima, 17.01 ditolak, tanggal 16 malam jelas diterima.
+
+**Jam batas hanya berlaku di hari batas itu.** Tanpa pembatasan ini, "sebelum jam 17.00" akan ikut menolak pemesanan H-10 yang kebetulan dibuat jam 8 malam — aturan yang tidak pernah dimaksudkan siapa pun. Ini kasus yang paling mudah salah dibaca di dalam SQL yang panjang, jadi ia diuji tersendiri.
+
+Batas **jam** (`min_lead_hours`) tetap berlaku berdampingan: keduanya harus terpenuhi.
+
+**Cakupannya hanya jalur website**, sama seperti `min_lead_hours` selama ini — `create_reservation` dari Staff App memang tidak pernah memeriksa lead time, dan itu dipertahankan dengan sadar. Telepon "meja untuk besok" harus tetap bisa dicatat di aplikasi; aturan yang membuat staff mencatat di kertas bukan aturan yang menang. Yang ditambahkan: staff **diberi tahu** kalau tanggal itu sudah ditutup untuk publik, karena itulah yang menjelaskan kenapa tamu bilang "di website tidak bisa".
+
+### Alasan penolakan ikut dibawa, bukan cuma boolean
+
+`reservation_info_tanggal()` mengembalikan `boleh`, `alasan`, dan `batas`. Halaman yang hanya tahu "tidak boleh" akan menampilkan deretan jam mati berlabel **"penuh"** — dan tamu menyimpulkan tempatnya penuh lalu pergi, padahal yang perlu dia ubah cuma tanggalnya. Sekarang halaman publik menampilkan kalimatnya ("pemesanan paling lambat H-3 (17-08-2026 pukul 17.00)") menggantikan daftar jam, dan `submit-reservation` mengirim kalimat yang sama alih-alih "penuh atau terlalu mepet".
+
+Label slot tertutup juga diperbaiki: **"penuh"** hanya kalau kursinya memang habis; kalau masih ada sisa, yang menutup adalah waktu, dan tulisannya "tutup".
+
+Bentuk kembalian `reservation_availability` sengaja **tidak** diubah — mengubah tipe tabel yang dikembalikan memaksa `drop function`, dan setiap halaman yang masih terbuka di browser lain akan error sampai di-refresh, untuk perubahan yang sebenarnya cukup di dalam badan fungsinya.
+
+Aturannya dikunci `node tools/test-batas-pesan.mjs` (23 kasus, termasuk tepi jam batas dan hari batas yang jatuh di bulan sebelumnya).
+
+### Dua audit ikut diperbaiki sambil jalan
+
+- **`audit-kolom-tabel.cjs` sebelumnya melewatkan justru query terpanjang.** Jendela pembacaannya 600 karakter, sementara `listReservations` punya `.select()` yang jauh lebih panjang dari itu — tanda kutip penutupnya tidak pernah ketemu, jadi seluruh rantai itu diam-diam tidak diperiksa. Sekarang kolom polos di dalam `.select()` ikut dicocokkan ke skema (885 pemeriksaan, naik dari 321). Embed dan alias tetap dilewati: audit yang sering salah tuduh akan berhenti dipercaya lalu diabaikan.
+- **`audit-syntax.cjs` tidak pernah menyentuh HTML.** `reservasi.html` memuat logika sungguhan di dalam `<script type="module">` — dan halaman itu justru yang dilihat **calon tamu**. Kalau ia mati karena satu backtick liar, tidak ada satu pun staff yang tahu; yang tahu cuma orang yang sudah pergi ke tempat lain. Sekarang blok modul di dalam HTML ikut di-parse.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
@@ -2091,5 +2123,6 @@ Dikunci `node tools/test-rentang-reservasi.mjs` (24 kasus). Yang dijaga: rentang
 - [x] **Modul Reservasi** — input Staff App + halaman publik `reservasi.html`, kuota per slot, approval Admin Portal, notifikasi Telegram & Web Push
 - [x] **Mode Reservasi Hotel** — booking kamar (rentang tanggal + tipe kamar), kuota per tipe dijaga trigger database, check-in/check-out, tanpa persetujuan & tanpa jalur website
 - [x] **Video Tutorial per modul** — tombol ❓ di header modul (Staff App + Admin Portal) **dan daftar per modul di Beranda Staff**, video YouTube Unlisted, global atau khusus BU, dikelola super admin
+- [x] **Reservasi: batas pesan H- hari + jam batas** — "H-3 sebelum pukul 17.00" dihitung per tanggal kalender, hanya mengikat jalur website
 - [x] **Reservasi: jam bebas, S&K per outlet, DP + bukti transfer, koreksi/reschedule oleh admin** — jam tidak harus .00 (kuota tetap dihitung per slot), S&K ikut di pesan WhatsApp, DP dicatat beserta fotonya **dari Staff App maupun Admin Portal** (**tidak masuk modul Kas**)
 - [x] **Kantong kas (sub-kas) & outlet peruntukan** — form Kas Masuk/Keluar dibedakan, jumlah kantong per user diatur admin, pindah saldo antar kantong sendiri, Laporan Kas bisa disaring per outlet & kategori
