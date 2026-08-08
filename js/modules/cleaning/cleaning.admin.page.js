@@ -173,21 +173,21 @@ async function openItemDialog(content, businessUnitId, existing, outlets = []) {
     title: isEdit ? 'Edit Item' : 'Tambah Item',
     fields: [
       { name: 'label', label: 'Nama Item', type: 'text', required: true, value: existing?.label ?? '' },
-      // Cakupan hanya bisa dipilih saat MEMBUAT. Memindahkan item BU jadi milik
-      // outlet (atau sebaliknya) diam-diam mengubah ceklis outlet lain, jadi
-      // sengaja tidak disediakan — buat baru saja kalau memang perlu.
-      ...(existing
-        ? []
-        : [
-            {
-              name: 'outlet_id',
-              label: 'Berlaku di',
-              type: 'select',
-              value: '',
-              help: 'Admin outlet hanya bisa membuat item khusus outletnya sendiri.',
-              options: [{ value: '', label: 'Semua outlet BU (standar)' }, ...outlets.map((o) => ({ value: o.id, label: `Khusus ${o.name}` }))]
-            }
-          ]),
+      // Cakupan kini BISA diubah saat mengedit. Dulu dikunci karena
+      // memindahkannya mengubah ceklis outlet lain — itu benar, tapi jalan
+      // keluarnya salah: yang dibutuhkan peringatan, bukan larangan. Melarang
+      // memaksa admin membuat item kembar lalu menonaktifkan yang lama, dan dua
+      // item bernama sama dengan riwayat terpisah jauh lebih membingungkan.
+      {
+        name: 'outlet_id',
+        label: 'Berlaku di',
+        type: 'select',
+        value: existing?.outlet_id ?? '',
+        help: existing
+          ? 'Mengubahnya langsung mengubah ceklis outlet yang terkait — yang kehilangan item ini maupun yang mendapatkannya. Riwayat pengerjaan yang sudah ada tidak ikut berubah.'
+          : 'Admin outlet hanya bisa membuat item khusus outletnya sendiri.',
+        options: [{ value: '', label: 'Semua outlet BU (standar)' }, ...outlets.map((o) => ({ value: o.id, label: `Khusus ${o.name}` }))]
+      },
       { name: 'sort_order', label: 'Urutan', type: 'number', min: 0, value: existing?.sort_order ?? 0 },
       ...(isEdit ? [{ name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing.is_active }] : [])
     ],
@@ -196,8 +196,25 @@ async function openItemDialog(content, businessUnitId, existing, outlets = []) {
   if (!values) return;
   try {
     if (isEdit) {
-      await updateItem(existing.id, { label: values.label, sort_order: Number(values.sort_order) || 0, is_active: values.is_active });
-      toast('Item diperbarui.', 'success');
+      const cakupanBaru = values.outlet_id || null;
+      const pindah = (existing.outlet_id ?? null) !== cakupanBaru;
+      if (pindah) {
+        const dari = existing.outlet_id ? outlets.find((o) => o.id === existing.outlet_id)?.name ?? 'outlet' : 'semua outlet BU';
+        const ke = cakupanBaru ? outlets.find((o) => o.id === cakupanBaru)?.name ?? 'outlet' : 'semua outlet BU';
+        const ok = await confirmDialog({
+          title: 'Pindahkan cakupan item?',
+          message: `"${existing.label}" akan berpindah dari ${dari} ke ${ke}. Ceklis di outlet yang terkait langsung berubah mulai sesi berikutnya. Riwayat pengerjaan yang sudah tercatat tidak terpengaruh.`,
+          confirmText: 'Pindahkan'
+        });
+        if (!ok) return;
+      }
+      await updateItem(existing.id, {
+        label: values.label,
+        sort_order: Number(values.sort_order) || 0,
+        is_active: values.is_active,
+        outlet_id: cakupanBaru
+      });
+      toast(pindah ? 'Item dipindahkan & diperbarui.' : 'Item diperbarui.', 'success');
     } else {
       await createItem({
         businessUnitId,
@@ -279,18 +296,16 @@ async function openSessionDialog(content, businessUnitId, existing, outlets = []
     title: isEdit ? 'Edit Sesi' : 'Tambah Sesi',
     fields: [
       { name: 'name', label: 'Nama Sesi', type: 'text', required: true, value: existing?.name ?? '', placeholder: 'mis. Buka' },
-      ...(existing
-        ? []
-        : [
-            {
-              name: 'outlet_id',
-              label: 'Berlaku di',
-              type: 'select',
-              value: '',
-              help: 'Admin outlet hanya bisa membuat sesi khusus outletnya sendiri.',
-              options: [{ value: '', label: 'Semua outlet BU (standar)' }, ...outlets.map((o) => ({ value: o.id, label: `Khusus ${o.name}` }))]
-            }
-          ]),
+      {
+        name: 'outlet_id',
+        label: 'Berlaku di',
+        type: 'select',
+        value: existing?.outlet_id ?? '',
+        help: existing
+          ? 'Mengubahnya langsung mengubah daftar sesi di outlet yang terkait. Riwayat pengerjaan yang sudah ada tidak ikut berubah.'
+          : 'Admin outlet hanya bisa membuat sesi khusus outletnya sendiri.',
+        options: [{ value: '', label: 'Semua outlet BU (standar)' }, ...outlets.map((o) => ({ value: o.id, label: `Khusus ${o.name}` }))]
+      },
       { name: 'sort_order', label: 'Urutan', type: 'number', min: 0, value: existing?.sort_order ?? 0 },
       ...(isEdit ? [{ name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing.is_active }] : [])
     ],
@@ -299,8 +314,25 @@ async function openSessionDialog(content, businessUnitId, existing, outlets = []
   if (!values) return;
   try {
     if (isEdit) {
-      await updateSession(existing.id, { name: values.name, sort_order: Number(values.sort_order) || 0, is_active: values.is_active });
-      toast('Sesi diperbarui.', 'success');
+      const cakupanBaru = values.outlet_id || null;
+      const pindah = (existing.outlet_id ?? null) !== cakupanBaru;
+      if (pindah) {
+        const dari = existing.outlet_id ? outlets.find((o) => o.id === existing.outlet_id)?.name ?? 'outlet' : 'semua outlet BU';
+        const ke = cakupanBaru ? outlets.find((o) => o.id === cakupanBaru)?.name ?? 'outlet' : 'semua outlet BU';
+        const ok = await confirmDialog({
+          title: 'Pindahkan cakupan sesi?',
+          message: `Sesi "${existing.name}" akan berpindah dari ${dari} ke ${ke}. Daftar sesi di outlet terkait langsung berubah. Riwayat pengerjaan tidak terpengaruh.`,
+          confirmText: 'Pindahkan'
+        });
+        if (!ok) return;
+      }
+      await updateSession(existing.id, {
+        name: values.name,
+        sort_order: Number(values.sort_order) || 0,
+        is_active: values.is_active,
+        outlet_id: cakupanBaru
+      });
+      toast(pindah ? 'Sesi dipindahkan & diperbarui.' : 'Sesi diperbarui.', 'success');
     } else {
       await createSession({
         businessUnitId,

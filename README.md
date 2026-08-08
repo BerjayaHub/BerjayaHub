@@ -1884,6 +1884,20 @@ Audit itu sendiri sempat salah: versi pertamanya memakai spasi literal antar kat
 
 `correctAttendanceRecord()` melakukan UPDATE tanpa `.select()`. Penolakan RLS tidak menghasilkan error — hanya 0 baris — jadi admin yang bukan admin outlet presensi itu melihat "koreksi tersimpan" untuk perubahan yang tidak pernah terjadi. Sudah diperiksa.
 
+## Cakupan item & sesi Daily Activities kini bisa dipindah
+
+Sebelumnya "Berlaku di" hanya bisa dipilih **saat membuat**. Alasannya masuk akal — memindahkan item BU jadi milik satu outlet mengubah ceklis outlet lain — tapi jalan keluarnya salah: yang dibutuhkan **peringatan**, bukan larangan.
+
+Melarangnya memaksa admin membuat item kembar lalu menonaktifkan yang lama. Dua item bernama sama dengan riwayat pengerjaan terpisah jauh lebih membingungkan daripada satu item yang cakupannya pernah berubah — dan rekapnya jadi tidak bisa dijumlahkan tanpa tahu sejarah itu.
+
+Sekarang bisa diubah saat mengedit, dengan konfirmasi yang menyebut **dari mana ke mana** dan apa akibatnya. Berlaku untuk item maupun sesi.
+
+**Siapa yang boleh — tidak berubah, dan memang sudah benar sejak `0054`.** Policy `checklist_items_modify` menguji baris **lama** lewat `using` dan baris **baru** lewat `with check`. Jadi admin outlet tidak bisa mengambil item BU jadi miliknya (gagal di `using`), maupun melepas itemnya jadi milik seluruh BU (gagal di `with check`). Yang bisa memindahkan hanya admin BU. Database-nya sudah siap sejak awal; hanya UI-nya yang menutup.
+
+**Riwayat pengerjaan tidak ikut berubah.** `checklist_run_items` menunjuk item lewat id, jadi bukti yang sudah tercatat tetap utuh apa pun cakupan barunya. Yang berubah hanya ceklis mulai sesi berikutnya.
+
+Satu pembersihan ikut dilakukan: penugasan sesi (`0069`) yang menunjuk sesi milik **outlet lain** dihapus saat cakupan menyempit. Itemnya toh tidak akan muncul di sana lagi — badge yang menyebut sesi yang tidak mungkin terjadi hanya menyesatkan pembacanya.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

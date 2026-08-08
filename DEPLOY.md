@@ -333,6 +333,11 @@ select net.http_post(
   yang dicentang tanpa bukti tetap ada (tidak divalidasi mundur) tapi ditandai
   merah **"tanpa bukti"** di detail rekap, dibedakan dari item yang memang
   **"tidak dikerjakan"**.
+- **Daily Activities (Admin Portal → Item & Sesi)** → kolom **"Berlaku di"** kini
+  bisa diubah lewat **Edit**, tidak lagi terkunci sejak dibuat. Ada konfirmasi
+  yang menyebut dari mana ke mana. Hanya **admin BU** yang bisa memindahkan
+  antara "semua outlet" dan outlet tertentu — itu dijaga policy, bukan tombol.
+  **Tidak ada migration untuk ini.**
 - **Daily Activities (Admin Portal → Item)** → kolom **Sesi** + tombol **Sesi**
   untuk memilih sesi mana yang memakai item itu. Item yang belum ditugaskan tetap
   berlaku di **semua** sesi, jadi setelah `0069` tidak ada yang berubah sampai

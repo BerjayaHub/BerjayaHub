@@ -194,14 +194,49 @@ export async function createItem({ businessUnitId, outletId, label, sort_order }
     .insert({ business_unit_id: businessUnitId, outlet_id: outletId || null, label, sort_order: sort_order ?? 0 });
   if (error) throw error;
 }
-export async function updateItem(id, { label, sort_order, is_active }) {
+/**
+ * `outlet_id` boleh diubah — cakupan item BUKAN keputusan sekali seumur hidup.
+ *
+ * Dulu sengaja dikunci karena memindahkannya mengubah ceklis outlet lain. Itu
+ * benar, tapi jalan keluarnya salah: yang dibutuhkan adalah PERINGATAN, bukan
+ * larangan. Melarangnya memaksa admin membuat item kembar lalu menonaktifkan
+ * yang lama — dan dua item bernama sama dengan riwayat terpisah jauh lebih
+ * membingungkan daripada satu item yang cakupannya pernah berubah.
+ *
+ * Siapa yang boleh: dijaga policy `checklist_items_modify` (0054), yang menguji
+ * baris LAMA lewat `using` dan baris BARU lewat `with check`. Jadi admin outlet
+ * tidak bisa mengambil item BU jadi miliknya, maupun melepas itemnya jadi milik
+ * seluruh BU. Yang bisa memindahkan hanya admin BU.
+ *
+ * `undefined` berarti "jangan diubah" — beda dari `null` yang berarti
+ * "berlaku di semua outlet".
+ */
+export async function updateItem(id, { label, sort_order, is_active, outlet_id }) {
+  const isi = { label, sort_order, is_active };
+  if (outlet_id !== undefined) isi.outlet_id = outlet_id;
   const { data, error } = await supabase
     .from('checklist_items')
-    .update({ label, sort_order, is_active })
+    .update(isi)
     .eq('id', id)
-    .select('id');
+    .select('id, outlet_id');
   if (error) throw error;
   pastikanKena(data, 'item');
+
+  // Penugasan sesi (0069) yang menunjuk sesi milik OUTLET LAIN jadi tidak
+  // berarti apa-apa setelah cakupannya menyempit — itemnya tidak akan muncul di
+  // sana lagi. Dibersihkan supaya kolom "Sesi" di layar admin tetap jujur;
+  // badge yang menyebut sesi yang tidak mungkin terjadi hanya menyesatkan.
+  if (outlet_id) {
+    const { data: sesiLain } = await supabase
+      .from('checklist_sessions')
+      .select('id')
+      .not('outlet_id', 'is', null)
+      .neq('outlet_id', outlet_id);
+    const buang = (sesiLain ?? []).map((x) => x.id);
+    if (buang.length) {
+      await supabase.from('checklist_session_items').delete().eq('item_id', id).in('session_id', buang);
+    }
+  }
 }
 export async function deleteItem(id) {
   const { data, error } = await supabase.from('checklist_items').delete().eq('id', id).select('id');
@@ -240,10 +275,13 @@ export async function createSession({ businessUnitId, outletId, name, sort_order
     .insert({ business_unit_id: businessUnitId, outlet_id: outletId || null, name, sort_order: sort_order ?? 0 });
   if (error) throw error;
 }
-export async function updateSession(id, { name, sort_order, is_active }) {
+/** Cakupan sesi juga bisa dipindah. Lihat alasannya di `updateItem`. */
+export async function updateSession(id, { name, sort_order, is_active, outlet_id }) {
+  const isi = { name, sort_order, is_active };
+  if (outlet_id !== undefined) isi.outlet_id = outlet_id;
   const { data, error } = await supabase
     .from('checklist_sessions')
-    .update({ name, sort_order, is_active })
+    .update(isi)
     .eq('id', id)
     .select('id');
   if (error) throw error;
