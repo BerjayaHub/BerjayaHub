@@ -1,4 +1,4 @@
-import { listMyOutlets } from '../../core/my-outlets.js';
+import { listMyOutlets, listOutletsSayaKelola, PESAN_TANPA_OUTLET_KELOLA } from '../../core/my-outlets.js';
 import { renderReservationHotelAdmin } from './reservation.hotel.admin.page.js';
 import { toast, confirmDialog, formDialog, shareDialog } from '../../core/ui.js';
 import { monthRangeWIB } from '../../core/dates.js';
@@ -48,7 +48,17 @@ async function pesanKonfirmasi(r) {
 }
 
 export async function renderReservationAdminPage(container, { businessUnitId }) {
-  const outlets = await listMyOutlets(businessUnitId).catch(() => []);
+  // DUA daftar, karena ada dua pertanyaan berbeda di halaman ini:
+  //   `outlets`       — yang boleh DILIHAT. Untuk penyaring laporan; menyempitkannya
+  //                     akan menghilangkan data yang memang boleh dia baca.
+  //   `outletsKelola` — yang boleh DIATUR. Untuk tab Pengaturan dan untuk
+  //                     memutuskan tombol aksi mana yang pantas muncul.
+  // Menyamakan keduanya selalu merugikan salah satu sisi: kalau dipakai yang
+  // sempit, laporannya bolong; kalau dipakai yang lebar, tombolnya ditolak RLS.
+  const [outlets, outletsKelola] = await Promise.all([
+    listMyOutlets(businessUnitId).catch(() => []),
+    listOutletsSayaKelola(businessUnitId)
+  ]);
 
   // Mode ditentukan per OUTLET (kolom `reservation_mode`, migration 0055).
   // Kalau SEMUA outlet yang bisa diakses bermode hotel, seluruh halaman diganti
@@ -57,7 +67,11 @@ export async function renderReservationAdminPage(container, { businessUnitId }) 
   // datang / keluar / masih menginap, bukan "mana yang perlu di-approve".
   const outletHotel = outlets.filter((o) => o.reservation_mode === 'hotel');
   if (outlets.length && outletHotel.length === outlets.length) {
-    return renderReservationHotelAdmin(container, { businessUnitId, outlets: outletHotel });
+    // Layar hotel MENULIS booking, jadi yang dikirim daftar yang boleh diatur.
+    return renderReservationHotelAdmin(container, {
+      businessUnitId,
+      outlets: outletsKelola.filter((o) => o.reservation_mode === 'hotel')
+    });
   }
   // Campuran (satu BU punya hotel DAN cafe): halaman cafe tetap dipakai, tapi
   // outlet hotel dikeluarkan supaya tidak ada form slot/pax yang muncul untuk
@@ -81,7 +95,14 @@ export async function renderReservationAdminPage(container, { businessUnitId }) 
     <div id="rv-admin"></div>
   `;
   const content = container.querySelector('#rv-admin');
-  const ctx = { businessUnitId, outlets: outletsCafe };
+  const ctx = {
+    businessUnitId,
+    outlets: outletsCafe,
+    outletsKelola: outletsKelola.filter((o) => o.reservation_mode !== 'hotel'),
+    // Dipakai berulang di tiap baris tabel — dijadikan Set sekali, bukan
+    // `.some()` di dalam perulangan.
+    idKelola: new Set(outletsKelola.filter((o) => o.reservation_mode !== 'hotel').map((o) => o.id))
+  };
 
   async function showTab(key) {
     container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));
@@ -119,7 +140,7 @@ async function renderInbox(content, ctx) {
           ? `<div class="table-scroll" style="margin-top:10px">
                <table class="data-table table-freeze-1">
                  <thead><tr><th>Kode</th><th>Tanggal &amp; Jam</th><th>Customer</th><th>Tamu</th><th>Outlet / Area</th><th>Sumber</th><th>Aksi</th></tr></thead>
-                 <tbody>${rows.map(rowHtml).join('')}</tbody>
+                 <tbody>${rows.map((r) => rowHtml(r, ctx.idKelola.has(r.outlet_id))).join('')}</tbody>
                </table>
              </div>
              <p style="font-size:0.78rem;color:var(--color-text-muted);margin:8px 0 0">
@@ -132,7 +153,16 @@ async function renderInbox(content, ctx) {
   wireActions(content, rows, () => renderInbox(content, ctx));
 }
 
-function rowHtml(r) {
+/**
+ * @param {object} r
+ * @param {boolean} bolehAtur outlet ini termasuk yang boleh dia kelola?
+ *
+ * Barisnya tetap DITAMPILKAN meski tidak boleh diproses — admin outlet Serpong
+ * berhak tahu ada antrean di Sentul, dan menyembunyikannya cuma memindahkan
+ * kebingungan. Yang dicabut hanya tombolnya, karena tombol yang pasti ditolak
+ * lebih buruk daripada tidak ada tombol.
+ */
+function rowHtml(r, bolehAtur = true) {
   return `<tr>
     <td style="font-family:ui-monospace,Menlo,monospace;font-size:0.78rem">${esc(r.code ?? '-')}</td>
     <td style="font-size:0.85rem">${fmtDate(r.reserve_date)}<div style="font-weight:600">${String(r.reserve_time).slice(0, 5)}</div></td>
@@ -145,8 +175,12 @@ function rowHtml(r) {
       ${r.reservation_areas?.name ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${esc(r.reservation_areas.name)}</div>` : ''}</td>
     <td style="font-size:0.78rem">${esc(SOURCE_LABEL[r.source] ?? r.source)}</td>
     <td>
-      <button class="primary rv-ok" data-id="${r.id}" style="max-width:110px">Setujui</button>
-      <button class="rv-no" data-id="${r.id}">Tolak</button>
+      ${
+        bolehAtur
+          ? `<button class="primary rv-ok" data-id="${r.id}" style="max-width:110px">Setujui</button>
+             <button class="rv-no" data-id="${r.id}">Tolak</button>`
+          : `<span style="font-size:0.72rem;color:var(--color-text-muted)" title="Hanya admin outlet ini yang bisa memprosesnya">diproses admin ${esc(r.outlets?.name ?? 'outletnya')}</span>`
+      }
       <button class="rv-wa" data-id="${r.id}" title="Buka chat WhatsApp ke ${esc(r.phone)}">💬 WA</button>
     </td>
   </tr>`;
@@ -424,15 +458,23 @@ async function renderAll(content, ctx) {
                     }</td>
                     <td style="font-size:0.78rem">${esc(SOURCE_LABEL[r.source] ?? r.source)}</td>
                     <td>
-                      <select class="rv-status" data-id="${r.id}">
-                        ${RES_STATUS_OPTIONS.map((s) => `<option value="${s.value}"${s.value === r.status ? ' selected' : ''}>${esc(s.label)}</option>`).join('')}
-                      </select>
+                      ${
+                        ctx.idKelola.has(r.outlet_id)
+                          ? `<select class="rv-status" data-id="${r.id}">
+                               ${RES_STATUS_OPTIONS.map((s) => `<option value="${s.value}"${s.value === r.status ? ' selected' : ''}>${esc(s.label)}</option>`).join('')}
+                             </select>`
+                          : ''
+                      }
                       <div><span class="badge ${RES_BADGE[r.status] ?? ''}" style="font-size:0.65rem">${RES_STATUS[r.status] ?? r.status}</span></div>
                     </td>
                     <td style="white-space:nowrap">
                       <button class="rv-wa" data-id="${r.id}">WA</button>
-                      <button class="rv-edit" data-id="${r.id}" title="Koreksi / reschedule">✎</button>
-                      <button class="rv-del" data-id="${r.id}" title="Hapus permanen">🗑</button>
+                      ${
+                        ctx.idKelola.has(r.outlet_id)
+                          ? `<button class="rv-edit" data-id="${r.id}" title="Koreksi / reschedule">✎</button>
+                             <button class="rv-del" data-id="${r.id}" title="Hapus permanen">🗑</button>`
+                          : '<span style="font-size:0.72rem;color:var(--color-text-muted)" title="Hanya admin outlet ini yang bisa mengubahnya">— </span>'
+                      }
                     </td>
                   </tr>`
                 )
@@ -490,13 +532,18 @@ async function renderAll(content, ctx) {
 // ---- Tab: Pengaturan & Area ----
 
 async function renderSettings(content, ctx) {
-  if (!ctx.outlets.length) {
-    content.innerHTML = `<p style="color:var(--color-text-muted)">Belum ada outlet di BU ini.</p>`;
+  // Tab ini MENULIS pengaturan & area outlet. Daftarnya karena itu daftar outlet
+  // yang boleh diatur — bukan yang boleh dilihat. Menawarkan outlet yang pasti
+  // ditolak RLS hanya melatih orang mengabaikan pesan error.
+  if (!ctx.outletsKelola.length) {
+    content.innerHTML = ctx.outlets.length
+      ? `<p style="color:var(--color-text-muted);max-width:560px;line-height:1.55">${PESAN_TANPA_OUTLET_KELOLA}</p>`
+      : `<p style="color:var(--color-text-muted)">Belum ada outlet di BU ini.</p>`;
     return;
   }
   content.innerHTML = `
     <div class="field" style="max-width:280px"><label>Pilih Outlet</label>
-      <select id="rs-outlet">${ctx.outlets.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}</select>
+      <select id="rs-outlet">${ctx.outletsKelola.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}</select>
     </div>
     <div id="rs-detail"></div>
   `;

@@ -60,8 +60,12 @@ export async function saveAsset({ id, businessUnitId, outletId, name, qty, size,
 
   let assetId = id;
   if (id) {
-    const { error } = await supabase.from('assets').update(payload).eq('id', id);
+    // `.select()`: penolakan RLS pada UPDATE membalas sukses dengan 0 baris.
+    // Tanpa ini, mengubah aset outlet lain terlihat berhasil dan datanya tidak
+    // berubah sedikit pun.
+    const { data, error } = await supabase.from('assets').update(payload).eq('id', id).select('id');
     if (error) throw error;
+    if (!data?.length) throw new Error('Tidak tersimpan — aset ini di luar outlet yang bisa kamu kelola.');
   } else {
     const { data, error } = await supabase
       .from('assets')
@@ -82,8 +86,16 @@ export async function saveAsset({ id, businessUnitId, outletId, name, qty, size,
       .from('asset-photos')
       .upload(path, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
     if (upErr) throw upErr;
-    const { error: updErr } = await supabase.from('assets').update({ photo_path: path }).eq('id', assetId);
+    // Fotonya sudah terlanjur terunggah; kalau penyimpanan path-nya ditolak,
+    // aset akan punya foto yang tidak pernah bisa ditemukan lagi. Lebih baik
+    // gagal dengan lantang di sini.
+    const { data: updRow, error: updErr } = await supabase
+      .from('assets')
+      .update({ photo_path: path })
+      .eq('id', assetId)
+      .select('id');
     if (updErr) throw updErr;
+    if (!updRow?.length) throw new Error('Foto terunggah tapi tidak tercatat — aset ini di luar outlet yang bisa kamu kelola.');
     await hapusFotoSisa(`${outletId}/${assetId}`, path);
   }
   return assetId;

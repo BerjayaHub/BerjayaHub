@@ -92,7 +92,7 @@ export async function createOutlet({ business_unit_id, name, address, outlet_rol
 }
 
 export async function updateOutlet(id, { name, address, outlet_role, served_by_outlet_id, is_active, allow_sales, reservation_mode }) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('outlets')
     .update({
       name,
@@ -103,13 +103,16 @@ export async function updateOutlet(id, { name, address, outlet_role, served_by_o
       allow_sales,
       reservation_mode
     })
-    .eq('id', id);
+    .eq('id', id)
+    .select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('Tidak tersimpan — outlet hanya bisa diubah Admin BU atau Super Admin.');
 }
 
 export async function deleteOutlet(id) {
-  const { error } = await supabase.from('outlets').delete().eq('id', id);
+  const { data, error } = await supabase.from('outlets').delete().eq('id', id).select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('Tidak terhapus — outlet hanya bisa dihapus Admin BU atau Super Admin.');
 }
 
 // ---- Toggle modul aktif per BU (bu_modules) ----

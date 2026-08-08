@@ -24,6 +24,7 @@ import { exportTablePDF } from '../../core/pdf.js';
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 import { LATE_LABEL, LATE_BADGE } from '../shift/shift.service.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
+import { sayaAdminBu } from '../../core/base-scope.js';
 
 const TABS = [
   { key: 'presensi', label: 'Presensi' },
@@ -60,6 +61,12 @@ async function renderPresensiTab(container, businessUnitId) {
   container.innerHTML = loadingHtml('Memuat presensi…');
 
   const outlets = await listOutletsWithGeofence(businessUnitId);
+  // Lokasi/geofence & jam kerja outlet ditulis ke tabel `outlets`, dan policy
+  // `outlets_update` HANYA membuka untuk admin BU — admin outlet tidak
+  // termasuk. Tombolnya karena itu tidak digambar untuk mereka: menekannya
+  // dulu menghasilkan "tersimpan" yang tidak menyimpan apa pun, dan geofence
+  // yang salah berarti seluruh staf outlet itu gagal clock in.
+  const bolehUbahOutlet = await sayaAdminBu(businessUnitId).catch(() => false);
   const exitMode = await getExitTaskMode(businessUnitId);
   // Default periode: tanggal 1 bulan berjalan s/d hari ini.
   const range = monthRangeWIB();
@@ -213,7 +220,7 @@ async function renderPresensiTab(container, businessUnitId) {
       <table class="data-table" style="margin-top:12px">
         <thead><tr><th>Outlet</th><th>Koordinat</th><th>Radius</th><th>Aksi</th></tr></thead>
         <tbody id="outlet-geofence-body">
-          ${(outlets ?? []).map((o) => outletGeofenceRowHtml(o)).join('')}
+          ${(outlets ?? []).map((o) => outletGeofenceRowHtml(o, bolehUbahOutlet)).join('')}
         </tbody>
       </table>
       <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:8px">
@@ -227,7 +234,7 @@ async function renderPresensiTab(container, businessUnitId) {
       <table class="data-table" style="margin-top:12px">
         <thead><tr><th>Outlet</th><th>Jam Masuk</th><th>Jam Pulang</th><th>Reminder</th><th>Aksi</th></tr></thead>
         <tbody id="outlet-workhours-body">
-          ${(outlets ?? []).map((o) => outletWorkHoursRowHtml(o)).join('')}
+          ${(outlets ?? []).map((o) => outletWorkHoursRowHtml(o, bolehUbahOutlet)).join('')}
         </tbody>
       </table>
       <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:8px">
@@ -508,14 +515,15 @@ function faceMatchBadgeHtml(match) {
   return '<span class="scope-badge">– Tidak dicek</span>';
 }
 
-function outletGeofenceRowHtml(o) {
+/** @param {boolean} boleh admin BU? Kalau bukan, barisnya tetap tampil tanpa tombol. */
+function outletGeofenceRowHtml(o, boleh = true) {
   const coord = o.latitude != null ? `${o.latitude.toFixed(5)}, ${o.longitude.toFixed(5)}` : 'Belum diset';
   return `
     <tr data-outlet-id="${o.id}">
       <td>${escapeHtml(o.name)}</td>
       <td style="font-size:0.8rem">${coord}</td>
       <td>${o.geofence_radius_m}m</td>
-      <td><button class="btn-set-geofence" data-outlet-id="${o.id}">Atur Lokasi</button></td>
+      <td>${boleh ? `<button class="btn-set-geofence" data-outlet-id="${o.id}">Atur Lokasi</button>` : '<span style="font-size:0.75rem;color:var(--color-text-muted)">Admin BU</span>'}</td>
     </tr>
   `;
 }
@@ -542,7 +550,7 @@ function wireOutletGeofenceButtons(container, businessUnitId) {
         });
         toast('Lokasi outlet disimpan.', 'success');
         const outlets = await listOutletsWithGeofence(businessUnitId);
-        container.querySelector('#outlet-geofence-body').innerHTML = outlets.map((o) => outletGeofenceRowHtml(o)).join('');
+        container.querySelector('#outlet-geofence-body').innerHTML = outlets.map((o) => outletGeofenceRowHtml(o, true)).join('');
         wireOutletGeofenceButtons(container, businessUnitId);
       } catch (error) {
         toast(error.message ?? 'Gagal menyimpan lokasi outlet.', 'error');
@@ -551,14 +559,15 @@ function wireOutletGeofenceButtons(container, businessUnitId) {
   });
 }
 
-function outletWorkHoursRowHtml(o) {
+/** @param {boolean} boleh admin BU? Sama alasannya dengan baris geofence. */
+function outletWorkHoursRowHtml(o, boleh = true) {
   return `
     <tr data-outlet-id="${o.id}">
       <td>${escapeHtml(o.name)}</td>
       <td>${o.clock_in_time ? o.clock_in_time.slice(0, 5) : 'Belum diset'}</td>
       <td>${o.clock_out_time ? o.clock_out_time.slice(0, 5) : '-'}</td>
       <td>${o.clock_in_time ? (o.reminder_enabled ? 'Aktif' : 'Nonaktif') : '-'}</td>
-      <td><button class="btn-set-workhours" data-outlet-id="${o.id}">Atur Jam Kerja</button></td>
+      <td>${boleh ? `<button class="btn-set-workhours" data-outlet-id="${o.id}">Atur Jam Kerja</button>` : '<span style="font-size:0.75rem;color:var(--color-text-muted)">Admin BU</span>'}</td>
     </tr>
   `;
 }
@@ -584,7 +593,7 @@ function wireOutletWorkHoursButtons(container, businessUnitId) {
         });
         toast('Jam kerja outlet disimpan.', 'success');
         const outlets = await listOutletsWithGeofence(businessUnitId);
-        container.querySelector('#outlet-workhours-body').innerHTML = outlets.map((o) => outletWorkHoursRowHtml(o)).join('');
+        container.querySelector('#outlet-workhours-body').innerHTML = outlets.map((o) => outletWorkHoursRowHtml(o, true)).join('');
         wireOutletWorkHoursButtons(container, businessUnitId);
       } catch (error) {
         toast(error.message ?? 'Gagal menyimpan jam kerja outlet.', 'error');

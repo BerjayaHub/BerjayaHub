@@ -26,6 +26,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { rantaiFrom } = require('./lib-rantai.cjs');
 
 const AKAR = path.resolve(__dirname, '..');
 const MIGRASI = path.join(AKAR, 'supabase', 'migrations');
@@ -107,15 +108,15 @@ let diperiksa = 0;
 
 for (const file of daftarFile(JS)) {
   const isi = fs.readFileSync(file, 'utf8');
-  // Jendelanya harus muat SELURUH rantai. Dengan batas 600 karakter, select
-  // panjang seperti `listReservations` terpotong di tengah — tanda kutip
-  // penutupnya tidak pernah ketemu, jadi seluruh rantai itu diam-diam tidak
-  // diperiksa sama sekali. Justru query terpanjang yang paling butuh diperiksa.
-  for (const m of isi.matchAll(/\.from\('([a-z_]+)'\)([\s\S]{0,2000}?)(?=\n\s*(?:const|let|return|\}|export|async|function)|;\s*\n)/g)) {
-    const tabel = m[1];
+  // Rantainya dipotong di `;` pada kedalaman kurung 0 (lib-rantai.cjs). Versi
+  // sebelumnya menebak dari indentasi dan berhenti di baris yang diawali `}` —
+  // yaitu di penutup objek `.update({...})`, sebelum sampai ke bagian rantai
+  // sesudahnya. Query terpanjang justru yang paling banyak terpotong.
+  for (const m of rantaiFrom(isi)) {
+    const tabel = m.tabel;
     const kolomTabel = skema.get(tabel);
     if (!kolomTabel) continue; // view / tabel dari luar migration -> lewati
-    for (const u of m[2].matchAll(PENYARING)) {
+    for (const u of m.badan.matchAll(PENYARING)) {
       const kolom = u[2];
       diperiksa++;
       if (!kolomTabel.has(kolom)) {
@@ -126,7 +127,7 @@ for (const file of daftarFile(JS)) {
       }
     }
 
-    for (const sel of m[2].matchAll(/\.select\(\s*(['"`])([\s\S]*?)\1/g)) {
+    for (const sel of m.badan.matchAll(/\.select\(\s*(['"`])([\s\S]*?)\1/g)) {
       for (const kolom of kolomPolos(sel[2])) {
         diperiksa++;
         if (!kolomTabel.has(kolom)) {

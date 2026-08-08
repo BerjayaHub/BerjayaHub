@@ -47,10 +47,17 @@ export async function getReservationSettings(outletId) {
 }
 
 export async function upsertReservationSettings(outletId, businessUnitId, patch) {
-  const { error } = await supabase
+  // `.select()` di sini bukan basa-basi: kalau barisnya SUDAH ADA, upsert
+  // berubah jadi UPDATE — dan UPDATE yang ditolak RLS membalas sukses dengan 0
+  // baris, bukan error. Admin akan melihat "tersimpan" untuk pengaturan yang
+  // tidak berubah sedikit pun, lalu bertanya-tanya kenapa jam bukanya tidak
+  // pernah ikut.
+  const { data, error } = await supabase
     .from('reservation_settings')
-    .upsert({ outlet_id: outletId, business_unit_id: businessUnitId, ...patch, updated_at: new Date().toISOString() });
+    .upsert({ outlet_id: outletId, business_unit_id: businessUnitId, ...patch, updated_at: new Date().toISOString() })
+    .select('outlet_id');
   if (error) throw error;
+  if (!data?.length) throw new Error('Tidak tersimpan — kamu bukan admin outlet ini.');
 }
 
 // ---- Master area ----
@@ -69,13 +76,19 @@ export async function createReservationArea({ outletId, businessUnitId, name }) 
 }
 
 export async function updateReservationArea(id, { name, is_active }) {
-  const { error } = await supabase.from('reservation_areas').update({ name: name?.trim(), is_active }).eq('id', id);
+  const { data, error } = await supabase
+    .from('reservation_areas')
+    .update({ name: name?.trim(), is_active })
+    .eq('id', id)
+    .select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('Tidak tersimpan — kamu bukan admin outlet area ini.');
 }
 
 export async function deleteReservationArea(id) {
-  const { error } = await supabase.from('reservation_areas').delete().eq('id', id);
+  const { data, error } = await supabase.from('reservation_areas').delete().eq('id', id).select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('Tidak terhapus — kamu bukan admin outlet area ini.');
 }
 
 // ---- Ketersediaan slot ----
@@ -506,11 +519,25 @@ export async function getHotelHarian({ businessUnitId, outletId, date }) {
   };
 }
 
+/**
+ * Ubah status reservasi (setujui / tolak / selesai / tidak datang).
+ *
+ * `.select()` WAJIB. Daftar "Perlu Diproses" berisi seluruh reservasi di BU,
+ * sementara yang boleh mengubahnya hanya admin outlet yang bersangkutan —
+ * dan PostgREST TIDAK menganggap penolakan RLS sebagai error: ia membalas
+ * SUKSES dengan 0 baris.
+ *
+ * Tanpa pemeriksaan ini, admin outlet Serpong menekan "Setujui" pada reservasi
+ * Sentul, melihat notifikasi hijau, lalu barisnya hilang dari daftarnya sendiri
+ * saat dimuat ulang — padahal di database statusnya masih *Menunggu*. Tamunya
+ * menunggu konfirmasi yang tidak akan pernah datang, dan tidak ada satu pun
+ * jejak yang menunjukkan ada yang salah.
+ */
 export async function setReservationStatus(id, status, reviewNote) {
   const {
     data: { user }
   } = await supabase.auth.getUser();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('reservations')
     .update({
       status,
@@ -518,8 +545,12 @@ export async function setReservationStatus(id, status, reviewNote) {
       reviewed_by: user?.id ?? null,
       reviewed_at: new Date().toISOString()
     })
-    .eq('id', id);
+    .eq('id', id)
+    .select('id');
   if (error) throw error;
+  if (!data?.length) {
+    throw new Error('Tidak tersimpan — kamu bukan admin outlet reservasi ini. Minta admin outlet tersebut yang memprosesnya.');
+  }
 }
 
 // ---- Teks WhatsApp ----

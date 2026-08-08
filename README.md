@@ -2124,9 +2124,30 @@ Aturan MELIHAT dipindah ke `js/core/aturan-outlet.js` yang **tanpa impor sama se
 
 Selisihnya dikunci `node tools/test-wewenang-outlet.mjs` (23 kasus). Yang dijaga: setiap bentuk scope, "yang bisa diatur" harus **selalu bagian dari** "yang bisa dilihat" — dan bentuk yang memicu bug ini diuji dengan namanya sendiri.
 
-### Layar admin lain yang masih memakai pola lama
+### Sapuan ke seluruh layar admin
 
-`reservation.admin`, `inventory.admin`, `production.admin`, dan `sales.admin` masih mengisi dropdown outletnya dengan `listMyOutlets()`. Selama scope semua adminnya menyebut outlet, tidak ada gejala; begitu ada satu yang dibuat di level BU, layar-layar itu akan menunjukkan gejala yang sama persis. Belum diubah karena belum diminta, bukan karena sudah aman.
+Menyapu sisanya memunculkan hal yang tidak saya duga: **dua dari empat layar yang saya sebut bermasalah ternyata baik-baik saja, dan tiga yang tidak saya sebut justru bermasalah.**
+
+- `production.admin`, `sales.admin`, `report.admin`, `inventory.admin` — **hanya membaca.** Untuk layar baca, memakai daftar "yang boleh diatur" justru merugikan: admin outlet kehilangan angka yang berhak dia baca, dan laporannya bolong tanpa tanda apa pun. Dibiarkan memakai `listMyOutlets()`, dan dicatat alasannya di pengecualian audit.
+- `reservation.admin` — **dua daftar sekaligus.** Penyaring laporan tetap memakai daftar "boleh dilihat" (kalau disempitkan, laporannya bolong); tab Pengaturan & Area dan tombol per baris memakai daftar "boleh diatur".
+- `cleaning.admin` — lolos dari audit versi pertama karena memanggil `listBuOutlets()`, nama lain untuk hal yang sama satu lapis di dalam service-nya. **Aturan yang hanya mengenali satu nama akan selalu kalah oleh nama kedua.**
+- `attendance.admin` dan `nbm-settings.admin` — menulis ke tabel `outlets`, yang policy update-nya mensyaratkan **admin BU**, bukan admin outlet. Jadi `listOutletsSayaKelola` pun daftar yang salah di sini; tombolnya digambar berdasarkan `sayaAdminBu()`.
+
+### Kegagalan yang lebih berbahaya daripada dropdown-nya
+
+Sambil menyapu, ketahuan bahwa **tujuh penulisan bisa gagal tanpa suara.** PostgREST tidak menganggap penolakan RLS sebagai error pada UPDATE/DELETE — yang kembali adalah **sukses dengan 0 baris**. Yang terparah:
+
+- **`setReservationStatus()`** — daftar "Perlu Diproses" berisi seluruh BU. Admin outlet Serpong menekan *Setujui* pada reservasi Sentul, melihat notifikasi hijau, lalu barisnya hilang dari daftarnya sendiri saat dimuat ulang — padahal statusnya masih *Menunggu*. Tamunya menunggu konfirmasi yang tidak akan pernah datang.
+- **`setOutletLocation()` / `setOutletWorkHours()`** — geofence "tersimpan" padahal tidak. Ini cara paling halus untuk membuat seluruh staf sebuah outlet gagal clock in keesokan harinya.
+- **`setSchedule()`** — upsert-nya menulis sel jadwal. Sel KOSONG masuk jalur INSERT (ditolak = error, terlihat), tapi sel yang SUDAH TERISI masuk jalur UPDATE (ditolak = 0 baris, senyap). Jadi bug yang dilaporkan hanya separuh dari yang sebenarnya terjadi.
+
+Semuanya kini `.select()` lalu memeriksa `data.length`, dengan pesan yang menyebut sebabnya.
+
+### Tiga audit baru, dan satu yang ternyata bohong
+
+- **`audit-outlet-tulis.cjs`** — layar `*.admin.page.js` yang mengambil daftar outlet dari sumber "boleh dilihat" harus juga memakai `listOutletsSayaKelola`, atau terdaftar di pengecualian **beserta alasannya**. Daftar yang harus ditambahi manual memaksa orang menjawab "layar ini menulis atau tidak?" — pertanyaan yang dulu tidak pernah ditanyakan.
+- **`audit-tulis-senyap.cjs`** — UPDATE/DELETE/upsert pada tabel ber-scope outlet wajib `.select()`. Cakupannya sengaja dibatasi ke daftar tabel yang disebut di dalamnya; audit yang mengklaim memeriksa segalanya tapi diam-diam melewatkan sebagian lebih berbahaya daripada audit yang menyebutkan batasnya.
+- **`lib-rantai.cjs`** — dan inilah yang paling penting. Audit-audit lama memotong rantai `supabase.from(...)` dengan menebak dari indentasi: "baris berikutnya diawali `}` berarti rantainya selesai". Objek literal di dalam `.update({ ... })` membuat tebakan itu berhenti tepat sebelum `.select()`. Akibatnya `audit-tulis-senyap` menuduh empat file yang sudah benar, dan `audit-kolom-tabel` diam-diam melewatkan bagian rantai terpanjang. Sekarang rantainya dipotong di `;` pada kedalaman kurung 0 — definisi akhir pernyataan yang sesungguhnya. `audit-kolom-tabel` naik dari 321 → **900** pemeriksaan setelah dua perbaikan ini.
 
 ## Roadmap fase
 

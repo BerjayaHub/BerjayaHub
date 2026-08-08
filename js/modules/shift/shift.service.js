@@ -135,7 +135,7 @@ export async function listOutletShifts(outletId) {
 }
 
 export async function upsertOutletShift({ businessUnitId, outletId, slot, name, start_time, end_time, is_active }) {
-  const { error } = await supabase.from('outlet_shifts').upsert(
+  const { data, error } = await supabase.from('outlet_shifts').upsert(
     {
       business_unit_id: businessUnitId,
       outlet_id: outletId,
@@ -146,13 +146,17 @@ export async function upsertOutletShift({ businessUnitId, outletId, slot, name, 
       is_active: is_active ?? true
     },
     { onConflict: 'outlet_id,slot' }
-  );
+  ).select('id');
   if (error) throw error;
+  // Jam shift yang sudah ada berarti upsert jadi UPDATE — dan UPDATE yang
+  // ditolak RLS membalas sukses dengan 0 baris.
+  if (!data?.length) throw new Error('Tidak tersimpan — kamu bukan admin outlet ini.');
 }
 
 export async function deleteOutletShift(id) {
-  const { error } = await supabase.from('outlet_shifts').delete().eq('id', id);
+  const { data, error } = await supabase.from('outlet_shifts').delete().eq('id', id).select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('Tidak terhapus — kamu bukan admin outlet ini.');
 }
 
 // ---- Aktivasi modul shift per outlet ----
@@ -179,7 +183,7 @@ export async function setSchedule({ businessUnitId, outletId, userId, workDate, 
   const {
     data: { user }
   } = await supabase.auth.getUser();
-  const { error } = await supabase.from('shift_schedules').upsert(
+  const { data, error } = await supabase.from('shift_schedules').upsert(
     {
       business_unit_id: businessUnitId,
       outlet_id: outletId,
@@ -191,11 +195,14 @@ export async function setSchedule({ businessUnitId, outletId, userId, workDate, 
       updated_at: new Date().toISOString()
     },
     { onConflict: 'outlet_id,user_id,work_date' }
-  );
-  // INSERT yang ditolak RLS memang melempar error (beda dengan UPDATE/DELETE,
-  // yang balasannya sukses dengan 0 baris). Yang perlu diterjemahkan cuma
-  // kalimatnya.
+  ).select('id');
+  // Dua jalur kegagalan yang berbeda, dan keduanya harus ditutup:
+  //   INSERT ditolak RLS  -> melempar error, tinggal diterjemahkan.
+  //   UPDATE ditolak RLS  -> sukses dengan 0 baris, tanpa error sama sekali.
+  // Sel yang SUDAH terisi masuk jalur kedua — jadi tanpa `.select()`, mengubah
+  // jadwal yang sudah ada di outlet orang lain akan terlihat berhasil.
   if (error) throw new Error(pesanTolakan(error, 'mengatur jadwal'));
+  if (!data?.length) throw new Error(pesanTolakan(new Error('row-level security'), 'mengatur jadwal'));
 }
 
 /**

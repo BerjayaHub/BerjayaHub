@@ -1,4 +1,5 @@
 import { listOutletsWithGeofence } from './attendance.service.js';
+import { sayaAdminBu } from '../../core/base-scope.js';
 import {
   getNbmConfig,
   upsertNbmConfig,
@@ -125,12 +126,17 @@ async function renderOutletDetail(outletId, businessUnitId) {
   const detail = document.getElementById('nbm-outlet-detail');
   detail.innerHTML = loadingHtml('Memuat…');
 
-  const [config, tiers, holidays, outletPolicy, buPolicy] = await Promise.all([
+  const [config, tiers, holidays, outletPolicy, buPolicy, bolehUbahOutlet] = await Promise.all([
     getNbmConfig(outletId),
     listOvertimeTiers(outletId),
     listHolidays({ businessUnitId, outletId }),
     getOutletHolidayPolicy(outletId).catch(() => ({ holiday_policy: null, weekly_off_days: null })),
-    getBuHolidayPolicy(businessUnitId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] }))
+    getBuHolidayPolicy(businessUnitId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] })),
+    // Kebijakan libur outlet disimpan di tabel `outlets`, yang policy
+    // update-nya hanya membuka untuk admin BU. Tombolnya tidak digambar untuk
+    // yang lain — bukan supaya aman (RLS yang mengamankan), tapi supaya tidak
+    // ada yang mengisi form lalu menyimpan sesuatu yang tidak pernah tersimpan.
+    sayaAdminBu(businessUnitId).catch(() => false)
   ]);
 
   // Outlet mewarisi BU selama kolomnya masih null.
@@ -167,7 +173,14 @@ async function renderOutletDetail(outletId, businessUnitId) {
           </div>
         </div>
       </div>
-      <button class="primary" id="op-save" style="max-width:220px">Simpan Libur Outlet</button>
+      ${
+        bolehUbahOutlet
+          ? '<button class="primary" id="op-save" style="max-width:220px">Simpan Libur Outlet</button>'
+          : `<p style="font-size:0.8rem;color:var(--color-text-muted);margin:0">
+               Kebijakan libur outlet disimpan di data outlet, dan itu hanya bisa diubah <strong>Admin BU</strong>
+               (policy <code>outlets_update</code>). Kamu tetap bisa melihat pengaturannya di sini.
+             </p>`
+      }
     </div>
 
     <form class="inline-card" id="nbm-config-form" style="max-width:420px;margin-top:16px">
@@ -257,7 +270,7 @@ async function renderOutletDetail(outletId, businessUnitId) {
   opMode.addEventListener('change', () => {
     detail.querySelector('#op-weekly-wrap').style.display = opMode.value === 'follow_calendar' ? '' : 'none';
   });
-  detail.querySelector('#op-save').addEventListener('click', async () => {
+  detail.querySelector('#op-save')?.addEventListener('click', async () => {
     try {
       if (inheritChk.checked) {
         // null/null = kembali mewarisi BU.

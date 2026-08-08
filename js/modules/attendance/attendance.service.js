@@ -47,12 +47,22 @@ export async function getOutletGeofence(outletId) {
   return data;
 }
 
+/**
+ * Atur titik & radius geofence outlet.
+ *
+ * `.select()` WAJIB — alasannya sama dengan `setOutletWorkHours()`: policy
+ * `outlets_update` hanya membuka untuk admin BU, dan penolakannya tidak
+ * berbentuk error. Geofence yang "tersimpan" padahal tidak adalah cara paling
+ * halus untuk membuat seluruh staf sebuah outlet gagal clock in.
+ */
 export async function setOutletLocation(outletId, { latitude, longitude, geofence_radius_m }) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('outlets')
     .update({ latitude, longitude, geofence_radius_m })
-    .eq('id', outletId);
+    .eq('id', outletId)
+    .select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('Tidak tersimpan — lokasi & geofence outlet hanya bisa diubah Admin BU atau Super Admin.');
 }
 
 export async function listOutletsWithGeofence(businessUnitId) {
@@ -65,13 +75,23 @@ export async function listOutletsWithGeofence(businessUnitId) {
   return data ?? [];
 }
 
-/** Atur jam kerja outlet (dipakai buat reminder clock in) + on/off reminder-nya. */
+/**
+ * Atur jam kerja outlet (dipakai buat reminder clock in) + on/off reminder-nya.
+ *
+ * `.select()` WAJIB. Policy `outlets_update` mensyaratkan **admin BU** — admin
+ * outlet tidak termasuk. Dan penolakan RLS pada UPDATE bukan error: PostgREST
+ * membalas sukses dengan 0 baris. Tanpa pemeriksaan ini admin outlet mengubah
+ * jam kerja, melihat notifikasi hijau, dan tidak ada yang berubah sama sekali —
+ * di modul yang menentukan apakah orang bisa clock in atau tidak.
+ */
 export async function setOutletWorkHours(outletId, { clock_in_time, clock_out_time, reminder_enabled }) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('outlets')
     .update({ clock_in_time: clock_in_time || null, clock_out_time: clock_out_time || null, reminder_enabled })
-    .eq('id', outletId);
+    .eq('id', outletId)
+    .select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('Tidak tersimpan — pengaturan outlet hanya bisa diubah Admin BU atau Super Admin.');
 }
 
 /**

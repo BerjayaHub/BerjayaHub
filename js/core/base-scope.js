@@ -54,6 +54,34 @@ export async function idSaya() {
   return user?.id ?? null;
 }
 
+/**
+ * Apakah akun ini admin BU tertentu (atau super admin)?
+ *
+ * Cermin `is_bu_admin()` di database. Dipakai untuk memutuskan tombol mana yang
+ * PANTAS ditampilkan — bukan untuk mengamankan apa pun; yang menegakkan tetap
+ * RLS. Sebagian pengaturan memang hanya boleh disentuh admin BU (mis. lokasi &
+ * geofence outlet, lihat policy `outlets_update`), dan menampilkan tombolnya ke
+ * admin outlet hanya menghasilkan perubahan yang tidak pernah tersimpan.
+ *
+ * Gagal = false. Untuk pertanyaan tentang wewenang, keraguan harus menutup.
+ */
+export async function sayaAdminBu(businessUnitId) {
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user) return false;
+  const { data, error } = await supabase
+    .from('membership_scopes')
+    .select('role, business_unit_id')
+    .eq('user_id', user.id)
+    .in('role', ['super_admin', 'bu_admin']);
+  if (error) {
+    console.warn('[scope] peran tidak terbaca:', error.message);
+    return false;
+  }
+  return (data ?? []).some((r) => r.role === 'super_admin' || r.business_unit_id === businessUnitId);
+}
+
 /** Apakah basisnya benar-benar dari ★, bukan sekadar fallback konteks aktif. */
 export async function punyaBasisTertandai() {
   const {

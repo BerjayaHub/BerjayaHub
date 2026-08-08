@@ -183,11 +183,16 @@ export async function getOutletHolidayPolicy(outletId) {
 
 /** Simpan kebijakan outlet. Kirim null/null untuk kembali mengikuti BU. */
 export async function setOutletHolidayPolicy(outletId, { holiday_policy, weekly_off_days }) {
-  const { error } = await supabase
+  // Policy `outlets_update` hanya membuka untuk admin BU. Admin outlet yang
+  // menyimpan di sini akan mendapat "sukses" dengan 0 baris kalau tidak
+  // diperiksa — lalu heran kenapa hari liburnya tidak pernah berubah.
+  const { data, error } = await supabase
     .from('outlets')
     .update({ holiday_policy: holiday_policy ?? null, weekly_off_days: weekly_off_days ?? null })
-    .eq('id', outletId);
+    .eq('id', outletId)
+    .select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('Tidak tersimpan — kebijakan hari libur outlet hanya bisa diubah Admin BU atau Super Admin.');
 }
 
 export async function addHoliday({ holiday_date, name, business_unit_id, outlet_id }) {

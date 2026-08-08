@@ -334,6 +334,13 @@ select net.http_post(
   scope orang tersebut harus menyebut **outlet**-nya. Peran "Admin Outlet" yang
   scope-nya dibuat di level BU (tanpa outlet) tidak memberi wewenang atas outlet
   mana pun — dia hanya bisa *melihat*.
+- **Reservasi (Admin Portal)** → tab **Pengaturan & Area** kini hanya menampilkan
+  outlet yang benar-benar bisa kamu atur. Di tab **Perlu Diproses** dan **Semua
+  Reservasi**, baris milik outlet lain tetap terlihat tapi **tombol aksinya
+  dicabut** — dulu tombolnya ada, ditekan, dan "berhasil" tanpa mengubah apa pun.
+- **Presensi (Admin Portal)** → tombol **Atur Lokasi** & **Atur Jam Kerja** hanya
+  muncul untuk **Admin BU / Super Admin**, sesuai policy `outlets_update`. Sama
+  untuk **Simpan Libur Outlet** di Pengaturan NBM. Tidak ada migration.
 - **Reservasi (Staff App)** → daftarnya **langsung tampil** saat modul dibuka,
   bawaan **hari ini → akhir bulan ini**, dan ikut berubah begitu tanggalnya
   diganti (tombol "Tampilkan" dihapus). Tanggal yang sudah lewat sengaja tidak

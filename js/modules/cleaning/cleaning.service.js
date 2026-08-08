@@ -1,6 +1,6 @@
 import { supabase } from '../../config/supabase-client.js';
 import { compressImage } from '../../core/image-compress.js';
-import { listMyOutlets } from '../../core/my-outlets.js';
+import { listOutletsSayaKelola } from '../../core/my-outlets.js';
 
 export function todayWIB() {
   const now = new Date();
@@ -17,8 +17,16 @@ async function currentUserId() {
 }
 
 /** Outlet yang boleh diakses akun ini di sebuah BU (lihat core/my-outlets.js). */
+/**
+ * Outlet untuk memilih CAKUPAN item/sesi di Admin Portal.
+ *
+ * Memakai daftar "yang boleh DIATUR", bukan "yang boleh dilihat". Menyimpan item
+ * untuk outlet yang bukan wewenangnya ditolak RLS (`cio_write`, migration 0076),
+ * dan menawarkannya di dropdown hanya menghasilkan penolakan yang tidak bisa
+ * dimengerti orangnya.
+ */
 export async function listBuOutlets(businessUnitId) {
-  const mine = await listMyOutlets(businessUnitId);
+  const mine = await listOutletsSayaKelola(businessUnitId);
   return mine.map((o) => ({ id: o.id, name: o.name }));
 }
 
@@ -154,7 +162,13 @@ export async function setItemCakupan(itemId, outletIds) {
   // Daftar lama selalu dibersihkan lebih dulu — kalau tidak, mengurangi outlet
   // tidak akan berpengaruh apa pun, dan itu jenis kegagalan yang paling sulit
   // dipercaya saat dilihat ("sudah saya hapus kok masih muncul").
-  const { error: errHapus } = await supabase.from('checklist_item_outlets').delete().eq('item_id', itemId);
+  // DELETE yang ditolak RLS juga membalas sukses dengan 0 baris. Di sini
+  // akibatnya khas: outlet yang dicabut tetap menempel, dan orangnya melihat
+  // "sudah saya hapus kok masih muncul" — persis keluhan yang paling sulit
+  // dipercaya. Baris 0 tidak selalu penolakan (bisa memang belum ada isinya),
+  // jadi yang diperiksa cuma errornya, dan hasil akhirnya dipastikan di bawah
+  // lewat jumlah baris yang berhasil ditulis ulang.
+  const { error: errHapus } = await supabase.from('checklist_item_outlets').delete().eq('item_id', itemId).select('item_id');
   if (errHapus) throw errHapus;
 
   if (daftar.length > 1) {
@@ -194,7 +208,7 @@ export async function getItemSessionMap(itemIds) {
  * Daftar KOSONG berarti kembali ke "berlaku di semua sesi".
  */
 export async function setItemSessions(itemId, sessionIds) {
-  const { error: errHapus } = await supabase.from('checklist_session_items').delete().eq('item_id', itemId);
+  const { error: errHapus } = await supabase.from('checklist_session_items').delete().eq('item_id', itemId).select('item_id');
   if (errHapus) throw errHapus;
   const baru = [...new Set((sessionIds ?? []).filter(Boolean))];
   if (!baru.length) return;
@@ -324,7 +338,17 @@ export async function updateItem(id, { label, sort_order, is_active, outlet_id }
       .neq('outlet_id', outlet_id);
     const buang = (sesiLain ?? []).map((x) => x.id);
     if (buang.length) {
-      await supabase.from('checklist_session_items').delete().eq('item_id', id).in('session_id', buang);
+      // Pembersihan penugasan sesi milik outlet LAIN. Hasilnya diperiksa bukan
+      // untuk dilempar — item yang tidak pernah ditugaskan ke sana memang
+      // menghasilkan 0 baris — tapi supaya penolakan RLS meninggalkan jejak di
+      // console alih-alih hilang tanpa bekas.
+      const { error: errBersih } = await supabase
+        .from('checklist_session_items')
+        .delete()
+        .eq('item_id', id)
+        .in('session_id', buang)
+        .select('item_id');
+      if (errBersih) console.warn('[daily] penugasan sesi outlet lain tidak terbersihkan:', errBersih.message);
     }
   }
 }
