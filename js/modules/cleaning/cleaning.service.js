@@ -63,7 +63,32 @@ export async function listActiveItems(businessUnitId, outletId = null, sessionId
     .order('sort_order')
     .order('created_at');
   if (error) throw error;
-  const items = data ?? [];
+  let items = data ?? [];
+
+  // Penyaringan MULTI-OUTLET (0076). Item milik BU (`outlet_id` NULL) yang
+  // punya daftar outlet hanya berlaku di outlet yang terdaftar. Yang tidak
+  // punya daftar tetap berlaku di semua — persis perilaku sebelum 0076, jadi
+  // data lama tidak berubah sedikit pun.
+  if (outletId && items.length) {
+    const milikBu = items.filter((i) => !i.outlet_id).map((i) => i.id);
+    if (milikBu.length) {
+      const { data: daftar, error: errDaftar } = await supabase
+        .from('checklist_item_outlets')
+        .select('item_id, outlet_id')
+        .in('item_id', milikBu);
+      if (errDaftar) {
+        // Gagal baca daftar -> tampilkan semua, jangan kosongkan. Ceklis yang
+        // tiba-tiba kosong membuat staff mengira pekerjaannya tidak perlu;
+        // ceklis kepanjangan hanya merepotkan.
+        console.warn('[daily] daftar outlet item tidak terbaca:', errDaftar.message);
+      } else {
+        const punyaDaftar = new Set((daftar ?? []).map((d) => d.item_id));
+        const untukOutlet = new Set((daftar ?? []).filter((d) => d.outlet_id === outletId).map((d) => d.item_id));
+        items = items.filter((i) => i.outlet_id || !punyaDaftar.has(i.id) || untukOutlet.has(i.id));
+      }
+    }
+  }
+
   if (!sessionId || !items.length) return items;
 
   const { data: tugas, error: errTugas } = await supabase
@@ -81,6 +106,67 @@ export async function listActiveItems(businessUnitId, outletId = null, sessionId
   const punyaTugas = new Set((tugas ?? []).map((t) => t.item_id));
   const untukSesi = new Set((tugas ?? []).filter((t) => t.session_id === sessionId).map((t) => t.item_id));
   return items.filter((i) => !punyaTugas.has(i.id) || untukSesi.has(i.id));
+}
+
+/**
+ * Peta item_id -> daftar outlet_id tempat item itu berlaku (0076).
+ * Item yang tidak muncul di peta ini mengikuti `outlet_id`-nya sendiri.
+ */
+export async function getItemOutletMap(itemIds) {
+  const ids = [...new Set((itemIds ?? []).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const { data, error } = await supabase.from('checklist_item_outlets').select('item_id, outlet_id').in('item_id', ids);
+  if (error) {
+    console.warn('[daily] daftar outlet item tidak terbaca:', error.message);
+    return new Map();
+  }
+  const peta = new Map();
+  for (const r of data ?? []) {
+    if (!peta.has(r.item_id)) peta.set(r.item_id, []);
+    peta.get(r.item_id).push(r.outlet_id);
+  }
+  return peta;
+}
+
+/**
+ * Tetapkan cakupan item dalam SATU panggilan, tiga kemungkinan:
+ *   'semua'          -> outlet_id NULL, daftar dikosongkan
+ *   satu outlet      -> outlet_id = X,  daftar dikosongkan (dikelola admin X)
+ *   beberapa outlet  -> outlet_id NULL + daftar berisi outlet-outlet itu
+ *
+ * Kenapa yang >1 outlet dijadikan milik BU: item yang menyentuh beberapa outlet
+ * bukan lagi urusan satu outlet saja. Membiarkannya dimiliki salah satu berarti
+ * admin outlet itu bisa mengubah pekerjaan outlet lain dari layar yang tidak
+ * pernah menyebut outlet lain itu.
+ */
+export async function setItemCakupan(itemId, outletIds) {
+  const daftar = [...new Set((outletIds ?? []).filter(Boolean))];
+  const outletTunggal = daftar.length === 1 ? daftar[0] : null;
+
+  const { data, error } = await supabase
+    .from('checklist_items')
+    .update({ outlet_id: outletTunggal })
+    .eq('id', itemId)
+    .select('id');
+  if (error) throw error;
+  pastikanKena(data, 'item');
+
+  // Daftar lama selalu dibersihkan lebih dulu — kalau tidak, mengurangi outlet
+  // tidak akan berpengaruh apa pun, dan itu jenis kegagalan yang paling sulit
+  // dipercaya saat dilihat ("sudah saya hapus kok masih muncul").
+  const { error: errHapus } = await supabase.from('checklist_item_outlets').delete().eq('item_id', itemId);
+  if (errHapus) throw errHapus;
+
+  if (daftar.length > 1) {
+    const { data: baris, error: errIsi } = await supabase
+      .from('checklist_item_outlets')
+      .insert(daftar.map((outlet_id) => ({ item_id: itemId, outlet_id })))
+      .select('outlet_id');
+    if (errIsi) throw errIsi;
+    if ((baris ?? []).length !== daftar.length) {
+      throw new Error('Sebagian outlet tidak tersimpan — hanya admin BU yang bisa mengatur item lintas outlet.');
+    }
+  }
 }
 
 /**
@@ -188,11 +274,15 @@ export async function listItems(businessUnitId, outletId = null) {
   if (error) throw error;
   return data ?? [];
 }
+/** Mengembalikan baris barunya — id-nya dibutuhkan untuk menetapkan cakupan multi-outlet (0076). */
 export async function createItem({ businessUnitId, outletId, label, sort_order }) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('checklist_items')
-    .insert({ business_unit_id: businessUnitId, outlet_id: outletId || null, label, sort_order: sort_order ?? 0 });
+    .insert({ business_unit_id: businessUnitId, outlet_id: outletId || null, label, sort_order: sort_order ?? 0 })
+    .select('id')
+    .single();
   if (error) throw error;
+  return data;
 }
 /**
  * `outlet_id` boleh diubah — cakupan item BUKAN keputusan sekali seumur hidup.

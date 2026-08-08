@@ -14,7 +14,9 @@ import {
   getChecklistPhotoUrl,
   getChecklistPhotoUrls,
   getItemSessionMap,
-  setItemSessions
+  setItemSessions,
+  getItemOutletMap,
+  setItemCakupan
 } from './cleaning.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { loadingHtml } from '../../core/loading.js';
@@ -50,12 +52,13 @@ export async function renderCleaningAdminPage(container, { businessUnitId }) {
 
 async function renderItemsTab(content, businessUnitId, outlets = []) {
   content.innerHTML = loadingHtml('Memuat…', { baris: 5 });
-  let items, sessions, petaSesi;
+  let items, sessions, petaSesi, petaOutlet;
   try {
     // Item BU + item SEMUA outlet, supaya tidak ada yang "hilang" karena filter.
     items = await listAllItems(businessUnitId);
     sessions = await listAllSessions(businessUnitId).catch(() => []);
     petaSesi = await getItemSessionMap(items.map((i) => i.id));
+    petaOutlet = await getItemOutletMap(items.map((i) => i.id));
   } catch (error) {
     content.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
     return;
@@ -85,7 +88,11 @@ async function renderItemsTab(content, businessUnitId, outlets = []) {
             <td style="font-size:0.82rem">${
               it.outlet_id
                 ? escapeHtml(outlets.find((o) => o.id === it.outlet_id)?.name ?? 'Outlet')
-                : '<span class="badge badge-approved" style="font-size:0.68rem">Semua outlet</span>'
+                : (petaOutlet.get(it.id) ?? []).length
+                  ? (petaOutlet.get(it.id) ?? [])
+                      .map((oid) => `<span class="badge" style="font-size:0.68rem">${escapeHtml(outlets.find((o) => o.id === oid)?.name ?? 'Outlet')}</span>`)
+                      .join(' ')
+                  : '<span class="badge badge-approved" style="font-size:0.68rem">Semua outlet</span>'
             }</td>
             <td style="font-size:0.82rem">${
               (petaSesi.get(it.id) ?? []).length
@@ -111,9 +118,9 @@ async function renderItemsTab(content, businessUnitId, outlets = []) {
   content.querySelectorAll('.btn-item-sessions').forEach((btn) =>
     btn.addEventListener('click', () => openItemSessionDialog(content, businessUnitId, outlets, sessions ?? [], btn.dataset.id, btn.dataset.label, petaSesi.get(btn.dataset.id) ?? []))
   );
-  document.getElementById('btn-new-item').addEventListener('click', () => openItemDialog(content, businessUnitId, null, outlets));
+  document.getElementById('btn-new-item').addEventListener('click', () => openItemDialog(content, businessUnitId, null, outlets, petaOutlet));
   content.querySelectorAll('.btn-edit-item').forEach((btn) =>
-    btn.addEventListener('click', () => openItemDialog(content, businessUnitId, JSON.parse(btn.dataset.json), outlets))
+    btn.addEventListener('click', () => openItemDialog(content, businessUnitId, JSON.parse(btn.dataset.json), outlets, petaOutlet))
   );
   content.querySelectorAll('.btn-del-item').forEach((btn) =>
     btn.addEventListener('click', async () => {
@@ -167,8 +174,18 @@ async function openItemSessionDialog(content, businessUnitId, outlets, sessions,
   }
 }
 
-async function openItemDialog(content, businessUnitId, existing, outlets = []) {
+async function openItemDialog(content, businessUnitId, existing, outlets = [], petaOutlet = new Map()) {
   const isEdit = !!existing;
+  // Keadaan awal disatukan dari DUA sumber: kolom `outlet_id` (satu outlet) dan
+  // tabel daftar (beberapa outlet). Dua sumber untuk satu pertanyaan memang
+  // rawan, tapi memisahkannya begitu yang menentukan siapa boleh menyunting —
+  // lihat catatan di migration 0076.
+  const outletAwal = existing
+    ? existing.outlet_id
+      ? [existing.outlet_id]
+      : petaOutlet.get(existing.id) ?? []
+    : [];
+  const modeAwal = existing && outletAwal.length ? 'pilih' : 'semua';
   const values = await formDialog({
     title: isEdit ? 'Edit Item' : 'Tambah Item',
     fields: [
@@ -179,15 +196,29 @@ async function openItemDialog(content, businessUnitId, existing, outlets = []) {
       // memaksa admin membuat item kembar lalu menonaktifkan yang lama, dan dua
       // item bernama sama dengan riwayat terpisah jauh lebih membingungkan.
       {
-        name: 'outlet_id',
+        name: 'cakupan',
         label: 'Berlaku di',
         type: 'select',
-        value: existing?.outlet_id ?? '',
-        help: existing
-          ? 'Mengubahnya langsung mengubah ceklis outlet yang terkait — yang kehilangan item ini maupun yang mendapatkannya. Riwayat pengerjaan yang sudah ada tidak ikut berubah.'
-          : 'Admin outlet hanya bisa membuat item khusus outletnya sendiri.',
-        options: [{ value: '', label: 'Semua outlet BU (standar)' }, ...outlets.map((o) => ({ value: o.id, label: `Khusus ${o.name}` }))]
+        value: modeAwal,
+        help:
+          'Pilih "Outlet tertentu" lalu centang outletnya di bawah — bisa satu, bisa beberapa. ' +
+          (existing ? 'Mengubahnya langsung mengubah ceklis outlet yang terkait; riwayat pengerjaan yang sudah ada tidak ikut berubah.' : ''),
+        options: [
+          { value: 'semua', label: 'Semua outlet BU (standar)' },
+          { value: 'pilih', label: 'Outlet tertentu (bisa lebih dari satu)' }
+        ]
       },
+      // Checkbox, bukan <select multiple>: di HP, memilih dua opsi di
+      // select-multiple butuh menahan tombol yang tidak ada di papan ketik
+      // sentuh. Semuanya ditampilkan sekaligus; yang menentukan tetap pilihan
+      // "Berlaku di" di atas, supaya tidak ada aturan tersirat semacam
+      // "kalau tidak ada yang dicentang berarti semua".
+      ...outlets.map((o) => ({
+        name: `o_${o.id}`,
+        label: o.name,
+        type: 'checkbox',
+        value: outletAwal.includes(o.id)
+      })),
       { name: 'sort_order', label: 'Urutan', type: 'number', min: 0, value: existing?.sort_order ?? 0 },
       ...(isEdit ? [{ name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing.is_active }] : [])
     ],
@@ -196,32 +227,44 @@ async function openItemDialog(content, businessUnitId, existing, outlets = []) {
   if (!values) return;
   try {
     if (isEdit) {
-      const cakupanBaru = values.outlet_id || null;
-      const pindah = (existing.outlet_id ?? null) !== cakupanBaru;
-      if (pindah) {
-        const dari = existing.outlet_id ? outlets.find((o) => o.id === existing.outlet_id)?.name ?? 'outlet' : 'semua outlet BU';
-        const ke = cakupanBaru ? outlets.find((o) => o.id === cakupanBaru)?.name ?? 'outlet' : 'semua outlet BU';
+      const pilihan = values.cakupan === 'pilih' ? outlets.filter((o) => values[`o_${o.id}`]).map((o) => o.id) : [];
+      if (values.cakupan === 'pilih' && !pilihan.length) {
+        return toast('Centang minimal satu outlet, atau pilih "Semua outlet BU".', 'warning');
+      }
+      const berubah = JSON.stringify([...outletAwal].sort()) !== JSON.stringify([...pilihan].sort());
+      if (berubah) {
+        const namaOutlet = (ids) => (ids.length ? ids.map((id) => outlets.find((o) => o.id === id)?.name ?? 'outlet').join(', ') : 'semua outlet BU');
         const ok = await confirmDialog({
-          title: 'Pindahkan cakupan item?',
-          message: `"${existing.label}" akan berpindah dari ${dari} ke ${ke}. Ceklis di outlet yang terkait langsung berubah mulai sesi berikutnya. Riwayat pengerjaan yang sudah tercatat tidak terpengaruh.`,
-          confirmText: 'Pindahkan'
+          title: 'Ubah cakupan item?',
+          message:
+            `"${existing.label}" akan berlaku di ${namaOutlet(pilihan)} (sebelumnya ${namaOutlet(outletAwal)}). ` +
+            'Ceklis di outlet terkait langsung berubah mulai sesi berikutnya. Riwayat pengerjaan yang sudah tercatat tidak terpengaruh.',
+          confirmText: 'Simpan'
         });
         if (!ok) return;
       }
       await updateItem(existing.id, {
         label: values.label,
         sort_order: Number(values.sort_order) || 0,
-        is_active: values.is_active,
-        outlet_id: cakupanBaru
+        is_active: values.is_active
       });
-      toast(pindah ? 'Item dipindahkan & diperbarui.' : 'Item diperbarui.', 'success');
+      if (berubah) await setItemCakupan(existing.id, pilihan);
+      toast(berubah ? 'Cakupan item diperbarui.' : 'Item diperbarui.', 'success');
     } else {
-      await createItem({
+      const pilihan = values.cakupan === 'pilih' ? outlets.filter((o) => values[`o_${o.id}`]).map((o) => o.id) : [];
+      if (values.cakupan === 'pilih' && !pilihan.length) {
+        return toast('Centang minimal satu outlet, atau pilih "Semua outlet BU".', 'warning');
+      }
+      // Dibuat dengan satu outlet dulu (atau BU), baru cakupannya ditetapkan.
+      // `createItem` tidak dibuat menerima daftar supaya aturan "1 outlet =
+      // dimiliki outlet itu" cuma ditulis di SATU tempat: setItemCakupan().
+      const baru = await createItem({
         businessUnitId,
-        outletId: values.outlet_id || null,
+        outletId: pilihan.length === 1 ? pilihan[0] : null,
         label: values.label,
         sort_order: Number(values.sort_order) || 0
       });
+      if (pilihan.length > 1 && baru?.id) await setItemCakupan(baru.id, pilihan);
       toast('Item ditambahkan.', 'success');
     }
     await renderItemsTab(content, businessUnitId, outlets);

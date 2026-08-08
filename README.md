@@ -1884,6 +1884,26 @@ Audit itu sendiri sempat salah: versi pertamanya memakai spasi literal antar kat
 
 `correctAttendanceRecord()` melakukan UPDATE tanpa `.select()`. Penolakan RLS tidak menghasilkan error — hanya 0 baris — jadi admin yang bukan admin outlet presensi itu melihat "koreksi tersimpan" untuk perubahan yang tidak pernah terjadi. Sudah diperiksa.
 
+## Item aktivitas bisa berlaku di BEBERAPA outlet (migration `0076`)
+
+Sebelumnya hanya ada dua kemungkinan: seluruh outlet BU, atau satu outlet. Kenyataannya ada di antaranya — "Serpong dan Sentul, tapi Central Kitchen tidak". Satu-satunya jalan sebelum ini adalah menggandakan itemnya, dan dua item bernama sama dengan riwayat terpisah membuat rekapnya tidak bisa dijumlahkan tanpa tahu sejarah penggandaannya.
+
+### `outlet_id` tetap berarti "dikelola siapa", bukan sekadar "berlaku di mana"
+
+Ini yang menentukan bentuknya. Kolom `outlet_id` dipakai policy `checklist_items_modify` (0054) untuk memutuskan apakah admin outlet boleh menyunting — mengubah artinya akan diam-diam melepas kendali itu. Jadi:
+
+| Pilihan | `outlet_id` | Tabel `checklist_item_outlets` | Yang mengelola |
+|---|---|---|---|
+| Semua outlet BU | NULL | kosong | admin BU |
+| **1 outlet** | outlet itu | kosong | **admin outlet itu** |
+| **>1 outlet** | NULL | satu baris per outlet | **admin BU** |
+
+Yang >1 outlet sengaja jadi milik BU: item yang menyentuh beberapa outlet bukan lagi urusan satu outlet saja. Membiarkannya dimiliki salah satu berarti admin outlet itu bisa mengubah pekerjaan outlet lain — dari layar yang tidak pernah menyebut outlet lain itu. Policy `cio_write` juga hanya diberikan ke admin BU, dan menuntut outlet tujuannya berada di BU yang sama.
+
+**Data lama tidak perlu dipindahkan sama sekali.** Tanpa baris di tabel daftar, aturannya persis seperti sebelum `0076`. Diuji `node tools/test-cakupan-item.mjs` (12 kasus) — kasus "data lama tanpa daftar" ada di dalamnya, karena kalau aturan itu tergeser ceklis outlet mendadak kosong, dan gejalanya bukan error melainkan staff yang mengira tidak ada yang perlu dikerjakan.
+
+Di layar: satu pemilih mode (*Semua outlet BU* / *Outlet tertentu*) plus centang per outlet. Modenya eksplisit, bukan "kalau tidak ada yang dicentang berarti semua" — aturan tersirat semacam itu sudah cukup sekali dipakai di penugasan sesi, dan menambahnya lagi hanya memperbanyak hal yang harus diingat orang.
+
 ## Cakupan item & sesi Daily Activities kini bisa dipindah
 
 Sebelumnya "Berlaku di" hanya bisa dipilih **saat membuat**. Alasannya masuk akal — memindahkan item BU jadi milik satu outlet mengubah ceklis outlet lain — tapi jalan keluarnya salah: yang dibutuhkan **peringatan**, bukan larangan.

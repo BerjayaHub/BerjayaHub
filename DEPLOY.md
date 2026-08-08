@@ -42,6 +42,7 @@ pernah dijalankan.
 | 0073 | `0073_staff_koreksi_item_sendiri.sql` | Staff bisa memperbaiki & menghapus item yang **dia sendiri** kerjakan, **hari itu juga**; pemilik run tidak lagi bisa menyunting bukti rekannya |
 | 0074 | `0074_hitung_ulang_status_shift.sql` | RPC hitung ulang status terlambat untuk presensi yang terlanjur "Tanpa jadwal" (jadwal disusun setelah orangnya clock in) + versi massal |
 | 0075 | `0075_akurasi_lokasi_presensi.sql` | Simpan **ketelitian** GPS saat clock in/out, supaya keluhan "saya di outlet tapi ditolak" bisa ditelusuri |
+| 0076 | `0076_item_multi_outlet.sql` | Item Daily Activities bisa berlaku di **beberapa outlet** (mis. Serpong + Sentul, CK tidak) |
 
 > ⚠️ Kalau `0074` sudah terlanjur dijalankan sebelum 7 Agustus sore, **jalankan
 > ulang** — versi pertamanya memakai `ss.created_at`, kolom yang tidak ada di
@@ -333,6 +334,12 @@ select net.http_post(
   yang dicentang tanpa bukti tetap ada (tidak divalidasi mundur) tapi ditandai
   merah **"tanpa bukti"** di detail rekap, dibedakan dari item yang memang
   **"tidak dikerjakan"**.
+- **Daily Activities (Admin Portal → Item)** → **"Berlaku di"** kini punya dua
+  mode: *Semua outlet BU* atau *Outlet tertentu* dengan **centang beberapa
+  outlet** (mis. Serpong + Sentul, CK tidak). Item yang dicentang **satu** outlet
+  tetap dimiliki outlet itu (admin outletnya bisa mengelola); yang **lebih dari
+  satu** jadi milik BU dan hanya bisa diatur **admin BU**.
+  ⚠️ Data lama tidak berubah sama sekali sampai kamu menyentuhnya.
 - **Daily Activities (Admin Portal → Item & Sesi)** → kolom **"Berlaku di"** kini
   bisa diubah lewat **Edit**, tidak lagi terkunci sejak dibuat. Ada konfirmasi
   yang menyebut dari mana ke mana. Hanya **admin BU** yang bisa memindahkan
@@ -374,6 +381,7 @@ node tools/test-item-per-sesi.mjs
 node tools/test-kemajuan-sesi.mjs
 node tools/test-shift-lintas-hari.mjs
 node tools/test-geofence-akurasi.mjs
+node tools/test-cakupan-item.mjs
 ```
 
 `audit-syntax` yang paling penting: satu SyntaxError membuat **seluruh**
