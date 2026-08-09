@@ -20,7 +20,44 @@
 /** @type {{nama: string, kembali: () => void, penjaga?: boolean}[]} */
 const tumpukan = [];
 let terpasang = false;
-let abaikanSekali = false;
+
+/**
+ * Berapa popstate berikutnya yang harus DIABAIKAN.
+ *
+ * Setiap `history.back()` yang KITA panggil sendiri (bukan ketukan user) akan
+ * memunculkan popstate juga, dan popstate itu tidak membawa tanda apa pun soal
+ * siapa yang memicunya. Tanpa penghitung ini, back() milik kita akan dibaca
+ * sebagai ketukan Back user dan MEMAKAN SATU LAPIS LAGI.
+ *
+ * Itulah bug "selesai mengisi form, aplikasi melompat ke Beranda": menutup
+ * dialog membuang lapisnya sendiri lalu memundurkan history, dan popstate
+ * susulannya menelan lapis modul di bawahnya.
+ *
+ * PENGHITUNG, bukan boolean: dua dialog yang tertutup hampir bersamaan
+ * mengantre dua popstate, sementara satu boolean hanya bisa menahan yang
+ * pertama.
+ */
+let abaikanBerikutnya = 0;
+
+/**
+ * Sedang menampilkan pertanyaan "tinggalkan isian?".
+ *
+ * Dipakai untuk dua hal, dan keduanya perlu dibedakan kejujurannya:
+ *
+ * 1. MENOLAK ketukan Back yang datang saat pertanyaannya masih terbuka
+ *    (sambil mengembalikan entri history-nya). Ini load-bearing — tanpa ini,
+ *    ketukan kedua membuka pertanyaan kedua lalu melempar orangnya keluar
+ *    modul, dan `tools/test-navigasi-popstate.mjs` membuktikannya.
+ *
+ * 2. Membuat `dorongLapis()` tidak mendaftarkan apa pun selama pertanyaannya
+ *    tampil. Ini pertahanan berlapis, BUKAN penyelamatnya: setelah penghitung
+ *    `abaikanBerikutnya` di atas benar, lingkaran "pop-up muncul terus" sudah
+ *    tidak bisa terjadi walau baris ini dihapus — saya sudah mencobanya, dan
+ *    tesnya tetap hijau. Baris ini dipertahankan karena membuat aturannya
+ *    sederhana ("selama bertanya, tumpukan beku") dan murah, bukan karena
+ *    terbukti menangkap sesuatu hari ini.
+ */
+let sedangBertanya = false;
 
 /**
  * Apakah ada isian yang belum tersimpan di halaman modul?
@@ -84,10 +121,27 @@ export function pasangNavigasi() {
   });
 
   window.addEventListener('popstate', async () => {
-    if (abaikanSekali) {
-      abaikanSekali = false;
+    if (abaikanBerikutnya > 0) {
+      abaikanBerikutnya--;
       return;
     }
+    // Ketukan Back saat pertanyaan "tinggalkan isian?" masih terbuka: pertanyaan
+    // kedua di atas pertanyaan pertama tidak menjawab apa pun, jadi diabaikan.
+    //
+    // Tapi entri history-nya SUDAH terlanjur dimakan browser, dan itu tidak
+    // boleh dibiarkan: history jadi satu langkah lebih pendek daripada tumpukan
+    // lapis, dan selisih itu baru terasa jauh kemudian — sebagai Back yang
+    // tiba-tiba melompati satu layar, atau keluar dari aplikasi. Jadi entrinya
+    // dikembalikan.
+    if (sedangBertanya) {
+      try {
+        history.pushState({ berjaya: 'tanya' }, '');
+      } catch {
+        /* diabaikan */
+      }
+      return;
+    }
+
     const lapis = tumpukan.pop();
     if (!lapis) return; // sudah di akar -> biarkan browser melakukan tugasnya
 
@@ -101,16 +155,19 @@ export function pasangNavigasi() {
       } catch {
         /* diabaikan */
       }
-      const lanjut = await tanyaKeluar();
-      if (!lanjut) return;
+
+      sedangBertanya = true;
+      let lanjut = false;
+      try {
+        lanjut = await tanyaKeluar();
+      } finally {
+        sedangBertanya = false;
+      }
+      if (!lanjut) return; // "Lanjut mengisi" -> tidak ada yang berubah
+
       const i = tumpukan.lastIndexOf(lapis);
       if (i !== -1) tumpukan.splice(i, 1);
-      abaikanSekali = true; // popstate dari history.back() di bawah ini
-      try {
-        history.back();
-      } catch {
-        /* diabaikan */
-      }
+      mundurkanSendiri();
     }
 
     adaIsian = false;
@@ -130,8 +187,27 @@ export function pasangNavigasi() {
  * @returns {() => void} panggil kalau lapisnya ditutup lewat jalur LAIN
  *   (mis. tombol Batal), supaya tumpukan tidak terisi lapis hantu
  */
+/**
+ * Mundurkan history atas kehendak KITA, bukan user.
+ *
+ * Popstate yang timbul karenanya sudah dipesan untuk diabaikan lebih dulu —
+ * urutannya penting: menaikkan penghitung SESUDAH `back()` bisa kalah cepat
+ * kalau browser mengirim popstate-nya lebih awal dari yang diperkirakan.
+ */
+function mundurkanSendiri() {
+  abaikanBerikutnya++;
+  try {
+    history.back();
+  } catch {
+    abaikanBerikutnya--; // tidak jadi mundur -> tidak ada popstate yang datang
+  }
+}
+
 export function dorongLapis(nama, kembali, { penjaga = false } = {}) {
   if (!terpasang) return () => {};
+  // Dialog yang lahir DARI pertanyaan keluar tidak boleh punya lapisnya
+  // sendiri. Lihat penjelasan `sedangBertanya` di atas.
+  if (sedangBertanya) return () => {};
   const lapis = { nama, kembali, penjaga };
   tumpukan.push(lapis);
   try {
@@ -140,27 +216,48 @@ export function dorongLapis(nama, kembali, { penjaga = false } = {}) {
     /* diabaikan */
   }
 
-  return () => {
-    const i = tumpukan.lastIndexOf(lapis);
-    if (i === -1) return; // sudah dipakai Back
-    tumpukan.splice(i, 1);
-    // Entri history-nya ikut dibuang supaya Back berikutnya tidak "terasa
-    // tidak melakukan apa-apa" — ketukan yang tidak menghasilkan apa pun
-    // membuat orang mengira aplikasinya menggantung.
-    try {
-      history.back();
-    } catch {
-      /* diabaikan */
-    }
-  };
+  return () => buangLapis(lapis);
 }
 
 /**
- * Kosongkan tumpukan tanpa menyentuh history.
- * Dipakai saat berpindah ke Beranda lewat tombol, bukan lewat Back.
+ * Buang satu lapis tertentu beserta entri history-nya.
+ *
+ * Entri history-nya ikut dibuang supaya Back berikutnya tidak "terasa tidak
+ * melakukan apa-apa" — ketukan yang tidak menghasilkan apa pun membuat orang
+ * mengira aplikasinya menggantung.
+ *
+ * Lewat `mundurkanSendiri()`, BUKAN `history.back()` langsung: lapisnya sudah
+ * dibuang di baris atas, jadi popstate susulannya tidak boleh membuang satu
+ * lapis lagi.
+ */
+function buangLapis(lapis) {
+  const i = tumpukan.lastIndexOf(lapis);
+  if (i === -1) return; // sudah dipakai Back
+  tumpukan.splice(i, 1);
+  mundurkanSendiri();
+}
+
+/**
+ * Kosongkan tumpukan — beserta entri history-nya.
+ *
+ * Dipakai saat berpindah ke Beranda/Dashboard lewat TOMBOL, bukan lewat Back.
+ *
+ * Versi sebelumnya hanya mengosongkan tumpukan dan membiarkan entri history-nya
+ * menumpuk. Akibatnya, sesudah membuka lima modul lalu menekan 🏠, history masih
+ * menyimpan lima entri basi: ketukan Back pertama benar (keluar aplikasi tidak
+ * terjadi), tapi yang berikutnya hanya memundurkan entri kosong — aplikasinya
+ * tidak bereaksi sama sekali. Bagi yang memakainya, tombol Back yang "tidak
+ * melakukan apa-apa" beberapa kali tidak bisa dibedakan dari aplikasi
+ * menggantung.
+ *
+ * Dimundurkan satu per satu lewat `mundurkanSendiri()` supaya tiap popstate
+ * susulannya ikut dipesan untuk diabaikan.
  */
 export function bersihkanLapis() {
-  tumpukan.length = 0;
+  while (tumpukan.length) {
+    tumpukan.pop();
+    mundurkanSendiri();
+  }
 }
 
 /**
@@ -179,18 +276,47 @@ export function bersihkanLapis() {
  * @returns {() => void} pembersih untuk tombol "← Kembali" di layar itu
  */
 export function dorongSubHalaman(nama, kembaliKeDaftar) {
-  let lewatBack = false;
-  const lepas = dorongLapis(`sub:${nama}`, () => {
-    lewatBack = true;
-    kembaliKeDaftar();
-  });
-  // Sama seperti dialog: kalau tombol Kembali yang dipakai, entri history-nya
-  // harus dibuang sendiri. Kalau Back yang dipakai, browser sudah membuangnya —
-  // membuangnya lagi akan memundurkan satu langkah tambahan dan melempar
-  // orangnya keluar modul.
-  return () => {
-    if (!lewatBack) lepas();
+  const kunci = `sub:${nama}`;
+
+  /**
+   * Pasang perilaku "kembali" pada sebuah lapis, dan kembalikan pembersihnya.
+   *
+   * Sama seperti dialog: kalau tombol Kembali yang dipakai, entri history-nya
+   * harus dibuang sendiri. Kalau Back yang dipakai, browser sudah membuangnya —
+   * membuangnya lagi akan memundurkan satu langkah tambahan dan melempar
+   * orangnya keluar modul.
+   */
+  const pasang = (lapis) => {
+    lapis.lewatBack = false;
+    lapis.kembali = () => {
+      lapis.lewatBack = true;
+      kembaliKeDaftar();
+    };
+    return () => {
+      if (!lapis.lewatBack) buangLapis(lapis);
+    };
   };
+
+  // LAYAR YANG SAMA DIGAMBAR ULANG -> pakai lapis yang sudah ada.
+  //
+  // Ini bukan penghematan, ini perbaikan bug. Layar sesi Daily Activities
+  // menggambar dirinya sendiri lagi setiap kali item dikirim, diperbaiki, atau
+  // dihapus. Tanpa pemeriksaan ini, tiap penggambaran ulang menambah satu lapis
+  // dan satu entri history: sesudah mengirim tiga kali, orangnya harus menekan
+  // Back empat kali untuk keluar — dan tiga ketukan pertama hanya menggambar
+  // ulang layar yang sama, persis seperti aplikasi yang menggantung.
+  const adaSebelumnya = tumpukan.find((l) => l.nama === kunci);
+  if (adaSebelumnya) return pasang(adaSebelumnya);
+
+  const lapis = { nama: kunci, kembali: () => {}, penjaga: false };
+  if (!terpasang || sedangBertanya) return () => {};
+  tumpukan.push(lapis);
+  try {
+    history.pushState({ berjaya: kunci }, '');
+  } catch {
+    /* diabaikan */
+  }
+  return pasang(lapis);
 }
 
 /** Berapa lapis yang sedang terbuka — untuk pemeriksaan. */

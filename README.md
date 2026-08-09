@@ -2173,6 +2173,45 @@ Audit itu sengaja **membuang komentar sebelum mencocokkan**. Tanpa itu, menjelas
 
 Begitu juga jalur multi-outlet Daily Activities: `cio_select` memakai `has_bu_scope`, jadi staff tetap bisa membaca item yang cakupannya beberapa outlet.
 
+## Empat bug tumpukan Back — dan kenapa tes lama tidak melihatnya
+
+Dilaporkan dua gejala di Daily Activities (Staff App): **selesai mengisi form, aplikasi melompat ke Beranda**, dan **pop-up "lanjutkan mengisi" muncul terus sampai form tidak bisa diisi**. Setelah ditelusuri, ketiganya — lalu keempatnya — berasal dari satu tempat: `js/core/navigasi.js`.
+
+### 1. Pembersih lapis memakan satu lapis lagi
+
+`dorongLapis()` mengembalikan pembersih untuk dipanggil kalau layarnya ditutup lewat tombol. Pembersih itu membuang lapisnya sendiri **lalu** memanggil `history.back()`. Masalahnya: popstate yang timbul karenanya tidak membawa tanda apa pun soal siapa yang memicunya, jadi ia dibaca sebagai ketukan Back user — dan **memakan satu lapis lagi**, yaitu lapis modulnya. Menutup dialog form karena itu melempar orangnya ke Beranda.
+
+Diperbaiki dengan penghitung `abaikanBerikutnya`: setiap `history.back()` yang kita panggil sendiri memesan satu popstate untuk diabaikan. **Penghitung, bukan boolean** — dua dialog yang tertutup hampir bersamaan mengantre dua popstate, dan satu boolean hanya menahan yang pertama.
+
+### 2. Pertanyaan keluar yang memanggil dirinya sendiri
+
+Dialog "tinggalkan isian?" adalah `confirmDialog`, dan setiap dialog mendaftarkan lapis Back-nya sendiri (`lapisDialog` di ui.js). Saat ditutup, pembersihnya memundurkan history; popstate susulannya memicu penjaga yang sama; penjaga membuka dialog itu lagi. Selamanya — dan form-nya tidak pernah bisa diisi.
+
+Perbaikan penghitung di atas ternyata sudah cukup memutus lingkarannya. Yang **belum** tertutup dan baru ketahuan lewat tes: **ketukan Back saat pertanyaannya masih terbuka.** Orang yang tidak sabar menekan Back lagi alih-alih menyentuh tombol dialog; ketukan itu dulu membuka pertanyaan kedua lalu melempar keluar modul. Sekarang ketukan itu diabaikan **dan entri history-nya dikembalikan** — kalau tidak, history jadi lebih pendek daripada tumpukan lapis, dan selisihnya baru terasa jauh kemudian sebagai Back yang melompati satu layar.
+
+### 3. Layar yang menggambar ulang dirinya sendiri menumpuk lapis
+
+Tidak dilaporkan, tapi satu keluarga dengan yang di atas. Layar sesi Daily Activities memanggil `renderRunForm()` lagi setiap kali item **dikirim, diperbaiki, atau dihapus** — dan tiap penggambaran ulang memanggil `dorongSubHalaman()` dengan nama yang sama. Setiap kali: satu lapis dan satu entri history baru. Sesudah mengirim tiga kali, orangnya harus menekan Back **empat kali** untuk keluar, dan tiga ketukan pertama hanya menggambar ulang layar yang sama. Tidak bisa dibedakan dari aplikasi yang menggantung.
+
+`dorongSubHalaman()` sekarang memakai ulang lapis dengan nama yang sama kalau sudah ada. Perbaikannya di lapisan navigasi, bukan di modulnya — supaya modul lain yang menggambar ulang dirinya sendiri ikut aman tanpa harus ingat.
+
+### 4. Tombol 🏠 meninggalkan entri history basi
+
+`bersihkanLapis()` mengosongkan tumpukan tapi membiarkan entri history-nya. Sesudah membuka beberapa modul lalu menekan 🏠, ketukan Back berikutnya hanya memundurkan entri kosong dan aplikasinya **tidak bereaksi sama sekali** — beberapa kali berturut-turut. Sekarang entrinya ikut dimundurkan satu per satu.
+
+### Kenapa `test-navigasi-back.mjs` (19 kasus, hijau) tidak menangkap satu pun
+
+Karena ia **mencerminkan aturannya**, bukan menjalankan kodenya. Keempat bug ini tidak lahir dari aturannya — aturannya benar — melainkan dari **interaksi antara tumpukan lapis dan entri history**. Cermin tidak punya history.
+
+`tools/test-navigasi-popstate.mjs` mengimpor `js/core/navigasi.js` yang sebenarnya dan menjalankannya di atas tiruan `history` + `popstate`. Dua detail tiruan itu yang menentukan:
+
+- **`back()` tidak memanggil handler langsung**, ia mengantre popstate untuk giliran berikutnya.
+- **Handler dipanggil TANPA di-`await`.** Begitulah browser bekerja: event berikutnya tetap dikirim meski handler sebelumnya masih menunggu dialog dijawab. Versi pertama tes ini meng-`await` satu per satu — dan bug "Back saat dialog terbuka", yang justru paling mungkin dialami orang, tidak muncul sama sekali.
+
+Ada juga jaring pengaman: kalau antrean popstate tidak habis dalam 50 putaran, tesnya **gagal** alih-alih menggantung. Bug nomor 2 bentuk aslinya memang antrean yang tidak pernah habis.
+
+Keempat perbaikan diverifikasi dengan **mencabutnya satu per satu** dan memastikan tesnya merah. Satu penjagaan (`dorongLapis` yang diam selama pertanyaan tampil) ternyata **tidak** membuat tes merah saat dicabut — itu ditulis apa adanya di komentarnya sebagai pertahanan berlapis, bukan sebagai penyelamat, supaya tidak ada yang mengira ia load-bearing.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

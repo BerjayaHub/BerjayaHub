@@ -334,6 +334,12 @@ select net.http_post(
   scope orang tersebut harus menyebut **outlet**-nya. Peran "Admin Outlet" yang
   scope-nya dibuat di level BU (tanpa outlet) tidak memberi wewenang atas outlet
   mana pun — dia hanya bisa *melihat*.
+- ⚠️ **Tombol Back / navigasi (seluruh aplikasi)** → empat perbaikan sekaligus:
+  selesai mengisi form **tidak lagi melompat ke Beranda**; pop-up "lanjutkan
+  mengisi" **tidak lagi muncul berulang**; layar yang menggambar ulang dirinya
+  (mis. sesi Daily Activities setelah kirim/perbaiki/hapus) **tidak lagi
+  menumpuk ketukan Back**; dan tombol 🏠 **tidak lagi meninggalkan ketukan Back
+  yang tidak melakukan apa-apa**. Murni kode, **tidak ada migration**.
 - ⚠️ **Daily Activities (Staff App)** → **perbaikan regresi.** Sapuan sebelumnya
   membuat modul ini mati untuk seluruh staff ("Belum ada outlet untukmu di BU
   ini"). **Push kode terbaru sebelum staff memakainya lagi.** Tidak ada migration.
