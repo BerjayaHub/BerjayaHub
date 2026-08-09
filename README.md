@@ -2149,6 +2149,30 @@ Semuanya kini `.select()` lalu memeriksa `data.length`, dengan pesan yang menyeb
 - **`audit-tulis-senyap.cjs`** — UPDATE/DELETE/upsert pada tabel ber-scope outlet wajib `.select()`. Cakupannya sengaja dibatasi ke daftar tabel yang disebut di dalamnya; audit yang mengklaim memeriksa segalanya tapi diam-diam melewatkan sebagian lebih berbahaya daripada audit yang menyebutkan batasnya.
 - **`lib-rantai.cjs`** — dan inilah yang paling penting. Audit-audit lama memotong rantai `supabase.from(...)` dengan menebak dari indentasi: "baris berikutnya diawali `}` berarti rantainya selesai". Objek literal di dalam `.update({ ... })` membuat tebakan itu berhenti tepat sebelum `.select()`. Akibatnya `audit-tulis-senyap` menuduh empat file yang sudah benar, dan `audit-kolom-tabel` diam-diam melewatkan bagian rantai terpanjang. Sekarang rantainya dipotong di `;` pada kedalaman kurung 0 — definisi akhir pernyataan yang sesungguhnya. `audit-kolom-tabel` naik dari 321 → **900** pemeriksaan setelah dua perbaikan ini.
 
+## Regresi yang saya buat sendiri: Daily Activities mati untuk seluruh staff
+
+Layak ditulis panjang, karena bentuknya akan terulang.
+
+Saat menyapu layar admin, satu fungsi di `cleaning.service.js` diganti dari `listMyOutlets()` (boleh dilihat) jadi `listOutletsSayaKelola()` (boleh diatur). Untuk Admin Portal itu benar. Tapi fungsi yang sama ternyata dipakai `cleaning.page.js` di **Staff App** — dan staff tidak mengelola outlet mana pun. Daftarnya kosong, dan seluruh modul Daily Activities menjawab *"Belum ada outlet untukmu di BU ini"*.
+
+**Tidak ada error, tidak ada yang merah. Modulnya sekadar hilang.** Persis jenis kegagalan yang paling sering dibahas di dokumen ini, kali ini saya sendiri yang membuatnya — sambil memperbaiki kegagalan sejenis di tempat lain.
+
+Akarnya bukan kecerobohan sesaat: **file `*.service.js` dipakai bersama oleh Staff App dan Admin Portal.** Menaruh konsep "yang boleh diatur" di sana berarti setiap perubahan harus mengingat kedua pemakainya sekaligus — dan ingatan bukan mekanisme yang bisa diandalkan.
+
+Perbaikannya berlapis:
+
+1. `listBuOutlets()` kembali menjadi daftar "boleh dilihat", dengan peringatan eksplisit di atasnya.
+2. Daftar "boleh diatur" **tidak lagi hidup di service mana pun**. `cleaning.admin.page.js` memanggil `listOutletsSayaKelola()` sendiri, dan hanya untuk pemilih **cakupan** item/sesi. Nama outlet pada item yang sudah ada tetap dibaca dari daftar "boleh dilihat" — kalau tidak, item milik outlet lain tampil sebagai "Outlet" tanpa nama.
+3. **`tools/audit-daftar-kelola.cjs`**: `listOutletsSayaKelola` hanya boleh disebut di `js/core/**` dan di file `*.admin.page.js`. Halaman staff dan file service dilarang menyentuhnya. Diverifikasi dengan mengembalikan bug-nya persis seperti semula — audit menangkapnya.
+
+Audit itu sengaja **membuang komentar sebelum mencocokkan**. Tanpa itu, menjelaskan aturannya di dalam komentar ikut dianggap melanggar, dan satu-satunya cara membuat audit hijau adalah menghapus penjelasan yang justru paling dibutuhkan orang berikutnya. Audit tidak boleh menghukum dokumentasi.
+
+### Yang ikut diperiksa, dan ternyata aman
+
+`.select()` yang ditambahkan di sapuan sebelumnya sempat mencemaskan: kalau policy **SELECT** lebih sempit daripada **UPDATE**, penyimpanan yang berhasil akan dilaporkan gagal — bug baru yang dibuat oleh perbaikan bug. Diperiksa satu per satu: `reservation_settings`, `reservation_areas`, `assets`, `shift_schedules`, `outlet_shifts` semuanya SELECT-nya `has_bu_scope` (lebih luas) sementara MODIFY-nya `is_admin_of_outlet` (lebih sempit); `outlets` SELECT-nya `has_outlet_scope`, UPDATE-nya `is_bu_admin`. Di semua kasus, siapa pun yang boleh menulis pasti boleh membaca kembali barisnya. Aman.
+
+Begitu juga jalur multi-outlet Daily Activities: `cio_select` memakai `has_bu_scope`, jadi staff tetap bisa membaca item yang cakupannya beberapa outlet.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

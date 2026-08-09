@@ -56,15 +56,8 @@ const PENGECUALIAN = {
   'attendance/nbm-settings.admin.page.js': 'Sama seperti attendance.admin: kebijakan libur outlet hanya boleh diubah admin BU, dan tombolnya sudah dijaga sayaAdminBu().'
 };
 
-/**
- * Nama fungsi yang mengembalikan daftar "outlet yang boleh DILIHAT".
- *
- * `listBuOutlets` (cleaning.service.js) sengaja TIDAK ada di sini: isinya sudah
- * diganti jadi `listOutletsSayaKelola`. Namanya memang menyesatkan, tapi
- * mendaftarkannya di sini akan membuat audit menuduh kode yang justru sudah
- * benar.
- */
-const SUMBER_LIHAT = ['listMyOutlets', 'listAttendanceOutlets', 'listOutletsWithGeofence'];
+/** Nama fungsi yang mengembalikan daftar "outlet yang boleh DILIHAT". */
+const SUMBER_LIHAT = ['listMyOutlets', 'listBuOutlets', 'listAttendanceOutlets', 'listOutletsWithGeofence'];
 
 function daftarFile(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

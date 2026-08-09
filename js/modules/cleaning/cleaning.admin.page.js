@@ -36,12 +36,20 @@ export async function renderCleaningAdminPage(container, { businessUnitId }) {
     <div id="clean-admin-content"></div>
   `;
   const content = document.getElementById('clean-admin-content');
-  // Daftar outlet dipakai tab Item & Sesi untuk memilih cakupan (BU vs outlet).
-  const outlets = await listBuOutlets(businessUnitId).catch(() => []);
+  // DUA daftar, dan bedanya penting:
+  //   `outlets`       — yang boleh DILIHAT. Untuk menampilkan NAMA outlet pada
+  //                     item/sesi yang sudah ada. Kalau dipakai daftar sempit,
+  //                     item milik outlet lain tampil sebagai "Outlet" tanpa nama.
+  //   `outletsKelola` — yang boleh DIATUR. Hanya untuk memilih CAKUPAN saat
+  //                     membuat/mengubah item & sesi, karena itu yang menulis.
+  const [outlets, outletsKelola] = await Promise.all([
+    listBuOutlets(businessUnitId).catch(() => []),
+    listOutletsSayaKelola(businessUnitId).catch(() => [])
+  ]);
   async function showTab(key) {
     container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));
-    if (key === 'items') await renderItemsTab(content, businessUnitId, outlets);
-    if (key === 'sessions') await renderSessionsTab(content, businessUnitId, outlets);
+    if (key === 'items') await renderItemsTab(content, businessUnitId, outlets, outletsKelola);
+    if (key === 'sessions') await renderSessionsTab(content, businessUnitId, outlets, outletsKelola);
     if (key === 'report') await renderReportTab(content, businessUnitId);
   }
   container.querySelectorAll('.tab-btn').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
@@ -50,7 +58,7 @@ export async function renderCleaningAdminPage(container, { businessUnitId }) {
 
 // ---- Tab: Item ----
 
-async function renderItemsTab(content, businessUnitId, outlets = []) {
+async function renderItemsTab(content, businessUnitId, outlets = [], outletsKelola = []) {
   content.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let items, sessions, petaSesi, petaOutlet;
   try {
@@ -118,9 +126,9 @@ async function renderItemsTab(content, businessUnitId, outlets = []) {
   content.querySelectorAll('.btn-item-sessions').forEach((btn) =>
     btn.addEventListener('click', () => openItemSessionDialog(content, businessUnitId, outlets, sessions ?? [], btn.dataset.id, btn.dataset.label, petaSesi.get(btn.dataset.id) ?? []))
   );
-  document.getElementById('btn-new-item').addEventListener('click', () => openItemDialog(content, businessUnitId, null, outlets, petaOutlet));
+  document.getElementById('btn-new-item').addEventListener('click', () => openItemDialog(content, businessUnitId, null, outlets, petaOutlet, outletsKelola));
   content.querySelectorAll('.btn-edit-item').forEach((btn) =>
-    btn.addEventListener('click', () => openItemDialog(content, businessUnitId, JSON.parse(btn.dataset.json), outlets, petaOutlet))
+    btn.addEventListener('click', () => openItemDialog(content, businessUnitId, JSON.parse(btn.dataset.json), outlets, petaOutlet, outletsKelola))
   );
   content.querySelectorAll('.btn-del-item').forEach((btn) =>
     btn.addEventListener('click', sekaliJalan(async () => {
@@ -129,7 +137,7 @@ async function renderItemsTab(content, businessUnitId, outlets = []) {
       try {
         await deleteItem(btn.dataset.id);
         toast('Item dihapus.', 'success');
-        await renderItemsTab(content, businessUnitId, outlets);
+        await renderItemsTab(content, businessUnitId, outlets, outletsKelola);
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus.', 'error');
       }
@@ -168,13 +176,13 @@ async function openItemSessionDialog(content, businessUnitId, outlets, sessions,
   try {
     await setItemSessions(itemId, baru);
     toast(baru.length ? `Item dipakai di ${baru.length} sesi.` : 'Item kembali berlaku di semua sesi.', 'success');
-    await renderItemsTab(content, businessUnitId, outlets);
+    await renderItemsTab(content, businessUnitId, outlets, outletsKelola);
   } catch (error) {
     toast(error.message ?? 'Gagal menyimpan.', 'error');
   }
 }
 
-async function openItemDialog(content, businessUnitId, existing, outlets = [], petaOutlet = new Map()) {
+async function openItemDialog(content, businessUnitId, existing, outlets = [], petaOutlet = new Map(), outletsKelola = []) {
   const isEdit = !!existing;
   // Keadaan awal disatukan dari DUA sumber: kolom `outlet_id` (satu outlet) dan
   // tabel daftar (beberapa outlet). Dua sumber untuk satu pertanyaan memang
@@ -213,7 +221,10 @@ async function openItemDialog(content, businessUnitId, existing, outlets = [], p
       // sentuh. Semuanya ditampilkan sekaligus; yang menentukan tetap pilihan
       // "Berlaku di" di atas, supaya tidak ada aturan tersirat semacam
       // "kalau tidak ada yang dicentang berarti semua".
-      ...outlets.map((o) => ({
+      // Daftar KELOLA, bukan daftar lihat: mencentang outlet yang bukan
+      // wewenangnya akan ditolak `cio_write` (0076), dan penolakannya muncul
+      // setelah orangnya menekan Simpan.
+      ...outletsKelola.map((o) => ({
         name: `o_${o.id}`,
         label: o.name,
         type: 'checkbox',
@@ -227,7 +238,7 @@ async function openItemDialog(content, businessUnitId, existing, outlets = [], p
   if (!values) return;
   try {
     if (isEdit) {
-      const pilihan = values.cakupan === 'pilih' ? outlets.filter((o) => values[`o_${o.id}`]).map((o) => o.id) : [];
+      const pilihan = values.cakupan === 'pilih' ? outletsKelola.filter((o) => values[`o_${o.id}`]).map((o) => o.id) : [];
       if (values.cakupan === 'pilih' && !pilihan.length) {
         return toast('Centang minimal satu outlet, atau pilih "Semua outlet BU".', 'warning');
       }
@@ -251,7 +262,7 @@ async function openItemDialog(content, businessUnitId, existing, outlets = [], p
       if (berubah) await setItemCakupan(existing.id, pilihan);
       toast(berubah ? 'Cakupan item diperbarui.' : 'Item diperbarui.', 'success');
     } else {
-      const pilihan = values.cakupan === 'pilih' ? outlets.filter((o) => values[`o_${o.id}`]).map((o) => o.id) : [];
+      const pilihan = values.cakupan === 'pilih' ? outletsKelola.filter((o) => values[`o_${o.id}`]).map((o) => o.id) : [];
       if (values.cakupan === 'pilih' && !pilihan.length) {
         return toast('Centang minimal satu outlet, atau pilih "Semua outlet BU".', 'warning');
       }
@@ -267,7 +278,7 @@ async function openItemDialog(content, businessUnitId, existing, outlets = [], p
       if (pilihan.length > 1 && baru?.id) await setItemCakupan(baru.id, pilihan);
       toast('Item ditambahkan.', 'success');
     }
-    await renderItemsTab(content, businessUnitId, outlets);
+    await renderItemsTab(content, businessUnitId, outlets, outletsKelola);
   } catch (error) {
     toast(error.message ?? 'Gagal menyimpan item.', 'error');
   }
@@ -275,7 +286,7 @@ async function openItemDialog(content, businessUnitId, existing, outlets = [], p
 
 // ---- Tab: Sesi ----
 
-async function renderSessionsTab(content, businessUnitId, outlets = []) {
+async function renderSessionsTab(content, businessUnitId, outlets = [], outletsKelola = []) {
   content.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let sessions;
   try {
@@ -314,9 +325,9 @@ async function renderSessionsTab(content, businessUnitId, outlets = []) {
       </tbody>
     </table>
   `;
-  document.getElementById('btn-new-session').addEventListener('click', () => openSessionDialog(content, businessUnitId, null, outlets));
+  document.getElementById('btn-new-session').addEventListener('click', () => openSessionDialog(content, businessUnitId, null, outlets, outletsKelola));
   content.querySelectorAll('.btn-edit-session').forEach((btn) =>
-    btn.addEventListener('click', () => openSessionDialog(content, businessUnitId, JSON.parse(btn.dataset.json), outlets))
+    btn.addEventListener('click', () => openSessionDialog(content, businessUnitId, JSON.parse(btn.dataset.json), outlets, outletsKelola))
   );
   content.querySelectorAll('.btn-del-session').forEach((btn) =>
     btn.addEventListener('click', sekaliJalan(async () => {
@@ -325,7 +336,7 @@ async function renderSessionsTab(content, businessUnitId, outlets = []) {
       try {
         await deleteSession(btn.dataset.id);
         toast('Sesi dihapus.', 'success');
-        await renderSessionsTab(content, businessUnitId, outlets);
+        await renderSessionsTab(content, businessUnitId, outlets, outletsKelola);
       } catch (error) {
         toast(error.message ?? 'Gagal menghapus.', 'error');
       }
@@ -333,7 +344,7 @@ async function renderSessionsTab(content, businessUnitId, outlets = []) {
   );
 }
 
-async function openSessionDialog(content, businessUnitId, existing, outlets = []) {
+async function openSessionDialog(content, businessUnitId, existing, outlets = [], outletsKelola = []) {
   const isEdit = !!existing;
   const values = await formDialog({
     title: isEdit ? 'Edit Sesi' : 'Tambah Sesi',
@@ -347,7 +358,7 @@ async function openSessionDialog(content, businessUnitId, existing, outlets = []
         help: existing
           ? 'Mengubahnya langsung mengubah daftar sesi di outlet yang terkait. Riwayat pengerjaan yang sudah ada tidak ikut berubah.'
           : 'Admin outlet hanya bisa membuat sesi khusus outletnya sendiri.',
-        options: [{ value: '', label: 'Semua outlet BU (standar)' }, ...outlets.map((o) => ({ value: o.id, label: `Khusus ${o.name}` }))]
+        options: [{ value: '', label: 'Semua outlet BU (standar)' }, ...outletsKelola.map((o) => ({ value: o.id, label: `Khusus ${o.name}` }))]
       },
       { name: 'sort_order', label: 'Urutan', type: 'number', min: 0, value: existing?.sort_order ?? 0 },
       ...(isEdit ? [{ name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing.is_active }] : [])
@@ -385,7 +396,7 @@ async function openSessionDialog(content, businessUnitId, existing, outlets = []
       });
       toast('Sesi ditambahkan.', 'success');
     }
-    await renderSessionsTab(content, businessUnitId, outlets);
+    await renderSessionsTab(content, businessUnitId, outlets, outletsKelola);
   } catch (error) {
     toast(error.message ?? 'Gagal menyimpan sesi.', 'error');
   }

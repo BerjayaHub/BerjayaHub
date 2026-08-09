@@ -1,6 +1,6 @@
 import { supabase } from '../../config/supabase-client.js';
 import { compressImage } from '../../core/image-compress.js';
-import { listOutletsSayaKelola } from '../../core/my-outlets.js';
+import { listMyOutlets } from '../../core/my-outlets.js';
 
 export function todayWIB() {
   const now = new Date();
@@ -18,15 +18,23 @@ async function currentUserId() {
 
 /** Outlet yang boleh diakses akun ini di sebuah BU (lihat core/my-outlets.js). */
 /**
- * Outlet untuk memilih CAKUPAN item/sesi di Admin Portal.
+ * Outlet yang boleh DILIHAT — dipakai Staff App maupun tampilan Admin Portal.
  *
- * Memakai daftar "yang boleh DIATUR", bukan "yang boleh dilihat". Menyimpan item
- * untuk outlet yang bukan wewenangnya ditolak RLS (`cio_write`, migration 0076),
- * dan menawarkannya di dropdown hanya menghasilkan penolakan yang tidak bisa
- * dimengerti orangnya.
+ * ⚠️ JANGAN diganti jadi daftar "yang boleh diatur". Fungsi ini dipakai
+ * `cleaning.page.js` di **Staff App**, dan staff tidak mengelola outlet mana
+ * pun — daftarnya akan kosong dan seluruh modul Daily Activities mati dengan
+ * pesan "Belum ada outlet untukmu di BU ini". Itu persis yang pernah terjadi:
+ * satu penggantian di sini, dan staff kehilangan modulnya tanpa ada satu pun
+ * error di layar.
+ *
+ * Untuk memilih CAKUPAN item/sesi (yang memang menulis), halaman admin
+ * memanggil `listOutletsSayaKelola()` sendiri. Daftar "boleh diatur" sengaja
+ * TIDAK dipakai di file service mana pun: service dipakai bersama oleh Staff
+ * App dan Admin Portal, jadi satu penggantian di sini selalu berisiko mematikan
+ * sisi staff-nya. Aturan itu dijaga `tools/audit-daftar-kelola.cjs`.
  */
 export async function listBuOutlets(businessUnitId) {
-  const mine = await listOutletsSayaKelola(businessUnitId);
+  const mine = await listMyOutlets(businessUnitId);
   return mine.map((o) => ({ id: o.id, name: o.name }));
 }
 

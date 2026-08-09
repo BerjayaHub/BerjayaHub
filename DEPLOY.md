@@ -334,6 +334,9 @@ select net.http_post(
   scope orang tersebut harus menyebut **outlet**-nya. Peran "Admin Outlet" yang
   scope-nya dibuat di level BU (tanpa outlet) tidak memberi wewenang atas outlet
   mana pun — dia hanya bisa *melihat*.
+- ⚠️ **Daily Activities (Staff App)** → **perbaikan regresi.** Sapuan sebelumnya
+  membuat modul ini mati untuk seluruh staff ("Belum ada outlet untukmu di BU
+  ini"). **Push kode terbaru sebelum staff memakainya lagi.** Tidak ada migration.
 - **Reservasi (Admin Portal)** → tab **Pengaturan & Area** kini hanya menampilkan
   outlet yang benar-benar bisa kamu atur. Di tab **Perlu Diproses** dan **Semua
   Reservasi**, baris milik outlet lain tetap terlihat tapi **tombol aksinya
