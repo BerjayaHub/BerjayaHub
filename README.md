@@ -2212,6 +2212,52 @@ Ada juga jaring pengaman: kalau antrean popstate tidak habis dalam 50 putaran, t
 
 Keempat perbaikan diverifikasi dengan **mencabutnya satu per satu** dan memastikan tesnya merah. Satu penjagaan (`dorongLapis` yang diam selama pertanyaan tampil) ternyata **tidak** membuat tes merah saat dicabut — itu ditulis apa adanya di komentarnya sebagai pertahanan berlapis, bukan sebagai penyelamat, supaya tidak ada yang mengira ia load-bearing.
 
+## Resep: kenapa "resep untuk CK" tidak pernah bisa masuk
+
+Dilaporkan sebagai satu keluhan — "resep untuk CK gagal, dan sepertinya tidak ada form isian, hanya impor" — ternyata tiga hal berbeda yang saling menutupi.
+
+### 1. Impor memang tidak bisa membuat varian CK
+
+`product-import.js` menebak varian dari tipe produk:
+
+```js
+const mode = p.product_type === 'semi' ? 'production' : 'standalone';
+```
+
+Kolom varian tidak pernah dibaca, dan template-nya memang tidak punya kolom itu. Artinya **menu SELALU masuk sebagai "Standalone"**, dan resep **"Dilayani CK"** mustahil diimpor. Filenya diterima, impornya dilaporkan berhasil, tapi kolom "Dilayani CK" tetap "Belum". Dari sisi yang memakainya, itu tidak bisa dibedakan dari gagal — dan tidak ada satu pun pesan yang menuntun.
+
+Sekarang template punya kolom **Varian**, dan tulisan bebas orang ikut dibaca ("CK", "dilayani ck", "Produksi (CK)"). Varian yang tidak berlaku untuk tipe produknya **ditolak dengan alasan**, bukan diam-diam dibelokkan: resep yang masuk ke varian yang salah menghasilkan HPP yang salah, dan HPP dipakai untuk menentukan harga jual. Baris yang dilewati kini menyebut varian mananya — "3 dilewati" tanpa keterangan hanya membuat orang mengulang impor yang sama.
+
+### 2. Form isiannya ada, tapi tidak terlihat seperti tombol
+
+Editor resep sudah ada sejak awal. Tombolnya di kolom Aksi bertuliskan **"Produksi (CK)"**, **"Standalone"**, **"Dilayani CK"** — nama varian, tanpa kata kerja. Itu terbaca sebagai **label**, bukan sesuatu yang bisa ditekan. Karena itu satu-satunya jalan yang terlihat adalah tombol Import di kanan atas.
+
+Tabelnya sekarang bisa **dibuka per baris**: ketuk produk → muncul daftar bahan tiap varian (nama, jumlah, satuan) beserta yield-nya, langsung dari resep yang sudah tersimpan — termasuk hasil impor, yang dulu tidak bisa diperiksa tanpa membuka editor satu per satu. Tombolnya kini berbunyi **"+ Isi resep"** atau **"✎ Ubah resep"**, dan editornya terbuka **di dalam baris itu**, bukan di dasar halaman yang mudah terlewat di HP.
+
+### 3. Menyimpan resep bisa gagal tanpa suara
+
+`recipes_modify` mensyaratkan **admin BU** — admin outlet tidak termasuk. Dan penolakan RLS pada UPDATE/DELETE bukan error: PostgREST membalas sukses dengan 0 baris. Jadi jalur "resep sudah ada lalu diubah" berakhir dengan notifikasi hijau tanpa satu pun perubahan tersimpan, sementara jalur "resep baru" (INSERT) gagal dengan pesan. **Perilaku berbeda untuk sebab yang sama** itulah yang membuatnya terasa "kadang bisa, kadang tidak".
+
+Yang lebih berbahaya: penghapusan `recipe_items` lama juga bisa ditolak diam-diam. Kalau itu terjadi, bahan lama **bergabung** dengan bahan baru dan HPP-nya jadi hasil penjumlahan dua resep.
+
+Sekarang ketiganya memeriksa hasilnya, dan tombol ubah/impor **tidak digambar sama sekali** untuk yang bukan admin BU — dengan kalimat yang menyebutkan siapa yang bisa. Aturannya dikunci `node tools/test-varian-resep.mjs` (24 kasus).
+
+## Kembali dari aplikasi lain: pulihkan tempatnya, bukan cuma modulnya
+
+Aplikasi ini halaman web. Saat orangnya membuka Excel, WhatsApp, atau kamera, Android/iOS boleh **membuang halaman ini dari memori** kalau RAM sedang sempit; begitu kembali, halamannya dimuat ulang dari nol. Tidak ada yang bisa mencegahnya dari sisi kode — yang bisa diperbaiki adalah seberapa banyak yang hilang.
+
+Yang diingat sebelumnya hanya **kode modul**. Orangnya kembali ke Daily Activities, tapi ke layar depannya: bukan ke sesi yang sedang dia isi, dan bukan ke posisi gulir daftar panjang yang sedang dia baca. Untuk sesuatu yang terjadi setiap kali orang menyalin angka dari Excel, itu terasa seperti aplikasi yang membatalkan pekerjaannya sendiri.
+
+`js/core/ingatan-layar.js` sekarang mengingat **modul + sub-layar + posisi gulir**. Tiga keputusan di dalamnya yang layak disebut:
+
+- **Ada batas usianya: 30 menit.** Ingatan yang tidak pernah kedaluwarsa lebih buruk daripada tidak ada ingatan — membuka aplikasi besok pagi lalu mendarat di layar sesi kemarin bukan "melanjutkan", itu membingungkan, dan orangnya harus mencari jalan keluar dulu sebelum bisa bekerja. Kembali dalam hitungan menit = melanjutkan; kembali besok = mulai baru.
+- **Dibedakan dari membuka modul lewat ketukan.** Membuka modul dengan menekan kartunya harus selalu mulai dari atas; hanya pemuatan ULANG yang memulihkan posisi. Satu parameter `pulihkan`, bukan perilaku diam-diam.
+- **Guliran dicatat saat berhenti dan saat halaman disembunyikan**, bukan tiap piksel. Menulis ke `sessionStorage` puluhan kali per detik membuat guliran tersendat di HP kelas bawah — yang justru dipakai kebanyakan orang di sini. `visibilitychange` dipakai karena `beforeunload` tidak dijalankan saat OS membunuh halaman di latar belakang.
+
+Sub-layar dipulihkan lewat `layarAwal` yang diteruskan ke modulnya; modul yang tidak mengenalnya cukup mengabaikannya, jadi tidak ada modul yang perlu diubah supaya tetap jalan. Yang sudah memakainya: **Daily Activities** (layar sesi), dan hanya untuk **hari ini** — memulihkan layar sesi tanggal kemarin bukan melanjutkan apa pun.
+
+Dikunci `node tools/test-ingatan-layar.mjs` (26 kasus, menguji modulnya langsung — termasuk saat `sessionStorage` diblokir mode privat, yang tidak boleh menjatuhkan aplikasi).
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

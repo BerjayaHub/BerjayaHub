@@ -92,6 +92,30 @@ export async function importProducts(businessUnitId, file) {
   return { added, skipped, errors };
 }
 
+/**
+ * Varian resep yang sah untuk sebuah tipe produk.
+ * Harus sama dengan `modesForType()` di recipe-editor.js.
+ */
+const VARIAN_SAH = { semi: ['production'], finished: ['standalone', 'served_by_ck'] };
+
+/**
+ * Terjemahkan tulisan orang jadi kode varian.
+ *
+ * Diterima apa adanya dari kolom "Varian": orang akan mengetik "CK", "Dilayani
+ * CK", "produksi", atau membiarkannya kosong. Menolak karena beda huruf besar
+ * atau spasi hanya membuat orang menyerah dan kembali mengetik satu per satu.
+ */
+function bacaVarian(teks) {
+  const t = String(teks ?? '')
+    .trim()
+    .toLowerCase();
+  if (!t) return null; // kosong = pakai bawaan tipe produknya
+  if (['production', 'produksi', 'ck', 'produksi (ck)'].includes(t)) return 'production';
+  if (['standalone', 'mandiri', 'sendiri'].includes(t)) return 'standalone';
+  if (['served_by_ck', 'dilayani ck', 'dilayani_ck', 'dari ck', 'semi'].includes(t)) return 'served_by_ck';
+  return 'TIDAK_DIKENAL';
+}
+
 export async function importRecipes(businessUnitId, file) {
   const rows = await readRows(file);
   const products = await listProducts(businessUnitId);
@@ -99,13 +123,21 @@ export async function importRecipes(businessUnitId, file) {
   const recipesFull = await listRecipesFull(businessUnitId);
   const hasRecipe = new Set(recipesFull.map((r) => `${r.product_id}|${r.mode}`));
 
+  // Dikelompokkan per PRODUK + VARIAN, bukan per produk saja.
+  //
+  // Sebelum ini varian tidak pernah dibaca: modenya ditebak dari tipe produk,
+  // sehingga menu SELALU jadi "Standalone" dan resep "Dilayani CK" mustahil
+  // diimpor — kolomnya tetap menampilkan "Belum" sesudah impor yang dilaporkan
+  // berhasil. Dari sisi yang memakainya, itu tidak bisa dibedakan dari gagal.
   const groups = new Map();
   for (const raw of rows) {
     const r = lc(raw);
     const prod = String(r['produk'] ?? '').trim();
     if (!prod) continue;
-    if (!groups.has(prod)) groups.set(prod, { yield: 1, items: [] });
-    const g = groups.get(prod);
+    const varian = bacaVarian(r['varian']);
+    const kunci = `${prod}||${varian ?? ''}`;
+    if (!groups.has(kunci)) groups.set(kunci, { nama: prod, varian, yield: 1, items: [] });
+    const g = groups.get(kunci);
     const y = num(r['yield']);
     if (y != null) g.yield = y;
     const bahan = String(r['bahan'] ?? '').trim();
@@ -116,7 +148,8 @@ export async function importRecipes(businessUnitId, file) {
   let added = 0;
   let skipped = 0;
   const errors = [];
-  for (const [prodName, g] of groups) {
+  for (const g of groups.values()) {
+    const prodName = g.nama;
     const p = byName.get(prodName.toLowerCase());
     if (!p) {
       errors.push(`${prodName}: produk tidak ditemukan`);
@@ -126,9 +159,21 @@ export async function importRecipes(businessUnitId, file) {
       errors.push(`${prodName}: bahan baku tidak punya resep`);
       continue;
     }
-    const mode = p.product_type === 'semi' ? 'production' : 'standalone';
+    if (g.varian === 'TIDAK_DIKENAL') {
+      errors.push(`${prodName}: varian tidak dikenal — tulis "Produksi", "Standalone", atau "Dilayani CK"`);
+      continue;
+    }
+    const sah = VARIAN_SAH[p.product_type] ?? [];
+    const mode = g.varian ?? sah[0];
+    if (!sah.includes(mode)) {
+      errors.push(`${prodName}: varian "${MODE_TEKS[mode] ?? mode}" tidak berlaku untuk ${p.product_type === 'semi' ? 'Setengah Jadi' : 'Menu'}`);
+      continue;
+    }
     if (hasRecipe.has(`${p.id}|${mode}`)) {
+      // Disebut varian mananya. "3 dilewati" tanpa keterangan membuat orang
+      // menduga file-nya yang salah, lalu mengulang impor yang sama.
       skipped++;
+      errors.push(`${prodName} (${MODE_TEKS[mode] ?? mode}): dilewati — resep varian ini sudah ada, hapus/ubah lewat tombol Ubah di tabel`);
       continue;
     }
     const items = [];
@@ -178,13 +223,17 @@ export function downloadProductTemplate() {
   );
 }
 
+/** Nama varian untuk pesan ke manusia. */
+const MODE_TEKS = { production: 'Produksi (CK)', standalone: 'Standalone', served_by_ck: 'Dilayani CK' };
+
 export function downloadRecipeTemplate() {
   downloadCsv(
     'template-resep.csv',
-    'Produk,Yield,Bahan,Jumlah\n' +
-      'Sirup Gula,1800,Gula,1000\n' +
-      'Sirup Gula,1800,Air,1000\n' +
-      'Es Kopi Susu,1,Kopi,18\n' +
-      'Es Kopi Susu,1,Sirup Gula,30\n'
+    'Produk,Varian,Yield,Bahan,Jumlah\n' +
+      'Sirup Gula,Produksi,1800,Gula,1000\n' +
+      'Sirup Gula,Produksi,1800,Air,1000\n' +
+      'Es Kopi Susu,Standalone,1,Kopi,18\n' +
+      'Es Kopi Susu,Standalone,1,Sirup Gula,30\n' +
+      'Es Kopi Susu,Dilayani CK,1,Base Kopi Susu CK,180\n'
   );
 }

@@ -334,6 +334,16 @@ select net.http_post(
   scope orang tersebut harus menyebut **outlet**-nya. Peran "Admin Outlet" yang
   scope-nya dibuat di level BU (tanpa outlet) tidak memberi wewenang atas outlet
   mana pun — dia hanya bisa *melihat*.
+- **Master Produk → Resep** → tabelnya kini **bisa dibuka per baris**: ketuk
+  produk untuk melihat bahan tiap varian, dengan tombol **+ Isi resep** /
+  **✎ Ubah resep** di dalamnya. Template impor bertambah kolom **Varian**
+  (Produksi / Standalone / Dilayani CK) — **unduh ulang template-nya**, karena
+  file lama tanpa kolom itu akan selalu masuk ke varian bawaan.
+  ⚠️ Resep hanya bisa disimpan **Admin BU / Super Admin** (policy
+  `recipes_modify`). Untuk yang lain, tombol ubah & impor tidak ditampilkan.
+  Tidak ada migration.
+- **Kembali dari aplikasi lain** → posisi gulir & sub-layar terakhir dipulihkan
+  (berlaku 30 menit). Sebelumnya hanya modulnya. Tidak ada migration.
 - ⚠️ **Tombol Back / navigasi (seluruh aplikasi)** → empat perbaikan sekaligus:
   selesai mengisi form **tidak lagi melompat ke Beranda**; pop-up "lanjutkan
   mengisi" **tidak lagi muncul berulang**; layar yang menggambar ulang dirinya

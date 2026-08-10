@@ -1,5 +1,6 @@
 import { escapeHtml } from './core/ui.js';
 import { pasangNavigasi, dorongLapis, bersihkanLapis, bersihkanIsian } from './core/navigasi.js';
+import { ingatModul, gulirTerakhir, pulihkanGulir, pasangPencatatGulir } from './core/ingatan-layar.js';
 import { mountTutorialButton, clearFloatingTutorialButton } from './core/tutorial-button.js';
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
 import { getActiveModules, getModuleRenderer, registerModule } from './core/module-loader.js';
@@ -372,7 +373,10 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
   const terakhir = menuTerakhir();
   const awal = terakhir && document.querySelector(`[data-module="${CSS.escape(terakhir)}"]`) ? terakhir : 'dashboard';
   document.querySelector(`[data-module="${CSS.escape(awal)}"]`)?.classList.add('active');
-  openModule(awal, activeBuId, modules, isSuperAdmin, allowedTabs);
+  // `pulihkan: true` — halaman ini baru saja dimuat. Kalau penyebabnya OS
+  // membuang halaman saat admin membuka Excel, posisinya harus kembali seperti
+  // semula, bukan ke puncak daftar yang panjang.
+  openModule(awal, activeBuId, modules, isSuperAdmin, allowedTabs, { pulihkan: true });
 }
 
 /**
@@ -397,8 +401,10 @@ function menuTerakhir() {
   }
 }
 
-function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = false, allowedTabs = new Set()) {
+function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = false, allowedTabs = new Set(), { pulihkan = false } = {}) {
+  const gulirSimpanan = pulihkan ? gulirTerakhir(code) : 0;
   simpanMenuTerakhir(code);
+  ingatModul(code); // ingatan gulir menempel pada menu ini
   // Halaman baru selalu dimulai dari atas. Tanpa ini, membuka modul setelah
   // menggulir jauh akan menampilkan layar yang tampak kosong — orangnya
   // mengira modulnya belum jadi, padahal isinya ada di atas.
@@ -426,7 +432,7 @@ function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = fal
   if (group) {
     const activeCodes = new Set(activeModules.map((m) => m.code));
     const tabs = visibleTabsOf(group, activeCodes, isSuperAdmin, allowedTabs);
-    renderGroupPage(content, ctx, group.name, tabs);
+    Promise.resolve(renderGroupPage(content, ctx, group.name, tabs)).finally(() => pulihkanGulir(gulirSimpanan));
     return;
   }
 
@@ -437,7 +443,7 @@ function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = fal
 
   const renderer = getModuleRenderer(code);
   if (renderer) {
-    renderer(content, ctx);
+    Promise.resolve(renderer(content, ctx)).finally(() => pulihkanGulir(gulirSimpanan));
   } else {
     content.innerHTML = `<p>Modul admin "${code}" belum dibangun.</p>`;
   }
@@ -461,5 +467,6 @@ function applyBuTheme(businessUnit) {
 // Dipasang SEBELUM bootstrap: entri history akar harus sudah ada sebelum
 // layar pertama sempat mendorong lapis apa pun.
 pasangNavigasi();
+pasangPencatatGulir();
 pasangPenandaKoneksi();
 bootstrap();

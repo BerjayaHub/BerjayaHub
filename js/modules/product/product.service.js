@@ -115,6 +115,20 @@ export async function getRecipeForProduct(productId, mode) {
   return { recipe, items: items ?? [] };
 }
 
+/**
+ * Simpan (atau perbarui) satu varian resep.
+ *
+ * PENOLAKAN IZIN DI SINI PERNAH TIDAK TERLIHAT SAMA SEKALI. Policy
+ * `recipes_modify` mensyaratkan **admin BU** — admin outlet tidak termasuk. Dan
+ * penolakan RLS pada UPDATE/DELETE bukan error: PostgREST membalas sukses
+ * dengan 0 baris. Jalur "resep sudah ada lalu diubah" karena itu berakhir
+ * dengan notifikasi hijau dan tidak ada satu pun perubahan tersimpan —
+ * sementara jalur "resep baru" (INSERT) gagal dengan pesan. Perilaku yang
+ * berbeda untuk sebab yang sama itulah yang membuatnya terasa seperti
+ * "kadang bisa, kadang tidak".
+ */
+const PESAN_BUKAN_ADMIN_BU = 'Resep hanya bisa diubah Admin BU atau Super Admin. Minta mereka yang menyimpannya.';
+
 export async function saveRecipe({ productId, businessUnitId, mode, yield_qty, notes, items }) {
   let recipeId;
   const { data: existing, error: exErr } = await supabase
@@ -126,8 +140,13 @@ export async function saveRecipe({ productId, businessUnitId, mode, yield_qty, n
   if (exErr) throw exErr;
   if (existing) {
     recipeId = existing.id;
-    const { error } = await supabase.from('recipes').update({ yield_qty, notes: notes || null }).eq('id', recipeId);
+    const { data, error } = await supabase
+      .from('recipes')
+      .update({ yield_qty, notes: notes || null })
+      .eq('id', recipeId)
+      .select('id');
     if (error) throw error;
+    if (!data?.length) throw new Error(PESAN_BUKAN_ADMIN_BU);
   } else {
     const { data, error } = await supabase
       .from('recipes')
@@ -137,11 +156,16 @@ export async function saveRecipe({ productId, businessUnitId, mode, yield_qty, n
     if (error) throw error;
     recipeId = data.id;
   }
-  await supabase.from('recipe_items').delete().eq('recipe_id', recipeId);
+  // Bahan lama dibuang lalu ditulis ulang. Kalau penghapusannya ditolak diam-
+  // diam, bahan lama akan BERGABUNG dengan bahan baru — HPP-nya jadi hasil
+  // penjumlahan dua resep, dan angka itu dipakai untuk menentukan harga jual.
+  const { error: errHapus } = await supabase.from('recipe_items').delete().eq('recipe_id', recipeId).select('id');
+  if (errHapus) throw errHapus;
   if (items?.length) {
     const rows = items.map((i) => ({ recipe_id: recipeId, ingredient_product_id: i.ingredient_product_id, qty: i.qty }));
-    const { error } = await supabase.from('recipe_items').insert(rows);
+    const { data, error } = await supabase.from('recipe_items').insert(rows).select('id');
     if (error) throw error;
+    if ((data ?? []).length !== rows.length) throw new Error(PESAN_BUKAN_ADMIN_BU);
   }
   return recipeId;
 }

@@ -1,5 +1,6 @@
 import { toast, confirmDialog, formDialog, renderSearchSelect, wireSearchSelect, infoDialog } from '../../core/ui.js';
-import { formatRupiah } from '../../core/format.js';
+import { formatRupiah, formatNum } from '../../core/format.js';
+import { sayaAdminBu } from '../../core/base-scope.js';
 import { importProducts, importRecipes, downloadProductTemplate, downloadRecipeTemplate } from './product-import.js';
 import { openRecipeEditor, MODE_LABEL, modesForType } from './recipe-editor.js';
 import {
@@ -237,19 +238,36 @@ async function renderRecipesTab(content, businessUnitId) {
     return;
   }
   const { products, recipes } = data;
+  // Policy `recipes_modify` mensyaratkan admin BU. Tombol simpan yang pasti
+  // ditolak lebih buruk daripada tidak ada tombol: orangnya mengisi seluruh
+  // resep dulu, baru tahu.
+  const bolehUbah = await sayaAdminBu(businessUnitId).catch(() => false);
   const manufactured = products.filter((p) => p.product_type === 'semi' || p.product_type === 'finished');
-  const recipeSet = new Set(recipes.map((r) => `${r.product_id}|${r.mode}`));
+  const namaProduk = new Map(products.map((p) => [p.id, p]));
+  const resepPer = new Map(recipes.map((r) => [`${r.product_id}|${r.mode}`, r]));
 
   content.innerHTML = `
     <div class="page-header">
-      <p style="color:var(--color-text-muted);font-size:0.9rem;margin:0;max-width:420px">Setengah Jadi punya 1 resep <strong>Produksi</strong> (dibuat di CK). <strong>Menu</strong> bisa 2 varian resep: <strong>Standalone</strong> (dari bahan baku) &amp; <strong>Dilayani CK</strong> (dari setengah jadi). HPP otomatis.</p>
+      <p style="color:var(--color-text-muted);font-size:0.9rem;margin:0;max-width:460px">
+        Setengah Jadi punya 1 varian: <strong>Produksi</strong> (dibuat di CK).
+        <strong>Menu</strong> bisa punya 2: <strong>Standalone</strong> (dari bahan baku) &amp;
+        <strong>Dilayani CK</strong> (memakai setengah jadi). HPP dihitung otomatis dari bahannya.
+      </p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button id="btn-tpl-recipe">Template</button>
-        <button id="btn-import-recipe">Import Excel</button>
+        ${bolehUbah ? '<button id="btn-import-recipe">Import Excel</button>' : ''}
       </div>
     </div>
+    <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
+      Ketuk baris produk untuk melihat bahan-bahannya${bolehUbah ? ' dan mengubahnya' : ''}.
+      ${
+        bolehUbah
+          ? ''
+          : '<br /><strong>Resep hanya bisa diubah Admin BU</strong> — di sini kamu bisa memeriksanya, tapi tidak menyimpannya.'
+      }
+    </p>
     <div class="table-scroll"><table class="data-table table-freeze-1">
-      <thead><tr><th>Produk</th><th>Tipe</th><th>Varian resep &amp; HPP</th><th>Aksi</th></tr></thead>
+      <thead><tr><th>Produk</th><th>Tipe</th><th>Varian resep &amp; HPP</th></tr></thead>
       <tbody>
         ${
           manufactured
@@ -257,37 +275,109 @@ async function renderRecipesTab(content, businessUnitId) {
               const modes = modesForType(p.product_type);
               const variants = modes
                 .map((m) => {
-                  const has = recipeSet.has(`${p.id}|${m}`);
+                  const has = resepPer.has(`${p.id}|${m}`);
                   const cost = costForMode(products, recipes, p.id, m);
-                  const val = has ? (cost != null ? formatRupiah(cost) + `/${escapeHtml(p.base_unit)}` : 'resep belum lengkap') : '<span class="badge badge-pending">Belum</span>';
+                  const val = has
+                    ? cost != null
+                      ? formatRupiah(cost) + `/${escapeHtml(p.base_unit)}`
+                      : '<span class="badge badge-pending">resep belum lengkap</span>'
+                    : '<span class="badge badge-pending">Belum</span>';
                   return `<div style="margin:2px 0"><strong>${MODE_LABEL[m]}:</strong> ${val}</div>`;
                 })
                 .join('');
-              const actions = modes.map((m) => `<button class="btn-edit-recipe" data-id="${p.id}" data-mode="${m}">${MODE_LABEL[m]}</button>`).join(' ');
-              return `<tr><td>${escapeHtml(p.name)}</td><td>${TYPE_LABEL[p.product_type]}</td><td style="font-size:0.85rem">${variants}</td><td>${actions}</td></tr>`;
+              return `<tr class="rcp-row" data-id="${p.id}" style="cursor:pointer">
+                  <td><span class="rcp-arrow" data-id="${p.id}" style="display:inline-block;width:1em">▸</span> ${escapeHtml(p.name)}</td>
+                  <td>${TYPE_LABEL[p.product_type]}</td>
+                  <td style="font-size:0.85rem">${variants}</td>
+                </tr>
+                <tr class="rcp-detail" data-for="${p.id}" hidden><td colspan="3" style="background:var(--color-surface-alt,#fafafa)"></td></tr>`;
             })
-            .join('') || '<tr><td colspan="4">Belum ada produk setengah jadi / jadi.</td></tr>'
+            .join('') || '<tr><td colspan="3">Belum ada produk setengah jadi / jadi.</td></tr>'
         }
       </tbody>
     </table></div>
-    <div id="recipe-editor" style="margin-top:16px"></div>
   `;
 
-  content.querySelectorAll('.btn-edit-recipe').forEach((btn) =>
-    btn.addEventListener('click', () =>
-      openRecipeEditor(content.querySelector('#recipe-editor'), {
-        businessUnitId,
-        product: products.find((p) => p.id === btn.dataset.id),
-        products,
-        mode: btn.dataset.mode,
-        onSaved: () => renderRecipesTab(content, businessUnitId)
+  const muat = () => renderRecipesTab(content, businessUnitId);
+
+  /** Isi panel rincian sebuah produk: bahan per varian + tombol yang jelas. */
+  const gambarRincian = (produk) => {
+    const sel = content.querySelector(`.rcp-detail[data-for="${produk.id}"] td`);
+    const modes = modesForType(produk.product_type);
+    sel.innerHTML = modes
+      .map((m) => {
+        const r = resepPer.get(`${produk.id}|${m}`);
+        // Bahan diambil dari resep yang SUDAH ADA — termasuk yang baru diimpor.
+        // Inilah yang dulu tidak pernah bisa dilihat tanpa membuka editor satu
+        // per satu: hasil impor "berhasil" tapi isinya tidak bisa diperiksa.
+        const baris = (r?.items ?? [])
+          .map((it) => {
+            const bahan = namaProduk.get(it.ingredient_product_id);
+            return `<tr>
+              <td>${escapeHtml(bahan?.name ?? 'bahan tidak ditemukan')}</td>
+              <td style="text-align:right">${formatNum(it.qty)} ${escapeHtml(bahan?.base_unit ?? '')}</td>
+            </tr>`;
+          })
+          .join('');
+        const isi = r
+          ? `<table class="data-table" style="margin:6px 0;max-width:420px">
+               <thead><tr><th>Bahan</th><th style="text-align:right">Jumlah</th></tr></thead>
+               <tbody>${baris || '<tr><td colspan="2">Resepnya ada, tapi belum berisi bahan.</td></tr>'}</tbody>
+             </table>
+             <p style="font-size:0.78rem;color:var(--color-text-muted);margin:0 0 8px">
+               Hasil/yield: <strong>${formatNum(r.yield_qty)} ${escapeHtml(produk.base_unit)}</strong>
+             </p>`
+          : `<p style="font-size:0.85rem;color:var(--color-text-muted);margin:6px 0 8px">Varian ini belum punya resep.</p>`;
+        return `<div style="padding:10px 4px;border-top:1px solid var(--color-border,#e5e5e5)">
+            <div style="font-weight:600;margin-bottom:2px">${MODE_LABEL[m]}</div>
+            ${isi}
+            ${
+              bolehUbah
+                ? `<button class="btn-edit-recipe" data-id="${produk.id}" data-mode="${m}">${r ? '✎ Ubah resep' : '+ Isi resep'}</button>`
+                : ''
+            }
+          </div>`;
       })
-    )
+      .join('');
+
+    // Tombolnya dulu hanya bertuliskan nama varian ("Produksi (CK)") — terbaca
+    // sebagai LABEL, bukan sesuatu yang bisa ditekan. Itu sebabnya form isian
+    // resep dikira tidak ada, dan satu-satunya jalan yang terlihat adalah impor.
+    sel.querySelectorAll('.btn-edit-recipe').forEach((btn) =>
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openRecipeEditor(sel.querySelector('.rcp-editor') ?? sisipkanEditor(sel), {
+          businessUnitId,
+          product: produk,
+          products,
+          mode: btn.dataset.mode,
+          onSaved: muat
+        });
+      })
+    );
+  };
+
+  const sisipkanEditor = (sel) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'rcp-editor';
+    sel.appendChild(wrap);
+    return wrap;
+  };
+
+  content.querySelectorAll('.rcp-row').forEach((row) =>
+    row.addEventListener('click', () => {
+      const id = row.dataset.id;
+      const detail = content.querySelector(`.rcp-detail[data-for="${id}"]`);
+      const panah = row.querySelector('.rcp-arrow');
+      const buka = detail.hidden;
+      detail.hidden = !buka;
+      panah.textContent = buka ? '▾' : '▸';
+      if (buka) gambarRincian(namaProduk.get(id));
+    })
   );
+
   document.getElementById('btn-tpl-recipe').addEventListener('click', downloadRecipeTemplate);
-  document.getElementById('btn-import-recipe').addEventListener('click', () =>
-    openImport(content, businessUnitId, 'recipes', () => renderRecipesTab(content, businessUnitId))
-  );
+  document.getElementById('btn-import-recipe')?.addEventListener('click', () => openImport(content, businessUnitId, 'recipes', muat));
 }
 
 async function openImport(content, businessUnitId, kind, refresh) {
@@ -296,7 +386,12 @@ async function openImport(content, businessUnitId, kind, refresh) {
     title: isProducts ? 'Import Produk (Excel/CSV)' : 'Import Resep (Excel/CSV)',
     description: isProducts
       ? 'Kolom: Nama, Tipe, Satuan Pakai, Satuan Beli, Isi per Satuan Beli, Harga Beli, Harga Jual. Yang namanya sudah ada dilewati.'
-      : 'Kolom: Produk, Yield, Bahan, Jumlah (satu baris per bahan). Produk & bahan harus sudah ada di Master Produk. Produk yang sudah punya resep dilewati.',
+      : // `description` di-escape oleh formDialog, jadi ditulis polos tanpa tag.
+        'Kolom: Produk, Varian, Yield, Bahan, Jumlah — satu baris per bahan. ' +
+        'Varian: "Produksi" untuk Setengah Jadi; "Standalone" atau "Dilayani CK" untuk Menu. ' +
+        'Kosongkan untuk memakai varian bawaan tipe produknya. ' +
+        'Produk & bahan harus sudah terdaftar di Master Produk. ' +
+        'Varian yang resepnya sudah ada akan dilewati — ubah lewat tombol Ubah di tabel.',
     fields: [{ name: 'file', label: 'File .xlsx / .csv', type: 'file', required: true, accept: '.xlsx,.xls,.csv' }],
     submitText: 'Import'
   });

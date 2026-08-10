@@ -6,6 +6,7 @@ import { toast, confirmDialog, formDialog, escapeHtml } from './core/ui.js';
 import { mountTutorialButton, openTutorialDialog, ensureTutorialStyles } from './core/tutorial-button.js';
 import { listTutorialsByModule } from './modules/tutorial/tutorial.service.js';
 import { pasangNavigasi, dorongLapis, bersihkanLapis, bersihkanIsian } from './core/navigasi.js';
+import { ingatModul, modulTerakhir, gulirTerakhir, layarTerakhir, pulihkanGulir, pasangPencatatGulir } from './core/ingatan-layar.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
 import { renderLeavePage } from './modules/leave/leave.page.js';
 import { renderCleaningPage } from './modules/cleaning/cleaning.page.js';
@@ -302,39 +303,19 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
   // untuk refresh biasa dan saat PWA dibuka kembali dari layar depan.
   const terakhir = modulTerakhir();
   if (terakhir && modules.some((m) => m.code === terakhir) && getModuleRenderer(terakhir)) {
-    openModule(terakhir, context, modules, moduleCtx);
+    // `pulihkan: true` -> modul ini diminta mengembalikan posisi gulir dan
+    // sub-layar terakhirnya, bukan memulai dari layar depan. Bedakan dengan
+    // membuka modul lewat ketukan, yang memang harus mulai dari atas.
+    openModule(terakhir, context, modules, moduleCtx, { pulihkan: true });
   } else {
     renderHome(context, modules, moduleCtx);
-  }
-}
-
-/**
- * Modul yang terakhir dibuka. sessionStorage, bukan localStorage: ingatan ini
- * hanya relevan untuk tab/sesi yang sedang berjalan. Kalau dipakai localStorage,
- * staff yang besok membuka aplikasi akan langsung mendarat di modul kemarin
- * tanpa pernah melihat Beranda — bukan itu yang diinginkan.
- */
-const KUNCI_MODUL = 'staff_modul_terakhir';
-function simpanModulTerakhir(code) {
-  try {
-    if (code) sessionStorage.setItem(KUNCI_MODUL, code);
-    else sessionStorage.removeItem(KUNCI_MODUL);
-  } catch {
-    // sessionStorage bisa diblokir (mode privat) -> fitur ini sekadar tidak aktif
-  }
-}
-function modulTerakhir() {
-  try {
-    return sessionStorage.getItem(KUNCI_MODUL);
-  } catch {
-    return null;
   }
 }
 
 async function renderHome(context, modules, moduleCtx) {
   // Kembali ke Beranda secara sengaja -> lupakan modul terakhir, supaya
   // refresh berikutnya tetap di Beranda seperti yang orangnya harapkan.
-  simpanModulTerakhir(null);
+  ingatModul(null);
   // Tumpukan Back dikosongkan: dari Beranda, Back berikutnya memang seharusnya
   // keluar aplikasi seperti yang diharapkan pengguna Android.
   bersihkanLapis();
@@ -536,8 +517,16 @@ function fmtClock(iso) {
   return new Date(iso).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
 }
 
-function openModule(code, context, modules, moduleCtx) {
-  simpanModulTerakhir(code);
+/**
+ * @param {{pulihkan?: boolean}} opsi `pulihkan` dipakai saat halaman dimuat
+ *   ULANG (mis. OS membuang halaman ini waktu orangnya membuka Excel). Bedanya
+ *   penting: membuka modul lewat ketukan harus mulai dari atas, sedangkan
+ *   kembali dari aplikasi lain harus mendarat persis di tempat yang ditinggalkan.
+ */
+function openModule(code, context, modules, moduleCtx, { pulihkan = false } = {}) {
+  const gulirSimpanan = pulihkan ? gulirTerakhir(code) : 0;
+  const layarSimpanan = pulihkan ? layarTerakhir(code) : null;
+  ingatModul(code); // menyetel ulang ingatan layar dalamnya
   // Halaman baru selalu dimulai dari atas. Tanpa ini, membuka modul setelah
   // menggulir jauh akan menampilkan layar yang tampak kosong — orangnya
   // mengira modulnya belum jadi, padahal isinya ada di atas.
@@ -566,7 +555,9 @@ function openModule(code, context, modules, moduleCtx) {
   const renderer = getModuleRenderer(code);
   const body = document.getElementById('module-body');
   if (renderer) {
-    renderer(body, moduleCtx);
+    // `layarAwal` diteruskan ke modulnya. Modul yang tidak mengenalnya cukup
+    // mengabaikannya — tidak ada modul yang perlu diubah supaya tetap jalan.
+    Promise.resolve(renderer(body, { ...moduleCtx, layarAwal: layarSimpanan })).finally(() => pulihkanGulir(gulirSimpanan));
   } else {
     body.innerHTML = `<p>Modul "${code}" belum dibangun.</p>`;
   }
@@ -587,4 +578,5 @@ function applyBuTheme(businessUnit) {
 // layar pertama sempat mendorong lapis apa pun.
 pasangNavigasi();
 pasangPenandaKoneksi();
+pasangPencatatGulir();
 bootstrap();

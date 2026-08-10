@@ -18,8 +18,9 @@ import {
 } from './cleaning.service.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { dorongSubHalaman } from '../../core/navigasi.js';
+import { ingatLayar } from '../../core/ingatan-layar.js';
 
-export async function renderCleaningPage(container, { userId, businessUnitId, outletId }) {
+export async function renderCleaningPage(container, { userId, businessUnitId, outletId, layarAwal = null }) {
   container.innerHTML = loadingHtml('Memuat daily activities…');
 
   let outlets;
@@ -85,6 +86,7 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
   });
 
   async function renderSessionList() {
+    ingatLayar(null); // kembali ke layar utama modul
     body.innerHTML = loadingHtml('Memuat…');
     const hariIni = state.tanggal === todayWIB();
     container.querySelector('#clean-datelabel').textContent = hariIni
@@ -399,6 +401,9 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
 
     // Back dari layar sesi kembali ke DAFTAR SESI, bukan ke Beranda.
     const lepasLapis = dorongSubHalaman(`sesi:${session.id}`, renderSessionList);
+    // Dicatat supaya kalau halaman ini dibuang OS (orangnya membuka Excel atau
+    // kamera), yang dipulihkan bukan cuma modulnya tapi layar sesi ini.
+    ingatLayar(`sesi:${session.id}`);
     body.querySelector('#clean-back').addEventListener('click', () => {
       lepasLapis();
       renderSessionList();
@@ -533,7 +538,19 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
     return daftar.find((r) => r.session_id === sessionId) ?? null;
   }
 
-  renderSessionList();
+  await renderSessionList();
+
+  // Pulihkan layar sesi yang sedang dibuka sebelum halaman ini dibuang OS.
+  // Hanya untuk HARI INI: memulihkan layar sesi tanggal kemarin bukan
+  // "melanjutkan", itu membingungkan — dan tanggalnya sudah berganti.
+  const sesiPulih = String(layarAwal ?? '').startsWith('sesi:') ? String(layarAwal).slice(5) : null;
+  if (sesiPulih && state.tanggal === todayWIB()) {
+    const sesi = sessions.find((x) => x.id === sesiPulih);
+    if (sesi) {
+      const daftar = await listSessionRuns(state.outletId, state.tanggal).catch(() => []);
+      await renderRunForm(sesi, daftar.find((r) => r.session_id === sesi.id) ?? null);
+    }
+  }
 }
 
 /**

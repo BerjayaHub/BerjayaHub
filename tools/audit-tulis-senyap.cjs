@@ -50,7 +50,9 @@ const TABEL_BER_SCOPE = new Set([
   'checklist_run_items',
   'assets',
   'cash_entries',
-  'cash_accounts'
+  'cash_accounts',
+  'recipes',
+  'recipe_items'
 ]);
 
 /** Rantai yang memang tidak perlu diperiksa, beserta alasannya. */
