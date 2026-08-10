@@ -103,6 +103,25 @@ export async function updateSalePrice(id, salePrice) {
   if (!data?.length) throw new Error('Tidak tersimpan — harga jual hanya bisa diubah Admin BU atau Super Admin.');
 }
 
+/**
+ * Ubah kategori/sub-kategori satu produk. Dipakai edit cepat di tabel Menu.
+ *
+ * Terpisah dari `updateProduct` yang menulis SELURUH kolom: edit cepat hanya
+ * boleh menyentuh yang diketik. Mengirim seluruh kolom dari baris tabel berarti
+ * kolom yang tidak ditampilkan di tabel itu ikut ditulis ulang dari salinan
+ * lama yang bisa saja sudah basi — mis. harga beli yang baru diubah orang lain
+ * semenit sebelumnya.
+ */
+export async function updateProductCategory(id, { category, subcategory }) {
+  const patch = {};
+  if (category !== undefined) patch.category = String(category ?? '').trim() || null;
+  if (subcategory !== undefined) patch.subcategory = String(subcategory ?? '').trim() || null;
+  if (!Object.keys(patch).length) return;
+  const { data, error } = await supabase.from('products').update(patch).eq('id', id).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('Tidak tersimpan — kategori hanya bisa diubah Admin BU atau Super Admin.');
+}
+
 export async function deleteProduct(id) {
   const { data, error } = await supabase.from('products').delete().eq('id', id).select('id');
   if (error) throw error;

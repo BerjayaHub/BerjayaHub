@@ -356,6 +356,17 @@ select net.http_post(
   Super Admin, penambahannya ditolak tapi **impornya tetap jalan** — produknya
   tersimpan dengan satuan itu, hanya belum muncul di dropdown.
 - **Master Produk → Produk & Resep** → ada **kotak cari nama** di atas tabel.
+- ⚠️ **Import Produk/Menu berubah perilakunya.** Nama yang sudah ada kini
+  **dilengkapi**, bukan dilewati: kolom yang masih kosong di sistem diisi dari
+  file. Nilai yang sudah terisi **tidak pernah ditimpa** — selisihnya
+  dilaporkan supaya kamu yang memutuskan. **Tipe** & **Satuan Pakai** tidak
+  pernah diubah lewat impor. Template bertambah kolom **Kategori** &
+  **Sub Kategori** — unduh ulang templatenya.
+- **Menu** → kategori bisa **diketik langsung** di kolomnya (bebas, dengan saran
+  dari yang sudah dipakai). Butuh Admin BU.
+- **Stok Opname (Staff App)** → tampilannya berubah dari tabel jadi **kartu**,
+  supaya kotak "stok fisik" tidak lagi terdorong ke luar layar HP. Tidak ada
+  migration.
 - **Resep & Menu** → ada **🗑 Hapus resep** di dalam baris yang terbuka, per
   varian (Produksi / Standalone / Dilayani CK). Berguna untuk membereskan hasil
   impor yang keliru: hapus satu varian, lalu impor ulang atau isi manual.

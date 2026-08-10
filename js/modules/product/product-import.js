@@ -1,5 +1,6 @@
-import { listProducts, createProduct, listRecipesFull, saveRecipe, listUnits, createUnit } from './product.service.js';
+import { listProducts, createProduct, updateProduct, listRecipesFull, saveRecipe, listUnits, createUnit } from './product.service.js';
 import { bakukanNama, palingMirip, bacaAngka } from '../../core/nama.js';
+import { rencanaLengkapi } from './import-merge.js';
 
 // ---- Loader SheetJS (dari CDN, dipakai untuk baca .xlsx/.csv) ----
 let xlsxPromise = null;
@@ -47,7 +48,10 @@ const TYPE_MAP = {
 export async function importProducts(businessUnitId, file) {
   const rows = await readRows(file);
   const existing = await listProducts(businessUnitId);
-  const names = new Set(existing.map((p) => bakukanNama(p.name)));
+  // Peta ke PRODUKNYA, bukan sekadar himpunan nama: impor ulang kini bisa
+  // melengkapi kolom yang masih kosong, dan untuk itu nilai lamanya harus
+  // terbaca.
+  const byName = new Map(existing.map((p) => [bakukanNama(p.name), p]));
 
   // Satuan yang belum ada di Master Satuan didaftarkan otomatis.
   //
@@ -59,7 +63,9 @@ export async function importProducts(businessUnitId, file) {
 
   let added = 0;
   let skipped = 0;
+  let dilengkapi = 0;
   const errors = [];
+  const catatan = [];
   let barisKosong = 0;
 
   for (const [i, raw] of rows.entries()) {
@@ -78,12 +84,41 @@ export async function importProducts(businessUnitId, file) {
     // Nomor barisnya disebut supaya bisa langsung dicari di file aslinya.
     // +2: satu untuk baris judul, satu karena Excel mulai dari 1.
     const noBaris = i + 2;
-    if (names.has(bakukanNama(name))) {
-      skipped++;
-      continue;
-    }
+    const sudahAda = byName.get(bakukanNama(name));
     const type = TYPE_MAP[bakukanNama(r['tipe'])];
     const baseUnit = String(r['satuan pakai'] ?? '').trim();
+
+    // ---- Nama yang SUDAH ADA: dilengkapi, bukan dibuat ulang atau dilewati ----
+    if (sudahAda) {
+      const { patch, terisi, konflik } = rencanaLengkapi(sudahAda, {
+        category: String(r['kategori'] ?? '').trim(),
+        subcategory: String(r['sub kategori'] ?? r['subkategori'] ?? '').trim(),
+        purchase_unit: String(r['satuan beli'] ?? '').trim(),
+        purchase_qty: num(r['isi per satuan beli']),
+        purchase_price: num(r['harga beli']),
+        sale_price: num(r['harga jual']),
+        product_type: type,
+        base_unit: baseUnit
+      });
+      if (konflik.length) {
+        errors.push(`Baris ${i + 2} — ${name}: ${konflik.join('; ')} — nilai di sistem DIPERTAHANKAN, ubah manual kalau file yang benar`);
+      }
+      if (Object.keys(patch).length) {
+        try {
+          // Seluruh kolom dikirim ulang karena `updateProduct` menulis semuanya;
+          // yang tidak ada di patch memakai nilai lamanya.
+          await updateProduct(sudahAda.id, { ...sudahAda, ...patch });
+          dilengkapi++;
+          catatan.push(`${name}: ${terisi.join(', ')} dilengkapi`);
+        } catch (e) {
+          errors.push(`Baris ${i + 2} — ${name}: gagal melengkapi — ${e.message ?? e}`);
+        }
+      } else {
+        skipped++;
+      }
+      continue;
+    }
+
     if (!type) {
       const isi = String(r['tipe'] ?? '').trim();
       errors.push(
@@ -101,13 +136,19 @@ export async function importProducts(businessUnitId, file) {
         businessUnitId,
         name,
         product_type: type,
+        // Kategori diambil apa adanya dari file — TIDAK dicocokkan ke daftar
+        // tetap. Kategori itu urusan yang punya usaha ("Minuman", "Makanan",
+        // "Snack", "Frozen"), dan mengunci daftarnya di kode berarti setiap
+        // kategori baru harus menunggu deploy.
+        category: String(r['kategori'] ?? '').trim() || null,
+        subcategory: String(r['sub kategori'] ?? r['subkategori'] ?? '').trim() || null,
         base_unit: baseUnit,
         purchase_unit: type === 'raw' ? String(r['satuan beli'] ?? '').trim() || null : null,
         purchase_qty: type === 'raw' ? num(r['isi per satuan beli']) : null,
         purchase_price: type === 'raw' ? num(r['harga beli']) : null,
         sale_price: type === 'finished' ? num(r['harga jual']) : null
       });
-      names.add(bakukanNama(name));
+      byName.set(bakukanNama(name), { id: null, name, product_type: type, base_unit: baseUnit });
       added++;
     } catch (e) {
       errors.push(`Baris ${noBaris} — ${name}: ${e.message ?? e}`);
@@ -116,7 +157,7 @@ export async function importProducts(businessUnitId, file) {
   if (barisKosong) {
     errors.push(`${barisKosong} baris dilewati karena kolom "Nama" kosong (sel tergabung, baris judul, atau baris sisa di bawah tabel)`);
   }
-  return { added, skipped, errors, satuanBaru };
+  return { added, skipped, dilengkapi, catatan, errors, satuanBaru };
 }
 
 /**
@@ -328,10 +369,10 @@ function downloadCsv(filename, content) {
 export function downloadProductTemplate() {
   downloadCsv(
     'template-produk.csv',
-    'Nama,Tipe,Satuan Pakai,Satuan Beli,Isi per Satuan Beli,Harga Beli,Harga Jual\n' +
-      'Gula,Bahan Baku,gram,karung,25000,150000,\n' +
-      'Sirup Gula,Setengah Jadi,ml,,,,\n' +
-      'Es Kopi Susu,Menu,gelas,,,,18000\n'
+    'Nama,Tipe,Kategori,Sub Kategori,Satuan Pakai,Satuan Beli,Isi per Satuan Beli,Harga Beli,Harga Jual\n' +
+      'Gula,Bahan Baku,Bahan Kering,,gram,karung,25000,150000,\n' +
+      'Sirup Gula,Setengah Jadi,,,ml,,,,\n' +
+      'Es Kopi Susu,Menu,Minuman,Kopi,gelas,,,,18000\n'
   );
 }
 
@@ -349,9 +390,10 @@ export function downloadProductTemplate() {
 export function downloadMenuTemplate() {
   downloadCsv(
     'template-menu.csv',
-    'Nama,Tipe,Satuan Pakai,Satuan Beli,Isi per Satuan Beli,Harga Beli,Harga Jual\n' +
-      'Es Kopi Susu,Menu,gelas,,,,18000\n' +
-      'Cheesy Fries,Menu,porsi,,,,25000\n'
+    'Nama,Tipe,Kategori,Sub Kategori,Satuan Pakai,Satuan Beli,Isi per Satuan Beli,Harga Beli,Harga Jual\n' +
+      'Es Kopi Susu,Menu,Minuman,Kopi,gelas,,,,18000\n' +
+      'Lemon Tea,Menu,Minuman,Teh,gelas,,,,15000\n' +
+      'Cheesy Fries,Menu,Makanan,Snack,porsi,,,,25000\n'
   );
 }
 

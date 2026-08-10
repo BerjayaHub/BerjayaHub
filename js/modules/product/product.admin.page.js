@@ -512,7 +512,10 @@ async function openImport(content, businessUnitId, kind, refresh) {
   const v = await formDialog({
     title: isProducts ? 'Import Produk (Excel/CSV)' : 'Import Resep (Excel/CSV)',
     description: isProducts
-      ? 'Kolom: Nama, Tipe, Satuan Pakai, Satuan Beli, Isi per Satuan Beli, Harga Beli, Harga Jual. Yang namanya sudah ada dilewati.'
+      ? 'Kolom: Nama, Tipe, Kategori, Sub Kategori, Satuan Pakai, Satuan Beli, Isi per Satuan Beli, Harga Beli, Harga Jual. ' +
+        'Kategori diisi bebas — tidak ada daftar tetap. ' +
+        'Nama yang sudah ada TIDAK dibuat ulang: kolom yang masih kosong di data lama akan dilengkapi, ' +
+        'dan nilai yang sudah terisi tidak pernah ditimpa diam-diam (selisihnya dilaporkan).'
       : // `description` di-escape oleh formDialog, jadi ditulis polos tanpa tag.
         'Kolom: Produk, Varian, Yield, Bahan, Jumlah — satu baris per bahan. ' +
         'Varian: "Produksi" untuk Setengah Jadi; "Standalone" atau "Dilayani CK" untuk Menu. ' +
@@ -543,9 +546,20 @@ async function openImport(content, businessUnitId, kind, refresh) {
              </p>`
           : '')
       : '';
+    // "Dilengkapi" dipisahkan dari "ditambahkan" dan "dilewati". Menggabungkannya
+    // menyembunyikan justru yang paling ingin diketahui saat mengimpor ulang:
+    // apakah data lama benar-benar berubah.
+    const lengkapHtml = res.dilengkapi
+      ? `<p style="margin-top:6px"><strong>${res.dilengkapi}</strong> produk lama <strong>dilengkapi</strong> kolom yang tadinya kosong.</p>` +
+        `<ul style="margin:0;padding-left:18px;max-height:160px;overflow:auto;font-size:0.85rem">${res.catatan
+          .map((c) => `<li>${escapeHtml(c)}</li>`)
+          .join('')}</ul>`
+      : '';
     await infoDialog({
       title: 'Hasil Import',
-      bodyHtml: `<p><strong>${res.added}</strong> ditambahkan, <strong>${res.skipped}</strong> dilewati (sudah ada).</p>${satuanHtml}${errHtml}`
+      bodyHtml:
+        `<p><strong>${res.added}</strong> ditambahkan, <strong>${res.skipped}</strong> dilewati (tidak ada yang perlu diubah).</p>` +
+        `${lengkapHtml}${satuanHtml}${errHtml}`
     });
     await refresh();
   } catch (error) {

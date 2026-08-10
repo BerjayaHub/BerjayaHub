@@ -209,28 +209,46 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
           (!opnameState.category || p.category === opnameState.category) &&
           (!opnameState.q || fuzzyMatch(opnameState.q, `${p.name} ${p.category ?? ''} ${p.subcategory ?? ''}`))
       );
+      // KARTU, BUKAN TABEL.
+      //
+      // Opname dikerjakan sambil berdiri di depan rak, satu tangan memegang HP.
+      // Bentuk tabel memaksa kolom nama dibekukan supaya tidak hilang saat
+      // digulir — dan nama bahan panjang ("Susu UHT Full Cream 1L") memakan
+      // hampir seluruh lebar layar, sehingga kolom Stok Fisik terdorong ke
+      // kanan, di luar layar. Orangnya harus menggulir mendatar untuk SETIAP
+      // baris, lalu menggulir balik untuk memastikan sedang mengisi bahan yang
+      // benar. Di rak yang gelap dan sempit, itu jalan tercepat menuju salah
+      // isi.
+      //
+      // Kartu membuang gulir mendatar sama sekali: nama di atas, kotak isian di
+      // bawahnya dengan lebar penuh. Tidak ada yang perlu dibekukan karena
+      // tidak ada yang bisa hilang.
+      const sudahIsi = list.filter((p) => draft.has(p.id)).length;
       rowsBox.innerHTML = `
-        <div class="table-scroll"><table class="data-table table-freeze-1">
-          <thead><tr><th>Bahan</th><th>Kategori</th><th>Stok Akhir</th><th>Stok Fisik</th><th>Satuan</th><th>Selisih</th></tr></thead>
-          <tbody>
-            ${
-              list
-                .map((p) => {
-                  const sys = stockMap?.get(p.id) ?? 0;
-                  const val = draft.has(p.id) ? draft.get(p.id) : '';
-                  return `<tr data-p="${p.id}">
-                    <td>${esc(p.name)}</td>
-                    <td style="font-size:0.82rem;color:var(--color-text-muted)">${esc(p.category ?? '-')}</td>
-                    <td>${formatNum(sys)}</td>
-                    <td><input type="number" class="opname-input" data-p="${p.id}" data-sys="${sys}" min="0" placeholder="—" value="${val}" style="max-width:110px" /></td>
-                    <td style="font-size:0.85rem">${esc(p.base_unit)}</td>
-                    <td class="opname-diff" data-p="${p.id}" style="font-size:0.85rem;color:var(--color-text-muted)">-</td>
-                  </tr>`;
-                })
-                .join('') || '<tr><td colspan="6">Tidak ada bahan pada filter ini.</td></tr>'
-            }
-          </tbody>
-        </table></div>`;
+        <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
+          <strong class="opname-kemajuan">${sudahIsi}</strong> dari <strong>${list.length}</strong> bahan sudah diisi.
+          Yang dikosongkan tidak ikut tersimpan.
+        </p>
+        <div class="opname-list">
+          ${
+            list
+              .map((p) => {
+                const sys = stockMap?.get(p.id) ?? 0;
+                const val = draft.has(p.id) ? draft.get(p.id) : '';
+                return `<div class="opname-kartu" data-p="${p.id}">
+                  <div class="opname-nama">${esc(p.name)}</div>
+                  <div class="opname-meta">${esc(p.category ?? 'Tanpa kategori')} · sistem <strong>${formatNum(sys)}</strong> ${esc(p.base_unit)}</div>
+                  <div class="opname-isi">
+                    <input type="number" class="opname-input" data-p="${p.id}" data-sys="${sys}" min="0" step="any"
+                      inputmode="decimal" placeholder="stok fisik" value="${val}" aria-label="Stok fisik ${esc(p.name)}" />
+                    <span class="opname-satuan">${esc(p.base_unit)}</span>
+                    <span class="opname-diff" data-p="${p.id}">-</span>
+                  </div>
+                </div>`;
+              })
+              .join('') || '<p style="color:var(--color-text-muted)">Tidak ada bahan pada filter ini.</p>'
+          }
+        </div>`;
 
       rowsBox.querySelectorAll('.opname-input').forEach((inp) => {
         const updateDiff = () => {
@@ -246,7 +264,14 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
           cell.textContent = diff === 0 ? 'sesuai' : `${diff > 0 ? '+' : ''}${formatNum(diff)}`;
           cell.style.color = diff === 0 ? 'var(--color-text-muted)' : diff > 0 ? 'var(--color-primary)' : 'var(--color-danger)';
         };
-        inp.addEventListener('input', updateDiff);
+        inp.addEventListener('input', () => {
+          updateDiff();
+          // Penghitung kemajuan diperbarui di tempat. Menggambar ulang seluruh
+          // daftar akan membuat kotak yang sedang diketik kehilangan fokus —
+          // dan di HP itu berarti papan ketiknya ikut tertutup setiap angka.
+          const info = rowsBox.querySelector('.opname-kemajuan');
+          if (info) info.textContent = String(list.filter((p) => draft.has(p.id)).length);
+        });
         updateDiff();
       });
     }

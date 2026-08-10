@@ -1,6 +1,6 @@
 import { toast, confirmDialog } from '../../core/ui.js';
 import { formatRupiah, formatNum, formatThousands, parseNumber, attachThousandsInput } from '../../core/format.js';
-import { listProducts, listRecipesFull, costForMode, updateSalePrice, deleteRecipe } from '../product/product.service.js';
+import { listProducts, listRecipesFull, costForMode, updateSalePrice, updateProductCategory, deleteRecipe } from '../product/product.service.js';
 import { openRecipeEditor, MODE_LABEL } from '../product/recipe-editor.js';
 import { downloadMenuTemplate } from '../product/product-import.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
@@ -72,7 +72,7 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
       </div>
     </div>
     <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
-      Ketuk baris menu untuk melihat bahan tiap varian${bolehUbah ? ' dan mengubahnya' : ''}.
+      Ketuk baris menu untuk melihat bahan tiap varian${bolehUbah ? ' dan mengubahnya' : ''}.${bolehUbah ? ' Kategori bisa diketik langsung di kolomnya — bebas, bukan pilihan tetap.' : ''}
     </p>
     <div id="mn-table"></div>
   `;
@@ -103,7 +103,16 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
         ? `${list.length} dari ${menus.length} menu`
         : `Tidak ada menu bernama "${state.q.trim()}"`;
 
+    // Kategori diketik BEBAS, dengan saran dari yang sudah dipakai.
+    //
+    // Bukan dropdown tertutup: "Minuman", "Makanan", "Snack", "Frozen" adalah
+    // urusan yang punya usaha, bukan urusan kode. Daftar tetap di kode berarti
+    // setiap kategori baru harus menunggu deploy — dan sementara menunggu,
+    // orangnya menaruh menu di kategori yang salah karena itu satu-satunya yang
+    // tersedia. `datalist` memberi kecepatan dropdown tanpa mengunci pilihannya.
+    const semuaKategori = [...new Set(menus.map((m) => m.category).filter(Boolean))].sort();
     tableBox.innerHTML = `
+      <datalist id="mn-cat-list">${semuaKategori.map((c) => `<option value="${esc(c)}"></option>`).join('')}</datalist>
       <div class="table-scroll"><table class="data-table table-freeze-1">
         <thead>
           <tr><th>Menu</th><th>Kategori</th><th>Satuan</th><th>Harga Jual</th><th>HPP Standalone</th><th>HPP Dilayani CK</th><th>Margin</th></tr>
@@ -131,9 +140,12 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
                     <td><span class="mn-arrow" style="display:inline-block;width:1em">${buka ? '▾' : '▸'}</span> ${esc(m.name)}${
                       m.is_active === false ? ' <span style="font-size:0.7rem;color:var(--color-danger)">(nonaktif)</span>' : ''
                     }</td>
-                    <td style="font-size:0.85rem">${esc(m.category ?? '-')}${
-                      m.subcategory ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${esc(m.subcategory)}</div>` : ''
-                    }</td>
+                    <td style="font-size:0.85rem">${
+                      bolehUbah
+                        ? `<input type="text" class="mn-cat-input" data-id="${m.id}" list="mn-cat-list" value="${esc(m.category ?? '')}"
+                             placeholder="kategori" style="min-width:110px;margin:0;font-size:0.85rem" />`
+                        : esc(m.category ?? '-')
+                    }${m.subcategory ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${esc(m.subcategory)}</div>` : ''}</td>
                     <td>${esc(m.base_unit)}</td>
                     <td data-harga>${harga}</td>
                     <td>${cStand != null ? formatRupiah(cStand) : '<span style="color:var(--color-text-muted)">-</span>'}</td>
@@ -150,6 +162,7 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
 
     for (const id of state.terbuka) gambarRincian(id);
     wireHarga();
+    wireKategori();
     wireBaris();
   }
 
@@ -270,6 +283,53 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
         }
       })
     );
+  }
+
+  function wireKategori() {
+    tableBox.querySelectorAll('.mn-cat-input').forEach((input) => {
+      let before = input.value;
+      input.addEventListener('focus', () => {
+        before = input.value;
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') input.blur();
+        if (e.key === 'Escape') {
+          input.value = before;
+          input.blur();
+        }
+      });
+      input.addEventListener('blur', async () => {
+        if (input.value.trim() === before.trim()) return;
+        try {
+          await updateProductCategory(input.dataset.id, { category: input.value });
+          const m = menus.find((x) => x.id === input.dataset.id);
+          if (m) m.category = input.value.trim() || null;
+          toast('Kategori diperbarui.', 'success');
+          // Digambar ulang supaya kategori baru langsung ikut di penyaring dan
+          // di daftar saran — kalau tidak, kategori yang baru saja diketik tidak
+          // bisa dipakai untuk menu berikutnya sampai halamannya dibuka lagi.
+          segarkanKategori();
+          renderTable();
+        } catch (error) {
+          toast(error.message ?? 'Gagal menyimpan kategori.', 'error');
+          input.value = before;
+        }
+      });
+    });
+  }
+
+  /** Isi ulang dropdown penyaring kategori dari data yang sekarang. */
+  function segarkanKategori() {
+    const sel = container.querySelector('#mn-cat');
+    if (!sel) return;
+    const daftar = [...new Set(menus.map((m) => m.category).filter(Boolean))].sort();
+    const terpilih = state.category;
+    sel.innerHTML = `<option value="">Semua</option>${daftar.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}`;
+    // Kalau kategori yang sedang disaring sudah tidak dipakai menu mana pun,
+    // penyaringnya dikembalikan ke "Semua" — daftar kosong tanpa sebab yang
+    // terlihat lebih membingungkan daripada daftar penuh.
+    sel.value = daftar.includes(terpilih) ? terpilih : '';
+    state.category = sel.value;
   }
 
   function wireHarga() {

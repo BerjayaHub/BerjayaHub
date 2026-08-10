@@ -2326,6 +2326,43 @@ Penelusurannya (`js/modules/product/recipe-graph.js`) sengaja **melebar, bukan r
 
 Dikunci `node tools/test-dampak-hapus-resep.mjs` (14 kasus). Fixture siklus versi pertama ternyata **tidak menguji apa yang dikira diujinya**: siklusnya melewati produk yang sedang dihapus, jadi berhenti karena alasan lain. Yang benar-benar berbahaya adalah siklus di **hulu** — penelusuran masuk ke lingkaran tanpa pernah bertemu produk yang dihapus — dan itu yang sekarang jadi fixture-nya. Komentar di modulnya menyebut dengan jujur bahwa dari dua dedup di sana, hanya satu yang benar-benar menjaga; yang lain sekadar memangkas kunjungan berulang.
 
+### Stok Opname di HP: kartu, bukan tabel
+
+Opname dikerjakan sambil berdiri di depan rak, satu tangan memegang HP. Bentuk tabel memaksa kolom nama **dibekukan** supaya tidak hilang saat digulir — dan nama bahan panjang ("Susu UHT Full Cream 1L") memakan hampir seluruh lebar layar, sehingga kolom **Stok Fisik** terdorong ke luar layar. Orangnya harus menggulir mendatar untuk **setiap** baris, lalu menggulir balik untuk memastikan sedang mengisi bahan yang benar. Di rak yang sempit, itu jalan tercepat menuju salah isi.
+
+Sekarang tiap bahan jadi **kartu**: nama di atas, kotak isian di bawahnya dengan lebar penuh. Gulir mendatar hilang sama sekali — tidak ada yang perlu dibekukan karena tidak ada yang bisa hilang. Ditambah beberapa hal kecil yang baru terasa saat dipakai berdiri:
+
+- Nama panjang **dibungkus, bukan dipotong**. "Susu UHT Full Cream 1L" dan "…250ml" hanya berbeda di ujungnya; elipsis membuat keduanya terlihat sama persis.
+- `font-size: 16px` pada kotak isian — di bawah itu, iOS memperbesar halaman saat kotaknya disentuh, dan pembesaran itu menggeser tata letak sehingga kartu berikutnya melompat.
+- Penghitung "**12 dari 48** sudah diisi" diperbarui **di tempat**, bukan dengan menggambar ulang daftarnya: menggambar ulang membuat kotak yang sedang diketik kehilangan fokus, dan papan ketiknya ikut tertutup setiap angka.
+
+### Kategori menu: diketik bebas, bukan daftar tetap
+
+Penyaring kategori sebenarnya sudah tidak di-hardcode — ia dibangun dari kategori yang sudah dipakai. Yang tidak ada adalah **cara mengisinya**: kolom Kategori tidak pernah ada di template impor, dan di layar Menu tidak bisa diubah.
+
+Sekarang keduanya ada. Di tabel Menu, kategori **diketik langsung di kolomnya** dengan saran dari yang sudah dipakai (`datalist`) — bukan dropdown tertutup, karena "Minuman", "Makanan", "Snack", "Frozen" adalah urusan yang punya usaha, bukan urusan kode. Daftar tetap berarti setiap kategori baru menunggu deploy, dan sementara menunggu, menunya ditaruh di kategori yang salah karena itu satu-satunya yang tersedia. Template impor produk & menu juga bertambah kolom **Kategori** dan **Sub Kategori**.
+
+Detail kecil yang mudah terlewat: setelah kategori baru diketik, penyaring di atas **ikut diperbarui**. Kalau tidak, kategori yang baru saja dibuat tidak bisa dipakai menyaring sampai halamannya dibuka ulang. Dan kalau kategori yang sedang disaring habis dipakai, penyaringnya kembali ke "Semua" — daftar kosong tanpa sebab yang terlihat lebih membingungkan daripada daftar penuh.
+
+### Impor ulang nama yang sudah ada: melengkapi, tidak menumpuk
+
+Pertanyaannya: *"minyak goreng diimpor pertama dengan kolom lain kosong; impor kedua kolomnya sudah terisi — menumpuk atau mengedit?"*
+
+Jawaban lamanya: **tidak keduanya.** Barisnya dilewati begitu saja, dan kolom yang kosong tetap kosong selamanya kecuali dibuka satu per satu di form. Impor kedua terasa "berhasil" padahal tidak mengubah apa pun — dan ringkasannya tidak menyebut itu.
+
+(Catatan: untuk produk, baris yang **Tipe** atau **Satuan Pakai**-nya kosong sebenarnya ditolak sejak awal, jadi `minyakgoreng,,,` tidak pernah benar-benar masuk. Yang bisa setengah terisi adalah kolom selebihnya — harga beli, kategori, isi per satuan.)
+
+Aturan barunya, dan tiap butir punya alasan yang berdiri sendiri:
+
+1. **Kolom yang di sistem masih kosong → diisi dari file.** Ini yang sebenarnya diinginkan orang saat mengimpor ulang.
+2. **Kolom yang sudah terisi dan berbeda → tidak diubah, tapi dilaporkan.** Menimpa diam-diam adalah cara termudah kehilangan harga beli yang sudah dikoreksi manual: seseorang membetulkannya di aplikasi, tiga hari kemudian file lama diimpor ulang, dan koreksinya lenyap tanpa jejak.
+3. **Tipe dan Satuan Pakai tidak pernah diubah lewat impor.** Keduanya struktural — satuan pakai adalah satuan seluruh resep dan stok yang sudah tercatat, dan mengubahnya membuat semua angka lama berpindah arti tanpa satu pun yang ikut dikonversi.
+4. **File yang kolomnya kosong tidak mengosongkan data lama.** Kebalikan dari (1), dan sama berbahayanya: mengimpor file ringkas yang cuma berisi nama tidak boleh menghapus harga yang sudah ada.
+
+Hasilnya dilaporkan terpisah — "**5 dilengkapi**" berdiri sendiri dari "ditambahkan" dan "dilewati", karena justru itu yang ingin diketahui saat mengimpor ulang.
+
+Dikunci `node tools/test-impor-ulang.mjs` (21 kasus). Satu perbandingan di sana (`samaAngka`) awalnya **tidak terbukti perlu** — kasusnya sudah tertangkap perbandingan teks. Baru setelah ditambah kasus `25000` vs `"25000.00"` — bentuk yang gemar dipakai Excel — ia benar-benar dijaga.
+
 ## Kembali dari aplikasi lain: pulihkan tempatnya, bukan cuma modulnya
 
 Aplikasi ini halaman web. Saat orangnya membuka Excel, WhatsApp, atau kamera, Android/iOS boleh **membuang halaman ini dari memori** kalau RAM sedang sempit; begitu kembali, halamannya dimuat ulang dari nol. Tidak ada yang bisa mencegahnya dari sisi kode — yang bisa diperbaiki adalah seberapa banyak yang hilang.
