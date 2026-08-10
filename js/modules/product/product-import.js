@@ -1,4 +1,5 @@
-import { listProducts, createProduct, listRecipesFull, saveRecipe } from './product.service.js';
+import { listProducts, createProduct, listRecipesFull, saveRecipe, listUnits, createUnit } from './product.service.js';
+import { bakukanNama, palingMirip, bacaAngka } from '../../core/nama.js';
 
 // ---- Loader SheetJS (dari CDN, dipakai untuk baca .xlsx/.csv) ----
 let xlsxPromise = null;
@@ -29,11 +30,8 @@ function lc(row) {
   for (const k in row) o[String(k).trim().toLowerCase()] = row[k];
   return o;
 }
-function num(v) {
-  if (v === '' || v == null) return null;
-  const n = Number(String(v).replace(/[^\d.-]/g, ''));
-  return Number.isFinite(n) ? n : null;
-}
+/** Angka dari sel Excel/CSV. Aturannya di js/core/nama.js — ada jebakan koma. */
+const num = bacaAngka;
 
 const TYPE_MAP = {
   'bahan baku': 'raw',
@@ -49,27 +47,53 @@ const TYPE_MAP = {
 export async function importProducts(businessUnitId, file) {
   const rows = await readRows(file);
   const existing = await listProducts(businessUnitId);
-  const names = new Set(existing.map((p) => p.name.trim().toLowerCase()));
+  const names = new Set(existing.map((p) => bakukanNama(p.name)));
+
+  // Satuan yang belum ada di Master Satuan didaftarkan otomatis.
+  //
+  // `products.base_unit` cuma kolom teks — tidak ada FK ke `units` — jadi
+  // satuan baru TIDAK PERNAH menggagalkan impor produk. Yang terjadi tanpa ini:
+  // produknya masuk, tapi satuannya tidak muncul di dropdown saat produk itu
+  // disunting manual, dan orangnya harus mengetiknya ulang persis sama.
+  const satuanBaru = await daftarkanSatuanBaru(rows);
+
   let added = 0;
   let skipped = 0;
   const errors = [];
+  let barisKosong = 0;
 
-  for (const raw of rows) {
+  for (const [i, raw] of rows.entries()) {
     const r = lc(raw);
     const name = String(r['nama'] ?? '').trim();
-    if (!name) continue;
-    if (names.has(name.toLowerCase())) {
+    // Baris tanpa nama DIHITUNG, bukan dilewati diam-diam.
+    //
+    // Ini penyebab "tidak ada laporan produk mana saja yang gagal": baris yang
+    // kolom Nama-nya kosong — akibat sel tergabung, judul antar-bagian, atau
+    // baris sisa di bawah tabel — hilang tanpa masuk hitungan mana pun. Bukan
+    // ditambahkan, bukan dilewati, bukan error. Seolah tidak pernah ada.
+    if (!name) {
+      barisKosong++;
+      continue;
+    }
+    // Nomor barisnya disebut supaya bisa langsung dicari di file aslinya.
+    // +2: satu untuk baris judul, satu karena Excel mulai dari 1.
+    const noBaris = i + 2;
+    if (names.has(bakukanNama(name))) {
       skipped++;
       continue;
     }
-    const type = TYPE_MAP[String(r['tipe'] ?? '').trim().toLowerCase()];
+    const type = TYPE_MAP[bakukanNama(r['tipe'])];
     const baseUnit = String(r['satuan pakai'] ?? '').trim();
     if (!type) {
-      errors.push(`${name}: tipe tidak dikenal`);
+      const isi = String(r['tipe'] ?? '').trim();
+      errors.push(
+        `Baris ${noBaris} — ${name}: tipe ${isi ? `"${isi}" tidak dikenal` : 'kosong'}. ` +
+          'Isi dengan "Bahan Baku", "Setengah Jadi", atau "Menu"'
+      );
       continue;
     }
     if (!baseUnit) {
-      errors.push(`${name}: satuan pakai kosong`);
+      errors.push(`Baris ${noBaris} — ${name}: kolom "Satuan Pakai" kosong`);
       continue;
     }
     try {
@@ -83,13 +107,60 @@ export async function importProducts(businessUnitId, file) {
         purchase_price: type === 'raw' ? num(r['harga beli']) : null,
         sale_price: type === 'finished' ? num(r['harga jual']) : null
       });
-      names.add(name.toLowerCase());
+      names.add(bakukanNama(name));
       added++;
     } catch (e) {
-      errors.push(`${name}: ${e.message ?? e}`);
+      errors.push(`Baris ${noBaris} — ${name}: ${e.message ?? e}`);
     }
   }
-  return { added, skipped, errors };
+  if (barisKosong) {
+    errors.push(`${barisKosong} baris dilewati karena kolom "Nama" kosong (sel tergabung, baris judul, atau baris sisa di bawah tabel)`);
+  }
+  return { added, skipped, errors, satuanBaru };
+}
+
+/**
+ * Daftarkan satuan yang dipakai file tapi belum ada di Master Satuan.
+ *
+ * @returns {Promise<{ditambah: string[], gagal: string[]}>}
+ *
+ * TIDAK PERNAH menggagalkan impor. Policy `units_modify` hanya membuka untuk
+ * super admin, jadi admin BU yang mengimpor tidak akan bisa menambah satuan —
+ * dan itu memang tidak menghalangi apa pun, karena `base_unit` cuma kolom teks.
+ * Yang hilang hanya kenyamanan: satuannya tidak muncul di dropdown nanti. Itu
+ * dilaporkan sebagai catatan, bukan sebagai kegagalan.
+ */
+async function daftarkanSatuanBaru(rows) {
+  const ditambah = [];
+  const gagal = [];
+  let adaSekarang;
+  try {
+    adaSekarang = new Set((await listUnits()).map((u) => bakukanNama(u.name)));
+  } catch {
+    return { ditambah, gagal }; // daftar satuan tidak terbaca -> lewati saja
+  }
+
+  const calon = new Map(); // bentuk baku -> tulisan asli (yang pertama muncul)
+  for (const raw of rows) {
+    const r = lc(raw);
+    for (const kolom of ['satuan pakai', 'satuan beli']) {
+      const teks = String(r[kolom] ?? '').trim();
+      if (!teks) continue;
+      const kunci = bakukanNama(teks);
+      if (!kunci || adaSekarang.has(kunci) || calon.has(kunci)) continue;
+      calon.set(kunci, teks);
+    }
+  }
+
+  for (const teks of calon.values()) {
+    try {
+      await createUnit(teks);
+      ditambah.push(teks);
+    } catch {
+      gagal.push(teks);
+    }
+  }
+  return { ditambah, gagal };
 }
 
 /**
@@ -119,7 +190,8 @@ function bacaVarian(teks) {
 export async function importRecipes(businessUnitId, file) {
   const rows = await readRows(file);
   const products = await listProducts(businessUnitId);
-  const byName = new Map(products.map((p) => [p.name.trim().toLowerCase(), p]));
+  const byName = new Map(products.map((p) => [bakukanNama(p.name), p]));
+  const semuaNama = products.map((p) => p.name);
   const recipesFull = await listRecipesFull(businessUnitId);
   const hasRecipe = new Set(recipesFull.map((r) => `${r.product_id}|${r.mode}`));
 
@@ -130,19 +202,40 @@ export async function importRecipes(businessUnitId, file) {
   // diimpor — kolomnya tetap menampilkan "Belum" sesudah impor yang dilaporkan
   // berhasil. Dari sisi yang memakainya, itu tidak bisa dibedakan dari gagal.
   const groups = new Map();
+  // Varian terakhir yang DISEBUT untuk tiap produk. Di spreadsheet, orang
+  // lumrah mengisi kolom berulang hanya di baris pertama lalu mengosongkan
+  // sisanya. Tanpa pewarisan ini, baris kedua dan seterusnya jatuh ke varian
+  // BAWAAN — satu resep terbelah dua, dan yang kedua isinya bahan yang tidak
+  // lengkap.
+  const varianTerakhir = new Map();
+  let barisKosong = 0;
   for (const raw of rows) {
     const r = lc(raw);
     const prod = String(r['produk'] ?? '').trim();
-    if (!prod) continue;
-    const varian = bacaVarian(r['varian']);
+    // Sama seperti impor produk: baris tanpa nama DIHITUNG. Di file resep ini
+    // lebih sering terjadi lagi, karena orang lumrah mengisi kolom Produk hanya
+    // di baris pertama tiap kelompok bahan.
+    if (!prod) {
+      if (String(r['bahan'] ?? '').trim()) barisKosong++;
+      continue;
+    }
+    const kunciProduk = bakukanNama(prod);
+    let varian = bacaVarian(r['varian']);
+    if (varian === null && varianTerakhir.has(kunciProduk)) varian = varianTerakhir.get(kunciProduk);
+    if (varian !== null && varian !== 'TIDAK_DIKENAL') varianTerakhir.set(kunciProduk, varian);
     const kunci = `${prod}||${varian ?? ''}`;
-    if (!groups.has(kunci)) groups.set(kunci, { nama: prod, varian, yield: 1, items: [] });
+    if (!groups.has(kunci)) groups.set(kunci, { nama: prod, varian, yield: 1, items: [], rusak: [] });
     const g = groups.get(kunci);
     const y = num(r['yield']);
     if (y != null) g.yield = y;
     const bahan = String(r['bahan'] ?? '').trim();
     const qty = num(r['jumlah']);
     if (bahan && qty != null) g.items.push({ bahan, qty });
+    // Baris yang menyebut bahan tapi jumlahnya tidak terbaca DILAPORKAN, bukan
+    // dibuang diam-diam. Resep yang kehilangan satu bahan tanpa pemberitahuan
+    // menghasilkan HPP yang lebih murah dari kenyataan — dan tidak ada yang
+    // curiga, karena impornya "berhasil".
+    else if (bahan) g.rusak.push(`${bahan} (jumlah "${String(r['jumlah'] ?? '').trim()}" tidak terbaca)`);
   }
 
   let added = 0;
@@ -150,9 +243,12 @@ export async function importRecipes(businessUnitId, file) {
   const errors = [];
   for (const g of groups.values()) {
     const prodName = g.nama;
-    const p = byName.get(prodName.toLowerCase());
+    const p = byName.get(bakukanNama(prodName));
     if (!p) {
-      errors.push(`${prodName}: produk tidak ditemukan`);
+      const mirip = palingMirip(prodName, semuaNama);
+      errors.push(
+        `${prodName}: produk tidak ditemukan di Master Produk BU ini` + (mirip ? ` — mirip dengan "${mirip}", samakan namanya` : '')
+      );
       continue;
     }
     if (p.product_type === 'raw') {
@@ -179,15 +275,25 @@ export async function importRecipes(businessUnitId, file) {
     const items = [];
     let ok = true;
     for (const it of g.items) {
-      const ing = byName.get(it.bahan.toLowerCase());
+      const ing = byName.get(bakukanNama(it.bahan));
       if (!ing) {
-        errors.push(`${prodName}: bahan "${it.bahan}" tidak ditemukan`);
+        const mirip = palingMirip(it.bahan, semuaNama);
+        errors.push(
+          `${prodName}: bahan "${it.bahan}" tidak ditemukan di Master Produk BU ini` +
+            (mirip
+              ? ` — mirip dengan "${mirip}", samakan namanya`
+              : '. Pastikan bahannya sudah terdaftar, dan BU yang aktif di pojok atas sudah benar')
+        );
         ok = false;
         break;
       }
       items.push({ ingredient_product_id: ing.id, qty: it.qty });
     }
     if (!ok) continue;
+    if (g.rusak.length) {
+      errors.push(`${prodName}: ${g.rusak.join(', ')} — perbaiki jumlahnya lalu impor ulang`);
+      continue;
+    }
     if (!items.length) {
       errors.push(`${prodName}: tidak ada bahan`);
       continue;
@@ -199,6 +305,12 @@ export async function importRecipes(businessUnitId, file) {
     } catch (e) {
       errors.push(`${prodName}: ${e.message ?? e}`);
     }
+  }
+  if (barisKosong) {
+    errors.push(
+      `${barisKosong} baris punya Bahan tapi kolom "Produk"-nya kosong, jadi tidak masuk resep mana pun. ` +
+        'Isi nama produknya di SETIAP baris bahan (kolom Varian boleh dikosongkan — ia mewarisi baris di atasnya)'
+    );
   }
   return { added, skipped, errors };
 }

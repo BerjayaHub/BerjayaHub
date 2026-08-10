@@ -342,6 +342,20 @@ select net.http_post(
   ⚠️ Resep hanya bisa disimpan **Admin BU / Super Admin** (policy
   `recipes_modify`). Untuk yang lain, tombol ubah & impor tidak ditampilkan.
   Tidak ada migration.
+- **Import Resep** → nama bahan kini dicocokkan setelah dibakukan (spasi ganda,
+  spasi tanpa pemisah, karakter tak terlihat, huruf beraksen). Kalau tetap tidak
+  ketemu, pesannya menyebut **nama terdekat**. Koma desimal (`0,5`) juga sudah
+  terbaca benar — sebelumnya jadi `5`.
+  ⚠️ Kalau ada resep yang sudah terlanjur diimpor dari **CSV** dengan angka
+  berkoma, jumlahnya bisa 10× lipat. Periksa lewat tabel Resep (ketuk barisnya),
+  dan perbaiki lewat **✎ Ubah resep**.
+- **Import Produk** → baris yang kolom **Nama**-nya kosong kini **dilaporkan**
+  (dulu hilang tanpa masuk hitungan mana pun — itu sebabnya tidak ada laporan
+  produk yang gagal). Pesan error menyebut **nomor baris**. Satuan yang belum
+  ada di Master Satuan **ditambahkan otomatis**; kalau yang mengimpor bukan
+  Super Admin, penambahannya ditolak tapi **impornya tetap jalan** — produknya
+  tersimpan dengan satuan itu, hanya belum muncul di dropdown.
+- **Master Produk → Produk & Resep** → ada **kotak cari nama** di atas tabel.
 - **Kembali dari aplikasi lain** → posisi gulir & sub-layar terakhir dipulihkan
   (berlaku 30 menit). Sebelumnya hanya modulnya. Tidak ada migration.
 - ⚠️ **Tombol Back / navigasi (seluruh aplikasi)** → empat perbaikan sekaligus:

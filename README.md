@@ -2242,6 +2242,56 @@ Yang lebih berbahaya: penghapusan `recipe_items` lama juga bisa ditolak diam-dia
 
 Sekarang ketiganya memeriksa hasilnya, dan tombol ubah/impor **tidak digambar sama sekali** untuk yang bukan admin BU — dengan kalimat yang menyebutkan siapa yang bisa. Aturannya dikunci `node tools/test-varian-resep.mjs` (24 kasus).
 
+### "Bahan tidak ditemukan" untuk bahan yang jelas-jelas ada
+
+Nama dicocokkan sebagai teks — dan sebelumnya hanya `trim().toLowerCase()`, yang berarti harus **persis sama**. Teks dari Excel penuh karakter yang tidak terlihat di layar:
+
+- **Spasi ganda** di tengah nama. "Gula  Pasir" dan "Gula Pasir" terlihat identik di sel.
+- **Spasi tanpa pemisah** (U+00A0), muncul begitu saja saat menyalin dari web atau WhatsApp. `trim()` membuangnya di tepi, tidak di tengah.
+- **Karakter lebar nol** (U+200B, BOM). Benar-benar tidak terlihat, dan tidak dihitung sebagai spasi.
+- **Huruf beraksen tersusun dua kode** (é = e + tanda) kalau filenya dari Mac.
+
+Semuanya menghasilkan satu gejala yang sama dan paling membingungkan: bahan yang terlihat ada dinyatakan tidak ditemukan, dan orangnya mengetik ulang nama yang sebenarnya sudah benar. `js/core/nama.js` sekarang membakukan keduanya lebih dulu (`NFKC`, buang karakter lebar nol, rapatkan semua spasi).
+
+Yang **tidak** dilakukan: membuang tanda baca atau menyamakan kata yang mirip. "Gula Pasir" dan "Gula Aren" harus tetap berbeda — menyatukannya menaruh bahan yang salah ke dalam resep, dan itu jauh lebih buruk daripada menolak dengan jelas. Kalau tetap tidak ketemu, pesannya kini **menyebut nama terdekat** ("mirip dengan …, samakan namanya") dan mengingatkan bahwa daftar bahan diambil dari **BU yang sedang aktif** — dua penyebab tersering, dan keduanya dulu tidak pernah disebut.
+
+### Dua jebakan lain di jalur impor yang sama
+
+- **`"0,5"` dibaca sebagai `5`.** Pembaca angkanya membuang semua selain digit dan titik, jadi koma desimal ala Indonesia hilang — sepuluh kali lipat, tanpa satu pun tanda. Tidak pernah muncul di `.xlsx` bertipe angka (SheetJS sudah mengembalikan angka); muncul di CSV dan di sel berformat teks. Sekarang: kalau ada titik **dan** koma, yang paling kanan dianggap desimal; kalau hanya koma, koma itu desimal. `"1.000"` sengaja **tetap** dibaca 1 — menebaknya sebagai ribuan akan mengubah arti file yang selama ini sudah benar, dan salah tebak di sini meleset 1000×.
+- **Sel jumlah yang tidak terbaca jadi `0`.** Sekarang jadi "tidak terbaca", dan barisnya **dilaporkan** alih-alih dibuang diam-diam: resep yang kehilangan satu bahan tanpa pemberitahuan menghasilkan HPP yang lebih murah dari kenyataan, dan tidak ada yang curiga karena impornya "berhasil".
+
+Ditambah satu kebiasaan spreadsheet yang tadinya mematahkan impor: **kolom Varian yang hanya diisi di baris pertama**. Baris berikutnya kini mewarisi varian di atasnya — tanpa itu, satu resep terbelah dua dan yang kedua isinya tidak lengkap.
+
+Semuanya dikunci `node tools/test-cocok-nama-bahan.mjs` (37 kasus), yang mengimpor `js/core/nama.js` langsung. Modulnya dipisah ke `core/` justru supaya bisa diuji — `product-import.js` menarik klien Supabase, yang menarik CDN, sehingga tidak bisa dijalankan di luar browser.
+
+### Impor produk: baris yang hilang tanpa jejak
+
+Pertanyaannya — "apa impor produk gagal karena satuannya belum ada?" — jawabannya **tidak**. `products.base_unit` cuma kolom `text`, tanpa FK ke tabel `units`; satuan yang belum terdaftar tidak pernah menggagalkan apa pun. Tabel `units` hanya mengisi dropdown pada form manual.
+
+Yang sebenarnya terjadi ada di satu baris:
+
+```js
+if (!name) continue;
+```
+
+Baris yang kolom **Nama**-nya kosong — akibat sel tergabung, judul antar-bagian, atau baris sisa di bawah tabel — dilewati **tanpa masuk hitungan mana pun**. Bukan ditambahkan, bukan dilewati, bukan error. Seolah tidak pernah ada. Itulah "tidak ada laporan produk mana saja yang gagal": laporannya memang tidak pernah menyebut mereka. Sekarang dihitung dan dilaporkan, dan pesan error lain menyebut **nomor barisnya** supaya bisa langsung dicari di file aslinya.
+
+File resep punya lubang yang sama dan lebih sering kena, karena orang lumrah mengisi kolom Produk hanya di baris pertama tiap kelompok bahan. Baris "punya Bahan tapi Produk kosong" kini dilaporkan.
+
+Satu lagi yang saya perbaiki sendiri: pemeriksaan duplikat masih memakai `name.toLowerCase()` sementara daftarnya sudah dibangun dengan `bakukanNama()` — sisa dari perubahan sebelumnya, dan bentuk kecil dari kesalahan yang sama persis (dua sisi perbandingan yang tidak dibakukan sama).
+
+### Satuan baru didaftarkan otomatis
+
+Diminta, dan berguna meski bukan penyebab kegagalannya: satuan yang dipakai file tapi belum ada di Master Satuan kini **ditambahkan otomatis**, sehingga muncul di dropdown saat produk itu disunting manual nanti.
+
+Tapi `units_modify` hanya membuka untuk **super admin**. Jadi kalau yang mengimpor admin BU, penambahannya akan ditolak — dan itu **tidak boleh menggagalkan impor**, karena produknya memang tetap tersimpan dengan satuan itu. Hasilnya dilaporkan sebagai **catatan terpisah**, bukan di daftar merah: menaruhnya di antara error akan membuat impor yang sebenarnya mulus terlihat bermasalah.
+
+### Filter nama di tabel Produk & Resep
+
+Memakai `bakukanNama()` yang sama dengan impor. Kalau penyaringnya memakai pencocokan lain, orang yang mengetik "gula pasir" untuk mencari "Gula  Pasir" akan menyimpulkan produknya tidak ada — persis kesalahan yang membuat impor menolak bahan yang jelas ada.
+
+Penyaringan dikerjakan di sisi tampilan, bukan dengan memuat ulang dari server: daftarnya sudah ada di memori, dan menunggu jaringan untuk tiap huruf membuat pencarian terasa berat justru saat dipakai menelusuri daftar panjang. Baris yang tersembunyi tetap ada di DOM, jadi tombol yang sudah tersambung tidak perlu dipasang ulang tiap ketikan. Keterangan di bawah kotaknya menyebut "**7 dari 132 produk**" — daftar yang menyusut tanpa keterangan mudah disalahartikan sebagai data yang hilang.
+
 ## Kembali dari aplikasi lain: pulihkan tempatnya, bukan cuma modulnya
 
 Aplikasi ini halaman web. Saat orangnya membuka Excel, WhatsApp, atau kamera, Android/iOS boleh **membuang halaman ini dari memori** kalau RAM sedang sempit; begitu kembali, halamannya dimuat ulang dari nol. Tidak ada yang bisa mencegahnya dari sisi kode — yang bisa diperbaiki adalah seberapa banyak yang hilang.

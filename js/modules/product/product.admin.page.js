@@ -1,6 +1,7 @@
 import { toast, confirmDialog, formDialog, renderSearchSelect, wireSearchSelect, infoDialog } from '../../core/ui.js';
 import { formatRupiah, formatNum } from '../../core/format.js';
 import { sayaAdminBu } from '../../core/base-scope.js';
+import { bakukanNama } from '../../core/nama.js';
 import { importProducts, importRecipes, downloadProductTemplate, downloadRecipeTemplate } from './product-import.js';
 import { openRecipeEditor, MODE_LABEL, modesForType } from './recipe-editor.js';
 import {
@@ -76,13 +77,28 @@ async function renderProductsTab(content, businessUnitId) {
         <button class="primary" id="btn-new-product" style="max-width:180px">+ Tambah Produk</button>
       </div>
     </div>
+    <div class="field" style="max-width:320px;margin:0 0 10px">
+      <input type="search" id="cari-produk" placeholder="Cari nama produk…" autocomplete="off" />
+      <span class="field-help" id="cari-produk-info"></span>
+    </div>
     <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead><tr><th>Nama</th><th>Tipe</th><th>Kategori</th><th>Satuan</th><th>Harga Beli</th><th>HPP / Satuan</th><th>Harga Jual</th><th>Margin</th><th>Aksi</th></tr></thead>
-      <tbody>
+      <tbody id="baris-produk">
         ${products.map((p) => productRowHtml(p, costs.get(p.id))).join('') || '<tr><td colspan="9">Belum ada produk.</td></tr>'}
       </tbody>
     </table></div>
   `;
+
+  // Penyaring dikerjakan DI SISI TAMPILAN, bukan dengan memuat ulang dari
+  // server: daftar produknya sudah ada di memori, dan menunggu jaringan untuk
+  // tiap huruf yang diketik membuat pencarian terasa berat justru saat dipakai
+  // untuk menelusuri daftar yang panjang.
+  pasangPenyaring({
+    input: content.querySelector('#cari-produk'),
+    info: content.querySelector('#cari-produk-info'),
+    baris: () => content.querySelectorAll('#baris-produk tr[data-nama]'),
+    satuan: 'produk'
+  });
   document.getElementById('btn-new-product').addEventListener('click', () => openProductDialog(content, businessUnitId, null));
   document.getElementById('btn-tpl-product').addEventListener('click', downloadProductTemplate);
   document.getElementById('btn-import-product').addEventListener('click', () =>
@@ -106,6 +122,37 @@ async function renderProductsTab(content, businessUnitId) {
   );
 }
 
+/**
+ * Sambungkan kotak pencarian ke baris tabel.
+ *
+ * Mencocokkan pakai `bakukanNama()` yang sama dengan impor: orang mengetik
+ * "gula pasir" untuk mencari "Gula  Pasir", dan penyaring yang gagal karena
+ * spasi ganda akan membuatnya menyimpulkan produknya tidak ada — persis
+ * kesalahan yang sama yang membuat impor menolak bahan yang jelas ada.
+ *
+ * Baris yang tersembunyi tetap ADA di DOM, jadi tombol yang sudah tersambung
+ * tidak perlu dipasang ulang setiap kali orangnya mengetik satu huruf.
+ */
+function pasangPenyaring({ input, info, baris, satuan }) {
+  if (!input) return;
+  const saring = () => {
+    const q = bakukanNama(input.value);
+    let tampil = 0;
+    let total = 0;
+    for (const tr of baris()) {
+      total++;
+      const cocok = !q || tr.dataset.nama.includes(q);
+      tr.hidden = !cocok;
+      if (cocok) tampil++;
+    }
+    if (info) {
+      info.textContent = !q ? `${total} ${satuan}` : tampil ? `${tampil} dari ${total} ${satuan}` : `Tidak ada ${satuan} bernama "${input.value.trim()}"`;
+    }
+  };
+  input.addEventListener('input', saring);
+  saring();
+}
+
 function productRowHtml(p, cost) {
   const beli =
     p.product_type === 'raw' && p.purchase_price != null
@@ -120,7 +167,7 @@ function productRowHtml(p, cost) {
     margin = `${formatRupiah(m)} <span style="color:var(--color-text-muted)">(${pct}%)</span>`;
   }
   return `
-    <tr>
+    <tr data-nama="${escapeHtml(bakukanNama(p.name))}">
       <td>${escapeHtml(p.name)}${p.is_active === false ? ' <span style="font-size:0.7rem;color:var(--color-danger)">(nonaktif)</span>' : ''}</td>
       <td>${TYPE_LABEL[p.product_type] ?? p.product_type}</td>
       <td style="font-size:0.85rem">${escapeHtml(p.category ?? '-')}${p.subcategory ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${escapeHtml(p.subcategory)}</div>` : ''}</td>
@@ -258,6 +305,10 @@ async function renderRecipesTab(content, businessUnitId) {
         ${bolehUbah ? '<button id="btn-import-recipe">Import Excel</button>' : ''}
       </div>
     </div>
+    <div class="field" style="max-width:320px;margin:0 0 10px">
+      <input type="search" id="cari-resep" placeholder="Cari nama produk…" autocomplete="off" />
+      <span class="field-help" id="cari-resep-info"></span>
+    </div>
     <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
       Ketuk baris produk untuk melihat bahan-bahannya${bolehUbah ? ' dan mengubahnya' : ''}.
       ${
@@ -285,12 +336,12 @@ async function renderRecipesTab(content, businessUnitId) {
                   return `<div style="margin:2px 0"><strong>${MODE_LABEL[m]}:</strong> ${val}</div>`;
                 })
                 .join('');
-              return `<tr class="rcp-row" data-id="${p.id}" style="cursor:pointer">
+              return `<tr class="rcp-row" data-id="${p.id}" data-nama="${escapeHtml(bakukanNama(p.name))}" style="cursor:pointer">
                   <td><span class="rcp-arrow" data-id="${p.id}" style="display:inline-block;width:1em">▸</span> ${escapeHtml(p.name)}</td>
                   <td>${TYPE_LABEL[p.product_type]}</td>
                   <td style="font-size:0.85rem">${variants}</td>
                 </tr>
-                <tr class="rcp-detail" data-for="${p.id}" hidden><td colspan="3" style="background:var(--color-surface-alt,#fafafa)"></td></tr>`;
+                <tr class="rcp-detail" data-for="${p.id}" data-induk="${escapeHtml(bakukanNama(p.name))}" hidden><td colspan="3" style="background:var(--color-surface-alt,#fafafa)"></td></tr>`;
             })
             .join('') || '<tr><td colspan="3">Belum ada produk setengah jadi / jadi.</td></tr>'
         }
@@ -376,6 +427,33 @@ async function renderRecipesTab(content, businessUnitId) {
     })
   );
 
+  // Penyaring resep punya satu kerumitan yang tidak dimiliki tabel produk:
+  // tiap produk punya DUA baris — barisnya sendiri dan baris rincian di
+  // bawahnya. Baris rincian harus ikut tersembunyi, tapi tidak boleh ikut
+  // TERBUKA hanya karena namanya cocok.
+  const cariResep = content.querySelector('#cari-resep');
+  const infoResep = content.querySelector('#cari-resep-info');
+  const saringResep = () => {
+    const q = bakukanNama(cariResep.value);
+    let tampil = 0;
+    let total = 0;
+    for (const tr of content.querySelectorAll('.rcp-row')) {
+      total++;
+      const cocok = !q || tr.dataset.nama.includes(q);
+      tr.hidden = !cocok;
+      const detail = content.querySelector(`.rcp-detail[data-for="${tr.dataset.id}"]`);
+      if (detail && (!cocok || !tr.querySelector('.rcp-arrow')?.textContent.includes('▾'))) detail.hidden = true;
+      if (cocok) tampil++;
+    }
+    infoResep.textContent = !q
+      ? `${total} produk`
+      : tampil
+        ? `${tampil} dari ${total} produk`
+        : `Tidak ada produk bernama "${cariResep.value.trim()}"`;
+  };
+  cariResep.addEventListener('input', saringResep);
+  saringResep();
+
   document.getElementById('btn-tpl-recipe').addEventListener('click', downloadRecipeTemplate);
   document.getElementById('btn-import-recipe')?.addEventListener('click', () => openImport(content, businessUnitId, 'recipes', muat));
 }
@@ -402,9 +480,23 @@ async function openImport(content, businessUnitId, kind, refresh) {
     const errHtml = res.errors.length
       ? `<p style="color:var(--color-danger);margin-top:8px">Gagal/terlewat (${res.errors.length}):</p><ul style="margin:0;padding-left:18px;max-height:200px;overflow:auto">${res.errors.map((e) => `<li>${escapeHtml(e)}</li>`).join('')}</ul>`
       : '';
+    // Satuan baru dilaporkan terpisah dari error: menambahnya BUKAN kegagalan,
+    // dan menaruhnya di daftar merah akan membuat impor yang mulus terlihat
+    // bermasalah.
+    const s = res.satuanBaru;
+    const satuanHtml = s
+      ? (s.ditambah?.length ? `<p style="margin-top:8px">Satuan baru ditambahkan ke Master Satuan: <strong>${escapeHtml(s.ditambah.join(', '))}</strong></p>` : '') +
+        (s.gagal?.length
+          ? `<p style="margin-top:8px;font-size:0.85rem;color:var(--color-text-muted)">
+               Satuan <strong>${escapeHtml(s.gagal.join(', '))}</strong> dipakai di file ini tapi belum ada di Master Satuan.
+               Produknya tetap tersimpan dengan satuan itu — hanya saja satuannya belum muncul di dropdown.
+               Minta Super Admin menambahkannya.
+             </p>`
+          : '')
+      : '';
     await infoDialog({
       title: 'Hasil Import',
-      bodyHtml: `<p><strong>${res.added}</strong> ditambahkan, <strong>${res.skipped}</strong> dilewati (sudah ada).</p>${errHtml}`
+      bodyHtml: `<p><strong>${res.added}</strong> ditambahkan, <strong>${res.skipped}</strong> dilewati (sudah ada).</p>${satuanHtml}${errHtml}`
     });
     await refresh();
   } catch (error) {
