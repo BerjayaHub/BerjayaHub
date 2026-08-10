@@ -2316,6 +2316,16 @@ Tombol bernama varian tanpa kata kerja adalah akar dari "sepertinya tidak ada fo
 
 Ini yang paling mahal dari seluruh keluarga bug ini: **harga jual adalah angka yang dipakai kasir.** Salah di sini berarti salah tagih ke tamu — dan yang mengubahnya yakin sudah mengubahnya. `updateProduct()` dan `deleteProduct()` punya lubang yang sama dan ikut ditutup; `products` sekarang masuk daftar tabel yang dijaga `audit-tulis-senyap.cjs`.
 
+### Hapus satu varian resep
+
+Diminta untuk membereskan hasil impor yang keliru: sekarang ada **🗑 Hapus resep** di dalam baris yang terbuka, di tab Resep maupun di modul Menu. Yang dihapus **hanya varian yang disebut** — menghapus "Standalone" tidak menyentuh "Dilayani CK", karena keduanya menjawab cara produksi yang berbeda dan dipakai outlet yang berbeda. Produknya sendiri tetap ada; hanya resepnya yang hilang, jadi bisa diisi ulang atau diimpor ulang. `recipe_items` ikut terhapus lewat `on delete cascade`.
+
+**Dialognya menyebut apa yang ikut terdampak, bukan cuma "yakin hapus?".** HPP dihitung berantai: menghapus resep Produksi sebuah setengah jadi membuat biayanya tidak diketahui, dan **semua menu yang memakainya ikut kehilangan HPP** — diam-diam, di layar lain, tanpa ada yang menghubungkannya dengan penghapusan tadi. Konfirmasi yang hanya bertanya "yakin?" tidak menambah apa pun yang belum diketahui orangnya; yang berguna adalah daftar namanya.
+
+Penelusurannya (`js/modules/product/recipe-graph.js`) sengaja **melebar, bukan rekursif** — resep yang saling memakai akibat salah input akan membuat rekursi tidak berhenti, dan yang muncul ke user bukan peringatan melainkan halaman yang membeku.
+
+Dikunci `node tools/test-dampak-hapus-resep.mjs` (14 kasus). Fixture siklus versi pertama ternyata **tidak menguji apa yang dikira diujinya**: siklusnya melewati produk yang sedang dihapus, jadi berhenti karena alasan lain. Yang benar-benar berbahaya adalah siklus di **hulu** — penelusuran masuk ke lingkaran tanpa pernah bertemu produk yang dihapus — dan itu yang sekarang jadi fixture-nya. Komentar di modulnya menyebut dengan jujur bahwa dari dua dedup di sana, hanya satu yang benar-benar menjaga; yang lain sekadar memangkas kunjungan berulang.
+
 ## Kembali dari aplikasi lain: pulihkan tempatnya, bukan cuma modulnya
 
 Aplikasi ini halaman web. Saat orangnya membuka Excel, WhatsApp, atau kamera, Android/iOS boleh **membuang halaman ini dari memori** kalau RAM sedang sempit; begitu kembali, halamannya dimuat ulang dari nol. Tidak ada yang bisa mencegahnya dari sisi kode — yang bisa diperbaiki adalah seberapa banyak yang hilang.

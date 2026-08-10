@@ -183,6 +183,29 @@ export async function saveRecipe({ productId, businessUnitId, mode, yield_qty, n
   return recipeId;
 }
 
+/**
+ * Hapus SATU varian resep beserta seluruh bahannya.
+ *
+ * `recipe_items` ikut terhapus otomatis (FK `on delete cascade` di 0017), jadi
+ * tidak ada baris bahan yang tertinggal menggantung.
+ *
+ * Yang dihapus hanya varian yang disebut. Menu bisa punya dua varian yang
+ * berdiri sendiri — menghapus "Standalone" tidak boleh menyentuh "Dilayani CK",
+ * karena keduanya menjawab cara produksi yang berbeda dan dipakai outlet yang
+ * berbeda.
+ *
+ * `.select()` wajib: `recipes_modify` mensyaratkan admin BU, dan DELETE yang
+ * ditolak RLS membalas sukses dengan 0 baris — resepnya akan terlihat "sudah
+ * dihapus" sampai halamannya dimuat ulang, lalu muncul lagi.
+ */
+export async function deleteRecipe(productId, mode) {
+  const { data, error } = await supabase.from('recipes').delete().eq('product_id', productId).eq('mode', mode).select('id');
+  if (error) throw error;
+  if (!data?.length) {
+    throw new Error('Tidak terhapus — resep hanya bisa dihapus Admin BU atau Super Admin, atau resepnya memang sudah tidak ada.');
+  }
+}
+
 /** Semua resep (semua mode) + itemnya di sebuah BU, untuk hitung HPP berjenjang. */
 export async function listRecipesFull(businessUnitId) {
   const { data: recipes, error } = await supabase

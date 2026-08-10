@@ -1,11 +1,12 @@
-import { toast } from '../../core/ui.js';
+import { toast, confirmDialog } from '../../core/ui.js';
 import { formatRupiah, formatNum, formatThousands, parseNumber, attachThousandsInput } from '../../core/format.js';
-import { listProducts, listRecipesFull, costForMode, updateSalePrice } from '../product/product.service.js';
+import { listProducts, listRecipesFull, costForMode, updateSalePrice, deleteRecipe } from '../product/product.service.js';
 import { openRecipeEditor, MODE_LABEL } from '../product/recipe-editor.js';
 import { downloadMenuTemplate } from '../product/product-import.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { sayaAdminBu } from '../../core/base-scope.js';
 import { bakukanNama } from '../../core/nama.js';
+import { pemakaiResep } from '../product/recipe-graph.js';
 
 const MENU_MODES = ['standalone', 'served_by_ck'];
 
@@ -180,9 +181,52 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
       return `<div style="padding:10px 4px;border-top:1px solid var(--color-border,#e5e5e5)">
           <div style="font-weight:600;margin-bottom:2px">${MODE_LABEL[mode]}</div>
           ${isi}
-          ${bolehUbah ? `<button class="mn-edit-recipe" data-id="${menuId}" data-mode="${mode}">${r ? '✎ Ubah resep' : '+ Isi resep'}</button>` : ''}
+          ${
+            bolehUbah
+              ? `<button class="mn-edit-recipe" data-id="${menuId}" data-mode="${mode}">${r ? '✎ Ubah resep' : '+ Isi resep'}</button>` +
+                (r ? ` <button class="mn-del-recipe" data-id="${menuId}" data-mode="${mode}">🗑 Hapus resep</button>` : '')
+              : ''
+          }
         </div>`;
     }).join('');
+
+    // Menu punya DUA varian yang berdiri sendiri: menghapus "Standalone" tidak
+    // menyentuh "Dilayani CK". Keduanya menjawab cara produksi yang berbeda dan
+    // dipakai outlet yang berbeda.
+    sel.querySelectorAll('.mn-del-recipe').forEach((btn) =>
+      btn.addEventListener(
+        'click',
+        sekaliJalan(async (e) => {
+          e.stopPropagation();
+          const produk = namaProduk.get(btn.dataset.id);
+          const terdampak = pemakaiResep(products, recipes, produk.id);
+          const ok = await confirmDialog({
+            title: `Hapus resep ${MODE_LABEL[btn.dataset.mode] ?? btn.dataset.mode}?`,
+            message:
+              `Seluruh bahan pada varian ini dihapus dari "${produk.name}". Varian lainnya tidak ikut terhapus, ` +
+              'dan menunya sendiri tetap ada — hanya resepnya yang hilang, jadi bisa diisi ulang atau diimpor ulang.' +
+              (terdampak.length
+                ? ` HPP ${terdampak.length} varian resep lain yang memakai menu ini ikut jadi kosong: ${terdampak
+                    .slice(0, 8)
+                    .map((t) => `${t.name} (${MODE_LABEL[t.mode] ?? t.mode})`)
+                    .join(', ')}${terdampak.length > 8 ? ', dan lainnya' : ''}.`
+                : ''),
+            confirmText: 'Hapus resep',
+            danger: true
+          });
+          if (!ok) return;
+          try {
+            await deleteRecipe(produk.id, btn.dataset.mode);
+            toast('Resep dihapus.', 'success');
+            recipes = await listRecipesFull(businessUnitId);
+            resepPer = new Map(recipes.map((r) => [`${r.product_id}|${r.mode}`, r]));
+            renderTable();
+          } catch (error) {
+            toast(error.message ?? 'Gagal menghapus resep.', 'error');
+          }
+        })
+      )
+    );
 
     sel.querySelectorAll('.mn-edit-recipe').forEach((btn) =>
       btn.addEventListener('click', (e) => {

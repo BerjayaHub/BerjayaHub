@@ -356,6 +356,11 @@ select net.http_post(
   Super Admin, penambahannya ditolak tapi **impornya tetap jalan** — produknya
   tersimpan dengan satuan itu, hanya belum muncul di dropdown.
 - **Master Produk → Produk & Resep** → ada **kotak cari nama** di atas tabel.
+- **Resep & Menu** → ada **🗑 Hapus resep** di dalam baris yang terbuka, per
+  varian (Produksi / Standalone / Dilayani CK). Berguna untuk membereskan hasil
+  impor yang keliru: hapus satu varian, lalu impor ulang atau isi manual.
+  Dialognya menyebut **produk lain yang HPP-nya ikut jadi kosong**. Tidak ada
+  migration.
 - **Menu** → tabelnya kini **bisa dibuka per baris** (bahan tiap varian tampil di
   tempat), tombolnya **+ Isi resep** / **✎ Ubah resep**, dan ada **Template Menu**
   untuk menambah menu massal lewat Master Produk → Import Excel.

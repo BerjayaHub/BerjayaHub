@@ -2,6 +2,7 @@ import { toast, confirmDialog, formDialog, renderSearchSelect, wireSearchSelect,
 import { formatRupiah, formatNum } from '../../core/format.js';
 import { sayaAdminBu } from '../../core/base-scope.js';
 import { bakukanNama } from '../../core/nama.js';
+import { pemakaiResep } from './recipe-graph.js';
 import { importProducts, importRecipes, downloadProductTemplate, downloadRecipeTemplate } from './product-import.js';
 import { openRecipeEditor, MODE_LABEL, modesForType } from './recipe-editor.js';
 import {
@@ -11,6 +12,7 @@ import {
   createProduct,
   updateProduct,
   deleteProduct,
+  deleteRecipe,
   getRecipeForProduct,
   saveRecipe,
   listRecipesFull,
@@ -151,6 +153,34 @@ function pasangPenyaring({ input, info, baris, satuan }) {
   };
   input.addEventListener('input', saring);
   saring();
+}
+
+/**
+ * Konfirmasi hapus satu varian resep — menyebut apa saja yang ikut terdampak.
+ *
+ * HPP dihitung BERANTAI. Menghapus resep "Produksi" sebuah setengah jadi
+ * membuat biayanya tidak diketahui, dan semua menu yang memakainya ikut
+ * kehilangan HPP — diam-diam, di layar lain. Konfirmasi yang cuma bertanya
+ * "yakin hapus?" tidak menambah apa pun yang belum diketahui orangnya; yang
+ * berguna adalah daftar nama yang akan ikut kosong.
+ */
+async function konfirmasiHapusResep({ produk, mode, products, recipes, label }) {
+  const terdampak = pemakaiResep(products, recipes, produk.id);
+  const daftar = terdampak
+    .slice(0, 8)
+    .map((t) => `${t.name} (${label[t.mode] ?? t.mode})`)
+    .join(', ');
+  return confirmDialog({
+    title: `Hapus resep ${label[mode] ?? mode}?`,
+    message:
+      `Seluruh bahan pada varian ini dihapus dari "${produk.name}". Varian lainnya tidak ikut terhapus, ` +
+      'dan produknya sendiri tetap ada — hanya resepnya yang hilang, jadi kamu bisa mengisinya ulang atau impor ulang.' +
+      (terdampak.length
+        ? ` HPP ${terdampak.length} varian resep lain yang memakai produk ini ikut jadi kosong: ${daftar}${terdampak.length > 8 ? ', dan lainnya' : ''}.`
+        : ''),
+    confirmText: 'Hapus resep',
+    danger: true
+  });
 }
 
 function productRowHtml(p, cost) {
@@ -384,7 +414,8 @@ async function renderRecipesTab(content, businessUnitId) {
             ${isi}
             ${
               bolehUbah
-                ? `<button class="btn-edit-recipe" data-id="${produk.id}" data-mode="${m}">${r ? '✎ Ubah resep' : '+ Isi resep'}</button>`
+                ? `<button class="btn-edit-recipe" data-id="${produk.id}" data-mode="${m}">${r ? '✎ Ubah resep' : '+ Isi resep'}</button>` +
+                  (r ? ` <button class="btn-del-recipe" data-id="${produk.id}" data-mode="${m}">🗑 Hapus resep</button>` : '')
                 : ''
             }
           </div>`;
@@ -394,6 +425,24 @@ async function renderRecipesTab(content, businessUnitId) {
     // Tombolnya dulu hanya bertuliskan nama varian ("Produksi (CK)") — terbaca
     // sebagai LABEL, bukan sesuatu yang bisa ditekan. Itu sebabnya form isian
     // resep dikira tidak ada, dan satu-satunya jalan yang terlihat adalah impor.
+    sel.querySelectorAll('.btn-del-recipe').forEach((btn) =>
+      btn.addEventListener(
+        'click',
+        sekaliJalan(async (e) => {
+          e.stopPropagation();
+          const ok = await konfirmasiHapusResep({ produk, mode: btn.dataset.mode, products, recipes, label: MODE_LABEL });
+          if (!ok) return;
+          try {
+            await deleteRecipe(produk.id, btn.dataset.mode);
+            toast('Resep dihapus.', 'success');
+            await muat();
+          } catch (error) {
+            toast(error.message ?? 'Gagal menghapus resep.', 'error');
+          }
+        })
+      )
+    );
+
     sel.querySelectorAll('.btn-edit-recipe').forEach((btn) =>
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
