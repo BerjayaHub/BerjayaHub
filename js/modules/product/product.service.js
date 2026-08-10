@@ -53,7 +53,7 @@ export async function createProduct(p) {
 }
 
 export async function updateProduct(id, p) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('products')
     .update({
       name: p.name,
@@ -67,8 +67,10 @@ export async function updateProduct(id, p) {
       sale_price: p.sale_price ?? null,
       is_active: p.is_active
     })
-    .eq('id', id);
+    .eq('id', id)
+    .select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('Tidak tersimpan — produk hanya bisa diubah Admin BU atau Super Admin.');
 }
 
 /** Daftar kategori & sub-kategori unik yang sudah dipakai (untuk dropdown). */
@@ -86,14 +88,25 @@ export function distinctCategories(products) {
 }
 
 /** Harga jual saja (dipakai edit cepat di modul Menu). */
+/**
+ * Ubah harga jual dari tabel Menu.
+ *
+ * `.select()` WAJIB. Policy `products_modify` mensyaratkan **admin BU**, dan
+ * penolakan RLS pada UPDATE bukan error — PostgREST membalas sukses dengan 0
+ * baris. Tanpa pemeriksaan ini, admin outlet mengetik harga baru, melihat
+ * "Harga jual diperbarui", dan harganya tidak berubah sama sekali. Harga jual
+ * adalah angka yang dipakai kasir; salah di sini berarti salah tagih ke tamu.
+ */
 export async function updateSalePrice(id, salePrice) {
-  const { error } = await supabase.from('products').update({ sale_price: salePrice }).eq('id', id);
+  const { data, error } = await supabase.from('products').update({ sale_price: salePrice }).eq('id', id).select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('Tidak tersimpan — harga jual hanya bisa diubah Admin BU atau Super Admin.');
 }
 
 export async function deleteProduct(id) {
-  const { error } = await supabase.from('products').delete().eq('id', id);
+  const { data, error } = await supabase.from('products').delete().eq('id', id).select('id');
   if (error) throw error;
+  if (!data?.length) throw new Error('Tidak terhapus — produk hanya bisa dihapus Admin BU atau Super Admin.');
 }
 
 // ---- Resep ----

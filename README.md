@@ -2292,6 +2292,30 @@ Memakai `bakukanNama()` yang sama dengan impor. Kalau penyaringnya memakai penco
 
 Penyaringan dikerjakan di sisi tampilan, bukan dengan memuat ulang dari server: daftarnya sudah ada di memori, dan menunggu jaringan untuk tiap huruf membuat pencarian terasa berat justru saat dipakai menelusuri daftar panjang. Baris yang tersembunyi tetap ada di DOM, jadi tombol yang sudah tersambung tidak perlu dipasang ulang tiap ketikan. Keterangan di bawah kotaknya menyebut "**7 dari 132 produk**" — daftar yang menyusut tanpa keterangan mudah disalahartikan sebagai data yang hilang.
 
+## Modul Menu disamakan sistematikanya dengan Resep
+
+Pertanyaannya — "bagaimana cara saya isi menu?" — jawabannya ternyata: **menu tidak diisi di modul Menu.** Menu adalah produk bertipe `finished` di Master Produk. Modul Menu hanya *menampilkan* yang sudah ada, plus mengatur harga jual & resepnya. Tidak ada tombol tambah di sana, dan tidak pernah ada.
+
+Itu sah sebagai desain, tapi tidak pernah dikatakan di layarnya. Sekarang dikatakan, lengkap dengan **Template Menu** — kolomnya sama persis dengan template produk, hanya kolom Tipe sudah terisi "Menu". Filenya diimpor lewat jalur yang **sama** (Master Produk → Import Excel); pengimpor kedua khusus menu akan berarti dua kode pembuat produk yang perlahan menyimpang, dan yang paling mungkin menyimpang justru pemeriksaan duplikat dan satuan — dua hal yang baru saja diperbaiki di satu tempat.
+
+Selebihnya, layar Menu kini bekerja persis seperti tab Resep:
+
+| | Sebelum | Sekarang |
+|---|---|---|
+| Melihat bahan | harus buka editor satu per satu | ketuk baris → tampil di tempat |
+| Tombol resep | "Standalone" / "Dilayani CK" | "+ Isi resep" / "✎ Ubah resep" |
+| Letak editor | dasar halaman | di dalam baris yang diketuk |
+| Pencarian | pencocokan sendiri | `bakukanNama()` yang sama dengan impor |
+| Izin | tombol selalu tampil | mengikuti `sayaAdminBu()` |
+
+Tombol bernama varian tanpa kata kerja adalah akar dari "sepertinya tidak ada form isian" — sama persis seperti di tab Resep. Dan editor yang muncul di dasar halaman, jauh dari baris yang baru diketuk, di HP berarti keluar dari layar.
+
+### Satu lagi yang gagal tanpa suara: harga jual
+
+`products_modify` mensyaratkan **admin BU**, dan `updateSalePrice()` tidak memeriksa hasilnya. Admin outlet mengetik harga baru di tabel Menu, melihat *"Harga jual diperbarui"*, dan harganya tidak berubah sama sekali.
+
+Ini yang paling mahal dari seluruh keluarga bug ini: **harga jual adalah angka yang dipakai kasir.** Salah di sini berarti salah tagih ke tamu — dan yang mengubahnya yakin sudah mengubahnya. `updateProduct()` dan `deleteProduct()` punya lubang yang sama dan ikut ditutup; `products` sekarang masuk daftar tabel yang dijaga `audit-tulis-senyap.cjs`.
+
 ## Kembali dari aplikasi lain: pulihkan tempatnya, bukan cuma modulnya
 
 Aplikasi ini halaman web. Saat orangnya membuka Excel, WhatsApp, atau kamera, Android/iOS boleh **membuang halaman ini dari memori** kalau RAM sedang sempit; begitu kembali, halamannya dimuat ulang dari nol. Tidak ada yang bisa mencegahnya dari sisi kode — yang bisa diperbaiki adalah seberapa banyak yang hilang.

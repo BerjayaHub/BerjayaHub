@@ -356,6 +356,14 @@ select net.http_post(
   Super Admin, penambahannya ditolak tapi **impornya tetap jalan** — produknya
   tersimpan dengan satuan itu, hanya belum muncul di dropdown.
 - **Master Produk → Produk & Resep** → ada **kotak cari nama** di atas tabel.
+- **Menu** → tabelnya kini **bisa dibuka per baris** (bahan tiap varian tampil di
+  tempat), tombolnya **+ Isi resep** / **✎ Ubah resep**, dan ada **Template Menu**
+  untuk menambah menu massal lewat Master Produk → Import Excel.
+  ⚠️ **Harga jual hanya bisa diubah Admin BU / Super Admin.** Sebelumnya kolom
+  harga tetap bisa diketik oleh siapa pun yang membuka layarnya, muncul
+  "Harga jual diperbarui", dan **tidak ada yang tersimpan**. Kalau ada harga
+  yang terasa "tidak mau berubah" belakangan ini, periksa ulang harganya
+  sekarang. Tidak ada migration.
 - **Kembali dari aplikasi lain** → posisi gulir & sub-layar terakhir dipulihkan
   (berlaku 30 menit). Sebelumnya hanya modulnya. Tidak ada migration.
 - ⚠️ **Tombol Back / navigasi (seluruh aplikasi)** → empat perbaikan sekaligus:

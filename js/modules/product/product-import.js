@@ -335,6 +335,26 @@ export function downloadProductTemplate() {
   );
 }
 
+/**
+ * Template khusus MENU — kolomnya sama persis dengan template produk, tapi
+ * kolom Tipe sudah terisi "Menu" dan kolom yang cuma berlaku untuk bahan baku
+ * dibiarkan kosong.
+ *
+ * File yang dihasilkan diimpor lewat jalur yang SAMA (Master Produk → Import
+ * Excel). Membuat pengimpor kedua khusus menu akan berarti dua kode yang
+ * membuat produk dengan aturan yang perlahan menyimpang — dan yang paling
+ * mungkin menyimpang justru pemeriksaan duplikat dan satuan, dua hal yang baru
+ * saja diperbaiki di satu tempat.
+ */
+export function downloadMenuTemplate() {
+  downloadCsv(
+    'template-menu.csv',
+    'Nama,Tipe,Satuan Pakai,Satuan Beli,Isi per Satuan Beli,Harga Beli,Harga Jual\n' +
+      'Es Kopi Susu,Menu,gelas,,,,18000\n' +
+      'Cheesy Fries,Menu,porsi,,,,25000\n'
+  );
+}
+
 /** Nama varian untuk pesan ke manusia. */
 const MODE_TEKS = { production: 'Produksi (CK)', standalone: 'Standalone', served_by_ck: 'Dilayani CK' };
 

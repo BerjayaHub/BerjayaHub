@@ -52,7 +52,8 @@ const TABEL_BER_SCOPE = new Set([
   'cash_entries',
   'cash_accounts',
   'recipes',
-  'recipe_items'
+  'recipe_items',
+  'products'
 ]);
 
 /** Rantai yang memang tidak perlu diperiksa, beserta alasannya. */
