@@ -44,17 +44,28 @@ const history = {
     this.entri[this.posisi] = state;
   },
   pushState(state) {
+    // pushState berlaku SEKARANG, di posisi saat ini — bahkan kalau ada
+    // permintaan mundur yang belum diproses. Itulah balapan yang melahirkan
+    // bug "klik modul di Admin Portal malah lompat ke Staff App".
     this.entri = this.entri.slice(0, this.posisi + 1);
     this.entri.push(state);
     this.posisi++;
   },
   back() {
-    if (this.posisi === 0) {
-      keluarAplikasi++; // di akar, Back memang meninggalkan aplikasi
-      return;
-    }
-    this.posisi--;
-    antrean.push(this.entri[this.posisi]);
+    this.go(-1);
+  },
+  /**
+   * ASINKRON, seperti browser sungguhan.
+   *
+   * Versi pertama tiruan ini memindahkan `posisi` SEKETIKA. Itu keliru, dan
+   * kekeliruannya tepat menutupi bug yang dilaporkan: di browser, `back()`
+   * hanya MENGANTREKAN perpindahan, dan `pushState` yang dipanggil sesudahnya
+   * dieksekusi lebih dulu. Dengan tiruan yang sinkron, urutan itu tidak pernah
+   * terjadi, dan kode yang salah tetap terlihat benar.
+   */
+  go(delta) {
+    if (delta >= 0) return;
+    antrean.push({ delta });
   }
 };
 
@@ -78,8 +89,17 @@ globalThis.document = { addEventListener: () => {} };
 async function alirkan() {
   let putaran = 0;
   while (antrean.length) {
-    antrean.shift();
-    for (const fn of pendengar.popstate) fn();
+    const { delta } = antrean.shift();
+    const tujuan = history.posisi + delta;
+    if (tujuan < 0) {
+      // Melewati entri pertama = meninggalkan halaman ini. Di Admin Portal,
+      // halaman sebelumnya adalah Staff App.
+      keluarAplikasi++;
+      history.posisi = 0;
+    } else {
+      history.posisi = tujuan;
+      for (const fn of pendengar.popstate) fn();
+    }
     await new Promise((r) => setTimeout(r, 0)); // biarkan lanjutan async-nya jalan
     // Jaring pengaman: bug "pop-up muncul terus" berbentuk antrean yang tidak
     // pernah habis. Tanpa batas ini, tesnya menggantung alih-alih gagal.
@@ -316,8 +336,99 @@ await alirkan();
 cek('Back di Beranda langsung berarti keluar aplikasi', keluarAplikasi, keluarSebelum + 1);
 cek('bukan ketukan yang tidak melakukan apa-apa', layar, 'beranda');
 
+// ---------- Skenario 9: pindah menu di Admin Portal ----------
+//
+// REGRESI YANG DILAPORKAN: "di Admin Portal, klik salah satu modul malah
+// melempar saya ke Staff App."
+//
+// `openModule()` di Admin Portal memanggil `bersihkanLapis()` setiap kali menu
+// diganti. Saat pembersihan itu diberi kemampuan memundurkan history, ia
+// memanggil `history.back()` sekali PER LAPIS — dan `back()` itu asinkron, jadi
+// beberapa panggilan beruntun bisa diproses sesudah `pushState` yang menyusul.
+// Hitungannya meleset ke bawah nol, history mundur melewati entri pertama
+// aplikasi, dan entri sebelum itu adalah halaman sebelumnya: Staff App.
+layar = 'dashboard';
+const keluarSebelumMenu = keluarAplikasi;
+
+for (const menu of ['menu:kas', 'menu:presensi', 'menu:produk', 'menu:reservasi']) {
+  // Persis urutan di main-admin.js: bersihkan dulu, baru dorong lapis baru.
+  nav.bersihkanLapis();
+  nav.dorongLapis(menu, () => (layar = 'dashboard'), { penjaga: true });
+  layar = menu;
+  await alirkan();
+}
+
+cek('berpindah menu berkali-kali tidak melempar keluar aplikasi', keluarAplikasi, keluarSebelumMenu);
+cek('tetap di menu terakhir', layar, 'menu:reservasi');
+cek('hanya satu lapis menu yang tersisa', nav.jumlahLapis(), 1);
+
+// Dan Back dari menu tetap kembali ke Dashboard, bukan keluar.
+history.back();
+await alirkan();
+cek('Back dari menu -> Dashboard', layar, 'dashboard');
+cek('masih tanpa keluar aplikasi', keluarAplikasi, keluarSebelumMenu);
+
+// `bersihkanLapis()` saat tumpukan KOSONG tidak boleh memundurkan apa pun —
+// di Dashboard, entri sebelum kita memang bukan milik aplikasi ini.
+nav.bersihkanLapis();
+await alirkan();
+cek('bersihkanLapis saat kosong tidak memundurkan apa pun', keluarAplikasi, keluarSebelumMenu);
+
+// ---------- Skenario 10: pindah menu saat ADA SUB-LAPIS terbuka ----------
+//
+// Ini bentuk terparah dari regresi yang sama, dan yang paling mungkin dialami
+// di layar lebar: admin membuka sebuah menu (1 lapis), masuk ke sub-halaman
+// atau membuka dialog (jadi 2 lapis), lalu langsung mengklik menu lain di
+// sidebar tanpa menutup apa pun.
+//
+// `bersihkanLapis()` harus memundurkan DUA entri sekaligus lalu `pushState`
+// menyusul. Kalau mundurnya dikerjakan sebagai dua `back()` beruntun, keduanya
+// baru diproses SESUDAH pushState — hitungannya meleset satu ke bawah, dan
+// satu langkah kelebihan itu sudah cukup untuk keluar dari Admin Portal.
+layar = 'dashboard';
+const keluarSebelumSub = keluarAplikasi;
+
+nav.dorongLapis('menu:produk', () => (layar = 'dashboard'), { penjaga: true });
+layar = 'menu:produk';
+nav.dorongSubHalaman('rincian-produk', () => (layar = 'menu:produk'));
+layar = 'sub';
+
+// Klik menu lain di sidebar — urutan persis main-admin.js.
+nav.bersihkanLapis();
+nav.dorongLapis('menu:kas', () => (layar = 'dashboard'), { penjaga: true });
+layar = 'menu:kas';
+await alirkan();
+
+cek('pindah menu dengan sub-lapis terbuka: tidak keluar aplikasi', keluarAplikasi, keluarSebelumSub);
+cek('mendarat di menu yang diklik', layar, 'menu:kas');
+cek('hanya lapis menu baru yang tersisa', nav.jumlahLapis(), 1);
+
+// Back sesudahnya harus kembali ke Dashboard — SEKALI, bukan tanpa reaksi.
+history.back();
+await alirkan();
+cek('Back sesudah pindah menu -> Dashboard', layar, 'dashboard');
+cek('dan tetap tidak keluar aplikasi', keluarAplikasi, keluarSebelumSub);
+
+// Tiga lapis sekaligus: menu + sub-halaman + dialog di atasnya.
+layar = 'dashboard';
+nav.dorongLapis('menu:reservasi', () => (layar = 'dashboard'), { penjaga: true });
+nav.dorongSubHalaman('form-reservasi', () => (layar = 'menu:reservasi'));
+nav.dorongLapis('dialog', () => (layar = 'sub'));
+layar = 'dialog';
+nav.bersihkanLapis();
+nav.dorongLapis('menu:shift', () => (layar = 'dashboard'), { penjaga: true });
+layar = 'menu:shift';
+await alirkan();
+cek('tiga lapis sekaligus pun aman', keluarAplikasi, keluarSebelumSub);
+cek('tetap di menu yang diklik', layar, 'menu:shift');
+
+history.back();
+await alirkan();
+cek('Back tetap satu langkah ke Dashboard', layar, 'dashboard');
+cek('tanpa keluar aplikasi sampai akhir', keluarAplikasi, keluarSebelumSub);
+
 if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Lapis Back diuji langsung pada navigasi.js: 39 kasus, termasuk empat bug tumpukan lapis. ✅');
+console.log('Lapis Back diuji langsung pada navigasi.js: 54 kasus, termasuk lima bug tumpukan lapis. ✅');

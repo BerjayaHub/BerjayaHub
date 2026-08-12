@@ -14,7 +14,7 @@
  * Fungsinya DIIMPOR dari js/core/nama.js, bukan disalin: salinan akan tetap
  * hijau saat aslinya berubah.
  */
-import { bakukanNama, bacaAngka } from '../js/core/nama.js';
+import { bakukanNama, bacaAngka, cocokNama } from '../js/core/nama.js';
 
 let gagal = 0;
 const cek = (nama, dapat, harap) => {
@@ -100,16 +100,21 @@ cek('"1.000" tetap dibaca 1 seperti sebelumnya', bacaAngka('1.000'), 1);
 // untuk mencari "Gula  Pasir" akan menyimpulkan produknya tidak ada — persis
 // kesalahan yang membuat impor menolak bahan yang jelas-jelas ada.
 // ---------------------------------------------------------------
-const cocokPenyaring = (namaBaris, ketikan) => bakukanNama(namaBaris).includes(bakukanNama(ketikan));
+// Dipakai APA ADANYA dari core: kotak cari di Produk, Resep, Menu, dan kedua
+// layar Stok semuanya memanggil fungsi yang sama. Satu layar yang mencocokkan
+// dengan cara berbeda akan menghasilkan "ada di sini tapi tidak ada di sana".
+const cocokPenyaring = cocokNama;
 cek('cari sebagian nama', cocokPenyaring('Es Kopi Susu', 'kopi'), true);
 cek('cari tanpa peduli huruf besar', cocokPenyaring('Es Kopi Susu', 'ES KOPI'), true);
 cek('cari dengan spasi berlebih', cocokPenyaring('Es Kopi Susu', '  kopi  susu '), true);
 cek('nama berspasi ganda tetap ketemu', cocokPenyaring('Gula  Pasir', 'gula pasir'), true);
 cek('ketikan kosong mencocokkan semua', cocokPenyaring('Apa pun', ''), true);
 cek('yang tidak cocok tetap tidak cocok', cocokPenyaring('Es Kopi Susu', 'teh'), false);
+cek('ketikan hanya spasi = tanpa penyaring', cocokPenyaring('Apa pun', '   '), true);
+cek('nama null tidak melempar', cocokPenyaring(null, 'kopi'), false);
 
 if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Pencocokan nama bahan benar untuk 43 kasus, termasuk karakter tak terlihat & koma desimal dari Excel. ✅');
+console.log('Pencocokan nama bahan benar untuk 45 kasus, termasuk karakter tak terlihat & koma desimal dari Excel. ✅');

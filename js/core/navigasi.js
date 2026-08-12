@@ -60,6 +60,30 @@ let abaikanBerikutnya = 0;
 let sedangBertanya = false;
 
 /**
+ * Berapa entri history yang KITA dorong sendiri dan belum dimundurkan.
+ *
+ * Ini pagar terhadap kesalahan paling mahal di file ini: memundurkan history
+ * LEBIH JAUH daripada yang pernah kita dorong. Entri sebelum entri pertama kita
+ * bukan milik aplikasi ini — ia halaman sebelumnya. Di Admin Portal, halaman
+ * sebelumnya adalah Staff App, jadi kelebihan satu langkah saja langsung
+ * melempar orangnya keluar dari Admin Portal.
+ *
+ * Itu persis yang terjadi setelah `bersihkanLapis()` diberi kemampuan
+ * memundurkan history: ia memanggil `history.back()` sekali per lapis, dan
+ * `back()` itu ASINKRON — beberapa panggilan beruntun diproses belakangan,
+ * sesudah `pushState` yang menyusul, sehingga hitungannya meleset ke bawah nol.
+ *
+ * Sejauh mana penghitung ini terbukti perlu, apa adanya: yang BENAR-BENAR
+ * menyelamatkan adalah `history.go(-n)` sekali jalan, dan itu merah kalau
+ * dicabut. Pembatas `Math.min(langkah, entriKita)` tidak membuat tes merah,
+ * karena `langkah` sendiri sudah dibatasi jumlah lapis. Ia dipertahankan untuk
+ * keadaan yang tidak terjadi di tes: `pushState` yang ditolak browser (mode
+ * privat, kuota history) membuat jumlah lapis dan jumlah entri berselisih, dan
+ * di situlah pembatas ini satu-satunya yang tersisa.
+ */
+let entriKita = 0;
+
+/**
  * Apakah ada isian yang belum tersimpan di halaman modul?
  *
  * Dilacak dengan cara paling sederhana yang jujur: setiap kali ada peristiwa
@@ -136,11 +160,15 @@ export function pasangNavigasi() {
     if (sedangBertanya) {
       try {
         history.pushState({ berjaya: 'tanya' }, '');
+        entriKita++;
       } catch {
         /* diabaikan */
       }
       return;
     }
+
+    // Ketukan Back user memakai satu entri milik kita.
+    if (entriKita > 0) entriKita--;
 
     const lapis = tumpukan.pop();
     if (!lapis) return; // sudah di akar -> biarkan browser melakukan tugasnya
@@ -152,6 +180,7 @@ export function pasangNavigasi() {
       tumpukan.push(lapis);
       try {
         history.pushState({ berjaya: lapis.nama }, '');
+        entriKita++;
       } catch {
         /* diabaikan */
       }
@@ -194,12 +223,26 @@ export function pasangNavigasi() {
  * urutannya penting: menaikkan penghitung SESUDAH `back()` bisa kalah cepat
  * kalau browser mengirim popstate-nya lebih awal dari yang diperkirakan.
  */
-function mundurkanSendiri() {
-  abaikanBerikutnya++;
+function mundurkanSendiri(langkah = 1) {
+  // TIDAK PERNAH melebihi entri yang kita dorong sendiri. Kalau sampai lebih,
+  // yang dimundurkan adalah halaman sebelum aplikasi ini.
+  const n = Math.min(langkah, entriKita);
+  if (n <= 0) return;
+  entriKita -= n;
+  // SATU popstate untuk satu panggilan `go()`, berapa pun langkahnya — browser
+  // tidak mengirim satu event per langkah. Menaikkan penghitung sebanyak n akan
+  // menyisakan sisa yang menelan ketukan Back BERIKUTNYA milik user, dan
+  // gejalanya muncul jauh kemudian sebagai "Back sekali tidak terjadi apa-apa".
+  abaikanBerikutnya += 1;
   try {
-    history.back();
+    // Satu panggilan `go(-n)`, bukan `back()` n kali. `back()` beruntun
+    // diproses browser secara asinkron dan bisa berselisih urutan dengan
+    // `pushState` yang menyusul — hasilnya posisi history meleset, dan
+    // melesetnya selalu ke arah yang berbahaya.
+    history.go(-n);
   } catch {
-    abaikanBerikutnya--; // tidak jadi mundur -> tidak ada popstate yang datang
+    entriKita += n;
+    abaikanBerikutnya -= 1; // tidak jadi mundur -> tidak ada popstate yang datang
   }
 }
 
@@ -212,6 +255,7 @@ export function dorongLapis(nama, kembali, { penjaga = false } = {}) {
   tumpukan.push(lapis);
   try {
     history.pushState({ berjaya: nama }, '');
+    entriKita++;
   } catch {
     /* diabaikan */
   }
@@ -254,10 +298,9 @@ function buangLapis(lapis) {
  * susulannya ikut dipesan untuk diabaikan.
  */
 export function bersihkanLapis() {
-  while (tumpukan.length) {
-    tumpukan.pop();
-    mundurkanSendiri();
-  }
+  const n = tumpukan.length;
+  tumpukan.length = 0;
+  mundurkanSendiri(n);
 }
 
 /**
@@ -313,6 +356,7 @@ export function dorongSubHalaman(nama, kembaliKeDaftar) {
   tumpukan.push(lapis);
   try {
     history.pushState({ berjaya: kunci }, '');
+    entriKita++;
   } catch {
     /* diabaikan */
   }

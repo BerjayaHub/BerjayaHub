@@ -4,6 +4,7 @@ import { listProducts, listRecipesFull, computeCosts } from '../product/product.
 import { getOutletStockMap, recordMovement, transferStock, getAllowStaffOpname, recordMenuWaste } from './inventory.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
+import { cocokNama } from '../../core/nama.js';
 
 export async function renderInventoryPage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = loadingHtml('Memuat inventory…');
@@ -50,6 +51,19 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       <button id="inv-transfer">Transfer</button>
     </div>
     <div id="inv-opname-panel"></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
+      <div class="field" style="margin:0;max-width:200px">
+        <label>Kategori</label>
+        <select id="inv-cat"><option value="">Semua</option>${[...new Set(activeProducts.map((p) => p.category).filter(Boolean))]
+          .sort()
+          .map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)
+          .join('')}</select>
+      </div>
+      <div class="field" style="margin:0;max-width:240px">
+        <label>Cari nama</label>
+        <input type="search" id="inv-q" placeholder="ketik nama bahan…" autocomplete="off" />
+      </div>
+    </div>
     <div id="inv-stock"></div>
   `;
 
@@ -71,23 +85,47 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       stockDiv.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
       return null;
     }
-    stockDiv.innerHTML = `
-      <div class="table-scroll"><table class="data-table table-freeze-1">
-        <thead><tr><th>Produk</th><th>Stok</th><th>Satuan</th></tr></thead>
-        <tbody>
-          ${activeProducts
-            .map((p) => {
-              const qty = map.get(p.id) ?? 0;
-              return `<tr><td>${escapeHtml(p.name)}</td><td>${formatNum(qty)}</td><td>${escapeHtml(p.base_unit)}</td></tr>`;
-            })
-            .join('')}
-        </tbody>
-      </table></div>
-    `;
+    gambarStok(map);
     return map;
   }
 
+  /**
+   * Gambar tabel stok dengan penyaring yang sedang aktif.
+   *
+   * Dipisah dari `refresh()` supaya mengetik di kotak cari tidak memanggil
+   * jaringan sama sekali — daftarnya sudah ada di memori, dan menunggu jaringan
+   * untuk tiap huruf membuat pencarian terasa berat justru saat dipakai
+   * menelusuri daftar bahan yang panjang.
+   */
+  function gambarStok(map) {
+    const stockDiv = container.querySelector('#inv-stock');
+    if (!stockDiv || !map) return;
+    const q = container.querySelector('#inv-q')?.value ?? '';
+    const cat = container.querySelector('#inv-cat')?.value ?? '';
+    const tampil = activeProducts.filter((p) => (!cat || p.category === cat) && cocokNama(`${p.name} ${p.category ?? ''}`, q));
+    stockDiv.innerHTML = `
+      <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 6px">
+        ${tampil.length === activeProducts.length ? `${activeProducts.length} bahan` : `${tampil.length} dari ${activeProducts.length} bahan`}
+      </p>
+      <div class="table-scroll"><table class="data-table table-freeze-1">
+        <thead><tr><th>Produk</th><th>Stok</th><th>Satuan</th></tr></thead>
+        <tbody>
+          ${
+            tampil
+              .map((p) => {
+                const qty = map.get(p.id) ?? 0;
+                return `<tr><td>${escapeHtml(p.name)}</td><td>${formatNum(qty)}</td><td>${escapeHtml(p.base_unit)}</td></tr>`;
+              })
+              .join('') || '<tr><td colspan="3">Tidak ada bahan pada filter ini.</td></tr>'
+          }
+        </tbody>
+      </table></div>
+    `;
+  }
+
   let stockMap = await refresh();
+  container.querySelector('#inv-cat').addEventListener('change', () => gambarStok(stockMap));
+  container.querySelector('#inv-q').addEventListener('input', () => gambarStok(stockMap));
 
   container.querySelector('#inv-receive').addEventListener('click', sekaliJalan(async () => {
     const v = await formDialog({

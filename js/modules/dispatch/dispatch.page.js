@@ -11,6 +11,7 @@ import {
   getDispatchItems,
   getDispatchForPdf,
   ORDER_STATUS,
+  DISPATCH_STATUS,
   createStockOrder,
   updateStockOrder,
   fulfillStockOrder,
@@ -18,11 +19,14 @@ import {
   cancelStockOrder,
   listIncomingOrders,
   listMyOrders,
+  listMyDispatches,
   getOrderItems
 } from './dispatch.service.js';
 import { buildSuratJalanPDF, suratJalanWaText } from './dispatch-pdf.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
+import { bukaDokumen } from './dokumen-ui.js';
+import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 
 const ORDER_BADGE = { open: 'badge-pending', fulfilled: 'badge-approved', rejected: 'badge-rejected', cancelled: 'badge-cancelled' };
 
@@ -97,14 +101,20 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
   function tabsFor() {
     const outlet = outletsById.get(state.outletId);
     const isCK = outlet?.outlet_role === 'central_kitchen';
+    // Tab "Riwayat & Dokumen" ada di KEDUA peran outlet. Pertanyaan yang
+    // dijawabnya sama di mana pun: "dokumen nomor sekian isinya apa, dan mana
+    // salinannya" — dan itu tidak bergantung pada siapa yang mengirim.
+    const riwayat = { key: 'docs', label: '📄 Riwayat & Dokumen', render: renderDokumenTab };
     return isCK
       ? [
           { key: 'orders-in', label: '📥 Order Masuk', render: renderIncomingOrders },
-          { key: 'send', label: '🚚 Kirim ke Outlet', render: renderSend }
+          { key: 'send', label: '🚚 Kirim ke Outlet', render: renderSend },
+          riwayat
         ]
       : [
           { key: 'order', label: '🧾 Order ke CK', render: renderOrderTab },
-          { key: 'transfer', label: '🔁 Transfer / Retur', render: renderSend }
+          { key: 'transfer', label: '🔁 Transfer / Retur', render: renderSend },
+          riwayat
         ];
   }
 
@@ -135,6 +145,98 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     } catch (error) {
       contentBox.innerHTML = `<p class="error-text">${error?.message ?? error}</p>`;
     }
+  }
+
+  // ---- Tab: Riwayat & Dokumen ----
+
+  const rentang = monthRangeWIB();
+  const stateDok = { from: rentang.from, to: rentang.to };
+
+  /**
+   * Riwayat order & pengiriman outlet ini, disaring rentang tanggal.
+   *
+   * Bawaannya tanggal 1 bulan berjalan sampai hari ini — sama dengan modul
+   * laporan lain, dan menoleh KE BELAKANG karena yang ditelusuri di sini memang
+   * dokumen yang sudah terjadi.
+   */
+  async function renderDokumenTab(box) {
+    box.innerHTML = `
+      <div class="inline-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="field" style="margin:0;max-width:165px"><label>Dari tanggal</label>
+          <input type="date" id="dok-from" value="${stateDok.from}" /></div>
+        <div class="field" style="margin:0;max-width:165px"><label>Sampai tanggal</label>
+          <input type="date" id="dok-to" value="${stateDok.to}" /></div>
+      </div>
+      <p style="font-size:0.82rem;color:var(--color-text-muted);margin:10px 0 0">
+        Ketuk nomor dokumen untuk melihat isinya dan mengunduhnya (PDF / Excel).
+      </p>
+      <div id="dok-hasil"></div>
+    `;
+    const muat = async () => {
+      const hasil = box.querySelector('#dok-hasil');
+      hasil.innerHTML = loadingHtml('Memuat dokumen…', { baris: 5 });
+      const [orders, kiriman] = await Promise.all([
+        listMyOrders([state.outletId], { dateFrom: isoFrom(stateDok.from), dateTo: isoTo(stateDok.to) }).catch(() => []),
+        listMyDispatches([state.outletId], { dateFrom: isoFrom(stateDok.from), dateTo: isoTo(stateDok.to) }).catch(() => [])
+      ]);
+      hasil.innerHTML = `
+        <h3 style="font-size:0.95rem;margin:16px 0 6px">Order (${orders.length})</h3>
+        <div class="table-scroll"><table class="data-table table-freeze-1">
+          <thead><tr><th>No. Order</th><th>Ke</th><th>Waktu</th><th>Status</th></tr></thead>
+          <tbody>${
+            orders
+              .map(
+                (o) => `<tr>
+                  <td><button class="btn-dok" data-jenis="order" data-id="${o.id}"
+                    style="font-family:ui-monospace,Menlo,monospace;font-size:0.8rem">${esc(o.code ?? '(tanpa nomor)')}</button></td>
+                  <td>${esc(o.to_outlet?.name ?? '-')}</td>
+                  <td style="font-size:0.8rem">${fmtDateTime(o.created_at)}</td>
+                  <td><span class="badge ${ORDER_BADGE[o.status] ?? ''}">${ORDER_STATUS[o.status] ?? o.status}</span></td>
+                </tr>`
+              )
+              .join('') || '<tr><td colspan="4">Tidak ada order pada rentang ini.</td></tr>'
+          }</tbody>
+        </table></div>
+
+        <h3 style="font-size:0.95rem;margin:18px 0 6px">Pengiriman (${kiriman.length})</h3>
+        <div class="table-scroll"><table class="data-table table-freeze-1">
+          <thead><tr><th>No. Surat Jalan</th><th>Dari</th><th>Ke</th><th>Waktu</th><th>Status</th></tr></thead>
+          <tbody>${
+            kiriman
+              .map(
+                (d) => `<tr>
+                  <td><button class="btn-dok" data-jenis="dispatch" data-id="${d.id}"
+                    style="font-family:ui-monospace,Menlo,monospace;font-size:0.8rem">${esc(d.code ?? '(tanpa nomor)')}</button></td>
+                  <td>${esc(d.from_outlet?.name ?? '-')}</td>
+                  <td>${esc(d.to_outlet?.name ?? '-')}</td>
+                  <td style="font-size:0.8rem">${fmtDateTime(d.created_at)}</td>
+                  <td>${esc(DISPATCH_STATUS[d.status] ?? d.status)}${
+                    d.received_at ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">diterima ${fmtDateTime(d.received_at)}</div>` : ''
+                  }</td>
+                </tr>`
+              )
+              .join('') || '<tr><td colspan="5">Tidak ada pengiriman pada rentang ini.</td></tr>'
+          }</tbody>
+        </table></div>
+      `;
+      // Staff App: TANPA nilai rupiah. Surat jalan yang dipegang kurir tidak
+      // perlu memuat modal.
+      hasil.querySelectorAll('.btn-dok').forEach((btn) =>
+        btn.addEventListener(
+          'click',
+          sekaliJalan(() => bukaDokumen({ jenis: btn.dataset.jenis, id: btn.dataset.id, businessUnitId, denganNilai: false }))
+        )
+      );
+    };
+    box.querySelector('#dok-from').addEventListener('change', (e) => {
+      stateDok.from = e.target.value;
+      muat();
+    });
+    box.querySelector('#dok-to').addEventListener('change', (e) => {
+      stateDok.to = e.target.value;
+      muat();
+    });
+    await muat();
   }
 
   // ---- Tab: Order ke Central Kitchen (outlet non-CK) ----
@@ -175,7 +277,8 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                  ${myOrders
                    .map(
                      (o) => `<tr>
-                       <td>${esc(o.code ?? o.id.slice(0, 6))}</td>
+                       <td><button class="btn-dok-order" data-id="${o.id}" title="Lihat & unduh dokumen"
+                         style="font-family:ui-monospace,Menlo,monospace;font-size:0.8rem">${esc(o.code ?? o.id.slice(0, 6))}</button></td>
                        <td>${esc(o.to_outlet?.name ?? '-')}</td>
                        <td style="font-size:0.8rem">${fmtDateTime(o.created_at)}</td>
                        <td><span class="badge ${ORDER_BADGE[o.status] ?? ''}">${ORDER_STATUS[o.status] ?? o.status}</span>
@@ -200,6 +303,13 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           : ''
       }
     `;
+
+    box.querySelectorAll('.btn-dok-order').forEach((btn) =>
+      btn.addEventListener(
+        'click',
+        sekaliJalan(() => bukaDokumen({ jenis: 'order', id: btn.dataset.id, businessUnitId, denganNilai: false }))
+      )
+    );
 
     if (ckChoices.length) {
       const picker = createItemPicker(box.querySelector('#ord-picker'), {

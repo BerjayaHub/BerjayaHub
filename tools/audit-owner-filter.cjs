@@ -28,7 +28,9 @@ const path = require('path');
 
 // Fungsi yang memang BUKAN milik satu orang — sertakan alasannya.
 const PENGECUALIAN = {
-  listMyOrders: 'Order stok adalah dokumen OUTLET, di-scope lewat from_outlet_id — boleh dilihat seluruh staff outlet itu.'
+  listMyOrders: 'Order stok adalah dokumen OUTLET, di-scope lewat from_outlet_id — boleh dilihat seluruh staff outlet itu.',
+  listMyDispatches:
+    'Surat jalan adalah dokumen OUTLET, di-scope lewat from_outlet_id/to_outlet_id. Sengaja mencakup kiriman MASUK maupun KELUAR: pertanyaannya "dokumen nomor sekian ke mana", bukan "yang saya buat sendiri" — dan penerima memang harus bisa membuka dokumen yang dia tanda tangani.'
 };
 
 const ROOT = path.resolve(__dirname, '..', 'js');

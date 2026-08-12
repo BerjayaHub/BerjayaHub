@@ -5,6 +5,7 @@ import { listStockBalances, listMovements, MOVEMENT_LABEL, amISuperAdmin, getAll
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
 import { loadingHtml } from '../../core/loading.js';
+import { cocokNama } from '../../core/nama.js';
 
 const TABS = [
   { key: 'stock', label: 'Stok' },
@@ -67,16 +68,35 @@ async function renderOpnameSetting(el, businessUnitId) {
 
 async function renderStockTab(content, businessUnitId, outlets) {
   content.innerHTML = `
-    <div class="field" style="max-width:280px">
-      <label>Outlet</label>
-      <select id="stock-outlet"><option value="">Semua outlet (gabungan)</option>${outlets.map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('')}</select>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+      <div class="field" style="margin:0;max-width:280px">
+        <label>Outlet</label>
+        <select id="stock-outlet"><option value="">Semua outlet (gabungan)</option>${outlets.map((o) => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('')}</select>
+      </div>
+      <div class="field" style="margin:0;max-width:220px">
+        <label>Kategori</label>
+        <select id="stock-cat"><option value="">Semua</option></select>
+      </div>
+      <div class="field" style="margin:0;max-width:240px">
+        <label>Cari nama</label>
+        <input type="search" id="stock-q" placeholder="ketik nama bahan…" autocomplete="off" />
+      </div>
     </div>
     <div id="stock-result">${loadingHtml('Memuat…')}</div>
   `;
   const sel = content.querySelector('#stock-outlet');
+  // Penyaring nama & kategori dikerjakan di sisi tampilan; hanya pergantian
+  // OUTLET yang perlu memuat ulang dari server, karena itu yang mengubah
+  // angkanya. Menunggu jaringan untuk tiap huruf membuat pencarian terasa berat
+  // justru saat dipakai menelusuri daftar bahan yang panjang.
   sel.addEventListener('change', () => loadStock(content, businessUnitId, sel.value));
+  content.querySelector('#stock-cat').addEventListener('change', () => gambarStok(content));
+  content.querySelector('#stock-q').addEventListener('input', () => gambarStok(content));
   await loadStock(content, businessUnitId, '');
 }
+
+/** Baris stok terakhir yang dimuat — disaring ulang tanpa menyentuh jaringan. */
+let barisStok = [];
 
 async function loadStock(content, businessUnitId, outletId) {
   const result = content.querySelector('#stock-result');
@@ -104,10 +124,31 @@ async function loadStock(content, businessUnitId, outletId) {
     .filter((r) => r.p)
     .sort((a, b) => a.p.name.localeCompare(b.p.name));
 
-  const bodyHtml = rows
+  barisStok = rows.map((r) => ({ ...r, cost: costs.get(r.p.id) }));
+
+  // Pilihan kategori diisi dari data yang BENAR-BENAR ada stoknya, bukan dari
+  // seluruh master produk: kategori yang tidak pernah muncul di daftar hanya
+  // menghasilkan filter yang selalu kosong.
+  const catSel = content.querySelector('#stock-cat');
+  const kategori = [...new Set(barisStok.map((r) => r.p.category).filter(Boolean))].sort();
+  const terpilih = catSel.value;
+  catSel.innerHTML = `<option value="">Semua</option>${kategori.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}`;
+  catSel.value = kategori.includes(terpilih) ? terpilih : '';
+
+  gambarStok(content);
+}
+
+function gambarStok(content) {
+  const result = content.querySelector('#stock-result');
+  if (!result) return;
+  const q = content.querySelector('#stock-q')?.value ?? '';
+  const cat = content.querySelector('#stock-cat')?.value ?? '';
+  const tampil = barisStok.filter((r) => (!cat || r.p.category === cat) && cocokNama(`${r.p.name} ${r.p.category ?? ''}`, q));
+
+  let totalValue = 0;
+  const bodyHtml = tampil
     .map((r) => {
-      const cost = costs.get(r.p.id);
-      const value = cost != null ? cost * r.qty : null;
+      const value = r.cost != null ? r.cost * r.qty : null;
       if (value != null) totalValue += value;
       return `<tr>
         <td>${escapeHtml(r.p.name)}</td>
@@ -120,11 +161,16 @@ async function loadStock(content, businessUnitId, outletId) {
     .join('');
 
   result.innerHTML = `
-    <div class="table-scroll" style="margin-top:12px"><table class="data-table table-freeze-1">
+    <p style="font-size:0.82rem;color:var(--color-text-muted);margin:10px 0 6px">
+      ${tampil.length === barisStok.length ? `${barisStok.length} bahan` : `${tampil.length} dari ${barisStok.length} bahan`}
+    </p>
+    <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead><tr><th>Produk</th><th>Tipe</th><th>Stok</th><th>Satuan</th><th>Nilai (HPP)</th></tr></thead>
-      <tbody>${bodyHtml || '<tr><td colspan="5">Belum ada stok.</td></tr>'}</tbody>
+      <tbody>${bodyHtml || '<tr><td colspan="5">Tidak ada bahan pada filter ini.</td></tr>'}</tbody>
     </table></div>
-    <p style="margin-top:10px;font-weight:600">Total nilai stok: ${formatRupiah(totalValue)}</p>
+    <p style="margin-top:10px;font-weight:600">
+      Total nilai ${tampil.length === barisStok.length ? 'stok' : 'yang tampil'}: ${formatRupiah(totalValue)}
+    </p>
   `;
 }
 

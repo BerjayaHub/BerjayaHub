@@ -145,3 +145,17 @@ export function bacaAngka(v) {
   const n = Number(bersih);
   return Number.isFinite(n) ? n : null;
 }
+
+/**
+ * Apakah sebuah teks cocok dengan ketikan pencarian?
+ *
+ * Dibakukan di KEDUA sisi lebih dulu, supaya "gula pasir" tetap menemukan
+ * "Gula  Pasir" — kesalahan yang sama yang dulu membuat impor menolak bahan
+ * yang jelas ada. Semua kotak pencarian di aplikasi ini memakai fungsi ini,
+ * supaya tidak ada layar yang mencocokkan dengan cara berbeda dari layar lain.
+ */
+export function cocokNama(teks, ketikan) {
+  const q = bakukanNama(ketikan);
+  if (!q) return true;
+  return bakukanNama(teks).includes(q);
+}

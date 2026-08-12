@@ -1,8 +1,7 @@
-import { toast, infoDialog } from '../../core/ui.js';
-import { formatNum } from '../../core/format.js';
-import { listDispatchesAdmin, getDispatchItems, DISPATCH_STATUS } from './dispatch.service.js';
+import { listDispatchesAdmin, DISPATCH_STATUS } from './dispatch.service.js';
+import { bukaDokumen } from './dokumen-ui.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
-import { loadingHtml } from '../../core/loading.js';
 
 const STATUS_BADGE = { sent: 'badge-pending', received: 'badge-approved', cancelled: 'badge-cancelled' };
 
@@ -45,40 +44,34 @@ async function load(container, businessUnitId) {
   }
   result.innerHTML = `
     <table class="data-table" style="margin-top:16px">
-      <thead><tr><th>Waktu</th><th>Dari</th><th>Ke</th><th>Status</th><th>Pengirim</th><th>Penerima</th><th></th></tr></thead>
+      <thead><tr><th>No. Surat Jalan</th><th>Waktu</th><th>Dari</th><th>Ke</th><th>Status</th><th>Pengirim</th><th>Penerima</th></tr></thead>
       <tbody>
         ${rows
           .map(
             (d) => `<tr>
+              <td>
+                <button class="btn-dp-detail" data-id="${d.id}" title="Lihat & unduh dokumen"
+                  style="font-family:ui-monospace,Menlo,monospace;font-size:0.8rem">${esc(d.code ?? '(tanpa nomor)')}</button>
+              </td>
               <td style="font-size:0.8rem">${fmtDateTime(d.created_at)}</td>
               <td>${esc(d.from_outlet?.name ?? '-')}</td>
               <td>${esc(d.to_outlet?.name ?? '-')}</td>
               <td><span class="badge ${STATUS_BADGE[d.status] ?? ''}">${DISPATCH_STATUS[d.status] ?? d.status}</span></td>
               <td>${esc(d.sender?.full_name ?? '-')}</td>
               <td>${esc(d.receiver?.full_name ?? '-')}</td>
-              <td><button class="btn-dp-detail" data-id="${d.id}">Detail</button></td>
             </tr>`
           )
           .join('') || '<tr><td colspan="7">Tidak ada data.</td></tr>'}
       </tbody>
     </table>
   `;
+  // Nomor dokumen bisa diketuk -> dialog rincian + unduh PDF/xlsx.
+  // Versi Admin BERNILAI: rekap yang dibaca admin butuh angka modalnya.
   result.querySelectorAll('.btn-dp-detail').forEach((btn) =>
-    btn.addEventListener('click', async () => {
-      try {
-        const items = await getDispatchItems(btn.dataset.id);
-        const body = `
-          <table class="data-table"><thead><tr><th>Produk</th><th>Dikirim</th><th>Diterima</th></tr></thead>
-          <tbody>${items
-            .map(
-              (it) => `<tr><td>${esc(it.products?.name ?? '-')}</td><td>${formatNum(it.sent_qty)} ${esc(it.products?.base_unit ?? '')}</td><td>${it.received_qty == null ? '-' : formatNum(it.received_qty) + ' ' + esc(it.products?.base_unit ?? '')}</td></tr>`
-            )
-            .join('')}</tbody></table>`;
-        await infoDialog({ title: 'Detail Pengiriman', bodyHtml: body });
-      } catch (error) {
-        toast(error.message ?? 'Gagal memuat detail.', 'error');
-      }
-    })
+    btn.addEventListener(
+      'click',
+      sekaliJalan(() => bukaDokumen({ jenis: 'dispatch', id: btn.dataset.id, businessUnitId, denganNilai: true }))
+    )
   );
 }
 

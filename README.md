@@ -2363,6 +2363,53 @@ Hasilnya dilaporkan terpisah — "**5 dilengkapi**" berdiri sendiri dari "ditamb
 
 Dikunci `node tools/test-impor-ulang.mjs` (21 kasus). Satu perbandingan di sana (`samaAngka`) awalnya **tidak terbukti perlu** — kasusnya sudah tertangkap perbandingan teks. Baru setelah ditambah kasus `25000` vs `"25000.00"` — bentuk yang gemar dipakai Excel — ia benar-benar dijaga.
 
+## Regresi kedua dari perbaikan navigasi: Admin Portal melompat ke Staff App
+
+Dilaporkan: *"di Admin Portal, klik salah satu modul malah melempar saya ke Staff App."* Ini akibat langsung dari perbaikan **"tombol 🏠 meninggalkan entri history basi"** di sesi ini.
+
+`bersihkanLapis()` diberi kemampuan memundurkan history, dan ia memanggil `history.back()` **sekali per lapis**. Masalahnya, `history.back()` **asinkron**: beberapa panggilan beruntun baru diproses SETELAH `pushState` yang menyusul di baris berikutnya. Di `openModule()` Admin Portal urutannya persis begitu — `bersihkanLapis()` lalu `dorongLapis()`. Hitungan posisinya meleset satu ke bawah, history mundur melewati entri pertama aplikasi, dan **entri sebelum itu adalah halaman sebelumnya: Staff App.**
+
+Dua perbaikan, dan hanya satu yang benar-benar terbukti:
+
+- **`history.go(-n)` sekali jalan**, bukan `back()` n kali. Ini yang menyelamatkan; mencabutnya membuat tes merah.
+- **Penghitung `entriKita`** — tidak pernah memundurkan lebih jauh daripada yang kita dorong sendiri. Ini tidak membuat tes merah saat dicabut, karena jumlah langkahnya sudah dibatasi jumlah lapis. Dipertahankan untuk keadaan yang tidak terjadi di tes: `pushState` yang ditolak browser membuat jumlah lapis dan jumlah entri berselisih. Ditulis apa adanya di komentarnya.
+
+### Tiruan history-nya sendiri yang menyembunyikan bug ini
+
+Ini bagian yang paling perlu dicatat. `test-navigasi-popstate.mjs` sudah ada sejak perbaikan Back sebelumnya, dan tetap **hijau** saat bug ini lolos ke user. Sebabnya: tiruan `history.back()` di dalamnya memindahkan posisi **seketika**, sementara browser hanya mengantrekannya. Urutan `back()` → `pushState` — justru urutan yang melahirkan bug — tidak pernah bisa terjadi di tiruan itu.
+
+Tiruannya kini asinkron seperti aslinya, dan `go(-n)` ditiru **termasuk sisi berbahayanya**: melewati entri pertama berarti meninggalkan halaman. Sesudah itu barulah sabotase "kembali ke `back()` beruntun" membuat tes merah.
+
+Pelajarannya bukan "tesnya kurang" — tesnya ada dan dijalankan. Yang kurang adalah **kesetiaan tiruannya pada perilaku yang jadi sumber masalah.** Tiruan yang lebih rapi daripada kenyataan akan selalu menyembunyikan kelas bug yang justru paling sulit dilihat dengan membaca kode.
+
+54 kasus sekarang, termasuk fixture "pindah menu saat sub-halaman/dialog masih terbuka" — bentuk terparahnya, dan yang paling mungkin dialami di layar lebar.
+
+## Dokumen pengiriman: nomor bisa diketuk, isinya bisa diunduh
+
+Diminta untuk penelusuran: tiap **nomor order** dan **nomor surat jalan** bisa diketuk untuk melihat isinya, dan diunduh sebagai **PDF** atau **xlsx**.
+
+Satu hal ketahuan saat mengerjakannya: **`listDispatchesAdmin()` tidak pernah membaca kolom `code`.** Jadi nomor surat jalan — satu-satunya pegangan untuk menelusuri sebuah kiriman — memang tidak pernah muncul di layar admin sama sekali. Yang ada hanya tombol "Detail" tanpa identitas.
+
+Sekarang nomornya jadi kolom pertama dan bisa diketuk, di kedua sisi. Staff App dapat tab baru **📄 Riwayat & Dokumen** (untuk outlet biasa maupun CK), berisi riwayat order dan pengiriman dalam rentang tanggal — bawaannya **tanggal 1 bulan berjalan sampai hari ini**, menoleh ke belakang karena yang ditelusuri memang dokumen yang sudah terjadi.
+
+### Satu penyusun, tiga keluaran
+
+`js/modules/dispatch/dokumen.js` menyusun isi dokumen sekali, lalu dipakai layar, PDF, dan xlsx. Kalau ketiganya menyusun barisnya sendiri, cepat atau lambat menyimpang — dan yang paling mungkin menyimpang justru kolom jumlah. **Dokumen serah-terima yang angkanya berbeda antara layar dan kertas tidak bisa dipakai menyelesaikan perselisihan, padahal itu satu-satunya alasan dokumen itu ada.**
+
+Tiga keputusan di dalamnya:
+
+- **Kolom "Diterima" tetap ada meski belum diterima, dan dibiarkan kosong.** Kekosongannya sendiri adalah informasi: dokumen yang dicetak saat barang berangkat memang punya kolom yang belum terisi, dan itulah yang ditandatangani penerima.
+- **Selisih hanya dihitung setelah barangnya diterima.** Menampilkan "-1000" untuk kiriman yang masih di jalan akan terbaca sebagai barang hilang — tuduhan yang tidak dimaksudkan siapa pun.
+- **Bahan tanpa HPP ditandai "-", tidak dihitung nol.** Nol membuat total terlihat sah padahal ada yang belum berbiaya.
+
+Kolom nilai ditandai `numeric` supaya `exportTableXLSX` mengembalikannya jadi angka mentah — tanpa itu Excel menganggap "Rp 1.500.000" sebagai teks dan `SUM`-nya nol, gagal yang tidak terlihat karena selnya tetap tampil rapi.
+
+### Nilai rupiah: Admin ya, Staff tidak — dan itu bukan pengaman
+
+Surat jalan yang dipegang kurir tidak memuat modal; rekap yang dibaca admin memuatnya. Tapi ini perlu ditulis apa adanya: **`products_select` membuka harga beli untuk semua anggota BU**, jadi staff tetap bisa melihat HPP lewat layar lain. Yang diatur di sini adalah apa yang ikut **beredar** di kertas dan WhatsApp — bukan apa yang bisa dilihat. Kalau suatu saat HPP memang harus tertutup bagi staff, itu perubahan RLS tersendiri, dengan konsekuensinya sendiri.
+
+Dikunci `node tools/test-dokumen-kiriman.mjs` (24 kasus). `listMyDispatches` sengaja mencakup kiriman **masuk maupun keluar** — pertanyaannya "dokumen nomor sekian ke mana", bukan "yang saya buat sendiri", dan penerima memang harus bisa membuka dokumen yang dia tanda tangani. Alasan itu ditulis di pengecualian `audit-owner-filter.cjs`, bukan dengan melonggarkan auditnya.
+
 ## Kembali dari aplikasi lain: pulihkan tempatnya, bukan cuma modulnya
 
 Aplikasi ini halaman web. Saat orangnya membuka Excel, WhatsApp, atau kamera, Android/iOS boleh **membuang halaman ini dari memori** kalau RAM sedang sempit; begitu kembali, halamannya dimuat ulang dari nol. Tidak ada yang bisa mencegahnya dari sisi kode — yang bisa diperbaiki adalah seberapa banyak yang hilang.

@@ -382,6 +382,16 @@ select net.http_post(
   sekarang. Tidak ada migration.
 - **Kembali dari aplikasi lain** → posisi gulir & sub-layar terakhir dipulihkan
   (berlaku 30 menit). Sebelumnya hanya modulnya. Tidak ada migration.
+- **Pengiriman** → **nomor dokumen bisa diketuk** di kedua sisi: dialog berisi
+  daftar barang + tombol unduh **PDF** dan **Excel**. Staff App dapat tab baru
+  **📄 Riwayat & Dokumen** (rentang tanggal, bawaan tanggal 1 s/d hari ini).
+  Unduhan Admin memuat **nilai (HPP × jumlah)**; unduhan Staff App tidak.
+  ⚠️ Nomor surat jalan sebelumnya **tidak pernah tampil** di layar admin —
+  `listDispatchesAdmin()` tidak membaca kolomnya. Sekarang jadi kolom pertama.
+  Tidak ada migration.
+- **Inventory → Stok** (staff & admin) → ada **filter kategori + cari nama**.
+- 🔴 **Admin Portal: klik modul melompat ke Staff App** — regresi dari perbaikan
+  navigasi sebelumnya, **sudah diperbaiki**. Push kode terbaru. Tidak ada migration.
 - ⚠️ **Tombol Back / navigasi (seluruh aplikasi)** → empat perbaikan sekaligus:
   selesai mengisi form **tidak lagi melompat ke Beranda**; pop-up "lanjutkan
   mengisi" **tidak lagi muncul berulang**; layar yang menggambar ulang dirinya
