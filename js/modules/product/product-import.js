@@ -1,6 +1,7 @@
 import { listProducts, createProduct, updateProduct, listRecipesFull, saveRecipe, listUnits, createUnit } from './product.service.js';
 import { bakukanNama, palingMirip, bacaAngka } from '../../core/nama.js';
 import { rencanaLengkapi } from './import-merge.js';
+import { curigaHargaTertukar } from './harga-curiga.js';
 
 // ---- Loader SheetJS (dari CDN, dipakai untuk baca .xlsx/.csv) ----
 let xlsxPromise = null;
@@ -45,6 +46,17 @@ const TYPE_MAP = {
   finished: 'finished'
 };
 
+/**
+ * Kolom harga beli — menerima judul lama DAN yang baru.
+ *
+ * Judulnya diperjelas jadi "Harga Beli (per Satuan Beli)" karena "Harga Beli"
+ * saja bisa dibaca dua arah, dan salah baca di kolom ini tidak menimbulkan
+ * error apa pun — cuma HPP yang salah diam-diam. Tapi file lama yang sudah
+ * beredar di WhatsApp tetap harus bisa dipakai: memaksa orang mengunduh
+ * template baru untuk mengimpor data yang sudah benar bukan perbaikan.
+ */
+const hargaBeli = (r) => r['harga beli (per satuan beli)'] ?? r['harga beli'];
+
 export async function importProducts(businessUnitId, file) {
   const rows = await readRows(file);
   const existing = await listProducts(businessUnitId);
@@ -66,6 +78,7 @@ export async function importProducts(businessUnitId, file) {
   let dilengkapi = 0;
   const errors = [];
   const catatan = [];
+  const peringatan = [];
   let barisKosong = 0;
 
   for (const [i, raw] of rows.entries()) {
@@ -95,7 +108,7 @@ export async function importProducts(businessUnitId, file) {
         subcategory: String(r['sub kategori'] ?? r['subkategori'] ?? '').trim(),
         purchase_unit: String(r['satuan beli'] ?? '').trim(),
         purchase_qty: num(r['isi per satuan beli']),
-        purchase_price: num(r['harga beli']),
+        purchase_price: num(hargaBeli(r)),
         sale_price: num(r['harga jual']),
         product_type: type,
         base_unit: baseUnit
@@ -110,6 +123,8 @@ export async function importProducts(businessUnitId, file) {
           await updateProduct(sudahAda.id, { ...sudahAda, ...patch });
           dilengkapi++;
           catatan.push(`${name}: ${terisi.join(', ')} dilengkapi`);
+          const curigaLengkap = curigaHargaTertukar({ ...sudahAda, ...patch });
+          if (curigaLengkap) peringatan.push(`Baris ${noBaris} — ${curigaLengkap}`);
         } catch (e) {
           errors.push(`Baris ${i + 2} — ${name}: gagal melengkapi — ${e.message ?? e}`);
         }
@@ -145,11 +160,22 @@ export async function importProducts(businessUnitId, file) {
         base_unit: baseUnit,
         purchase_unit: type === 'raw' ? String(r['satuan beli'] ?? '').trim() || null : null,
         purchase_qty: type === 'raw' ? num(r['isi per satuan beli']) : null,
-        purchase_price: type === 'raw' ? num(r['harga beli']) : null,
+        purchase_price: type === 'raw' ? num(hargaBeli(r)) : null,
         sale_price: type === 'finished' ? num(r['harga jual']) : null
       });
       byName.set(bakukanNama(name), { id: null, name, product_type: type, base_unit: baseUnit });
       added++;
+      // Diperiksa SESUDAH tersimpan, dan hasilnya peringatan — bukan penolakan.
+      // Tidak ada rumus yang bisa memastikan angka mana yang dimaksud orangnya.
+      const curiga = curigaHargaTertukar({
+        name,
+        product_type: type,
+        base_unit: baseUnit,
+        purchase_unit: String(r['satuan beli'] ?? '').trim(),
+        purchase_qty: num(r['isi per satuan beli']),
+        purchase_price: num(hargaBeli(r))
+      });
+      if (curiga) peringatan.push(`Baris ${noBaris} — ${curiga}`);
     } catch (e) {
       errors.push(`Baris ${noBaris} — ${name}: ${e.message ?? e}`);
     }
@@ -157,7 +183,7 @@ export async function importProducts(businessUnitId, file) {
   if (barisKosong) {
     errors.push(`${barisKosong} baris dilewati karena kolom "Nama" kosong (sel tergabung, baris judul, atau baris sisa di bawah tabel)`);
   }
-  return { added, skipped, dilengkapi, catatan, errors, satuanBaru };
+  return { added, skipped, dilengkapi, catatan, errors, peringatan, satuanBaru };
 }
 
 /**
@@ -369,7 +395,7 @@ function downloadCsv(filename, content) {
 export function downloadProductTemplate() {
   downloadCsv(
     'template-produk.csv',
-    'Nama,Tipe,Kategori,Sub Kategori,Satuan Pakai,Satuan Beli,Isi per Satuan Beli,Harga Beli,Harga Jual\n' +
+    'Nama,Tipe,Kategori,Sub Kategori,Satuan Pakai,Satuan Beli,Isi per Satuan Beli,Harga Beli (per Satuan Beli),Harga Jual\n' +
       'Gula,Bahan Baku,Bahan Kering,,gram,karung,25000,150000,\n' +
       'Sirup Gula,Setengah Jadi,,,ml,,,,\n' +
       'Es Kopi Susu,Menu,Minuman,Kopi,gelas,,,,18000\n'
@@ -390,7 +416,7 @@ export function downloadProductTemplate() {
 export function downloadMenuTemplate() {
   downloadCsv(
     'template-menu.csv',
-    'Nama,Tipe,Kategori,Sub Kategori,Satuan Pakai,Satuan Beli,Isi per Satuan Beli,Harga Beli,Harga Jual\n' +
+    'Nama,Tipe,Kategori,Sub Kategori,Satuan Pakai,Satuan Beli,Isi per Satuan Beli,Harga Beli (per Satuan Beli),Harga Jual\n' +
       'Es Kopi Susu,Menu,Minuman,Kopi,gelas,,,,18000\n' +
       'Lemon Tea,Menu,Minuman,Teh,gelas,,,,15000\n' +
       'Cheesy Fries,Menu,Makanan,Snack,porsi,,,,25000\n'

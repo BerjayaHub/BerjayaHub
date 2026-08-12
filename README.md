@@ -2433,6 +2433,36 @@ Tiga hal yang dijaga:
 
 Aturannya di `js/modules/product/varian-pindah.js` (murni). Dikunci `node tools/test-hpp-sebab.mjs` (30 kasus). Lima sabotase dicoba dan **semuanya merah**: berhenti di sebab pertama, jalur "dipakai …" dihapus, pesan dua kolom yang berbeda disamakan, tabrakan varian dibiarkan lolos, dan menu diizinkan pindah ke Produksi.
 
+## "Harga Beli" itu per satuan beli — dan kolom yang bisa dibaca dua arah
+
+Rumusnya `HPP per satuan pakai = Harga Beli ÷ Isi per Satuan Beli`. Jadi **Harga Beli = harga SATU satuan beli**: harga sekarung, bukan harga segram.
+
+| Kolom | Gula |
+|---|---|
+| Satuan pakai | gram |
+| Satuan beli | karung |
+| Isi per satuan beli | 25000 |
+| Harga beli | 250.000 |
+
+→ HPP = Rp 10/gram.
+
+Form isiannya sudah menyebut "Harga beli / satuan beli", tapi **kolom di template impor cuma bertuliskan "Harga Beli"** — dan itu bisa dibaca dua arah. Kalau terbaca salah, tidak ada yang menolak dan tidak ada yang merah: impornya sukses, tabelnya rapi, HPP-nya Rp 0,0004/gram, semua menu terlihat untung hampir 100%, dan harga jual ditetapkan di atas angka itu. Salah yang tidak menimbulkan gejala adalah yang paling mahal, karena ia baru ketahuan setelah keputusan diambil di atasnya.
+
+Tiga perubahan:
+
+- **Judul kolomnya jadi "Harga Beli (per Satuan Beli)"**, dan pembacanya menerima **kedua ejaan**. File lama yang sudah beredar di WhatsApp tetap jalan — memaksa orang mengunduh template baru untuk mengimpor data yang sudah benar bukan perbaikan.
+- **Peringatan setelah impor**, terpisah dari daftar merah dan diberi warna sendiri. Datanya tetap tersimpan: ini dugaan, bukan aturan. Tidak ada rumus yang bisa memastikan angka mana yang dimaksud orangnya, dan impor yang menolak data yang sebenarnya benar akan lebih cepat membuat orang berhenti memakainya daripada salah hitung yang sesekali lolos.
+- **Badge ⚠ "cek satuan" di tabel Produk**, karena peringatan yang cuma muncul sekali saat impor tidak menolong siapa pun yang datanya sudah telanjur salah — dan justru itu yang sudah ada di database sekarang.
+
+Dua pola yang ditandai (`js/modules/product/harga-curiga.js`, murni):
+
+1. **HPP hasilnya di bawah Rp 1 per satuan pakai.** Ambangnya Rp 1 bukan karena mustahil, tapi karena setara Rp 1.000/kg — di bawah harga air kemasan. Tidak ada bahan dapur di situ.
+2. **Satuan beli berbeda dari satuan pakai tapi isinya cuma 1.** "1 karung = 1 gram" tidak berarti apa-apa; ini arah salah yang berlawanan dan tidak tertangkap aturan pertama karena hasil baginya justru besar.
+
+Dikunci `node tools/test-harga-curiga.mjs` (26 kasus). Yang paling ditekankan di tesnya bukan "yang salah ketangkap", tapi **"yang benar tidak ikut ditandai"** — peringatan yang muncul di data normal akan diabaikan dalam seminggu, dan setelah itu ia tidak menjaga apa pun. Karena itu ada kasus "Pcs" vs "pcs " yang harus tetap diam.
+
+Satu catatan jujur soal tesnya: fixture setengah-jadi/menu versi pertama memakai angka yang **kebetulan wajar**, jadi saringan tipe produknya hijau tanpa pernah diuji. Ketahuan saat sabotase kelima tetap lolos. Fixture-nya diganti dengan angka yang pasti memicu kedua aturan, dan sekarang kelima sabotase merah.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

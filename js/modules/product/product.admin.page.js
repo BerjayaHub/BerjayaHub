@@ -4,6 +4,7 @@ import { sayaAdminBu } from '../../core/base-scope.js';
 import { bakukanNama } from '../../core/nama.js';
 import { pemakaiResep } from './recipe-graph.js';
 import { periksaPindah, pasanganVarian } from './varian-pindah.js';
+import { curigaHargaTertukar } from './harga-curiga.js';
 import { importProducts, importRecipes, downloadProductTemplate, downloadRecipeTemplate } from './product-import.js';
 import { openRecipeEditor, MODE_LABEL, modesForType } from './recipe-editor.js';
 import {
@@ -187,9 +188,15 @@ async function konfirmasiHapusResep({ produk, mode, products, recipes, label }) 
 }
 
 function productRowHtml(p, cost) {
+  // Tanda ini juga menjaring produk yang MASUK SEBELUM peringatan impor ada.
+  // Peringatan yang cuma muncul sekali saat impor tidak menolong siapa pun yang
+  // datanya sudah telanjur salah — dan justru itu yang sudah ada di database.
+  const curiga = curigaHargaTertukar(p);
   const beli =
     p.product_type === 'raw' && p.purchase_price != null
-      ? `${formatRupiah(p.purchase_price)} / ${escapeHtml(p.purchase_unit ?? p.base_unit)}${p.purchase_qty ? ` <span style="color:var(--color-text-muted)">(${p.purchase_qty} ${escapeHtml(p.base_unit)})</span>` : ''}`
+      ? `${formatRupiah(p.purchase_price)} / ${escapeHtml(p.purchase_unit ?? p.base_unit)}${p.purchase_qty ? ` <span style="color:var(--color-text-muted)">(${p.purchase_qty} ${escapeHtml(p.base_unit)})</span>` : ''}${
+          curiga ? ` <span class="badge badge-pending" title="${escapeHtml(curiga)}" style="cursor:help">⚠ cek satuan</span>` : ''
+        }`
       : '-';
   const hpp = cost != null ? `${formatRupiah(cost)} <span style="color:var(--color-text-muted)">/${escapeHtml(p.base_unit)}</span>` : '<span style="color:var(--color-text-muted)">-</span>';
   const jual = p.product_type === 'finished' && p.sale_price != null ? formatRupiah(p.sale_price) : '-';
@@ -257,7 +264,15 @@ async function openProductDialog(content, businessUnitId, existing) {
       { name: 'base_unit', label: 'Satuan pakai (di resep/stok)', type: 'select', required: true, value: existing?.base_unit ?? '', options: [{ value: '', label: '-- pilih satuan --' }, ...unitOptions] },
       { name: 'purchase_unit', label: 'Satuan beli', type: 'select', value: existing?.purchase_unit ?? '', options: [{ value: '', label: '-- pilih satuan --' }, ...unitOptions] },
       { name: 'purchase_qty', label: 'Isi per satuan beli (dalam satuan pakai)', type: 'number', min: 0, value: existing?.purchase_qty ?? '', placeholder: 'mis. 25000' },
-      { name: 'purchase_price', label: 'Harga beli / satuan beli', type: 'money', value: existing?.purchase_price ?? '' },
+      {
+        name: 'purchase_price',
+        label: 'Harga beli / satuan beli',
+        type: 'money',
+        value: existing?.purchase_price ?? '',
+        // Contohnya konkret karena label saja terbukti bisa dibaca dua arah,
+        // dan salah baca di sini tidak menimbulkan gejala apa pun.
+        help: 'Harga SATU satuan beli — mis. harga sekarung gula 25 kg = 250.000, bukan harga per gram.'
+      },
       { name: 'sale_price', label: 'Harga jual', type: 'money', value: existing?.sale_price ?? '' },
       ...(isEdit ? [{ name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing.is_active }] : [])
     ],
@@ -604,11 +619,26 @@ async function openImport(content, businessUnitId, kind, refresh) {
           .map((c) => `<li>${escapeHtml(c)}</li>`)
           .join('')}</ul>`
       : '';
+    // Peringatan harga terbalik BUKAN error — datanya tersimpan dan mungkin
+    // memang benar. Tapi ia ditaruh SEBELUM daftar merah dan diberi warna
+    // sendiri, karena inilah satu-satunya kesalahan di jalur ini yang tidak
+    // menimbulkan gejala apa pun: impornya sukses, angkanya jalan, dan HPP-nya
+    // salah ratusan kali lipat sampai ada yang curiga berbulan-bulan kemudian.
+    const peringatanHtml = res.peringatan?.length
+      ? `<div style="margin-top:10px;background:var(--color-warning-bg,#fff8e1);border-left:3px solid var(--color-warning,#e6a700);padding:8px 10px">
+           <strong>Periksa lagi ${res.peringatan.length} harga beli.</strong>
+           Kolom "Harga Beli" diisi harga <em>satu satuan beli</em> (harga sekarung), bukan harga per satuan pakai.
+           Datanya tetap tersimpan — perbaiki lewat tombol Ubah kalau memang keliru.
+           <ul style="margin:6px 0 0 16px;padding:0;max-height:180px;overflow:auto;font-size:0.85rem">${res.peringatan
+             .map((w) => `<li>${escapeHtml(w)}</li>`)
+             .join('')}</ul>
+         </div>`
+      : '';
     await infoDialog({
       title: 'Hasil Import',
       bodyHtml:
         `<p><strong>${res.added}</strong> ditambahkan, <strong>${res.skipped}</strong> dilewati (tidak ada yang perlu diubah).</p>` +
-        `${lengkapHtml}${satuanHtml}${errHtml}`
+        `${lengkapHtml}${satuanHtml}${peringatanHtml}${errHtml}`
     });
     await refresh();
   } catch (error) {
