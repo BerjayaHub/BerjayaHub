@@ -1,12 +1,13 @@
 import { toast, confirmDialog } from '../../core/ui.js';
 import { formatRupiah, formatNum, formatThousands, parseNumber, attachThousandsInput } from '../../core/format.js';
-import { listProducts, listRecipesFull, costForMode, updateSalePrice, updateProductCategory, deleteRecipe } from '../product/product.service.js';
+import { listProducts, listRecipesFull, costForMode, sebabHppKosong, pindahVarianResep, updateSalePrice, updateProductCategory, deleteRecipe } from '../product/product.service.js';
 import { openRecipeEditor, MODE_LABEL } from '../product/recipe-editor.js';
 import { downloadMenuTemplate } from '../product/product-import.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { sayaAdminBu } from '../../core/base-scope.js';
 import { bakukanNama } from '../../core/nama.js';
 import { pemakaiResep } from '../product/recipe-graph.js';
+import { periksaPindah, pasanganVarian } from '../product/varian-pindah.js';
 
 const MENU_MODES = ['standalone', 'served_by_ck'];
 
@@ -191,13 +192,30 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
              Hasil/yield: <strong>${formatNum(r.yield_qty)} ${esc(menu.base_unit)}</strong>
            </p>`
         : `<p style="font-size:0.85rem;color:var(--color-text-muted);margin:6px 0 8px">Varian ini belum punya resep.</p>`;
+      // Sebab HPP kosong ditulis di tempat orang mencarinya. Kolom HPP di tabel
+      // cuma bisa menampilkan "-", dan tanda hubung tidak memberi tahu siapa pun
+      // bahan mana yang harganya belum diisi.
+      const sebab = r && costForMode(products, recipes, menuId, mode) == null ? sebabHppKosong(products, recipes, menuId, mode) : [];
+      const catatanHpp = sebab.length
+        ? `<div style="font-size:0.78rem;background:var(--color-warning-bg,#fff8e1);border-left:3px solid var(--color-warning,#e6a700);padding:6px 8px;margin:0 0 8px;max-width:420px">
+             <strong>HPP belum bisa dihitung.</strong> Bukan karena stok — stok tidak ikut menentukan HPP.
+             <ul style="margin:4px 0 0 16px;padding:0">${sebab.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+           </div>`
+        : '';
+      const tujuan = pasanganVarian('finished', mode);
+      const bolehPindah =
+        tujuan && periksaPindah({ productType: 'finished', dari: mode, ke: tujuan, adaDari: !!r, adaKe: resepPer.has(`${menuId}|${tujuan}`) }).boleh;
       return `<div style="padding:10px 4px;border-top:1px solid var(--color-border,#e5e5e5)">
           <div style="font-weight:600;margin-bottom:2px">${MODE_LABEL[mode]}</div>
           ${isi}
+          ${catatanHpp}
           ${
             bolehUbah
               ? `<button class="mn-edit-recipe" data-id="${menuId}" data-mode="${mode}">${r ? '✎ Ubah resep' : '+ Isi resep'}</button>` +
-                (r ? ` <button class="mn-del-recipe" data-id="${menuId}" data-mode="${mode}">🗑 Hapus resep</button>` : '')
+                (r ? ` <button class="mn-del-recipe" data-id="${menuId}" data-mode="${mode}">🗑 Hapus resep</button>` : '') +
+                (bolehPindah
+                  ? ` <button class="mn-pindah-recipe" data-id="${menuId}" data-mode="${mode}" data-ke="${tujuan}">⇄ Pindahkan ke ${MODE_LABEL[tujuan]}</button>`
+                  : '')
               : ''
           }
         </div>`;
@@ -206,6 +224,32 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
     // Menu punya DUA varian yang berdiri sendiri: menghapus "Standalone" tidak
     // menyentuh "Dilayani CK". Keduanya menjawab cara produksi yang berbeda dan
     // dipakai outlet yang berbeda.
+    sel.querySelectorAll('.mn-pindah-recipe').forEach((btn) =>
+      btn.addEventListener(
+        'click',
+        sekaliJalan(async (e) => {
+          e.stopPropagation();
+          const { id, mode: dari, ke } = btn.dataset;
+          const produk = namaProduk.get(id);
+          const ok = await confirmDialog({
+            title: 'Pindahkan resep',
+            message: `Resep <strong>${esc(produk.name)}</strong> dipindahkan dari <strong>${MODE_LABEL[dari]}</strong> ke <strong>${MODE_LABEL[ke]}</strong>.<br /><br />Bahan dan hasil/yield-nya ikut pindah apa adanya — tidak ada yang dihapus. Setelah ini varian ${MODE_LABEL[dari]} menjadi kosong.`,
+            confirmText: 'Pindahkan'
+          });
+          if (!ok) return;
+          try {
+            await pindahVarianResep(id, dari, ke);
+            toast(`Resep pindah ke ${MODE_LABEL[ke]}.`, 'success');
+            recipes = await listRecipesFull(businessUnitId);
+            resepPer = new Map(recipes.map((x) => [`${x.product_id}|${x.mode}`, x]));
+            renderTable();
+          } catch (error) {
+            toast(error.message ?? 'Gagal memindahkan resep.', 'error');
+          }
+        })
+      )
+    );
+
     sel.querySelectorAll('.mn-del-recipe').forEach((btn) =>
       btn.addEventListener(
         'click',

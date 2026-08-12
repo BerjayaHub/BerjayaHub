@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+export { computeCosts, costForMode, sebabHppKosong } from './hpp.js';
 
 export const PRODUCT_TYPES = [
   { value: 'raw', label: 'Bahan Baku' },
@@ -225,6 +226,35 @@ export async function deleteRecipe(productId, mode) {
   }
 }
 
+/**
+ * Pindahkan satu resep ke varian lain (Standalone ⇄ Dilayani CK).
+ *
+ * Isi resepnya tidak disentuh sama sekali — yang berubah cuma `mode`, jadi
+ * `recipe_items` ikut pindah tanpa perlu disalin. Menyalin lalu menghapus akan
+ * membuka celah kehilangan data kalau langkah keduanya gagal.
+ *
+ * `.eq('mode', dari)` bukan sekadar penyaring: ia yang membuat operasi ini aman
+ * dijalankan dua kali. Panggilan kedua tidak menemukan baris dan berhenti dengan
+ * pesan, bukan diam-diam memindahkan resep tujuan ke tempat lain.
+ */
+export async function pindahVarianResep(productId, dari, ke) {
+  const { data, error } = await supabase
+    .from('recipes')
+    .update({ mode: ke })
+    .eq('product_id', productId)
+    .eq('mode', dari)
+    .select('id');
+  if (error) {
+    // 23505 = unique_violation di `recipes_product_mode_uk`. UI sudah mencegat
+    // ini lewat periksaPindah(), tapi dua tab yang terbuka bersamaan bisa lolos.
+    if (error.code === '23505') {
+      throw new Error('Varian tujuan sudah punya resep. Muat ulang halaman — mungkin baru saja dibuat di tempat lain.');
+    }
+    throw error;
+  }
+  if (!data?.length) throw new Error(PESAN_BUKAN_ADMIN_BU);
+}
+
 /** Semua resep (semua mode) + itemnya di sebuah BU, untuk hitung HPP berjenjang. */
 export async function listRecipesFull(businessUnitId) {
   const { data: recipes, error } = await supabase
@@ -248,74 +278,3 @@ export async function listRecipesFull(businessUnitId) {
   return [...byRecipe.values()];
 }
 
-/**
- * Hitung biaya (HPP) per satuan-pakai tiap produk.
- *   raw      -> purchase_price / purchase_qty
- *   semi/jadi-> Σ(qty item × biaya bahan) / yield_qty
- * Rekursif dengan memo + penjaga siklus (siklus dianggap biaya 0).
- * Return Map<productId, number|null> (null = belum bisa dihitung / belum ada resep).
- */
-function buildCostFn(products, recipes) {
-  const productById = new Map(products.map((p) => [p.id, p]));
-  const recipeByKey = new Map(recipes.map((r) => [`${r.product_id}|${r.mode}`, r]));
-  const memo = new Map();
-  const visiting = new Set();
-
-  // mode hanya relevan untuk produk 'finished'. semi -> 'production'; raw -> abaikan.
-  function effMode(p, mode) {
-    if (p.product_type === 'semi') return 'production';
-    if (p.product_type === 'finished') return mode || 'standalone';
-    return null;
-  }
-
-  function costOf(pid, mode) {
-    const p = productById.get(pid);
-    if (!p) return null;
-    if (p.product_type === 'raw') {
-      return p.purchase_price != null && Number(p.purchase_qty) > 0 ? Number(p.purchase_price) / Number(p.purchase_qty) : null;
-    }
-    const em = effMode(p, mode);
-    const key = `${pid}|${em}`;
-    if (memo.has(key)) return memo.get(key);
-    const r = recipeByKey.get(key);
-    if (!r || !r.items.length || !(Number(r.yield_qty) > 0)) {
-      memo.set(key, null);
-      return null;
-    }
-    if (visiting.has(key)) return null; // siklus
-    visiting.add(key);
-    let total = 0;
-    let known = true;
-    for (const it of r.items) {
-      const c = costOf(it.ingredient_product_id, null); // bahan = raw/semi, mode tak relevan
-      if (c == null) known = false;
-      else total += Number(it.qty) * c;
-    }
-    visiting.delete(key);
-    const result = known ? total / Number(r.yield_qty) : null;
-    memo.set(key, result);
-    return result;
-  }
-  return { costOf, productById };
-}
-
-/**
- * HPP per satuan tiap produk (Map productId -> number|null).
- *   raw -> harga beli; semi -> resep produksi; finished -> resep Standalone
- *   (kalau tak ada, pakai Dilayani CK). Untuk HPP per-varian pakai costForMode().
- */
-export function computeCosts(products, recipes) {
-  const { costOf } = buildCostFn(products, recipes);
-  const out = new Map();
-  for (const p of products) {
-    if (p.product_type === 'finished') out.set(p.id, costOf(p.id, 'standalone') ?? costOf(p.id, 'served_by_ck'));
-    else out.set(p.id, costOf(p.id, null));
-  }
-  return out;
-}
-
-/** HPP satu produk untuk mode tertentu (buat tampilan HPP per varian resep). */
-export function costForMode(products, recipes, productId, mode) {
-  const { costOf } = buildCostFn(products, recipes);
-  return costOf(productId, mode);
-}

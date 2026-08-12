@@ -2404,6 +2404,35 @@ Sub-layar dipulihkan lewat `layarAwal` yang diteruskan ke modulnya; modul yang t
 
 Dikunci `node tools/test-ingatan-layar.mjs` (26 kasus, menguji modulnya langsung — termasuk saat `sessionStorage` diblokir mode privat, yang tidak boleh menjatuhkan aplikasi).
 
+## "Resep belum lengkap" — label yang menunjuk ke tempat yang salah
+
+Pertanyaannya masuk akal: *resep yang lengkap itu harus bagaimana, apakah harus ada stok bahannya?* Jawabannya **tidak** — stok tidak pernah ikut menentukan HPP. HPP adalah biaya per satuan, bukan ketersediaan barang; sebuah resep tetap punya HPP walaupun stok bahannya nol.
+
+Yang sebenarnya dilaporkan badge itu adalah: **HPP-nya tidak bisa dihitung.** Sebabnya hampir tidak pernah ada di resep yang sedang dilihat — resepnya biasanya sudah lengkap. Sebabnya ada di **bahannya**, sering dua tingkat ke bawah:
+
+- bahan baku yang **Harga Beli**-nya belum diisi;
+- bahan baku yang **isi per satuan beli** (`purchase_qty`) masih 0, jadi harga per gram tidak bisa dibagi;
+- **setengah jadi yang resep Produksi-nya belum dibuat** — HPP dihitung berantai, jadi satu yang kosong mengosongkan semua yang memakainya;
+- hasil/yield 0.
+
+Label lamanya menyuruh orang membongkar benda yang tidak rusak. Kalau resepnya diperiksa dan ternyata baik-baik saja, kesimpulan yang wajar adalah aplikasinya yang salah — dan setelah itu badge apa pun berhenti dipercaya.
+
+Sekarang badge-nya berbunyi **"HPP belum bisa dihitung"**, dan panel rinciannya menyebut **nama bahan yang bermasalah beserta jalurnya** ("Gula: harga belinya belum diisi (dipakai Sirup Gula)"). Jalurnya penting karena Gula tidak muncul di layar menu itu sama sekali — tanpa jalur, orangnya tahu ada yang salah tapi tidak tahu harus membuka mana.
+
+Mesin HPP-nya dipindah ke `js/modules/product/hpp.js`, **tanpa impor**, supaya bisa diuji di luar browser. Penjelasan sebabnya sengaja ditaruh bersebelahan dengan perhitungannya: kalau ditulis terpisah, ia akan menyimpang dari aturan sebenarnya, dan penjelasan yang salah lebih buruk daripada tidak ada penjelasan.
+
+### Memindahkan resep antar varian
+
+Tombol **⇄ Pindahkan ke Dilayani CK / Standalone** ada di panel rincian, baik di Master Produk → Resep maupun di modul Menu. Yang berubah hanya `recipes.mode`; `recipe_items` ikut karena tidak disentuh. Menyalin lalu menghapus akan membuka celah kehilangan data kalau langkah keduanya gagal.
+
+Tiga hal yang dijaga:
+
+- **Tidak menimpa.** `(product_id, mode)` unik sejak `0021_recipe_modes.sql`, jadi memindah ke varian yang sudah terisi akan ditolak database dengan pesan *duplicate key* yang tidak berarti apa-apa bagi penggunanya. Tombolnya tidak digambar kalau tujuan sudah punya resep, dan `pindahVarianResep()` tetap menerjemahkan error `23505` kalau ada dua tab terbuka bersamaan. Menimpa diam-diam berarti menghapus pekerjaan orang lain tanpa diminta.
+- **`.eq('mode', dari)` membuatnya aman diulang.** Panggilan kedua tidak menemukan baris dan berhenti dengan pesan, bukan memindahkan resep tujuan ke tempat lain.
+- **Setengah jadi tidak punya tombol ini** — ia cuma punya satu varian (Produksi), jadi tidak ada tujuan. Ditolak dengan kalimat itu, bukan dengan diam.
+
+Aturannya di `js/modules/product/varian-pindah.js` (murni). Dikunci `node tools/test-hpp-sebab.mjs` (30 kasus). Lima sabotase dicoba dan **semuanya merah**: berhenti di sebab pertama, jalur "dipakai …" dihapus, pesan dua kolom yang berbeda disamakan, tabrakan varian dibiarkan lolos, dan menu diizinkan pindah ke Produksi.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

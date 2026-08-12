@@ -3,6 +3,7 @@ import { formatRupiah, formatNum } from '../../core/format.js';
 import { sayaAdminBu } from '../../core/base-scope.js';
 import { bakukanNama } from '../../core/nama.js';
 import { pemakaiResep } from './recipe-graph.js';
+import { periksaPindah, pasanganVarian } from './varian-pindah.js';
 import { importProducts, importRecipes, downloadProductTemplate, downloadRecipeTemplate } from './product-import.js';
 import { openRecipeEditor, MODE_LABEL, modesForType } from './recipe-editor.js';
 import {
@@ -18,6 +19,8 @@ import {
   listRecipesFull,
   computeCosts,
   costForMode,
+  sebabHppKosong,
+  pindahVarianResep,
   listUnits,
   createUnit,
   deleteUnit,
@@ -358,10 +361,15 @@ async function renderRecipesTab(content, businessUnitId) {
                 .map((m) => {
                   const has = resepPer.has(`${p.id}|${m}`);
                   const cost = costForMode(products, recipes, p.id, m);
+                  // Dulu tertulis "resep belum lengkap", yang menyesatkan:
+                  // resepnya sendiri sering sudah lengkap — yang kurang adalah
+                  // harga di salah satu BAHANNYA. Orang lalu membongkar resep
+                  // yang tidak rusak. Sekarang sebabnya ikut disebut.
+                  const sebab = has && cost == null ? sebabHppKosong(products, recipes, p.id, m) : [];
                   const val = has
                     ? cost != null
                       ? formatRupiah(cost) + `/${escapeHtml(p.base_unit)}`
-                      : '<span class="badge badge-pending">resep belum lengkap</span>'
+                      : `<span class="badge badge-pending" title="${escapeHtml(sebab.join(' · '))}">HPP belum bisa dihitung</span>`
                     : '<span class="badge badge-pending">Belum</span>';
                   return `<div style="margin:2px 0"><strong>${MODE_LABEL[m]}:</strong> ${val}</div>`;
                 })
@@ -409,13 +417,28 @@ async function renderRecipesTab(content, businessUnitId) {
                Hasil/yield: <strong>${formatNum(r.yield_qty)} ${escapeHtml(produk.base_unit)}</strong>
              </p>`
           : `<p style="font-size:0.85rem;color:var(--color-text-muted);margin:6px 0 8px">Varian ini belum punya resep.</p>`;
+        // Sebab HPP kosong ditulis LENGKAP di sini, bukan cuma sebagai tooltip:
+        // di HP tidak ada hover, dan ini justru tempat orang mencari jawabannya.
+        const sebab = r && costForMode(products, recipes, produk.id, m) == null ? sebabHppKosong(products, recipes, produk.id, m) : [];
+        const catatanHpp = sebab.length
+          ? `<div style="font-size:0.78rem;background:var(--color-warning-bg,#fff8e1);border-left:3px solid var(--color-warning,#e6a700);padding:6px 8px;margin:0 0 8px;max-width:420px">
+               <strong>HPP belum bisa dihitung.</strong> Bukan karena stok — stok tidak ikut menentukan HPP.
+               <ul style="margin:4px 0 0 16px;padding:0">${sebab.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ul>
+             </div>`
+          : '';
+        const tujuan = pasanganVarian(produk.product_type, m);
+        const bolehPindah = tujuan && periksaPindah({ productType: produk.product_type, dari: m, ke: tujuan, adaDari: !!r, adaKe: resepPer.has(`${produk.id}|${tujuan}`) }).boleh;
         return `<div style="padding:10px 4px;border-top:1px solid var(--color-border,#e5e5e5)">
             <div style="font-weight:600;margin-bottom:2px">${MODE_LABEL[m]}</div>
             ${isi}
+            ${catatanHpp}
             ${
               bolehUbah
                 ? `<button class="btn-edit-recipe" data-id="${produk.id}" data-mode="${m}">${r ? '✎ Ubah resep' : '+ Isi resep'}</button>` +
-                  (r ? ` <button class="btn-del-recipe" data-id="${produk.id}" data-mode="${m}">🗑 Hapus resep</button>` : '')
+                  (r ? ` <button class="btn-del-recipe" data-id="${produk.id}" data-mode="${m}">🗑 Hapus resep</button>` : '') +
+                  (bolehPindah
+                    ? ` <button class="btn-pindah-recipe" data-id="${produk.id}" data-mode="${m}" data-ke="${tujuan}">⇄ Pindahkan ke ${MODE_LABEL[tujuan]}</button>`
+                    : '')
                 : ''
             }
           </div>`;
@@ -438,6 +461,32 @@ async function renderRecipesTab(content, businessUnitId) {
             await muat();
           } catch (error) {
             toast(error.message ?? 'Gagal menghapus resep.', 'error');
+          }
+        })
+      )
+    );
+
+    sel.querySelectorAll('.btn-pindah-recipe').forEach((btn) =>
+      btn.addEventListener(
+        'click',
+        sekaliJalan(async (e) => {
+          e.stopPropagation();
+          const { mode: dari, ke } = btn.dataset;
+          // Konfirmasinya menyebut apa yang TIDAK berubah juga. Kekhawatiran
+          // yang wajar saat memindahkan resep adalah "bahannya ikut hilang?" —
+          // dan pertanyaan yang tidak dijawab akan membuat orang tidak menekan.
+          const ok = await confirmDialog({
+            title: 'Pindahkan resep',
+            message: `Resep <strong>${escapeHtml(produk.name)}</strong> dipindahkan dari <strong>${MODE_LABEL[dari]}</strong> ke <strong>${MODE_LABEL[ke]}</strong>.<br /><br />Bahan dan hasil/yield-nya ikut pindah apa adanya — tidak ada yang dihapus. Setelah ini varian ${MODE_LABEL[dari]} menjadi kosong.`,
+            confirmText: 'Pindahkan'
+          });
+          if (!ok) return;
+          try {
+            await pindahVarianResep(produk.id, dari, ke);
+            toast(`Resep pindah ke ${MODE_LABEL[ke]}.`, 'success');
+            await muat();
+          } catch (error) {
+            toast(error.message ?? 'Gagal memindahkan resep.', 'error');
           }
         })
       )
