@@ -60,28 +60,28 @@ let abaikanBerikutnya = 0;
 let sedangBertanya = false;
 
 /**
- * Berapa entri history yang KITA dorong sendiri dan belum dimundurkan.
+ * Kedalaman entri history KITA, dibaca dari entri yang sedang aktif.
  *
- * Ini pagar terhadap kesalahan paling mahal di file ini: memundurkan history
- * LEBIH JAUH daripada yang pernah kita dorong. Entri sebelum entri pertama kita
- * bukan milik aplikasi ini — ia halaman sebelumnya. Di Admin Portal, halaman
- * sebelumnya adalah Staff App, jadi kelebihan satu langkah saja langsung
- * melempar orangnya keluar dari Admin Portal.
+ * PENGHITUNG BIASA TIDAK CUKUP, dan itu sudah dibuktikan dengan cara yang
+ * mahal: versi sebelumnya menghitung "berapa entri yang saya dorong dan belum
+ * dimundurkan". Angka itu MELENCENG KE ATAS, karena `pushState` MEMOTONG entri
+ * yang ada di depan posisi sekarang — dan pemotongan itu tidak pernah
+ * memberitahu siapa pun. Setiap `bersihkanLapis()` yang memundurkan lalu
+ * `dorongLapis()` yang mendorong meninggalkan sisa, dan sesudah beberapa kali
+ * berpindah menu, penghitungnya mengira ada lebih banyak entri daripada yang
+ * sebenarnya. Satu `go(-n)` yang kelebihan langkah = keluar dari Admin Portal.
  *
- * Itu persis yang terjadi setelah `bersihkanLapis()` diberi kemampuan
- * memundurkan history: ia memanggil `history.back()` sekali per lapis, dan
- * `back()` itu ASINKRON — beberapa panggilan beruntun diproses belakangan,
- * sesudah `pushState` yang menyusul, sehingga hitungannya meleset ke bawah nol.
+ * Karena itu kedalamannya tidak DIHITUNG, melainkan DIBACA dari `history.state`
+ * milik entri yang sedang aktif. Nilainya ikut bersama entrinya ke mana pun
+ * browser berpindah, jadi tidak bisa melenceng: kalau entri di depan terpotong,
+ * yang tersisa tetap membawa kedalamannya sendiri.
  *
- * Sejauh mana penghitung ini terbukti perlu, apa adanya: yang BENAR-BENAR
- * menyelamatkan adalah `history.go(-n)` sekali jalan, dan itu merah kalau
- * dicabut. Pembatas `Math.min(langkah, entriKita)` tidak membuat tes merah,
- * karena `langkah` sendiri sudah dibatasi jumlah lapis. Ia dipertahankan untuk
- * keadaan yang tidak terjadi di tes: `pushState` yang ditolak browser (mode
- * privat, kuota history) membuat jumlah lapis dan jumlah entri berselisih, dan
- * di situlah pembatas ini satu-satunya yang tersisa.
+ * Nomornya diturunkan dari entri SEBELUMNYA (`idx + 1`), bukan dari pencacah
+ * global — supaya di rantai mana pun nomornya selalu 0, 1, 2, … tanpa lompatan.
+ * Tanpa itu, jarak yang dihitung dari selisih nomor tidak sama dengan jumlah
+ * langkah yang sebenarnya.
  */
-let entriKita = 0;
+const kedalaman = () => Number(history.state?.idx ?? 0);
 
 /**
  * Apakah ada isian yang belum tersimpan di halaman modul?
@@ -129,7 +129,7 @@ export function pasangNavigasi() {
   if (terpasang) return;
   terpasang = true;
   try {
-    history.replaceState({ berjaya: 'akar' }, '');
+    history.replaceState({ berjaya: 'akar', idx: 0 }, '');
   } catch {
     /* beberapa browser membatasi History API — fitur ini sekadar tidak aktif */
   }
@@ -158,17 +158,9 @@ export function pasangNavigasi() {
     // tiba-tiba melompati satu layar, atau keluar dari aplikasi. Jadi entrinya
     // dikembalikan.
     if (sedangBertanya) {
-      try {
-        history.pushState({ berjaya: 'tanya' }, '');
-        entriKita++;
-      } catch {
-        /* diabaikan */
-      }
+      dorongEntri('tanya');
       return;
     }
-
-    // Ketukan Back user memakai satu entri milik kita.
-    if (entriKita > 0) entriKita--;
 
     const lapis = tumpukan.pop();
     if (!lapis) return; // sudah di akar -> biarkan browser melakukan tugasnya
@@ -178,12 +170,7 @@ export function pasangNavigasi() {
       // tidak bergeser sementara pertanyaannya masih ditampilkan. Kalau
       // ditunda, Back kedua saat dialog terbuka akan melompati satu lapis.
       tumpukan.push(lapis);
-      try {
-        history.pushState({ berjaya: lapis.nama }, '');
-        entriKita++;
-      } catch {
-        /* diabaikan */
-      }
+      dorongEntri(lapis.nama);
 
       sedangBertanya = true;
       let lanjut = false;
@@ -223,27 +210,109 @@ export function pasangNavigasi() {
  * urutannya penting: menaikkan penghitung SESUDAH `back()` bisa kalah cepat
  * kalau browser mengirim popstate-nya lebih awal dari yang diperkirakan.
  */
+/**
+ * Antrean operasi history — dijalankan SATU PER SATU, dan yang memundurkan
+ * DITUNGGU sampai perpindahannya benar-benar terjadi.
+ *
+ * INI YANG SEBENARNYA SALAH SELAMA INI, dan dua perbaikan sebelumnya cuma
+ * menambal gejalanya.
+ *
+ * `history.go()` tidak berpindah saat itu juga; ia menjadwalkan perpindahan.
+ * Sementara itu `pushState` yang menyusul di baris berikutnya jalan SEKARANG.
+ * Di Admin Portal urutannya persis begitu — `bersihkanLapis()` lalu
+ * `dorongLapis()`. Browser menghitung tujuan `go()` dari entri yang aktif SAAT
+ * DIPANGGIL, jadi perpindahannya mendarat satu entri lebih dalam daripada yang
+ * dikira, dan aplikasinya berakhir duduk di entri AKAR sambil menampilkan
+ * sebuah modul. Ketukan Back berikutnya lalu meninggalkan halaman sama
+ * sekali — ke Staff App.
+ *
+ * Pagar sebanyak apa pun tidak menutup itu, karena masalahnya bukan "berapa
+ * langkah" melainkan "kapan". Yang menutupnya adalah menjalankan operasinya
+ * berurutan: mundur dulu sampai tiba, baru mendorong.
+ */
+let antreOperasi = Promise.resolve();
+
+/**
+ * Berapa mundur yang sudah dijadwalkan tapi belum selesai.
+ *
+ * Selama ini nol, dorongan dikerjakan LANGSUNG — `pushState` sendirian tidak
+ * punya balapan, dan menundanya justru membuat entri belum ada saat orangnya
+ * sempat menekan Back. Antreannya hanya diperlukan ketika ada mundur yang
+ * belum mendarat; di situlah urutannya menentukan.
+ */
+let mundurTertunda = 0;
+
+function antre(fn) {
+  antreOperasi = antreOperasi.then(fn).catch((e) => console.warn('[navigasi] operasi history gagal', e));
+}
+
+/** Menunggu satu popstate, dengan batas waktu supaya antreannya tidak macet. */
+function tungguPopstate() {
+  return new Promise((resolve) => {
+    let selesai = false;
+    const beres = () => {
+      if (selesai) return;
+      selesai = true;
+      window.removeEventListener('popstate', beres);
+      resolve();
+    };
+    window.addEventListener('popstate', beres);
+    // `go()` yang di luar jangkauan TIDAK memunculkan popstate sama sekali.
+    // Tanpa batas waktu, antreannya berhenti selamanya dan seluruh tombol Back
+    // ikut mati — kegagalan yang jauh lebih buruk daripada yang diperbaiki.
+    setTimeout(beres, 300);
+  });
+}
+
 function mundurkanSendiri(langkah = 1) {
-  // TIDAK PERNAH melebihi entri yang kita dorong sendiri. Kalau sampai lebih,
-  // yang dimundurkan adalah halaman sebelum aplikasi ini.
-  const n = Math.min(langkah, entriKita);
-  if (n <= 0) return;
-  entriKita -= n;
-  // SATU popstate untuk satu panggilan `go()`, berapa pun langkahnya — browser
-  // tidak mengirim satu event per langkah. Menaikkan penghitung sebanyak n akan
-  // menyisakan sisa yang menelan ketukan Back BERIKUTNYA milik user, dan
-  // gejalanya muncul jauh kemudian sebagai "Back sekali tidak terjadi apa-apa".
-  abaikanBerikutnya += 1;
-  try {
-    // Satu panggilan `go(-n)`, bukan `back()` n kali. `back()` beruntun
-    // diproses browser secara asinkron dan bisa berselisih urutan dengan
-    // `pushState` yang menyusul — hasilnya posisi history meleset, dan
-    // melesetnya selalu ke arah yang berbahaya.
-    history.go(-n);
-  } catch {
-    entriKita += n;
-    abaikanBerikutnya -= 1; // tidak jadi mundur -> tidak ada popstate yang datang
-  }
+  // TIDAK PERNAH melewati entri akar kita. Entri sebelum itu bukan milik
+  // aplikasi ini — di Admin Portal, itu Staff App.
+  mundurTertunda++;
+  antre(async () => {
+    // Jumlah langkahnya dihitung DI DALAM antrean, saat gilirannya tiba —
+    // bukan saat dijadwalkan. Kedalaman bisa sudah berubah karena operasi
+    // sebelum ini, dan memakai angka yang basi persis yang membuat mundurnya
+    // kelebihan langkah.
+    const n = Math.min(langkah, kedalaman());
+    if (n <= 0) {
+      mundurTertunda--;
+      return;
+    }
+    // SATU popstate untuk satu panggilan `go()`, berapa pun langkahnya —
+    // browser tidak mengirim satu event per langkah.
+    abaikanBerikutnya += 1;
+    try {
+      history.go(-n);
+      await tungguPopstate();
+    } catch {
+      abaikanBerikutnya -= 1;
+    } finally {
+      mundurTertunda--;
+    }
+  });
+}
+
+/** Dorong entri history baru — lewat antrean yang sama, supaya urutannya pasti. */
+function dorongEntri(nama) {
+  const dorong = () => {
+    try {
+      history.pushState({ berjaya: nama, idx: kedalaman() + 1 }, '');
+    } catch {
+      /* beberapa browser membatasi History API — fitur ini sekadar tidak aktif */
+    }
+  };
+  // Tidak ada mundur yang menggantung -> kerjakan SEKARANG. Menundanya membuat
+  // entri belum ada saat orangnya menekan Back sepersekian detik kemudian, dan
+  // Back tanpa entri = keluar dari aplikasi. Bagian ini TERBUKTI perlu: tesnya
+  // merah kalau semua dorongan diantrekan.
+  //
+  // Cabang `antre` sebaliknya BELUM terbukti — mencabutnya tidak membuat tes
+  // merah, karena mundurnya sendiri sudah menghitung ulang kedalamannya saat
+  // gilirannya tiba. Dipertahankan supaya urutannya pasti, bukan karena
+  // menangkap sesuatu hari ini. Ditulis apa adanya supaya tidak ada yang
+  // mengira baris ini yang menyelamatkan.
+  if (mundurTertunda === 0) dorong();
+  else antre(dorong);
 }
 
 export function dorongLapis(nama, kembali, { penjaga = false } = {}) {
@@ -253,12 +322,7 @@ export function dorongLapis(nama, kembali, { penjaga = false } = {}) {
   if (sedangBertanya) return () => {};
   const lapis = { nama, kembali, penjaga };
   tumpukan.push(lapis);
-  try {
-    history.pushState({ berjaya: nama }, '');
-    entriKita++;
-  } catch {
-    /* diabaikan */
-  }
+  dorongEntri(nama);
 
   return () => buangLapis(lapis);
 }
@@ -354,12 +418,7 @@ export function dorongSubHalaman(nama, kembaliKeDaftar) {
   const lapis = { nama: kunci, kembali: () => {}, penjaga: false };
   if (!terpasang || sedangBertanya) return () => {};
   tumpukan.push(lapis);
-  try {
-    history.pushState({ berjaya: kunci }, '');
-    entriKita++;
-  } catch {
-    /* diabaikan */
-  }
+  dorongEntri(kunci);
   return pasang(lapis);
 }
 

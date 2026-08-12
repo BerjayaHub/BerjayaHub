@@ -390,8 +390,12 @@ select net.http_post(
   `listDispatchesAdmin()` tidak membaca kolomnya. Sekarang jadi kolom pertama.
   Tidak ada migration.
 - **Inventory → Stok** (staff & admin) → ada **filter kategori + cari nama**.
-- 🔴 **Admin Portal: klik modul melompat ke Staff App** — regresi dari perbaikan
-  navigasi sebelumnya, **sudah diperbaiki**. Push kode terbaru. Tidak ada migration.
+- 🔴 **Admin Portal: klik modul melompat ke Staff App** — **perbaikan KETIGA**,
+  dan yang pertama benar-benar terbukti. Dua sebelumnya (sudah ter-push) hanya
+  menambal gejalanya; penyebabnya bukan jumlah langkah mundur, melainkan
+  urutannya — `history.go()` menjadwalkan perpindahan, sementara `pushState` di
+  baris berikutnya jalan lebih dulu. Operasi history kini dijalankan berurutan.
+  **Push kode terbaru.** Tidak ada migration.
 - ⚠️ **Tombol Back / navigasi (seluruh aplikasi)** → empat perbaikan sekaligus:
   selesai mengisi form **tidak lagi melompat ke Beranda**; pop-up "lanjutkan
   mengisi" **tidak lagi muncul berulang**; layar yang menggambar ulang dirinya

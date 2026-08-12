@@ -40,6 +40,14 @@ const pendengar = { popstate: [] };
 const history = {
   entri: [{ berjaya: 'akar' }],
   posisi: 0,
+  /**
+   * `history.state` milik entri yang sedang aktif — ikut berpindah bersama
+   * entrinya, persis seperti di browser. Inilah yang membuat kedalaman bisa
+   * DIBACA alih-alih dihitung, dan karena itu tidak bisa melenceng.
+   */
+  get state() {
+    return this.entri[this.posisi];
+  },
   replaceState(state) {
     this.entri[this.posisi] = state;
   },
@@ -63,15 +71,33 @@ const history = {
    * dieksekusi lebih dulu. Dengan tiruan yang sinkron, urutan itu tidak pernah
    * terjadi, dan kode yang salah tetap terlihat benar.
    */
+  /**
+   * Tujuannya dihitung SAAT `go()` DIPANGGIL, bukan saat antreannya diproses.
+   *
+   * Ini perbedaan yang menentukan, dan versi sebelumnya salah menirunya.
+   * Urutan yang terjadi di Admin Portal adalah: `go(-1)` dipanggil, lalu
+   * `pushState` menyusul SEBELUM perpindahannya sempat dikerjakan. Kalau
+   * tujuannya dihitung belakangan, `pushState` itu ikut menggeser sasarannya
+   * dan posisinya seolah stabil — persis yang membuat tes ini hijau padahal
+   * aplikasinya melompat ke Staff App di HP orangnya.
+   *
+   * Dengan tujuan dikunci di awal, `pushState` tidak lagi menutupi kesalahan:
+   * mundur dari entri yang sudah ditinggalkan mendarat lebih dalam daripada
+   * yang dikira, dan itulah yang menembus entri akar aplikasi.
+   */
   go(delta) {
     if (delta >= 0) return;
-    antrean.push({ delta });
+    antrean.push({ tujuan: this.posisi + delta });
   }
 };
 
 globalThis.history = history;
 globalThis.window = {
   addEventListener: (nama, fn) => pendengar[nama]?.push(fn),
+  removeEventListener: (nama, fn) => {
+    const i = pendengar[nama]?.indexOf(fn) ?? -1;
+    if (i >= 0) pendengar[nama].splice(i, 1);
+  },
   scrollY: 0
 };
 globalThis.document = { addEventListener: () => {} };
@@ -87,23 +113,33 @@ globalThis.document = { addEventListener: () => {} };
  * dialami orang tidak akan pernah muncul di tes.
  */
 async function alirkan() {
+  // navigasi.js kini menjalankan operasi history-nya lewat ANTREAN, dan yang
+  // memundurkan menunggu popstate-nya tiba. Jadi "menenangkan" keadaan berarti
+  // dua hal sekaligus: memberi giliran pada antrean itu, dan mengirimkan
+  // popstate yang ditunggunya. Keduanya saling memicu, jadi diulang sampai
+  // benar-benar tidak ada lagi yang tersisa.
+  let diam = 0;
   let putaran = 0;
-  while (antrean.length) {
-    const { delta } = antrean.shift();
-    const tujuan = history.posisi + delta;
-    if (tujuan < 0) {
-      // Melewati entri pertama = meninggalkan halaman ini. Di Admin Portal,
-      // halaman sebelumnya adalah Staff App.
-      keluarAplikasi++;
-      history.posisi = 0;
+  while (diam < 3) {
+    await new Promise((r) => setTimeout(r, 0));
+    if (antrean.length) {
+      diam = 0;
+      const { tujuan } = antrean.shift();
+      if (tujuan < 0) {
+        // Melewati entri pertama = meninggalkan halaman ini. Di Admin Portal,
+        // halaman sebelumnya adalah Staff App.
+        keluarAplikasi++;
+        history.posisi = 0;
+      } else {
+        history.posisi = tujuan;
+        for (const fn of [...pendengar.popstate]) fn();
+      }
     } else {
-      history.posisi = tujuan;
-      for (const fn of pendengar.popstate) fn();
+      diam++;
     }
-    await new Promise((r) => setTimeout(r, 0)); // biarkan lanjutan async-nya jalan
     // Jaring pengaman: bug "pop-up muncul terus" berbentuk antrean yang tidak
     // pernah habis. Tanpa batas ini, tesnya menggantung alih-alih gagal.
-    if (++putaran > 50) throw new Error('popstate tidak berhenti — kemungkinan lingkaran tak berujung');
+    if (++putaran > 200) throw new Error('popstate tidak berhenti — kemungkinan lingkaran tak berujung');
   }
 }
 
@@ -427,8 +463,53 @@ await alirkan();
 cek('Back tetap satu langkah ke Dashboard', layar, 'dashboard');
 cek('tanpa keluar aplikasi sampai akhir', keluarAplikasi, keluarSebelumSub);
 
+// ---------- Skenario 11: berpindah menu BERKALI-KALI ----------
+//
+// Ini bug yang dilaporkan kedua kalinya: "masuk modul di Admin Portal masih
+// dilempar ke Staff App".
+//
+// Perbaikan pertama memakai PENGHITUNG entri yang kita dorong. Angka itu
+// melenceng ke atas, karena `pushState` MEMOTONG entri di depan posisi sekarang
+// tanpa memberitahu siapa pun — jadi tiap putaran "mundur lalu dorong"
+// meninggalkan sisa. Sesudah beberapa kali berpindah menu, penghitungnya
+// mengira ada lebih banyak entri daripada yang sebenarnya, dan satu `go(-n)`
+// yang kelebihan langkah membawa orangnya keluar dari Admin Portal.
+//
+// Karena itu putarannya di sini BANYAK, bukan dua-tiga: kelencengannya
+// menumpuk, dan baru terlihat setelah beberapa kali.
+layar = 'dashboard';
+const keluarSebelumUlang = keluarAplikasi;
+
+for (let i = 0; i < 12; i++) {
+  nav.bersihkanLapis();
+  nav.dorongLapis(`menu:${i}`, () => (layar = 'dashboard'), { penjaga: true });
+  layar = `menu:${i}`;
+  await alirkan();
+  cek(`putaran ${i}: tidak keluar aplikasi`, keluarAplikasi, keluarSebelumUlang);
+}
+
+cek('kedalaman tidak menumpuk setelah 12 kali pindah menu', history.posisi, 1);
+cek('lapisnya tetap satu', nav.jumlahLapis(), 1);
+
+// Diselingi sub-halaman & dialog, lalu pindah menu lagi — bentuk yang paling
+// mungkin dipakai orang sungguhan.
+for (let i = 0; i < 6; i++) {
+  nav.dorongSubHalaman(`sub-${i}`, () => (layar = 'menu'));
+  nav.dorongLapis('dialog', () => (layar = 'sub'));
+  nav.bersihkanLapis();
+  nav.dorongLapis(`menu:x${i}`, () => (layar = 'dashboard'), { penjaga: true });
+  await alirkan();
+  cek(`putaran campuran ${i}: tidak keluar aplikasi`, keluarAplikasi, keluarSebelumUlang);
+}
+cek('kedalaman tetap satu setelah putaran campuran', history.posisi, 1);
+
+history.back();
+await alirkan();
+cek('Back masih membawa ke Dashboard', layar, 'dashboard');
+cek('dan tetap tidak keluar aplikasi', keluarAplikasi, keluarSebelumUlang);
+
 if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Lapis Back diuji langsung pada navigasi.js: 54 kasus, termasuk lima bug tumpukan lapis. ✅');
+console.log('Lapis Back diuji langsung pada navigasi.js: 77 kasus, termasuk enam bug tumpukan lapis. ✅');

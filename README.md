@@ -2363,52 +2363,30 @@ Hasilnya dilaporkan terpisah — "**5 dilengkapi**" berdiri sendiri dari "ditamb
 
 Dikunci `node tools/test-impor-ulang.mjs` (21 kasus). Satu perbandingan di sana (`samaAngka`) awalnya **tidak terbukti perlu** — kasusnya sudah tertangkap perbandingan teks. Baru setelah ditambah kasus `25000` vs `"25000.00"` — bentuk yang gemar dipakai Excel — ia benar-benar dijaga.
 
-## Regresi kedua dari perbaikan navigasi: Admin Portal melompat ke Staff App
+## Admin Portal melompat ke Staff App — tiga perbaikan sebelum yang benar
 
-Dilaporkan: *"di Admin Portal, klik salah satu modul malah melempar saya ke Staff App."* Ini akibat langsung dari perbaikan **"tombol 🏠 meninggalkan entri history basi"** di sesi ini.
+Bug ini dilaporkan **dua kali**, dan dua perbaikan pertama saya gagal. Layak ditulis lengkap, karena kegagalannya lebih berguna daripada perbaikannya.
 
-`bersihkanLapis()` diberi kemampuan memundurkan history, dan ia memanggil `history.back()` **sekali per lapis**. Masalahnya, `history.back()` **asinkron**: beberapa panggilan beruntun baru diproses SETELAH `pushState` yang menyusul di baris berikutnya. Di `openModule()` Admin Portal urutannya persis begitu — `bersihkanLapis()` lalu `dorongLapis()`. Hitungan posisinya meleset satu ke bawah, history mundur melewati entri pertama aplikasi, dan **entri sebelum itu adalah halaman sebelumnya: Staff App.**
+**Perbaikan 1** — mengganti `history.back()` beruntun jadi satu `history.go(-n)`, dengan pagar "jangan mundur lebih jauh dari yang kita dorong". Tesnya hijau. Di HP, bug-nya tetap ada.
 
-Dua perbaikan, dan hanya satu yang benar-benar terbukti:
+**Perbaikan 2** — pagar penghitung diganti kedalaman yang dibaca dari `history.state`, supaya tidak bisa melenceng saat `pushState` memotong entri di depan. Tesnya hijau. Bug-nya, ternyata, masih ada juga — dan saya baru tahu itu setelah memeriksa `git log` dan memastikan versi yang sedang dipakai memang sudah memuat perbaikan pertama.
 
-- **`history.go(-n)` sekali jalan**, bukan `back()` n kali. Ini yang menyelamatkan; mencabutnya membuat tes merah.
-- **Penghitung `entriKita`** — tidak pernah memundurkan lebih jauh daripada yang kita dorong sendiri. Ini tidak membuat tes merah saat dicabut, karena jumlah langkahnya sudah dibatasi jumlah lapis. Dipertahankan untuk keadaan yang tidak terjadi di tes: `pushState` yang ditolak browser membuat jumlah lapis dan jumlah entri berselisih. Ditulis apa adanya di komentarnya.
+**Yang sebenarnya salah bukan "berapa langkah", melainkan "kapan".**
 
-### Tiruan history-nya sendiri yang menyembunyikan bug ini
+`history.go()` tidak berpindah saat itu juga; ia menjadwalkan perpindahan. Sementara `pushState` di baris berikutnya jalan **sekarang**. Di `openModule()` Admin Portal urutannya persis begitu: `bersihkanLapis()` lalu `dorongLapis()`. Dan browser menghitung tujuan `go()` dari entri yang aktif **saat dipanggil** — jadi perpindahannya mendarat satu entri lebih dalam daripada yang dikira. Aplikasinya berakhir duduk di entri **akar** sambil menampilkan sebuah modul; ketukan Back berikutnya lalu meninggalkan halaman sama sekali, ke Staff App.
 
-Ini bagian yang paling perlu dicatat. `test-navigasi-popstate.mjs` sudah ada sejak perbaikan Back sebelumnya, dan tetap **hijau** saat bug ini lolos ke user. Sebabnya: tiruan `history.back()` di dalamnya memindahkan posisi **seketika**, sementara browser hanya mengantrekannya. Urutan `back()` → `pushState` — justru urutan yang melahirkan bug — tidak pernah bisa terjadi di tiruan itu.
+Pagar sebanyak apa pun tidak menutup itu. Yang menutupnya: **operasi history dijalankan berurutan** — mundur dulu sampai popstate-nya benar-benar tiba, baru mendorong. Dorongan yang tidak sedang menunggu apa pun tetap dikerjakan seketika; menundanya membuat entri belum ada saat orangnya menekan Back sepersekian detik kemudian, dan itu kegagalan yang persis sama parahnya (tesnya merah kalau semua dorongan diantrekan).
 
-Tiruannya kini asinkron seperti aslinya, dan `go(-n)` ditiru **termasuk sisi berbahayanya**: melewati entri pertama berarti meninggalkan halaman. Sesudah itu barulah sabotase "kembali ke `back()` beruntun" membuat tes merah.
+### Tiruan history-nya, lagi — dan ini yang paling perlu dicatat
 
-Pelajarannya bukan "tesnya kurang" — tesnya ada dan dijalankan. Yang kurang adalah **kesetiaan tiruannya pada perilaku yang jadi sumber masalah.** Tiruan yang lebih rapi daripada kenyataan akan selalu menyembunyikan kelas bug yang justru paling sulit dilihat dengan membaca kode.
+Tes ini sudah ada sejak perbaikan Back yang pertama, dan **hijau di ketiga versi yang salah.** Dua kali saya harus memperbaiki tiruannya sebelum ia bisa melihat apa pun:
 
-54 kasus sekarang, termasuk fixture "pindah menu saat sub-halaman/dialog masih terbuka" — bentuk terparahnya, dan yang paling mungkin dialami di layar lebar.
+1. **`back()` dibuat asinkron** — sebelumnya memindahkan posisi seketika, sehingga urutan `back()` → `pushState` mustahil terjadi.
+2. **Tujuan `go()` dikunci saat DIPANGGIL**, bukan saat antreannya diproses. Ini yang menentukan: dengan tujuan dihitung belakangan, `pushState` yang menyusul ikut menggeser sasarannya dan posisinya seolah stabil — persis yang membuat tes hijau padahal aplikasinya melompat ke Staff App di HP orangnya.
 
-## Dokumen pengiriman: nomor bisa diketuk, isinya bisa diunduh
+Sesudah dua koreksi itu, versi asli **dan** perbaikan pertama sama-sama membuat tes merah. Baru di titik itu saya punya alasan untuk percaya perbaikan ketiga benar.
 
-Diminta untuk penelusuran: tiap **nomor order** dan **nomor surat jalan** bisa diketuk untuk melihat isinya, dan diunduh sebagai **PDF** atau **xlsx**.
-
-Satu hal ketahuan saat mengerjakannya: **`listDispatchesAdmin()` tidak pernah membaca kolom `code`.** Jadi nomor surat jalan — satu-satunya pegangan untuk menelusuri sebuah kiriman — memang tidak pernah muncul di layar admin sama sekali. Yang ada hanya tombol "Detail" tanpa identitas.
-
-Sekarang nomornya jadi kolom pertama dan bisa diketuk, di kedua sisi. Staff App dapat tab baru **📄 Riwayat & Dokumen** (untuk outlet biasa maupun CK), berisi riwayat order dan pengiriman dalam rentang tanggal — bawaannya **tanggal 1 bulan berjalan sampai hari ini**, menoleh ke belakang karena yang ditelusuri memang dokumen yang sudah terjadi.
-
-### Satu penyusun, tiga keluaran
-
-`js/modules/dispatch/dokumen.js` menyusun isi dokumen sekali, lalu dipakai layar, PDF, dan xlsx. Kalau ketiganya menyusun barisnya sendiri, cepat atau lambat menyimpang — dan yang paling mungkin menyimpang justru kolom jumlah. **Dokumen serah-terima yang angkanya berbeda antara layar dan kertas tidak bisa dipakai menyelesaikan perselisihan, padahal itu satu-satunya alasan dokumen itu ada.**
-
-Tiga keputusan di dalamnya:
-
-- **Kolom "Diterima" tetap ada meski belum diterima, dan dibiarkan kosong.** Kekosongannya sendiri adalah informasi: dokumen yang dicetak saat barang berangkat memang punya kolom yang belum terisi, dan itulah yang ditandatangani penerima.
-- **Selisih hanya dihitung setelah barangnya diterima.** Menampilkan "-1000" untuk kiriman yang masih di jalan akan terbaca sebagai barang hilang — tuduhan yang tidak dimaksudkan siapa pun.
-- **Bahan tanpa HPP ditandai "-", tidak dihitung nol.** Nol membuat total terlihat sah padahal ada yang belum berbiaya.
-
-Kolom nilai ditandai `numeric` supaya `exportTableXLSX` mengembalikannya jadi angka mentah — tanpa itu Excel menganggap "Rp 1.500.000" sebagai teks dan `SUM`-nya nol, gagal yang tidak terlihat karena selnya tetap tampil rapi.
-
-### Nilai rupiah: Admin ya, Staff tidak — dan itu bukan pengaman
-
-Surat jalan yang dipegang kurir tidak memuat modal; rekap yang dibaca admin memuatnya. Tapi ini perlu ditulis apa adanya: **`products_select` membuka harga beli untuk semua anggota BU**, jadi staff tetap bisa melihat HPP lewat layar lain. Yang diatur di sini adalah apa yang ikut **beredar** di kertas dan WhatsApp — bukan apa yang bisa dilihat. Kalau suatu saat HPP memang harus tertutup bagi staff, itu perubahan RLS tersendiri, dengan konsekuensinya sendiri.
-
-Dikunci `node tools/test-dokumen-kiriman.mjs` (24 kasus). `listMyDispatches` sengaja mencakup kiriman **masuk maupun keluar** — pertanyaannya "dokumen nomor sekian ke mana", bukan "yang saya buat sendiri", dan penerima memang harus bisa membuka dokumen yang dia tanda tangani. Alasan itu ditulis di pengecualian `audit-owner-filter.cjs`, bukan dengan melonggarkan auditnya.
+Pelajarannya bukan "tesnya kurang banyak" — kasusnya sudah 54 dan semuanya lewat. Yang kurang adalah **kesetiaan tiruannya pada satu detail yang justru jadi sumber masalah**. Tiruan yang lebih rapi daripada kenyataan akan selalu menyembunyikan kelas bug yang paling sulit dilihat dengan membaca kode, dan akan melakukannya sambil tampak meyakinkan. 77 kasus sekarang, termasuk 12 kali berpindah menu berturut-turut dan enam putaran berselang sub-halaman + dialog.
 
 ## Kembali dari aplikasi lain: pulihkan tempatnya, bukan cuma modulnya
 
