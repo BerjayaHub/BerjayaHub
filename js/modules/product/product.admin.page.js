@@ -5,6 +5,10 @@ import { bakukanNama } from '../../core/nama.js';
 import { pemakaiResep } from './recipe-graph.js';
 import { periksaPindah, pasanganVarian } from './varian-pindah.js';
 import { curigaHargaTertukar } from './harga-curiga.js';
+import { cocokSaringan, daftarKategori } from './saringan.js';
+import { susunBukuResep } from './buku-resep.js';
+import { exportTablePDF } from '../../core/pdf.js';
+import { exportTableXLSX } from '../../core/xlsx.js';
 import { importProducts, importRecipes, downloadProductTemplate, downloadRecipeTemplate } from './product-import.js';
 import { openRecipeEditor, MODE_LABEL, modesForType } from './recipe-editor.js';
 import {
@@ -36,23 +40,27 @@ const TABS = [
 ];
 
 
-export async function renderMasterProductPage(container, { businessUnitId }) {
+export async function renderMasterProductPage(container, { businessUnitId, layarAwal = null, catatLayar = null }) {
+  // Tab yang dipulihkan diperiksa dulu masih dikenal — `layarAwal` datang dari
+  // sessionStorage dan bisa berasal dari versi aplikasi yang lebih lama.
+  const awal = TABS.some((t) => t.key === layarAwal) ? layarAwal : TABS[0].key;
   container.innerHTML = `
     <h1>Master Produk</h1>
     <div class="tab-bar">
-      ${TABS.map((t, i) => `<button class="tab-btn ${i === 0 ? 'active' : ''}" data-tab="${t.key}">${t.label}</button>`).join('')}
+      ${TABS.map((t) => `<button class="tab-btn ${t.key === awal ? 'active' : ''}" data-tab="${t.key}">${t.label}</button>`).join('')}
     </div>
     <div id="mp-content"></div>
   `;
   const content = document.getElementById('mp-content');
   async function showTab(key) {
     container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));
+    catatLayar?.(key);
     if (key === 'products') await renderProductsTab(content, businessUnitId);
     if (key === 'recipes') await renderRecipesTab(content, businessUnitId);
     if (key === 'units') await renderUnitsTab(content);
   }
   container.querySelectorAll('.tab-btn').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
-  await showTab('products');
+  await showTab(awal);
 }
 
 async function loadProductsAndCosts(businessUnitId) {
@@ -83,10 +91,12 @@ async function renderProductsTab(content, businessUnitId) {
         <button class="primary" id="btn-new-product" style="max-width:180px">+ Tambah Produk</button>
       </div>
     </div>
-    <div class="field" style="max-width:320px;margin:0 0 10px">
-      <input type="search" id="cari-produk" placeholder="Cari nama produk…" autocomplete="off" />
-      <span class="field-help" id="cari-produk-info"></span>
-    </div>
+    ${saringanHtml({
+      id: 'produk',
+      placeholder: 'Cari nama produk…',
+      tipeOpsi: PRODUCT_TYPES.map((t) => TYPE_LABEL[t.value] ?? t.value),
+      kategoriOpsi: daftarKategori(products)
+    })}
     <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead><tr><th>Nama</th><th>Tipe</th><th>Kategori</th><th>Satuan</th><th>Harga Beli</th><th>HPP / Satuan</th><th>Harga Jual</th><th>Margin</th><th>Aksi</th></tr></thead>
       <tbody id="baris-produk">
@@ -101,6 +111,8 @@ async function renderProductsTab(content, businessUnitId) {
   // untuk menelusuri daftar yang panjang.
   pasangPenyaring({
     input: content.querySelector('#cari-produk'),
+    tipeSel: content.querySelector('#tipe-produk'),
+    katSel: content.querySelector('#kat-produk'),
     info: content.querySelector('#cari-produk-info'),
     baris: () => content.querySelectorAll('#baris-produk tr[data-nama]'),
     satuan: 'produk'
@@ -139,24 +151,60 @@ async function renderProductsTab(content, businessUnitId) {
  * Baris yang tersembunyi tetap ADA di DOM, jadi tombol yang sudah tersambung
  * tidak perlu dipasang ulang setiap kali orangnya mengetik satu huruf.
  */
-function pasangPenyaring({ input, info, baris, satuan }) {
-  if (!input) return;
+function pasangPenyaring({ input, tipeSel, katSel, info, baris, satuan, sesudah }) {
+  if (!input && !tipeSel && !katSel) return;
   const saring = () => {
-    const q = bakukanNama(input.value);
+    const nilai = {
+      nama: bakukanNama(input?.value ?? ''),
+      tipe: tipeSel?.value ?? '',
+      kategori: katSel?.value ?? ''
+    };
+    const adaSaringan = Boolean(nilai.nama || nilai.tipe || nilai.kategori);
     let tampil = 0;
     let total = 0;
     for (const tr of baris()) {
       total++;
-      const cocok = !q || tr.dataset.nama.includes(q);
+      const cocok = cocokSaringan({ nama: tr.dataset.nama, tipe: tr.dataset.tipe, kategori: tr.dataset.kategori }, nilai);
       tr.hidden = !cocok;
       if (cocok) tampil++;
     }
     if (info) {
-      info.textContent = !q ? `${total} ${satuan}` : tampil ? `${tampil} dari ${total} ${satuan}` : `Tidak ada ${satuan} bernama "${input.value.trim()}"`;
+      // Saat tidak ada yang cocok, penyebabnya disebut — bukan cuma "0 produk".
+      // Tanpa itu, saringan tipe yang tertinggal aktif dari pencarian
+      // sebelumnya terlihat persis seperti data yang hilang.
+      info.textContent = !adaSaringan
+        ? `${total} ${satuan}`
+        : tampil
+          ? `${tampil} dari ${total} ${satuan}`
+          : `Tidak ada ${satuan} yang cocok dengan saringan ini — kosongkan salah satunya untuk memperluas pencarian`;
     }
+    // Baris rincian yang sedang terbuka ikut disembunyikan bersama induknya;
+    // itu urusan pemanggilnya, karena bentuk barisnya berbeda tiap tabel.
+    sesudah?.();
   };
-  input.addEventListener('input', saring);
+  input?.addEventListener('input', saring);
+  tipeSel?.addEventListener('change', saring);
+  katSel?.addEventListener('change', saring);
   saring();
+}
+
+/** Kotak saringan yang sama bentuknya di tab Produk & tab Resep. */
+function saringanHtml({ id, tipeOpsi, kategoriOpsi, placeholder }) {
+  const opsi = (daftar) => daftar.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+  return `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:0 0 10px">
+      <div class="field" style="margin:0;min-width:200px;flex:1 1 200px">
+        <input type="search" id="cari-${id}" placeholder="${escapeHtml(placeholder)}" autocomplete="off" />
+      </div>
+      <div class="field" style="margin:0;min-width:150px">
+        <select id="tipe-${id}"><option value="">Semua tipe</option>${opsi(tipeOpsi)}</select>
+      </div>
+      <div class="field" style="margin:0;min-width:150px">
+        <select id="kat-${id}"><option value="">Semua kategori</option>${opsi(kategoriOpsi)}</select>
+      </div>
+    </div>
+    <span class="field-help" id="cari-${id}-info" style="display:block;margin:-6px 0 10px"></span>
+  `;
 }
 
 /**
@@ -207,7 +255,7 @@ function productRowHtml(p, cost) {
     margin = `${formatRupiah(m)} <span style="color:var(--color-text-muted)">(${pct}%)</span>`;
   }
   return `
-    <tr data-nama="${escapeHtml(bakukanNama(p.name))}">
+    <tr data-nama="${escapeHtml(bakukanNama(p.name))}" data-tipe="${escapeHtml(TYPE_LABEL[p.product_type] ?? p.product_type)}" data-kategori="${escapeHtml(p.category ?? '')}">
       <td>${escapeHtml(p.name)}${p.is_active === false ? ' <span style="font-size:0.7rem;color:var(--color-danger)">(nonaktif)</span>' : ''}</td>
       <td>${TYPE_LABEL[p.product_type] ?? p.product_type}</td>
       <td style="font-size:0.85rem">${escapeHtml(p.category ?? '-')}${p.subcategory ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${escapeHtml(p.subcategory)}</div>` : ''}</td>
@@ -351,12 +399,19 @@ async function renderRecipesTab(content, businessUnitId) {
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button id="btn-tpl-recipe">Template</button>
         ${bolehUbah ? '<button id="btn-import-recipe">Import Excel</button>' : ''}
+        <button id="btn-unduh-resep-xlsx">⬇ Excel</button>
+        <button id="btn-unduh-resep-pdf">⬇ PDF</button>
       </div>
     </div>
-    <div class="field" style="max-width:320px;margin:0 0 10px">
-      <input type="search" id="cari-resep" placeholder="Cari nama produk…" autocomplete="off" />
-      <span class="field-help" id="cari-resep-info"></span>
-    </div>
+    ${saringanHtml({
+      id: 'resep',
+      placeholder: 'Cari nama produk…',
+      // Hanya dua tipe yang punya resep — menawarkan "Bahan Baku" di sini
+      // adalah pilihan yang pasti mengosongkan tabel, dan pilihan semacam itu
+      // membuat orang mengira saringannya rusak.
+      tipeOpsi: ['semi', 'finished'].map((t) => TYPE_LABEL[t] ?? t),
+      kategoriOpsi: daftarKategori(manufactured)
+    })}
     <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
       Ketuk baris produk untuk melihat bahan-bahannya${bolehUbah ? ' dan mengubahnya' : ''}.
       ${
@@ -389,7 +444,7 @@ async function renderRecipesTab(content, businessUnitId) {
                   return `<div style="margin:2px 0"><strong>${MODE_LABEL[m]}:</strong> ${val}</div>`;
                 })
                 .join('');
-              return `<tr class="rcp-row" data-id="${p.id}" data-nama="${escapeHtml(bakukanNama(p.name))}" style="cursor:pointer">
+              return `<tr class="rcp-row" data-id="${p.id}" data-nama="${escapeHtml(bakukanNama(p.name))}" data-tipe="${escapeHtml(TYPE_LABEL[p.product_type] ?? p.product_type)}" data-kategori="${escapeHtml(p.category ?? '')}" style="cursor:pointer">
                   <td><span class="rcp-arrow" data-id="${p.id}" style="display:inline-block;width:1em">▸</span> ${escapeHtml(p.name)}</td>
                   <td>${TYPE_LABEL[p.product_type]}</td>
                   <td style="font-size:0.85rem">${variants}</td>
@@ -414,19 +469,33 @@ async function renderRecipesTab(content, businessUnitId) {
         // Bahan diambil dari resep yang SUDAH ADA — termasuk yang baru diimpor.
         // Inilah yang dulu tidak pernah bisa dilihat tanpa membuka editor satu
         // per satu: hasil impor "berhasil" tapi isinya tidak bisa diperiksa.
+        // Baris bahan yang bermasalah DISOROT, bukan cuma disebut di daftar di
+        // bawah tabel. Daftar kalimat masih menyuruh orangnya mencocokkan nama
+        // sendiri — pada resep berisi 15 bahan itu pekerjaan yang tidak perlu
+        // ada, dan yang biasanya terjadi adalah orangnya menyerah membacanya.
         const baris = (r?.items ?? [])
           .map((it) => {
             const bahan = namaProduk.get(it.ingredient_product_id);
-            return `<tr>
-              <td>${escapeHtml(bahan?.name ?? 'bahan tidak ditemukan')}</td>
-              <td style="text-align:right">${formatNum(it.qty)} ${escapeHtml(bahan?.base_unit ?? '')}</td>
+            const masalah = bahan ? sebabBahan(products, recipes, it.ingredient_product_id) : 'Bahan ini sudah tidak ada di Master Produk.';
+            return `<tr${masalah ? ' style="background:var(--color-warning-bg,#fff8e1)"' : ''}>
+              <td>${escapeHtml(bahan?.name ?? 'bahan tidak ditemukan')}${
+                masalah ? `<div style="font-size:0.72rem;color:var(--color-danger,#c0392b);margin-top:2px">⚠ ${escapeHtml(masalah)}</div>` : ''
+              }</td>
+              <td style="text-align:right;vertical-align:top">${formatNum(it.qty)} ${escapeHtml(bahan?.base_unit ?? '')}</td>
             </tr>`;
           })
           .join('');
         const isi = r
           ? `<table class="data-table" style="margin:6px 0;max-width:420px">
                <thead><tr><th>Bahan</th><th style="text-align:right">Jumlah</th></tr></thead>
-               <tbody>${baris || '<tr><td colspan="2">Resepnya ada, tapi belum berisi bahan.</td></tr>'}</tbody>
+               <tbody>${baris || `<tr><td colspan="2" style="background:var(--color-warning-bg,#fff8e1)">
+                 <strong>Resep ini kosong — bahannya tidak pernah tersimpan.</strong>
+                 <div style="font-size:0.78rem;margin-top:3px">
+                   Biasanya karena penyimpanan terputus di tengah (sinyal hilang, halaman tertutup, atau aplikasi ditutup paksa)
+                   sesudah bahan lama dihapus tapi sebelum bahan barunya masuk. Isi ulang lewat "Ubah resep", atau hapus resepnya
+                   supaya kembali berstatus "Belum".
+                 </div>
+               </td></tr>`}</tbody>
              </table>
              <p style="font-size:0.78rem;color:var(--color-text-muted);margin:0 0 8px">
                Hasil/yield: <strong>${formatNum(r.yield_qty)} ${escapeHtml(produk.base_unit)}</strong>
@@ -544,28 +613,51 @@ async function renderRecipesTab(content, businessUnitId) {
   // tiap produk punya DUA baris — barisnya sendiri dan baris rincian di
   // bawahnya. Baris rincian harus ikut tersembunyi, tapi tidak boleh ikut
   // TERBUKA hanya karena namanya cocok.
-  const cariResep = content.querySelector('#cari-resep');
-  const infoResep = content.querySelector('#cari-resep-info');
-  const saringResep = () => {
-    const q = bakukanNama(cariResep.value);
-    let tampil = 0;
-    let total = 0;
-    for (const tr of content.querySelectorAll('.rcp-row')) {
-      total++;
-      const cocok = !q || tr.dataset.nama.includes(q);
-      tr.hidden = !cocok;
-      const detail = content.querySelector(`.rcp-detail[data-for="${tr.dataset.id}"]`);
-      if (detail && (!cocok || !tr.querySelector('.rcp-arrow')?.textContent.includes('▾'))) detail.hidden = true;
-      if (cocok) tampil++;
+  pasangPenyaring({
+    input: content.querySelector('#cari-resep'),
+    tipeSel: content.querySelector('#tipe-resep'),
+    katSel: content.querySelector('#kat-resep'),
+    info: content.querySelector('#cari-resep-info'),
+    baris: () => content.querySelectorAll('.rcp-row'),
+    satuan: 'produk',
+    // Baris rincian mengikuti induknya: ikut tersembunyi kalau induknya
+    // tersembunyi, tapi TIDAK ikut terbuka hanya karena namanya cocok.
+    sesudah: () => {
+      for (const tr of content.querySelectorAll('.rcp-row')) {
+        const detail = content.querySelector(`.rcp-detail[data-for="${tr.dataset.id}"]`);
+        if (detail && (tr.hidden || !tr.querySelector('.rcp-arrow')?.textContent.includes('▾'))) detail.hidden = true;
+      }
     }
-    infoResep.textContent = !q
-      ? `${total} produk`
-      : tampil
-        ? `${tampil} dari ${total} produk`
-        : `Tidak ada produk bernama "${cariResep.value.trim()}"`;
-  };
-  cariResep.addEventListener('input', saringResep);
-  saringResep();
+  });
+
+  // Unduhan memakai SATU penyusun untuk kedua format — kalau xlsx dan PDF
+  // menyusun barisnya sendiri-sendiri, takarannya akan menyimpang, dan resep
+  // yang angkanya berbeda antara file Excel dan lembar di dapur tidak bisa
+  // dipakai memeriksa apa pun.
+  const susun = () =>
+    susunBukuResep({
+      products,
+      recipes,
+      hppVarian: (id, mode) => costForMode(products, recipes, id, mode),
+      hppBahan: (id) => costForMode(products, recipes, id, null),
+      denganNilai: true
+    });
+  content.querySelector('#btn-unduh-resep-xlsx').addEventListener(
+    'click',
+    sekaliJalan(async () => {
+      const b = susun();
+      if (!b.baris.length) return toast('Belum ada resep untuk diunduh.', 'info');
+      await exportTableXLSX({ filename: b.namaBerkas, sheetName: 'Resep', title: b.judul, subtitle: b.subjudul, columns: b.kolom, rows: b.baris });
+    })
+  );
+  content.querySelector('#btn-unduh-resep-pdf').addEventListener(
+    'click',
+    sekaliJalan(async () => {
+      const b = susun();
+      if (!b.baris.length) return toast('Belum ada resep untuk diunduh.', 'info');
+      await exportTablePDF({ filename: b.namaBerkas, title: b.judul, subtitle: b.subjudul, columns: b.kolom, rows: b.baris });
+    })
+  );
 
   document.getElementById('btn-tpl-recipe').addEventListener('click', downloadRecipeTemplate);
   document.getElementById('btn-import-recipe')?.addEventListener('click', () => openImport(content, businessUnitId, 'recipes', muat));

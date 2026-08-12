@@ -131,7 +131,7 @@ export function sebabHppKosong(products, recipes, productId, mode) {
       return;
     }
     if (!r.items?.length) {
-      sebab.push(`${p.name}: resepnya ada tapi belum berisi bahan${jalur}`);
+      sebab.push(`${p.name}: resepnya ada tapi KOSONG — bahannya tidak pernah tersimpan (penyimpanan terputus di tengah). Isi ulang atau hapus resepnya${jalur}`);
       return;
     }
     if (!(Number(r.yield_qty) > 0)) {
@@ -147,4 +147,24 @@ export function sebabHppKosong(products, recipes, productId, mode) {
   // dilihat, bukan bahan milik sesuatu yang lain.
   telusuri(productId, mode, '');
   return sebab;
+}
+
+/**
+ * Sebab SATU bahan tidak berbiaya — untuk menyorot barisnya di tabel bahan.
+ *
+ * `sebabHppKosong()` menjawab "kenapa resep ini tidak punya HPP" dan
+ * mengembalikan daftar. Yang dibutuhkan di tabel bahan adalah pertanyaan yang
+ * lebih sempit: "kenapa BARIS INI yang bermasalah". Bedanya penting untuk
+ * dipakai — daftar kalimat di bawah tabel masih menyuruh orang mencocokkan
+ * nama sendiri, sedangkan baris yang berwarna langsung menunjuk.
+ *
+ * @returns {string|null} null berarti bahan ini baik-baik saja
+ */
+export function sebabBahan(products, recipes, ingredientProductId) {
+  const { costOf } = buildCostFn(products, recipes);
+  if (costOf(ingredientProductId, null) != null) return null;
+  const sebab = sebabHppKosong(products, recipes, ingredientProductId, null);
+  // Sebab pertama sudah cukup untuk satu baris tabel; sisanya (kalau bahan ini
+  // sendiri sebuah setengah jadi berlapis) tetap muncul di daftar di bawahnya.
+  return sebab[0] ?? 'Biayanya belum bisa dihitung.';
 }

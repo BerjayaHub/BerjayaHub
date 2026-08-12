@@ -72,11 +72,15 @@ const tanpaResepSirup = recipes.filter((r) => r.product_id !== 'sirup');
 memuat('setengah jadi tanpa resep disebut', sebabHppKosong(products, tanpaResepSirup, 'es', 'standalone'), 'Sirup Gula: belum punya resep Produksi');
 
 // ---- Resep ada tapi kosong / yield 0 ----
-memuat(
-  'resep tanpa bahan',
-  sebabHppKosong(products, [{ product_id: 'es', mode: 'standalone', yield_qty: 1, items: [] }], 'es', 'standalone'),
-  'resepnya ada tapi belum berisi bahan'
-);
+// Resep yang ADA tapi kosong tidak bisa dibuat lewat layar mana pun (editor
+// dan pengimpor sama-sama menolaknya), jadi kalau muncul, ia sisa penyimpanan
+// yang terputus di tengah. Pesannya harus mengatakan itu — "belum berisi bahan"
+// terbaca seperti pekerjaan yang belum dimulai, padahal justru sebaliknya:
+// bahan lamanya sudah telanjur terhapus.
+const resepKosong = sebabHppKosong(products, [{ product_id: 'es', mode: 'standalone', yield_qty: 1, items: [] }], 'es', 'standalone');
+memuat('resep kosong disebut kosong, bukan "belum diisi"', resepKosong, 'KOSONG');
+memuat('dan menyebut sebabnya', resepKosong, 'terputus');
+memuat('serta jalan keluarnya', resepKosong, 'Isi ulang atau hapus');
 memuat(
   'yield nol disebut apa adanya',
   sebabHppKosong(products, [{ ...recipes[1], yield_qty: 0 }, recipes[0]], 'es', 'standalone'),
@@ -167,4 +171,4 @@ if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Sebab HPP kosong menunjuk bahan yang benar & pemindahan varian aman — 30 kasus. ✅');
+console.log('Sebab HPP kosong menunjuk bahan yang benar & pemindahan varian aman — 32 kasus. ✅');

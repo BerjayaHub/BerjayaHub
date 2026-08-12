@@ -163,6 +163,40 @@ export async function getRecipeForProduct(productId, mode) {
 const PESAN_BUKAN_ADMIN_BU = 'Resep hanya bisa diubah Admin BU atau Super Admin. Minta mereka yang menyimpannya.';
 
 export async function saveRecipe({ productId, businessUnitId, mode, yield_qty, notes, items }) {
+  // SATU TRANSAKSI (0082). Sebelumnya ini tiga perintah HTTP terpisah, dan
+  // kalau yang ketiga tidak sampai — sinyal putus, halaman ditutup, aplikasi
+  // dibunuh OS — dua yang pertama tetap terjadi. Yang tertinggal adalah resep
+  // tanpa bahan; dan kalau yang sedang diubah adalah resep yang tadinya sudah
+  // benar, bahan lamanya sudah telanjur dihapus di langkah kedua.
+  const { data, error } = await supabase.rpc('simpan_resep_utuh', {
+    p_product_id: productId,
+    p_business_unit_id: businessUnitId,
+    p_mode: mode,
+    p_yield: yield_qty,
+    p_notes: notes ?? null,
+    p_items: (items ?? []).map((i) => ({ ingredient_product_id: i.ingredient_product_id, qty: i.qty }))
+  });
+  if (!error) return data;
+
+  // 0082 belum dijalankan di database ini? Jatuh ke cara lama supaya aplikasi
+  // tetap bisa dipakai, TAPI hanya untuk sebab yang itu — kode PostgREST
+  // PGRST202 berarti fungsinya tidak ada. Menangkap semua error di sini akan
+  // membuat penolakan RLS diam-diam dicoba ulang lewat jalur yang justru bisa
+  // meninggalkan resep kosong, yaitu persis yang sedang diperbaiki.
+  const fungsiBelumAda = error.code === 'PGRST202' || /simpan_resep_utuh/i.test(error.message ?? '');
+  if (!fungsiBelumAda) throw new Error(error.message ?? String(error));
+  console.warn('[resep] simpan_resep_utuh belum ada — jalankan migration 0082. Sementara memakai cara lama yang tidak atomik.');
+  return saveRecipeTerpisah({ productId, businessUnitId, mode, yield_qty, notes, items });
+}
+
+/**
+ * Cara lama: tiga perintah terpisah, TIDAK atomik.
+ *
+ * Hanya dipakai kalau `simpan_resep_utuh` belum ada. Dipertahankan agar
+ * pemasangan yang migrationnya tertinggal tidak kehilangan fitur menyimpan
+ * resep sama sekali — bukan karena cara ini masih dianggap benar.
+ */
+async function saveRecipeTerpisah({ productId, businessUnitId, mode, yield_qty, notes, items }) {
   let recipeId;
   const { data: existing, error: exErr } = await supabase
     .from('recipes')

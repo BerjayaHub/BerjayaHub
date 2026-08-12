@@ -1,6 +1,6 @@
 import { escapeHtml } from './core/ui.js';
 import { pasangNavigasi, dorongLapis, bersihkanLapis, bersihkanIsian } from './core/navigasi.js';
-import { ingatModul, gulirTerakhir, pulihkanGulir, pasangPencatatGulir } from './core/ingatan-layar.js';
+import { ingatModul, ingatLayar, layarTerakhir, gulirTerakhir, pulihkanGulir, pasangPencatatGulir } from './core/ingatan-layar.js';
 import { mountTutorialButton, clearFloatingTutorialButton } from './core/tutorial-button.js';
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
 import { getActiveModules, getModuleRenderer, registerModule } from './core/module-loader.js';
@@ -403,8 +403,16 @@ function menuTerakhir() {
 
 function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = false, allowedTabs = new Set(), { pulihkan = false } = {}) {
   const gulirSimpanan = pulihkan ? gulirTerakhir(code) : 0;
+  // Tempat di DALAM menu ikut dipulihkan, bukan cuma menunya.
+  //
+  // Sebelumnya Admin Portal cuma mengingat kode menu, jadi kembali dari
+  // aplikasi lain selalu mendarat di tab pertama. Untuk "Inventory" itu berarti
+  // Stok & Riwayat, padahal orangnya baru saja mengisi resep — dan tab pertama
+  // terlihat cukup mirip halaman yang benar untuk membuat orang ragu sesaat
+  // apakah pekerjaannya tersimpan.
+  const layarSimpanan = pulihkan ? layarTerakhir(code) : null;
   simpanMenuTerakhir(code);
-  ingatModul(code); // ingatan gulir menempel pada menu ini
+  ingatModul(code); // ingatan gulir & layar menempel pada menu ini
   // Halaman baru selalu dimulai dari atas. Tanpa ini, membuka modul setelah
   // menggulir jauh akan menampilkan layar yang tampak kosong — orangnya
   // mengira modulnya belum jadi, padahal isinya ada di atas.
@@ -417,7 +425,7 @@ function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = fal
     dorongLapis(`menu:${code}`, () => openModule('dashboard', businessUnitId, activeModules, isSuperAdmin, allowedTabs), { penjaga: true });
   }
   const content = document.getElementById('module-content');
-  const ctx = { businessUnitId, isAdmin: true };
+  const ctx = { businessUnitId, isAdmin: true, layarAwal: layarSimpanan, catatLayar: ingatLayar };
   content.classList.remove('fade-in');
   void content.offsetWidth; // restart animasi transisi halaman
   content.classList.add('fade-in');

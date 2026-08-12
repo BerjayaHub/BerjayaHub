@@ -2463,6 +2463,55 @@ Dikunci `node tools/test-harga-curiga.mjs` (26 kasus). Yang paling ditekankan di
 
 Satu catatan jujur soal tesnya: fixture setengah-jadi/menu versi pertama memakai angka yang **kebetulan wajar**, jadi saringan tipe produknya hijau tanpa pernah diuji. Ketahuan saat sabotase kelima tetap lolos. Fixture-nya diganti dengan angka yang pasti memicu kedua aturan, dan sekarang kelima sabotase merah.
 
+## Resep yang "ada tapi tidak berisi bahan" — dari mana asalnya
+
+Pertanyaannya wajar, karena keadaan itu memang tidak bisa dibuat lewat layar mana pun: editor resep menolak menyimpan tanpa bahan ("Tambahkan minimal satu bahan"), dan pengimpor menolak kelompok tanpa bahan ("tidak ada bahan"). Jadi resep kosong itu muncul entah dari mana.
+
+Asalnya dari `saveRecipe()`, yang mengerjakan **tiga perintah HTTP terpisah**:
+
+1. insert/update baris `recipes`
+2. delete **semua** `recipe_items` milik resep itu
+3. insert bahan yang baru
+
+Kalau langkah 3 tidak sampai — sinyal putus, halaman ditutup, aplikasi dibunuh OS karena RAM sempit — langkah 1 dan 2 **sudah terjadi** dan tidak dibatalkan siapa pun.
+
+Yang paling berbahaya bukan resep baru, tapi **mengubah resep yang sudah benar**: bahan lamanya sudah dihapus di langkah 2. Resep yang tadinya lengkap jadi kosong, HPP-nya hilang, dan semua menu yang memakainya ikut kehilangan HPP — tanpa satu pun pesan, karena pesannya ikut hilang bersama halaman yang tertutup.
+
+`0082_simpan_resep_utuh.sql` menjadikannya **satu transaksi**. Di dalam fungsi plpgsql semua perintah hidup-mati bersama: kalau ada yang gagal, penghapusan bahan lama ikut dibatalkan dan resepnya tetap seperti semula. Tiga hal yang disengaja di sana:
+
+- **SECURITY INVOKER dipertahankan.** RLS tetap berlaku atas nama pemanggilnya, jadi fungsi ini tidak memberi wewenang baru kepada siapa pun. `SECURITY DEFINER` akan membuat siapa saja yang bisa memanggilnya menulis resep sebagai pemilik fungsi — kebocoran yang tidak sepadan untuk memperbaiki masalah keutuhan data.
+- **Jumlah baris dicocokkan, bukan sekadar "ada yang masuk".** RLS bisa meloloskan sebagian baris dan menolak sisanya; resep yang kehilangan satu bahan menghasilkan HPP lebih murah dari kenyataan, dan tidak ada yang curiga karena penyimpanannya dilaporkan berhasil.
+- **Resep kosong yang sudah telanjur ada ikut dihapus** di migration yang sama, supaya tampilannya kembali ke "Belum" — keadaan yang sebenarnya — dan tombol "+ Isi resep" muncul lagi.
+
+Sisi aplikasi punya **jalur mundur yang sempit**: kalau `simpan_resep_utuh` belum ada (kode PostgREST `PGRST202`), ia memakai cara lama supaya pemasangan yang migration-nya tertinggal tidak kehilangan fitur menyimpan resep. Hanya untuk sebab itu — menangkap semua error di sana akan membuat penolakan RLS diam-diam dicoba ulang lewat jalur yang justru bisa meninggalkan resep kosong.
+
+Pesannya juga diperbaiki: **"resepnya ada tapi KOSONG — bahannya tidak pernah tersimpan (penyimpanan terputus di tengah)"**. Yang lama, "belum berisi bahan", terbaca seperti pekerjaan yang belum dimulai, padahal justru sebaliknya.
+
+## Bahan bermasalah disorot di barisnya sendiri
+
+Daftar sebab di bawah tabel sudah menyebut nama, tapi masih menyuruh orangnya mencocokkan sendiri — pada resep berisi 15 bahan itu pekerjaan yang tidak perlu ada, dan yang biasanya terjadi adalah daftarnya tidak dibaca. Sekarang **baris bahannya sendiri** yang berwarna, dengan sebabnya di bawah namanya ("⚠ Gula: harga belinya belum diisi"). `sebabBahan()` di `hpp.js` menjawab pertanyaan yang lebih sempit dari `sebabHppKosong()`: bukan "kenapa resep ini tidak punya HPP", tapi "kenapa baris ini yang bermasalah".
+
+## Filter tipe & kategori, dan unduhan buku resep
+
+Tab **Produk** dan tab **Resep** kini punya tiga saringan yang bekerja bersama: nama, tipe, kategori. Aturannya di `js/modules/product/saringan.js` (murni), dengan dua hal yang dikunci tes:
+
+- **Digabung dengan DAN, bukan ATAU.** Penyaring yang justru melebarkan hasil saat dipersempit membuat orang berhenti memakainya.
+- **Produk tanpa kategori punya kelompok sendiri**, "(tanpa kategori)", ditaruh di akhir daftar. Kalau ia ikut muncul di kategori mana pun, orangnya menyangka kategorinya sudah terisi dan tidak pernah membetulkannya.
+
+Tab Resep juga punya **⬇ Excel** dan **⬇ PDF** untuk seluruh resep sekaligus. Satu penyusun (`buku-resep.js`) untuk dua keluaran — alasannya sama dengan dokumen kiriman: resep yang takarannya berbeda antara file Excel dan lembar yang ditempel di dapur tidak bisa dipakai memeriksa apa pun. Bentuknya **datar**, satu baris per bahan, dengan kolom Produk & Varian **diulang di tiap baris**. Terlihat mubazir, tapi itu yang membuat Filter dan pivot di Excel bekerja — dan menyaring adalah alasan utama file ini diunduh. Resep kosong tetap muncul dengan keterangannya: kalau dilewati, file unduhan terlihat lengkap sementara aplikasinya memperingatkan, dan orang lebih percaya file yang dipegangnya.
+
+## Kembali dari aplikasi lain: tab-nya juga, bukan cuma modulnya
+
+Perbaikan sebelumnya berhenti di **kode menu**. Untuk Staff App itu cukup, tapi Admin Portal punya **dua lapis tab**: "Inventory" adalah grup berisi Master Produk / Menu / Produksi, dan Master Produk sendiri punya tab Produk / Resep / Satuan. Jadi kembali dari aplikasi lain selalu mendarat di tab pertama — Stok & Riwayat — padahal orangnya baru saja mengisi resep. Tab pertama cukup mirip halaman yang benar untuk membuat orang ragu sesaat apakah pekerjaannya tersimpan.
+
+Tempatnya sekarang disimpan sebagai **jalur**: `master_product/recipes`. Tiap lapis mengambil potongan pertama untuk dirinya dan meneruskan sisanya ke bawah (`js/core/jalur-layar.js`, murni), jadi menambah lapis ketiga nanti tidak menyentuh lapis yang sudah ada. Tiga hal yang dijaga:
+
+- **Tab yang dipulihkan diperiksa masih ada.** Daftar tab bergantung modul yang aktif untuk BU dan hak akses orangnya — keduanya bisa berubah setelah tempat itu disimpan. Tanpa pemeriksaan ini, kembali dari aplikasi lain mendarat di halaman kosong yang tidak punya tombol keluar.
+- **Grup dengan satu tab tidak memakan potongan.** Tanpa tab bar ia tidak mewakili pilihan apa pun, dan memakannya membuat modul di dalamnya menerima sisa yang salah.
+- **Ketukan tetap mulai dari atas.** Hanya pemulihan yang membawa sub-layar; menekan tab dengan sengaja harus selalu memulai bersih.
+
+Dikunci `node tools/test-saringan-jalur.mjs` (47 kasus, mencakup saringan + jalur + buku resep). Enam sabotase dicoba, semuanya merah — termasuk "gabung meninggalkan potongan kosong", yang menghasilkan `master_product/` dan membuat tab yang dipulihkan meleset diam-diam.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

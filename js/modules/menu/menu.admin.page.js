@@ -186,7 +186,14 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
       const isi = r
         ? `<table class="data-table" style="margin:6px 0;max-width:420px">
              <thead><tr><th>Bahan</th><th style="text-align:right">Jumlah</th></tr></thead>
-             <tbody>${baris || '<tr><td colspan="2">Resepnya ada, tapi belum berisi bahan.</td></tr>'}</tbody>
+             <tbody>${baris || `<tr><td colspan="2" style="background:var(--color-warning-bg,#fff8e1)">
+                 <strong>Resep ini kosong — bahannya tidak pernah tersimpan.</strong>
+                 <div style="font-size:0.78rem;margin-top:3px">
+                   Biasanya karena penyimpanan terputus di tengah (sinyal hilang, halaman tertutup, atau aplikasi ditutup paksa)
+                   sesudah bahan lama dihapus tapi sebelum bahan barunya masuk. Isi ulang lewat "Ubah resep", atau hapus resepnya
+                   supaya kembali berstatus "Belum".
+                 </div>
+               </td></tr>`}</tbody>
            </table>
            <p style="font-size:0.78rem;color:var(--color-text-muted);margin:0 0 8px">
              Hasil/yield: <strong>${formatNum(r.yield_qty)} ${esc(menu.base_unit)}</strong>
