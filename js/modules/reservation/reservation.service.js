@@ -489,6 +489,8 @@ export async function listReservations({ businessUnitId, outletId, status, dateF
  */
 export async function getHotelHarian({ businessUnitId, outletId, date }) {
   let q = supabase
+    // baris-terbatas: reservasi yang menyentuh SATU tanggal, dan hanya yang
+    // belum check-out — batas atasnya jumlah kamar, bukan riwayat.
     .from('reservations')
     .select(
       'id, code, outlet_id, customer_name, phone, check_in, check_out, adults, children, room_no, status, notes, checked_in_at, room_types(name), outlets!outlet_id(name), penanda:user_profiles!checked_in_by(full_name)'

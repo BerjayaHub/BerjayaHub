@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { ambilSemua } from '../../core/ambil-semua.js';
 
 export const MOVEMENT_LABEL = {
   receive: 'Penerimaan',
@@ -40,13 +41,27 @@ export async function amISuperAdmin() {
   return (data?.length ?? 0) > 0;
 }
 
-/** Saldo stok per (outlet, produk). Optional filter outlet. */
+/**
+ * Saldo stok per (outlet, produk). Optional filter outlet.
+ *
+ * DIAMBIL BERTAHAP. Tabel ini punya satu baris untuk tiap pasangan
+ * (outlet, produk): dengan 785 produk dan beberapa outlet, saldo satu BU sudah
+ * melewati batas 1.000 baris yang dikirim PostgREST tanpa diminta. Potongannya
+ * bukan error — stok yang tidak terkirim cuma tampil sebagai 0, dan nol adalah
+ * angka yang paling mudah dipercaya karena tidak terlihat seperti kesalahan.
+ *
+ * Tanpa filter outlet (dipakai layar admin lintas outlet) risikonya paling
+ * besar, karena barisnya dikalikan jumlah outlet.
+ */
 export async function listStockBalances(businessUnitId, outletId) {
-  let query = supabase.from('stock_balances').select('outlet_id, product_id, qty').eq('business_unit_id', businessUnitId);
-  if (outletId) query = query.eq('outlet_id', outletId);
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  return ambilSemua((dari, sampai) => {
+    let query = supabase
+      .from('stock_balances')
+      .select('outlet_id, product_id, qty', { count: 'exact' })
+      .eq('business_unit_id', businessUnitId);
+    if (outletId) query = query.eq('outlet_id', outletId);
+    return query.range(dari, sampai);
+  });
 }
 
 /** Map productId -> qty untuk satu outlet. */

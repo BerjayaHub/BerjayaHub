@@ -432,6 +432,7 @@ export async function getTodayDoneSessions(outletId) {
  */
 export async function listSessionRuns(outletId, tanggal) {
   const { data, error } = await supabase
+    // baris-terbatas: sesi SATU outlet pada SATU tanggal — paling banyak belasan.
     .from('checklist_runs')
     .select('id, session_id, run_date, notes, created_at, user_id, user_profiles(full_name), checklist_sessions(name), checklist_run_items(item_id, checked)')
     .eq('outlet_id', outletId)
@@ -599,7 +600,8 @@ export async function lanjutkanChecklistRun({ runId, outletId, itemStates }, onP
 
     for (const u of perbarui) {
       const { data, error } = await supabase
-        .from('checklist_run_items')
+        // baris-terbatas: item SATU run sesi.
+    .from('checklist_run_items')
         .update(u.isi)
         .eq('run_id', runId)
         .eq('item_id', u.item_id)
@@ -645,6 +647,7 @@ export async function ubahItemRun({ runId, itemId, outletId, note, file }) {
   }
 
   const { data, error } = await supabase
+    // baris-terbatas: item SATU run sesi.
     .from('checklist_run_items')
     .update(isi)
     .eq('run_id', runId)
@@ -667,6 +670,7 @@ export async function ubahItemRun({ runId, itemId, outletId, note, file }) {
  */
 export async function hapusItemRun({ runId, itemId, photoPath }) {
   const { data, error } = await supabase
+    // baris-terbatas: item SATU run sesi.
     .from('checklist_run_items')
     .delete()
     .eq('run_id', runId)
@@ -689,6 +693,7 @@ export async function hapusItemRun({ runId, itemId, photoPath }) {
  */
 export async function getRunItemIds(runId) {
   const { data, error } = await supabase
+    // baris-terbatas: item SATU run sesi.
     .from('checklist_run_items')
         // `done_by` (skalar) WAJIB ikut, bukan cuma embed namanya: layar memakainya
     // untuk memutuskan siapa yang boleh menekan Perbaiki/Hapus. Tanpa kolom ini
@@ -750,6 +755,7 @@ export async function listRunsForAdmin({ businessUnitId, outletId, dateFrom, dat
 
 export async function getRunItems(runId) {
   const { data, error } = await supabase
+    // baris-terbatas: item SATU run sesi.
     .from('checklist_run_items')
     // `done_by`/`done_at` (0071): pengerjaan menempel pada ITEM, bukan pada
     // sesi. Satu sesi bisa dikerjakan beberapa orang lintas pergantian shift,

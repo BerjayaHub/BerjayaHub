@@ -17,6 +17,7 @@ async function currentUserId() {
 /** Jumlah menu rencana per (produk) untuk sebuah outlet & tanggal -> Map productId->qty. */
 export async function getMenuPlans(outletId, date) {
   const { data, error } = await supabase
+    // baris-terbatas: rencana SATU outlet pada SATU tanggal.
     .from('menu_plans')
     .select('product_id, qty')
     .eq('outlet_id', outletId)

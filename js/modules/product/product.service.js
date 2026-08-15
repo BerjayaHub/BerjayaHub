@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { ambilSemua, ambilPerPotong } from '../../core/ambil-semua.js';
 export { computeCosts, costForMode, sebabHppKosong, sebabBahan } from './hpp.js';
 
 export const PRODUCT_TYPES = [
@@ -27,14 +28,18 @@ export async function deleteUnit(id) {
 // ---- Produk ----
 
 export async function listProducts(businessUnitId) {
-  const { data, error } = await supabase
-    .from('products')
-    .select('id, name, product_type, category, subcategory, base_unit, purchase_unit, purchase_qty, purchase_price, sale_price, is_active')
-    .eq('business_unit_id', businessUnitId)
-    .order('product_type')
-    .order('name');
-  if (error) throw error;
-  return data ?? [];
+  // Sama seperti resep: diambil bertahap. Satu BU di sini sudah punya 785
+  // produk — cukup dekat dengan batas 1.000 untuk membuat produk yang
+  // ditambahkan bulan depan hilang dari daftar tanpa satu pun pesan.
+  return ambilSemua((dari, sampai) =>
+    supabase
+      .from('products')
+      .select('id, name, product_type, category, subcategory, base_unit, purchase_unit, purchase_qty, purchase_price, sale_price, is_active', { count: 'exact' })
+      .eq('business_unit_id', businessUnitId)
+      .order('product_type')
+      .order('name')
+      .range(dari, sampai)
+  );
 }
 
 export async function createProduct(p) {
@@ -141,6 +146,8 @@ export async function getRecipeForProduct(productId, mode) {
   if (error) throw error;
   if (!recipe) return { recipe: null, items: [] };
   const { data: items, error: e2 } = await supabase
+    // baris-terbatas: bahan SATU resep. Inilah juga sebabnya editor tetap
+    // menampilkan bahan lengkap waktu daftar utama sudah terpotong.
     .from('recipe_items')
     .select('id, ingredient_product_id, qty, products(name, base_unit, product_type)')
     .eq('recipe_id', recipe.id);
@@ -291,21 +298,25 @@ export async function pindahVarianResep(productId, dari, ke) {
 
 /** Semua resep (semua mode) + itemnya di sebuah BU, untuk hitung HPP berjenjang. */
 export async function listRecipesFull(businessUnitId) {
-  const { data: recipes, error } = await supabase
-    .from('recipes')
-    .select('id, product_id, yield_qty, mode')
-    .eq('business_unit_id', businessUnitId);
-  if (error) throw error;
+  // DIAMBIL BERTAHAP, bukan sekali ambil.
+  //
+  // PostgREST memotong jawaban di sekitar 1.000 baris tanpa menganggapnya
+  // error. Versi lama mengambil SELURUH `recipe_items` satu BU dalam satu
+  // permintaan; begitu jumlah bahannya melewati batas itu, resep yang berada
+  // di belakang antrean pulang tanpa bahan — dan layar menampilkannya sebagai
+  // "resep kosong", padahal di database bahannya lengkap. Editor tidak kena
+  // karena ia bertanya per resep.
+  const recipes = await ambilSemua((dari, sampai) =>
+    supabase.from('recipes').select('id, product_id, yield_qty, mode', { count: 'exact' }).eq('business_unit_id', businessUnitId).range(dari, sampai)
+  );
   const ids = (recipes ?? []).map((r) => r.id);
-  let items = [];
-  if (ids.length) {
-    const { data: it, error: e2 } = await supabase
-      .from('recipe_items')
-      .select('recipe_id, ingredient_product_id, qty')
-      .in('recipe_id', ids);
-    if (e2) throw e2;
-    items = it ?? [];
-  }
+  // Id-nya juga dipecah: seribu UUID di query string menghasilkan URL puluhan
+  // kilobyte yang ditolak sebagian perantara jaringan.
+  const items = await ambilPerPotong(ids, (potongan) =>
+    ambilSemua((dari, sampai) =>
+      supabase.from('recipe_items').select('recipe_id, ingredient_product_id, qty', { count: 'exact' }).in('recipe_id', potongan).range(dari, sampai)
+    )
+  );
   const byRecipe = new Map();
   for (const r of recipes ?? []) byRecipe.set(r.id, { product_id: r.product_id, mode: r.mode, yield_qty: Number(r.yield_qty), items: [] });
   for (const i of items) byRecipe.get(i.recipe_id)?.items.push({ ingredient_product_id: i.ingredient_product_id, qty: Number(i.qty) });

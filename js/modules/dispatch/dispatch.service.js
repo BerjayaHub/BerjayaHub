@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { ambilSemua } from '../../core/ambil-semua.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
 
 export const DISPATCH_STATUS = { sent: 'Dikirim (belum diterima)', received: 'Diterima', cancelled: 'Dibatalkan' };
@@ -128,18 +129,29 @@ export async function receiveDispatch(dispatchId, items) {
 /** Kiriman berstatus 'sent' yang tujuannya salah satu dari outletIds (untuk dikonfirmasi). */
 export async function listIncomingDispatches(outletIds) {
   if (!outletIds?.length) return [];
-  const { data, error } = await supabase
-    .from('dispatches')
-    .select('id, code, notes, created_at, from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name), to_outlet_id, user_profiles!created_by(full_name)')
-    .eq('status', 'sent')
-    .in('to_outlet_id', outletIds)
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return data ?? [];
+  // BERTAHAP, bukan dikecualikan. Ini satu-satunya daftar di modul ini yang
+  // tidak punya batas alami: isinya kiriman yang BELUM dikonfirmasi, jadi ia
+  // menumpuk persis selama orang lalai mengonfirmasi — keadaan yang paling
+  // mungkin terjadi justru saat sedang sibuk. Dan kalau terpotong, yang hilang
+  // adalah kiriman yang menunggu konfirmasi: barang yang sudah berangkat tapi
+  // tidak pernah muncul untuk diterima.
+  return ambilSemua((dari, sampai) =>
+    supabase
+      .from('dispatches')
+      .select(
+        'id, code, notes, created_at, from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name), to_outlet_id, user_profiles!created_by(full_name)',
+        { count: 'exact' }
+      )
+      .eq('status', 'sent')
+      .in('to_outlet_id', outletIds)
+      .order('created_at', { ascending: false })
+      .range(dari, sampai)
+  );
 }
 
 export async function getDispatchItems(dispatchId) {
   const { data, error } = await supabase
+    // baris-terbatas: item SATU dokumen kiriman.
     .from('dispatch_items')
     .select('id, sent_qty, received_qty, product_id, products(name, base_unit)')
     .eq('dispatch_id', dispatchId);

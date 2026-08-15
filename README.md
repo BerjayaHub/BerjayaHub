@@ -2645,6 +2645,37 @@ Tiga hal kecil yang ikut dikunci tes: `items` yang tidak ada sama sekali diperla
 
 Dikunci `tools/test-impor-ulang.mjs` (69 kasus), tiga sabotase merah termasuk mengembalikan bug aslinya persis.
 
+## "Resep kosong" yang sebenarnya tidak kosong — potongan 1.000 baris
+
+Ini penyebab sesungguhnya dari laporan *"produknya sudah ada, tapi tetap belum bisa masuk ke resep, sebagian besar seperti ini"*. Dua perbaikan sebelumnya (0082 dan impor yang tidak lagi melewati resep kosong) benar, tapi keduanya menangani **akibat**.
+
+Petunjuk yang membongkarnya ada di tangkapan layar pengguna sendiri: panelnya menulis "Resep ini kosong", sementara **editor resep yang sama menampilkan bahannya lengkap** — Ayam Utuh 1200 gr, Bawang Merah 200 gr. Satu database, dua layar, isi berbeda.
+
+Bedanya ada di cara bertanya:
+
+| | Query | Hasil |
+|---|---|---|
+| Editor | `recipe_items` **satu resep** | selalu jauh di bawah batas → utuh |
+| Panel & tabel | `recipe_items` **seluruh BU sekaligus** | dipotong di ~1.000 baris |
+
+PostgREST membatasi jawaban pada sekitar 1.000 baris kalau tidak diminta lain, dan **potongan itu bukan error** — jawabannya sukses, cuma kurang. Dengan 785 produk, bahan resep satu BU melewati seribu baris dengan mudah; resep yang kebetulan berada di belakang antrean pulang tanpa bahan.
+
+Yang membuatnya sulit sekali ditemukan: aplikasinya berjalan lama tanpa gejala apa pun, lalu mulai kehilangan data begitu tabelnya tumbuh. Tidak ada perubahan kode yang bisa disalahkan, tidak ada error yang bisa dicari, dan gejalanya ("resepnya kosong") menunjuk ke tempat yang salah — sampai membuat saya menulis pesan yang dengan yakin menuduh penyimpanan terputus.
+
+`js/core/ambil-semua.js` mengambil bertahap sampai habis. Tiga keputusan di dalamnya:
+
+- **Maju sebanyak yang DITERIMA, bukan yang diminta.** Server boleh punya batas sendiri yang lebih kecil dari ukuran halaman kita.
+- **Berhenti hanya saat halaman kosong** — kecuali server menyebutkan jumlah totalnya. Berhenti pada "halaman lebih kecil dari yang diminta" adalah bug yang sama persis dengan angka berbeda; **tes yang menemukannya**, bukan saya. Pemanggil menyertakan `{ count: 'exact' }` supaya tidak perlu permintaan penutup.
+- **Ada batas putaran.** Server yang mengabaikan penomoran halaman akan membuat aplikasinya menggantung selamanya — kegagalan yang lebih buruk daripada data yang kurang.
+
+Daftar id untuk `.in(...)` juga dipecah: seribu UUID di query string menghasilkan URL puluhan kilobyte yang ditolak sebagian perantara jaringan dengan galat yang tidak menyebut sebabnya.
+
+Yang sudah diperbaiki: `listProducts` (785 produk — tinggal sedikit lagi menyentuh batas), `listRecipesFull` (dua query), `listStockBalances` (satu baris per outlet × produk — yang terpotong tampil sebagai **stok 0**), dan `listIncomingDispatches` (kiriman yang belum dikonfirmasi; kalau terpotong, barang yang sudah berangkat tidak pernah muncul untuk diterima).
+
+`tools/audit-ambil-terpotong.cjs` menjaga 26 pembacaan tabel yang bisa tumbuh. Tujuh **dikecualikan dengan alasan tertulis** (`baris-terbatas: …`) — bahan satu resep, item satu kiriman, reservasi satu tanggal; memaksanya bertahap cuma menambah permintaan tanpa menambah keamanan. Pengecualian tanpa alasan tidak diterima: setahun lagi tidak ada yang bisa membedakannya dari kelalaian.
+
+Dikunci `tools/test-ambil-semua.mjs` (26 kasus, server tiruannya **memotong seperti aslinya** — tes dengan server yang jujur tidak akan pernah menangkap bug ini). Lima sabotase merah.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
