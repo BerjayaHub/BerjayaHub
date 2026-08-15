@@ -14,7 +14,7 @@
  *   - nilai yang sudah ada TIDAK PERNAH tertimpa diam-diam (kalau tidak, satu
  *     impor file lama bisa menghapus koreksi harga yang dikerjakan manual).
  */
-import { rencanaLengkapi, saringMenurutTipe } from '../js/modules/product/import-merge.js';
+import { rencanaLengkapi, saringMenurutTipe, kolomDiabaikan } from '../js/modules/product/import-merge.js';
 
 let gagal = 0;
 const cek = (nama, dapat, harap) => {
@@ -213,6 +213,27 @@ const rs = rencanaLengkapi(sirupKosong, saringMenurutTipe('semi', isiPenuh));
 cek('setengah jadi tidak menerima harga beli lewat impor', rs.patch.purchase_price, undefined);
 cek('tapi kategorinya tetap dilengkapi', rs.patch.category, 'X');
 
+
+// ---- Kolom yang diisi tapi tidak berlaku HARUS DISEBUT ----
+//
+// Membuangnya sudah benar; membuangnya DIAM-DIAM tidak. Orang mengisi harga
+// beli untuk lima puluh setengah jadi, impornya "berhasil", kolomnya tetap
+// kosong, dan tidak ada kalimat yang menjelaskan kenapa. Yang disimpulkan
+// berikutnya hampir selalu "impornya tidak jalan" — lalu diulang, dengan hasil
+// yang sama persis.
+cek('setengah jadi: harga beli dilaporkan diabaikan', kolomDiabaikan('semi', { purchase_price: 250000 }), ['Harga Beli']);
+cek('setengah jadi: beberapa kolom sekaligus', kolomDiabaikan('semi', isiPenuh), ['Satuan Beli', 'Isi per Satuan Beli', 'Harga Beli', 'Harga Jual']);
+cek('menu: harga beli dilaporkan', kolomDiabaikan('finished', { purchase_price: 250000 }), ['Harga Beli']);
+cek('menu: harga jual TIDAK dilaporkan', kolomDiabaikan('finished', { sale_price: 18000 }), []);
+cek('bahan baku: harga beli TIDAK dilaporkan', kolomDiabaikan('raw', { purchase_price: 250000 }), []);
+cek('bahan baku: harga jual dilaporkan', kolomDiabaikan('raw', { sale_price: 18000 }), ['Harga Jual']);
+// Kolom KOSONG tidak dilaporkan — kalau dilaporkan, tiap impor menu biasa akan
+// memunculkan catatan tentang kolom yang memang sengaja dibiarkan kosong, dan
+// catatan yang selalu muncul berhenti dibaca.
+cek('kolom kosong tidak dilaporkan', kolomDiabaikan('semi', { purchase_price: null, sale_price: '' }), []);
+cek('nol tetap dianggap terisi', kolomDiabaikan('semi', { purchase_price: 0 }), ['Harga Beli']);
+cek('nilai null aman', kolomDiabaikan('semi', null), []);
+
 cek('nilai null aman', saringMenurutTipe('raw', null), {});
 cek('tipe tak dikenal diperlakukan paling ketat', saringMenurutTipe('entah', isiPenuh), { category: 'X' });
 
@@ -220,4 +241,4 @@ if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Impor ulang benar untuk 53 kasus: melengkapi yang kosong, dan hanya menimpa kalau diminta dengan sadar. ✅');
+console.log('Impor ulang benar untuk 62 kasus: melengkapi yang kosong, dan hanya menimpa kalau diminta dengan sadar. ✅');

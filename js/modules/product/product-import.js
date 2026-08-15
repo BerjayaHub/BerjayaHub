@@ -1,6 +1,6 @@
 import { listProducts, createProduct, updateProduct, listRecipesFull, saveRecipe, listUnits, createUnit } from './product.service.js';
 import { bakukanNama, palingMirip, bacaAngka } from '../../core/nama.js';
-import { rencanaLengkapi, saringMenurutTipe } from './import-merge.js';
+import { rencanaLengkapi, saringMenurutTipe, kolomDiabaikan } from './import-merge.js';
 import { curigaHargaTertukar } from './harga-curiga.js';
 import { periksaBahan } from './periksa-resep.js';
 
@@ -70,6 +70,17 @@ const hargaBeli = (r) => r['harga beli (per satuan beli)'] ?? r['harga beli'];
  * berbahaya daripada tidak ada pratinjau, karena orang menekan Simpan
  * justru karena sudah memeriksanya.
  */
+/**
+ * Mengumpulkan kolom yang diisi tapi tidak berlaku, beserta jumlah barisnya.
+ *
+ * Dihitung per BARIS lalu diringkas per kolom: laporan yang menyebut lima puluh
+ * baris satu per satu tidak akan dibaca, sedangkan "Harga Beli diabaikan di 50
+ * baris" langsung memberi tahu bahwa ini pola, bukan salah ketik sekali.
+ */
+function catatDiabaikan(peta, type, nilai) {
+  for (const label of kolomDiabaikan(type, nilai)) peta.set(label, (peta.get(label) ?? 0) + 1);
+}
+
 export async function importProducts(businessUnitId, file, { timpa = false, hanyaRencana = false } = {}) {
   const rows = await readRows(file);
   const existing = await listProducts(businessUnitId);
@@ -95,6 +106,7 @@ export async function importProducts(businessUnitId, file, { timpa = false, hany
   const errors = [];
   const catatan = [];
   const perubahan = [];
+  const diabaikan = new Map(); // "Harga Beli" -> berapa baris
   const peringatan = [];
   let barisKosong = 0;
 
@@ -126,6 +138,12 @@ export async function importProducts(businessUnitId, file, { timpa = false, hany
       // sama lewat pintu lain — cukup menulis "Bahan Baku" di file untuk
       // menitipkan harga beli ke sebuah setengah jadi.
       const tipeBerlaku = sudahAda.product_type ?? type;
+      catatDiabaikan(diabaikan, tipeBerlaku, {
+        purchase_unit: String(r['satuan beli'] ?? '').trim(),
+        purchase_qty: num(r['isi per satuan beli']),
+        purchase_price: num(hargaBeli(r)),
+        sale_price: num(r['harga jual'])
+      });
       const { patch, terisi, diubah, konflik } = rencanaLengkapi(
         sudahAda,
         saringMenurutTipe(tipeBerlaku, {
@@ -174,6 +192,12 @@ export async function importProducts(businessUnitId, file, { timpa = false, hany
       errors.push(`Baris ${noBaris} — ${name}: kolom "Satuan Pakai" kosong`);
       continue;
     }
+    catatDiabaikan(diabaikan, type, {
+      purchase_unit: String(r['satuan beli'] ?? '').trim(),
+      purchase_qty: num(r['isi per satuan beli']),
+      purchase_price: num(hargaBeli(r)),
+      sale_price: num(r['harga jual'])
+    });
     try {
       if (!hanyaRencana) {
         await createProduct({
@@ -218,7 +242,12 @@ export async function importProducts(businessUnitId, file, { timpa = false, hany
   if (barisKosong) {
     errors.push(`${barisKosong} baris dilewati karena kolom "Nama" kosong (sel tergabung, baris judul, atau baris sisa di bawah tabel)`);
   }
-  return { added, skipped, dilengkapi, catatan, perubahan, errors, peringatan, satuanBaru };
+  // Diurutkan dari yang paling sering supaya yang paling mungkin disalahpahami
+  // muncul lebih dulu.
+  const diabaikanTeks = [...diabaikan.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, n]) => `${label} diabaikan di ${n} baris — kolom itu hanya berlaku untuk tipe tertentu`);
+  return { added, skipped, dilengkapi, catatan, perubahan, errors, peringatan, diabaikan: diabaikanTeks, satuanBaru };
 }
 
 /**
@@ -402,7 +431,8 @@ export async function importRecipes(businessUnitId, file) {
     // digabung, bukan disimpan dua baris yang biayanya ikut dijumlahkan.
     // Lewat impor keduanya jauh lebih mudah terjadi daripada lewat form.
     const namaBahan = new Map(products.map((x) => [x.id, x.name]));
-    const { items: bersih, masalah } = periksaBahan(items, { productId: p.id, nama: namaBahan });
+    const tipeBahan = new Map(products.map((x) => [x.id, x.product_type]));
+    const { items: bersih, masalah } = periksaBahan(items, { productId: p.id, nama: namaBahan, tipe: tipeBahan });
     if (masalah.length) {
       errors.push(`${prodName}: ${masalah.join('; ')}`);
       continue;

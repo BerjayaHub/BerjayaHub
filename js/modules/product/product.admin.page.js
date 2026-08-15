@@ -789,6 +789,18 @@ async function openImport(content, businessUnitId, kind, refresh) {
             .map((c) => `<li>${escapeHtml(c)}</li>`)
             .join('')}</ul>`
         : '';
+    // Kolom yang diisi tapi tidak berlaku. BUKAN error — filenya tidak salah,
+    // isinya cuma tidak berlaku di tipe itu. Tapi harus disebut: membuangnya
+    // diam-diam membuat orang menyimpulkan "impornya tidak jalan" lalu
+    // mengulang impor yang sama dengan hasil yang sama persis.
+    const diabaikanHtml = res.diabaikan?.length
+      ? `<div style="margin-top:10px;font-size:0.85rem;color:var(--color-text-muted)">
+           <strong>Sebagian kolom tidak dipakai:</strong>
+           <ul style="margin:4px 0 0 16px;padding:0">${res.diabaikan.map((d) => `<li>${escapeHtml(d)}</li>`).join('')}</ul>
+           Harga Beli / Satuan Beli / Isi per Satuan Beli hanya untuk <strong>Bahan Baku</strong>;
+           Harga Jual hanya untuk <strong>Menu</strong>. HPP Setengah Jadi &amp; Menu dihitung dari resepnya.
+         </div>`
+      : '';
     const ubahHtml = res.perubahan?.length
       ? `<p style="margin-top:6px"><strong>${res.perubahan.length}</strong> produk <strong>diganti</strong> nilainya.</p>` +
         `<ul style="margin:0;padding-left:18px;max-height:160px;overflow:auto;font-size:0.85rem">${res.perubahan
@@ -820,7 +832,7 @@ async function openImport(content, businessUnitId, kind, refresh) {
       title: 'Hasil Import',
       bodyHtml:
         `<p><strong>${res.added}</strong> ditambahkan, <strong>${res.skipped}</strong> dilewati (tidak ada yang perlu diubah).</p>` +
-        `${lengkapHtml}${ubahHtml}${catatanResepHtml}${satuanHtml}${peringatanHtml}${errHtml}`
+        `${lengkapHtml}${ubahHtml}${catatanResepHtml}${diabaikanHtml}${satuanHtml}${peringatanHtml}${errHtml}`
     });
     await refresh();
   } catch (error) {

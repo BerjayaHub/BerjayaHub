@@ -93,7 +93,8 @@ export async function openRecipeEditor(mountEl, { businessUnitId, product, produ
     // menghasilkan "Resep disimpan" dengan bahan yang berkurang — dan HPP yang
     // lebih murah dari kenyataan tanpa satu pun tanda.
     const namaBahan = new Map(products.map((p) => [p.id, p.name]));
-    const { items, masalah } = periksaBahan(baris, { productId: product.id, nama: namaBahan });
+    const tipeBahan = new Map(products.map((p) => [p.id, p.product_type]));
+    const { items, masalah } = periksaBahan(baris, { productId: product.id, nama: namaBahan, tipe: tipeBahan });
     if (masalah.length) {
       errorEl.textContent = masalah.join('; ');
       return;

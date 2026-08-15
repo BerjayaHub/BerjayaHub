@@ -55,6 +55,35 @@ cek('ditolak', sendiri.masalah.length, 1);
 cek('alasannya jelas', sendiri.masalah[0].includes('dirinya sendiri'), true);
 cek('dan tidak ikut jadi item', sendiri.items, []);
 
+
+// ---- Menu tidak boleh jadi bahan ----
+// Editor tidak menawarkannya di dropdown, tapi IMPOR cuma mencocokkan nama —
+// jadi lewat sana sebuah menu bisa masuk jadi bahan, dan resepnya kemudian
+// tidak bisa dibuka di editor. Dua layar yang menjawab hal sama, satu di
+// antaranya menolak isinya sendiri.
+const tipe = new Map([['gula', 'raw'], ['sirup', 'semi'], ['es', 'finished'], ['lain', 'finished']]);
+const namaLengkap = new Map([...nama, ['sirup', 'Sirup Gula'], ['lain', 'Lemon Tea']]);
+const opsiTipe = { productId: 'es', nama: namaLengkap, tipe };
+
+const pakaiMenu = periksaBahan([{ ingredient_product_id: 'lain', qty: 1 }], opsiTipe);
+cek('menu sebagai bahan ditolak', pakaiMenu.masalah.length, 1);
+cek('menyebut nama menunya', pakaiMenu.masalah[0].includes('Lemon Tea'), true);
+// Pesannya menyebut JALAN KELUARNYA, bukan cuma larangan — kalau memang barang
+// itu dipakai membuat barang lain, tipenya yang salah, bukan resepnya.
+cek('menyarankan ubah tipe', pakaiMenu.masalah[0].includes('Setengah Jadi'), true);
+cek('dan tidak ikut jadi item', pakaiMenu.items, []);
+
+cek('bahan baku tetap boleh', periksaBahan([{ ingredient_product_id: 'gula', qty: 5 }], opsiTipe).masalah, []);
+cek('setengah jadi tetap boleh', periksaBahan([{ ingredient_product_id: 'sirup', qty: 5 }], opsiTipe).masalah, []);
+// Keduanya bersama — inilah bentuk resep menu yang lumrah.
+cek('bahan baku + setengah jadi bersama', periksaBahan([{ ingredient_product_id: 'gula', qty: 5 }, { ingredient_product_id: 'sirup', qty: 3 }], opsiTipe).items.length, 2);
+// Setengah jadi boleh berisi setengah jadi lain — kedalamannya tidak dibatasi.
+cek('setengah jadi di dalam setengah jadi', periksaBahan([{ ingredient_product_id: 'sirup', qty: 3 }], { productId: 'semi-lain', nama: namaLengkap, tipe }).masalah, []);
+
+// Tanpa peta tipe, pemeriksaan ini TIDAK berlaku — pemanggil yang tidak punya
+// daftar produk tidak boleh jadi ikut menolak.
+cek('tanpa peta tipe: tidak ikut menolak', periksaBahan([{ ingredient_product_id: 'lain', qty: 1 }], { productId: 'es', nama: namaLengkap }).masalah, []);
+
 // ---- Beberapa masalah sekaligus: semuanya disebut ----
 // Melaporkan satu lalu berhenti membuat orang membetulkan satu baris, menyimpan
 // lagi, dan menemukan pesan berikutnya — berkali-kali.
@@ -75,4 +104,4 @@ if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Penjaga isi resep benar untuk 28 kasus. ✅');
+console.log('Penjaga isi resep benar untuk 38 kasus. ✅');

@@ -27,6 +27,15 @@
  *    Akibatnya siklus: HPP-nya jadi `null` selamanya, dengan pesan "belum bisa
  *    dihitung" yang menunjuk ke bahan yang kelihatan baik-baik saja.
  *
+ * 4. MENU DIPAKAI SEBAGAI BAHAN.
+ *    Editor tidak menawarkannya (dropdown-nya hanya bahan baku & setengah jadi),
+ *    tapi IMPOR menerimanya begitu saja — ia cuma mencocokkan nama. Padahal
+ *    "menu di dalam menu" bukan cara produksi yang dimaksudkan modul ini:
+ *    barang yang dipakai membuat barang lain seharusnya bertipe Setengah Jadi,
+ *    dan tipe itulah yang menentukan apakah stoknya diproduksi di CK. Dibiarkan
+ *    lolos, dua layar yang seharusnya menjawab hal yang sama akan menerima
+ *    resep yang salah satunya tidak bisa dibuka di editor.
+ *
  * Tidak ada impor di file ini, supaya bisa diuji tanpa browser.
  */
 
@@ -35,10 +44,12 @@
  * @param {object} o
  * @param {string} o.productId          produk yang sedang diisi resepnya
  * @param {Map<string,string>} [o.nama] id -> nama, untuk pesan yang bisa dibaca
+ * @param {Map<string,string>} [o.tipe] id -> product_type; kalau diberikan,
+ *   bahan bertipe `finished` (Menu) ditolak — sama seperti dropdown editor
  * @returns {{items: object[], masalah: string[]}}
  *   `masalah` tidak kosong berarti JANGAN disimpan.
  */
-export function periksaBahan(baris, { productId, nama = new Map() } = {}) {
+export function periksaBahan(baris, { productId, nama = new Map(), tipe = null } = {}) {
   const sebut = (id) => nama.get(id) ?? 'bahan ini';
   const masalah = [];
   const gabung = new Map();
@@ -49,6 +60,13 @@ export function periksaBahan(baris, { productId, nama = new Map() } = {}) {
 
     if (id === productId) {
       masalah.push(`"${sebut(id)}" dipakai sebagai bahan bagi dirinya sendiri — HPP-nya tidak akan pernah bisa dihitung`);
+      continue;
+    }
+
+    // Hanya diperiksa kalau peta tipenya diberikan: pemanggil yang tidak
+    // punya daftar produk (mis. tes lama) tidak boleh jadi ikut menolak.
+    if (tipe?.get(id) === 'finished') {
+      masalah.push(`"${sebut(id)}" adalah Menu — menu tidak bisa dipakai sebagai bahan. Kalau memang dipakai membuat produk lain, ubah tipenya jadi Setengah Jadi`);
       continue;
     }
 

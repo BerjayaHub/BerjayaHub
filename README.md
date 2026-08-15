@@ -2577,7 +2577,19 @@ Ketiganya menghasilkan HPP yang **salah tapi terlihat wajar** — jauh lebih mah
 
 3. **Produk bisa jadi bahan bagi dirinya sendiri lewat impor.** Editor sudah mencegahnya (pilihan dirinya sendiri tidak ditawarkan di dropdown), tapi pengimpor tidak — dan di sana itu satu baris yang mudah salah ketik. Akibatnya siklus: HPP-nya `null` selamanya, dengan pesan "belum bisa dihitung" yang menunjuk ke bahan yang kelihatan baik-baik saja.
 
-Ketiganya dijaga satu modul murni, `periksa-resep.js`, dipakai **editor dan pengimpor**. Dikunci `node tools/test-periksa-resep.mjs` (28 kasus); empat sabotase merah, termasuk mengembalikan bug pertama persis seperti aslinya.
+4. **Menu bisa jadi bahan lewat impor.** Editor tidak menawarkannya — dropdown bahannya hanya bahan baku & setengah jadi — tapi pengimpor cuma mencocokkan nama. Jadi "menu di dalam menu" bisa masuk lewat impor, dan resepnya kemudian **tidak bisa dibuka di editor**: dua layar yang menjawab hal yang sama, satu di antaranya menolak isinya sendiri. Pesannya menyebut jalan keluarnya, bukan cuma larangan — kalau barang itu memang dipakai membuat barang lain, yang salah tipenya, bukan resepnya.
+
+Keempatnya dijaga satu modul murni, `periksa-resep.js`, dipakai **editor dan pengimpor**. Dikunci `node tools/test-periksa-resep.mjs` (38 kasus); enam sabotase merah, termasuk mengembalikan bug pertama persis seperti aslinya dan versi yang terlalu ketat (setengah jadi ikut ditolak).
+
+### Aturan susunan produk, ringkas
+
+| Tipe | Punya resep? | Boleh jadi bahan? | HPP dari |
+|---|---|---|---|
+| **Bahan Baku** | tidak | ya | Harga Beli ÷ Isi per Satuan Beli |
+| **Setengah Jadi** | ya — varian *Produksi* | ya | resep Produksi-nya |
+| **Menu** | ya — *Standalone* &/atau *Dilayani CK* | **tidak** | resep varian yang dipilih |
+
+Bahan sebuah resep boleh **bahan baku maupun setengah jadi**, di kedua varian menu — nama varian menggambarkan cara produksinya (dirakit di outlet vs memakai kiriman CK), bukan batasan tipe bahan. Setengah jadi boleh berisi setengah jadi lain, tanpa batas kedalaman; siklus dijaga `buildCostFn` dan sekarang juga ditolak di muka oleh `periksaBahan`.
 
 Yang **diperiksa dan ternyata sudah benar**, supaya tidak dicari lagi nanti: semua penulisan di ketiga modul sudah memeriksa barisnya benar-benar kena (`audit-tulis-senyap`, 41 titik); tidak ada error yang ditelan `catch` kosong; semua input jumlah memakai `<input type="number">` sehingga `Number()` di sana aman dari jebakan koma desimal; dan `record_menu_waste` sudah memilih varian resep yang benar dengan mundur ke Standalone kalau varian CK tidak ada.
 
@@ -2601,7 +2613,15 @@ Nilai itu tidak salah hari ini — tidak dipakai menghitung apa pun, dan tidak d
 
 Satu keputusan yang perlu disebut: tipe yang dipakai memutuskan adalah **tipe di sistem**, bukan yang di file. Impor tidak pernah mengubah tipe (lihat STRUKTURAL), jadi memakai tipe dari file akan membuka celah yang sama lewat pintu lain — cukup menulis "Bahan Baku" di file untuk menitipkan harga beli ke sebuah setengah jadi.
 
-`tools/test-impor-ulang.mjs` naik jadi 53 kasus. Tiga sabotase merah, termasuk "harga beli boleh menempel di setengah jadi". Keterangan di dialog impor dan contoh di template ikut diperjelas.
+`tools/test-impor-ulang.mjs` naik jadi 62 kasus. Lima sabotase merah, termasuk "harga beli boleh menempel di setengah jadi". Keterangan di dialog impor dan contoh di template ikut diperjelas.
+
+### Membuangnya benar, membuangnya diam-diam tidak
+
+Sesudah aturannya disatukan, mengisi Harga Beli untuk sebuah setengah jadi berarti nilainya **dibuang tanpa pesan apa pun**. Itu perbaikan setengah jalan: orang mengetik harga beli untuk lima puluh setengah jadi, impornya dilaporkan berhasil, kolomnya tetap kosong, dan tidak ada satu kalimat pun yang menjelaskan kenapa. Yang disimpulkan berikutnya hampir selalu "impornya tidak jalan" — lalu diulang, dengan hasil yang sama persis.
+
+Hasil impor sekarang memuat catatan **"Harga Beli diabaikan di 50 baris — kolom itu hanya berlaku untuk tipe tertentu"**, diringkas per kolom (bukan per baris: laporan lima puluh baris tidak akan dibaca, sedangkan satu baris dengan angkanya langsung memberi tahu bahwa ini pola, bukan salah ketik sekali).
+
+Ini **bukan** error dan tidak diberi warna merah: filenya tidak salah, isinya cuma tidak berlaku di tipe itu. Kolom yang **kosong** juga tidak ikut dilaporkan — kalau ikut, setiap impor menu biasa akan memunculkan catatan tentang kolom yang memang sengaja dikosongkan, dan catatan yang selalu muncul berhenti dibaca.
 
 ## Roadmap fase
 

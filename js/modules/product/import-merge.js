@@ -147,3 +147,28 @@ export function saringMenurutTipe(type, nilai) {
   if (type !== 'finished') delete keluar.sale_price;
   return keluar;
 }
+
+/**
+ * Kolom yang DIISI di file tapi tidak berlaku untuk tipe produknya.
+ *
+ * Membuangnya saja sudah benar (lihat `saringMenurutTipe`), tapi membuangnya
+ * DIAM-DIAM tidak. Orang mengetik harga beli untuk lima puluh setengah jadi,
+ * impornya "berhasil", kolomnya tetap kosong, dan tidak ada satu pun kalimat
+ * yang menjelaskan kenapa. Yang disimpulkan berikutnya hampir selalu "impornya
+ * tidak jalan" — lalu diulang, dengan hasil yang sama persis.
+ *
+ * Ini bukan error: filenya tidak salah, isinya cuma tidak berlaku di sana.
+ * Jadi hasilnya catatan, bukan penolakan.
+ */
+export function kolomDiabaikan(type, nilai) {
+  const label = {
+    purchase_unit: 'Satuan Beli',
+    purchase_qty: 'Isi per Satuan Beli',
+    purchase_price: 'Harga Beli',
+    sale_price: 'Harga Jual'
+  };
+  const berlaku = saringMenurutTipe(type, nilai);
+  return Object.keys(label)
+    .filter((k) => !kosong(nilai?.[k]) && !(k in berlaku))
+    .map((k) => label[k]);
+}
