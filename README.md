@@ -2537,6 +2537,24 @@ Tesnya (`tools/test-panel-bahan.mjs`, 33 kasus) menemukan satu bug nyata saat pe
 
 Satu lagi yang layak dicatat: dari lima sabotase, satu **lolos**. Fixture "Staff App" saya tidak pernah mengirim `hppBahan`, jadi hasilnya null karena fungsinya memang tidak ada — bukan karena penjaga `denganNilai` bekerja. Fixture-nya diperbaiki supaya sengaja mengirimkannya; sekarang satu-satunya yang bisa membuat baris itu lolos adalah penjaganya sendiri.
 
+## Template impor dicocokkan mesin, bukan mata
+
+Kalau template dan pengurai menyimpang, **tidak ada yang error**: kolom yang tidak dikenali cuma diabaikan, barisnya masuk dengan kolom itu kosong, dan impornya dilaporkan berhasil. Yang terjadi berikutnya adalah orang mengisi seratus baris harga di kolom yang tidak pernah dibaca siapa pun, lalu menemukan HPP-nya tetap kosong dan menyangka perhitungannya yang rusak.
+
+Menyimpangnya mudah sekali — memperjelas judul "Harga Beli" jadi "Harga Beli (per Satuan Beli)" adalah satu baris teks yang terlihat tidak berbahaya, dan tidak ada satu pun tes yang membaca berkas CSV itu. Persis itu yang terjadi: templatenya berubah, keterangan kolom di dialog impor tidak.
+
+`tools/audit-template-impor.cjs` memeriksa tiga hal:
+
+1. tiap kolom yang **dibaca** pengurai ada di template;
+2. tiap kolom **di template** dibaca pengurai — kolom hiasan yang tidak berpengaruh apa-apa lebih buruk daripada tidak ada kolomnya;
+3. tiap baris contoh punya jumlah kolom yang sama dengan judulnya. Satu koma lebih/kurang menggeser **semua** nilai sesudahnya, dan hasilnya terlihat seperti salah ketik data, bukan template yang rusak.
+
+Ditambah dua pemeriksaan silang: kolom harga beli harus tetap menerima **kedua ejaan** (berkas lama yang sudah beredar di WhatsApp tidak boleh diam-diam kehilangan harganya), dan keterangan kolom di dialog impor harus menyebut judul yang sama dengan template — kalau berbeda, orang membuat sendiri berkasnya menurut keterangan itu.
+
+Empat sabotase dicoba, semuanya merah. Audit ini sendiri sempat menghasilkan **dua temuan palsu** di jalan pertama karena `alias` hanya dipakai di satu arah pemeriksaan; diperbaiki sebelum dipakai, karena audit yang cerewet akan berhenti dibaca orang.
+
+Satu hal yang **sudah** benar dan sempat saya curigai: berkas CSV yang diunduh diawali BOM (`﻿`) supaya Excel membaca huruf beraksen dengan benar, sementara `lc()` yang menormalkan judul kolom hanya `trim().toLowerCase()` — tidak membuang BOM. Kalau SheetJS meneruskan BOM itu ke judul kolom pertama, `r['nama']` akan selalu kosong dan **seluruh baris** dilewati dengan pesan "kolom Nama kosong". Diuji langsung dengan SheetJS 0.18.5: BOM-nya dibuang saat parsing, jadi tidak ada masalah.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

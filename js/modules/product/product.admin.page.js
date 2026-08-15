@@ -696,7 +696,8 @@ async function openImport(content, businessUnitId, kind, refresh) {
   const v = await formDialog({
     title: isProducts ? 'Import Produk (Excel/CSV)' : 'Import Resep (Excel/CSV)',
     description: isProducts
-      ? 'Kolom: Nama, Tipe, Kategori, Sub Kategori, Satuan Pakai, Satuan Beli, Isi per Satuan Beli, Harga Beli, Harga Jual. ' +
+      ? 'Kolom: Nama, Tipe, Kategori, Sub Kategori, Satuan Pakai, Satuan Beli, Isi per Satuan Beli, Harga Beli (per Satuan Beli), Harga Jual. ' +
+        'Harga Beli diisi harga SATU satuan beli — mis. harga sekarung, bukan harga per gram. ' +
         'Kategori diisi bebas — tidak ada daftar tetap. ' +
         'Nama yang sudah ada TIDAK dibuat ulang: kolom yang masih kosong di data lama akan dilengkapi, ' +
         'dan nilai yang sudah terisi tidak pernah ditimpa diam-diam (selisihnya dilaporkan).'
