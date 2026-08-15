@@ -1,4 +1,5 @@
 import { toast, renderSearchSelect, wireSearchSelect } from '../../core/ui.js';
+import { periksaBahan, bahanGanda } from './periksa-resep.js';
 import { TYPE_LABEL, getRecipeForProduct, saveRecipe } from './product.service.js';
 import { loadingHtml } from '../../core/loading.js';
 
@@ -83,16 +84,25 @@ export async function openRecipeEditor(mountEl, { businessUnitId, product, produ
       errorEl.textContent = 'Hasil/yield harus lebih dari 0.';
       return;
     }
-    const items = [...rowsBody.querySelectorAll('.line-row')]
-      .map((row) => ({
-        ingredient_product_id: row.querySelector('.search-select input[type="hidden"]').value,
-        qty: Number(row.querySelector('.ln-qty').value)
-      }))
-      .filter((i) => i.ingredient_product_id && i.qty > 0);
+    const baris = [...rowsBody.querySelectorAll('.line-row')].map((row) => ({
+      ingredient_product_id: row.querySelector('.search-select input[type="hidden"]').value,
+      qty: Number(row.querySelector('.ln-qty').value)
+    }));
+    // Bahan yang dipilih tapi jumlahnya kosong DILAPORKAN, bukan dibuang.
+    // Sebelumnya barisnya disaring diam-diam, jadi lupa mengisi satu jumlah
+    // menghasilkan "Resep disimpan" dengan bahan yang berkurang — dan HPP yang
+    // lebih murah dari kenyataan tanpa satu pun tanda.
+    const namaBahan = new Map(products.map((p) => [p.id, p.name]));
+    const { items, masalah } = periksaBahan(baris, { productId: product.id, nama: namaBahan });
+    if (masalah.length) {
+      errorEl.textContent = masalah.join('; ');
+      return;
+    }
     if (!items.length) {
       errorEl.textContent = 'Tambahkan minimal satu bahan.';
       return;
     }
+    const ganda = bahanGanda(baris, { nama: namaBahan });
     try {
       await saveRecipe({
         productId: product.id,
@@ -102,7 +112,7 @@ export async function openRecipeEditor(mountEl, { businessUnitId, product, produ
         notes: mountEl.querySelector('#recipe-notes').value,
         items
       });
-      toast('Resep disimpan.', 'success');
+      toast(ganda.length ? `Resep disimpan. ${ganda.join(', ')} muncul lebih dari sekali — jumlahnya digabung.` : 'Resep disimpan.', 'success');
       await onSaved?.();
     } catch (error) {
       errorEl.textContent = error.message ?? 'Gagal menyimpan resep.';

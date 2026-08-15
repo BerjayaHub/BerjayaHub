@@ -113,15 +113,68 @@ cek('dan tidak dianggap konflik', r5.konflik, []);
 // ---- Nilai batas ----
 cek('produk lama tanpa kolom sama sekali', rencanaLengkapi({}, { category: 'Minuman' }).patch, { category: 'Minuman' });
 cek('file kosong sepenuhnya', rencanaLengkapi(sudahLengkap, {}).patch, {});
-cek('argumen null aman', rencanaLengkapi(null, null), { patch: {}, terisi: [], konflik: [] });
+cek('argumen null aman', rencanaLengkapi(null, null), { patch: {}, terisi: [], diubah: [], konflik: [] });
 
 // Harga 0 adalah NILAI, bukan kekosongan — dan harus bisa mengisi kolom kosong.
 cek('harga 0 tetap dianggap nilai', rencanaLengkapi(minyakKosong, { sale_price: 0 }).patch, { sale_price: 0 });
 // Tapi 0 di sistem juga nilai: file yang menyebut 18000 tidak boleh menimpanya.
 cek('0 di sistem tidak dianggap kosong', rencanaLengkapi({ ...minyakKosong, sale_price: 0 }, { sale_price: 18000 }).patch, {});
 
+
+// ================= MODE TIMPA =================
+//
+// Dipakai untuk update massal (mis. harga beli bulanan). Yang dijaga di sini
+// bukan "apakah bisa menimpa" — itu bagian mudahnya — melainkan bahwa mode ini
+// TIDAK PERNAH aktif tanpa diminta, dan bahwa kolom struktural tetap tertutup
+// walau kotaknya dicentang.
+
+const t1 = rencanaLengkapi(sudahLengkap, { ...dariFile, purchase_price: 30000 }, { timpa: true });
+cek('timpa: nilai baru masuk patch', t1.patch, { purchase_price: 30000 });
+cek('timpa: tidak dilaporkan sebagai konflik', t1.konflik, []);
+// Nilai LAMA ikut ditulis di daftar. Pratinjau yang cuma berbunyi "Harga Beli
+// diubah" tidak bisa diperiksa siapa pun sebelum menekan Simpan — dan
+// pratinjau yang tidak bisa diperiksa cuma menambah satu ketukan.
+cek('timpa: melaporkan sebelum -> sesudah', t1.diubah, ['Harga Beli: "25000" -> "30000"']);
+
+// Bawaan HARUS tetap tidak menimpa. Kalau default-nya berubah, file lama yang
+// diimpor ulang akan memundurkan harga yang baru dikoreksi manual — tanpa
+// jejak, karena impornya dilaporkan berhasil.
+const t2 = rencanaLengkapi(sudahLengkap, { ...dariFile, purchase_price: 30000 });
+cek('tanpa opsi: TIDAK menimpa', t2.patch, {});
+cek('tanpa opsi: dilaporkan sebagai konflik', t2.konflik.length, 1);
+cek('tanpa opsi: daftar diubah kosong', t2.diubah, []);
+cek('opsi kosong sama dengan tanpa opsi', rencanaLengkapi(sudahLengkap, { ...dariFile, purchase_price: 30000 }, {}).patch, {});
+cek('timpa: false eksplisit', rencanaLengkapi(sudahLengkap, { ...dariFile, purchase_price: 30000 }, { timpa: false }).patch, {});
+
+// Kolom KOSONG tetap dilengkapi di mode timpa, dan tetap masuk daftar "terisi"
+// yang berbeda dari "diubah" — mengisi tempat kosong bukan mengganti angka
+// yang sedang dipakai, dan menggabungkannya menyembunyikan yang perlu diperiksa.
+const t3 = rencanaLengkapi(minyakKosong, dariFile, { timpa: true });
+cek('timpa: yang kosong tetap dilengkapi', t3.terisi.length > 0, true);
+cek('timpa: yang kosong tidak masuk daftar diubah', t3.diubah, []);
+
+// Nilai yang SAMA tidak dianggap perubahan — kalau tidak, pratinjau update
+// massal akan berisi ratusan baris yang tidak berubah apa-apa, dan daftar
+// seperti itu tidak akan dibaca.
+cek('timpa: nilai sama bukan perubahan', rencanaLengkapi(sudahLengkap, dariFile, { timpa: true }).diubah, []);
+cek('timpa: "25000" vs 25000 bukan perubahan', rencanaLengkapi(sudahLengkap, { ...dariFile, purchase_price: '25000' }, { timpa: true }).diubah, []);
+
+// STRUKTURAL TETAP TERTUTUP. Satuan pakai adalah satuan seluruh resep dan stok
+// yang sudah tercatat; menggantinya membuat semua angka lama berpindah arti
+// tanpa satu pun ikut dikonversi. Tidak ada kotak centang yang pantas membuka
+// pintu itu.
+const t4 = rencanaLengkapi(sudahLengkap, { ...dariFile, base_unit: 'kg', product_type: 'semi' }, { timpa: true });
+cek('timpa: satuan pakai tidak ikut berubah', t4.patch.base_unit, undefined);
+cek('timpa: tipe tidak ikut berubah', t4.patch.product_type, undefined);
+cek('timpa: keduanya tetap dilaporkan', t4.konflik.length, 2);
+cek('timpa: dan tidak masuk daftar diubah', t4.diubah, []);
+
+// Kolom yang tidak disebut file tetap tidak disentuh, walau mode timpa.
+cek('timpa: kolom kosong di file tidak menghapus nilai lama', rencanaLengkapi(sudahLengkap, { category: '' }, { timpa: true }).patch, {});
+cek('timpa: null di file tidak menghapus', rencanaLengkapi(sudahLengkap, { purchase_price: null }, { timpa: true }).patch, {});
+
 if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Impor ulang benar untuk 21 kasus: melengkapi yang kosong, tidak pernah menimpa yang sudah terisi. ✅');
+console.log('Impor ulang benar untuk 39 kasus: melengkapi yang kosong, dan hanya menimpa kalau diminta dengan sadar. ✅');

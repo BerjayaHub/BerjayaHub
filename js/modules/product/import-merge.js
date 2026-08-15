@@ -48,12 +48,27 @@ const kosong = (v) => v == null || (typeof v === 'string' && v.trim() === '');
 /**
  * @param {object} lama produk yang sudah ada di database
  * @param {object} baru nilai dari file (boleh sebagian; `undefined` = tidak disebut)
- * @returns {{patch: object, terisi: string[], konflik: string[]}}
+ * @param {object} [opsi]
+ * @param {boolean} [opsi.timpa=false] izinkan mengganti nilai yang SUDAH terisi
+ * @returns {{patch: object, terisi: string[], diubah: string[], konflik: string[]}}
  *   `patch` kosong berarti tidak ada yang perlu disimpan.
+ *
+ * MODE TIMPA sengaja dipisahkan dari mode bawaan, bukan menggantikannya.
+ * Melengkapi yang kosong aman dilakukan siapa saja kapan saja; menimpa yang
+ * sudah terisi adalah tindakan yang bisa menghapus koreksi manual orang lain,
+ * jadi ia harus diminta dengan sadar dan diperlihatkan dulu daftar
+ * perubahannya. Yang membedakan keduanya di sini cuma satu percabangan —
+ * tapi memisahkannya di API membuat pemanggil tidak bisa "kebetulan" menimpa.
+ *
+ * `diubah` terpisah dari `terisi` karena keduanya beda arti bagi yang membaca
+ * laporannya: yang satu mengisi tempat kosong, yang satu MENGGANTI angka yang
+ * sudah dipakai. Menggabungkannya jadi satu hitungan akan menyembunyikan
+ * justru yang perlu diperiksa.
  */
-export function rencanaLengkapi(lama, baru) {
+export function rencanaLengkapi(lama, baru, { timpa = false } = {}) {
   const patch = {};
   const terisi = [];
+  const diubah = [];
   const konflik = [];
 
   for (const [kolom, label] of Object.entries(BISA_DILENGKAPI)) {
@@ -70,16 +85,29 @@ export function rencanaLengkapi(lama, baru) {
     // konflik hanya melatih orang mengabaikan daftar konflik.
     const samaAngka = Number(lama[kolom]) === Number(nilaiBaru) && !Number.isNaN(Number(nilaiBaru));
     const samaTeks = String(lama[kolom]).trim().toLowerCase() === String(nilaiBaru).trim().toLowerCase();
-    if (!samaAngka && !samaTeks) konflik.push(`${label}: sistem "${lama[kolom]}" vs file "${nilaiBaru}"`);
+    if (samaAngka || samaTeks) continue;
+    if (timpa) {
+      patch[kolom] = nilaiBaru;
+      // Nilai LAMA ikut ditulis. Daftar yang cuma berbunyi "Harga Beli diubah"
+      // tidak bisa diperiksa siapa pun sebelum menekan Simpan — dan pratinjau
+      // yang tidak bisa diperiksa hanya menambah satu ketukan, bukan keamanan.
+      diubah.push(`${label}: "${lama[kolom]}" -> "${nilaiBaru}"`);
+    } else {
+      konflik.push(`${label}: sistem "${lama[kolom]}" vs file "${nilaiBaru}"`);
+    }
   }
 
   for (const [kolom, label] of Object.entries(STRUKTURAL)) {
     const nilaiBaru = baru?.[kolom];
     if (kosong(nilaiBaru) || kosong(lama?.[kolom])) continue;
     if (String(lama[kolom]).trim().toLowerCase() !== String(nilaiBaru).trim().toLowerCase()) {
+      // TETAP tidak diubah, bahkan saat `timpa`. Satuan pakai adalah satuan
+      // seluruh resep dan stok yang sudah tercatat; menggantinya membuat semua
+      // angka lama berpindah arti tanpa satu pun ikut dikonversi. Tidak ada
+      // kotak centang yang pantas membuka pintu itu.
       konflik.push(`${label}: sistem "${lama[kolom]}" vs file "${nilaiBaru}" — tidak diubah lewat impor`);
     }
   }
 
-  return { patch, terisi, konflik };
+  return { patch, terisi, diubah, konflik };
 }

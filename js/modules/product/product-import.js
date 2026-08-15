@@ -2,6 +2,7 @@ import { listProducts, createProduct, updateProduct, listRecipesFull, saveRecipe
 import { bakukanNama, palingMirip, bacaAngka } from '../../core/nama.js';
 import { rencanaLengkapi } from './import-merge.js';
 import { curigaHargaTertukar } from './harga-curiga.js';
+import { periksaBahan } from './periksa-resep.js';
 
 // ---- Loader SheetJS (dari CDN, dipakai untuk baca .xlsx/.csv) ----
 let xlsxPromise = null;
@@ -57,7 +58,19 @@ const TYPE_MAP = {
  */
 const hargaBeli = (r) => r['harga beli (per satuan beli)'] ?? r['harga beli'];
 
-export async function importProducts(businessUnitId, file) {
+/**
+ * @param {object} [opsi]
+ * @param {boolean} [opsi.timpa=false]        ganti juga nilai yang sudah terisi
+ * @param {boolean} [opsi.hanyaRencana=false] hitung saja, JANGAN simpan apa pun
+ *
+ * `hanyaRencana` ada supaya mode timpa bisa diperlihatkan dulu sebelum
+ * dijalankan. Menghitungnya lewat jalur yang SAMA — bukan kode pratinjau
+ * tersendiri — adalah intinya: pratinjau yang disusun kode lain akan
+ * menyimpang dari yang benar-benar terjadi, dan pratinjau yang berbohong lebih
+ * berbahaya daripada tidak ada pratinjau, karena orang menekan Simpan
+ * justru karena sudah memeriksanya.
+ */
+export async function importProducts(businessUnitId, file, { timpa = false, hanyaRencana = false } = {}) {
   const rows = await readRows(file);
   const existing = await listProducts(businessUnitId);
   // Peta ke PRODUKNYA, bukan sekadar himpunan nama: impor ulang kini bisa
@@ -71,13 +84,17 @@ export async function importProducts(businessUnitId, file) {
   // satuan baru TIDAK PERNAH menggagalkan impor produk. Yang terjadi tanpa ini:
   // produknya masuk, tapi satuannya tidak muncul di dropdown saat produk itu
   // disunting manual, dan orangnya harus mengetiknya ulang persis sama.
-  const satuanBaru = await daftarkanSatuanBaru(rows);
+  // Satuan baru tidak didaftarkan saat menghitung rencana — pratinjau tidak
+  // boleh mengubah apa pun, termasuk hal yang terasa sepele seperti menambah
+  // satuan. Kalau orangnya membatalkan, tidak ada sisa yang tertinggal.
+  const satuanBaru = hanyaRencana ? { ditambah: [], gagal: [] } : await daftarkanSatuanBaru(rows);
 
   let added = 0;
   let skipped = 0;
   let dilengkapi = 0;
   const errors = [];
   const catatan = [];
+  const perubahan = [];
   const peringatan = [];
   let barisKosong = 0;
 
@@ -103,7 +120,7 @@ export async function importProducts(businessUnitId, file) {
 
     // ---- Nama yang SUDAH ADA: dilengkapi, bukan dibuat ulang atau dilewati ----
     if (sudahAda) {
-      const { patch, terisi, konflik } = rencanaLengkapi(sudahAda, {
+      const { patch, terisi, diubah, konflik } = rencanaLengkapi(sudahAda, {
         category: String(r['kategori'] ?? '').trim(),
         subcategory: String(r['sub kategori'] ?? r['subkategori'] ?? '').trim(),
         purchase_unit: String(r['satuan beli'] ?? '').trim(),
@@ -112,17 +129,18 @@ export async function importProducts(businessUnitId, file) {
         sale_price: num(r['harga jual']),
         product_type: type,
         base_unit: baseUnit
-      });
+      }, { timpa });
       if (konflik.length) {
         errors.push(`Baris ${i + 2} — ${name}: ${konflik.join('; ')} — nilai di sistem DIPERTAHANKAN, ubah manual kalau file yang benar`);
       }
+      if (diubah.length) perubahan.push(`${name} — ${diubah.join('; ')}`);
       if (Object.keys(patch).length) {
         try {
           // Seluruh kolom dikirim ulang karena `updateProduct` menulis semuanya;
           // yang tidak ada di patch memakai nilai lamanya.
-          await updateProduct(sudahAda.id, { ...sudahAda, ...patch });
+          if (!hanyaRencana) await updateProduct(sudahAda.id, { ...sudahAda, ...patch });
           dilengkapi++;
-          catatan.push(`${name}: ${terisi.join(', ')} dilengkapi`);
+          if (terisi.length) catatan.push(`${name}: ${terisi.join(', ')} dilengkapi`);
           const curigaLengkap = curigaHargaTertukar({ ...sudahAda, ...patch });
           if (curigaLengkap) peringatan.push(`Baris ${noBaris} — ${curigaLengkap}`);
         } catch (e) {
@@ -147,22 +165,24 @@ export async function importProducts(businessUnitId, file) {
       continue;
     }
     try {
-      await createProduct({
-        businessUnitId,
-        name,
-        product_type: type,
-        // Kategori diambil apa adanya dari file — TIDAK dicocokkan ke daftar
-        // tetap. Kategori itu urusan yang punya usaha ("Minuman", "Makanan",
-        // "Snack", "Frozen"), dan mengunci daftarnya di kode berarti setiap
-        // kategori baru harus menunggu deploy.
-        category: String(r['kategori'] ?? '').trim() || null,
-        subcategory: String(r['sub kategori'] ?? r['subkategori'] ?? '').trim() || null,
-        base_unit: baseUnit,
-        purchase_unit: type === 'raw' ? String(r['satuan beli'] ?? '').trim() || null : null,
-        purchase_qty: type === 'raw' ? num(r['isi per satuan beli']) : null,
-        purchase_price: type === 'raw' ? num(hargaBeli(r)) : null,
-        sale_price: type === 'finished' ? num(r['harga jual']) : null
-      });
+      if (!hanyaRencana) {
+        await createProduct({
+          businessUnitId,
+          name,
+          product_type: type,
+          // Kategori diambil apa adanya dari file — TIDAK dicocokkan ke daftar
+          // tetap. Kategori itu urusan yang punya usaha ("Minuman", "Makanan",
+          // "Snack", "Frozen"), dan mengunci daftarnya di kode berarti setiap
+          // kategori baru harus menunggu deploy.
+          category: String(r['kategori'] ?? '').trim() || null,
+          subcategory: String(r['sub kategori'] ?? r['subkategori'] ?? '').trim() || null,
+          base_unit: baseUnit,
+          purchase_unit: type === 'raw' ? String(r['satuan beli'] ?? '').trim() || null : null,
+          purchase_qty: type === 'raw' ? num(r['isi per satuan beli']) : null,
+          purchase_price: type === 'raw' ? num(hargaBeli(r)) : null,
+          sale_price: type === 'finished' ? num(r['harga jual']) : null
+        });
+      }
       byName.set(bakukanNama(name), { id: null, name, product_type: type, base_unit: baseUnit });
       added++;
       // Diperiksa SESUDAH tersimpan, dan hasilnya peringatan — bukan penolakan.
@@ -183,7 +203,7 @@ export async function importProducts(businessUnitId, file) {
   if (barisKosong) {
     errors.push(`${barisKosong} baris dilewati karena kolom "Nama" kosong (sel tergabung, baris judul, atau baris sisa di bawah tabel)`);
   }
-  return { added, skipped, dilengkapi, catatan, errors, peringatan, satuanBaru };
+  return { added, skipped, dilengkapi, catatan, perubahan, errors, peringatan, satuanBaru };
 }
 
 /**
@@ -308,6 +328,7 @@ export async function importRecipes(businessUnitId, file) {
   let added = 0;
   let skipped = 0;
   const errors = [];
+  const catatanResep = [];
   for (const g of groups.values()) {
     const prodName = g.nama;
     const p = byName.get(bakukanNama(prodName));
@@ -361,12 +382,25 @@ export async function importRecipes(businessUnitId, file) {
       errors.push(`${prodName}: ${g.rusak.join(', ')} — perbaiki jumlahnya lalu impor ulang`);
       continue;
     }
-    if (!items.length) {
+    // Penjaga yang SAMA dengan editor: bahan yang menunjuk produknya sendiri
+    // ditolak (siklus = HPP null selamanya), dan bahan yang muncul dua kali
+    // digabung, bukan disimpan dua baris yang biayanya ikut dijumlahkan.
+    // Lewat impor keduanya jauh lebih mudah terjadi daripada lewat form.
+    const namaBahan = new Map(products.map((x) => [x.id, x.name]));
+    const { items: bersih, masalah } = periksaBahan(items, { productId: p.id, nama: namaBahan });
+    if (masalah.length) {
+      errors.push(`${prodName}: ${masalah.join('; ')}`);
+      continue;
+    }
+    if (!bersih.length) {
       errors.push(`${prodName}: tidak ada bahan`);
       continue;
     }
+    if (bersih.length !== items.length) {
+      catatanResep.push(`${prodName}: ada bahan yang disebut lebih dari sekali — jumlahnya digabung`);
+    }
     try {
-      await saveRecipe({ productId: p.id, businessUnitId, mode, yield_qty: g.yield || 1, notes: null, items });
+      await saveRecipe({ productId: p.id, businessUnitId, mode, yield_qty: g.yield || 1, notes: null, items: bersih });
       hasRecipe.add(`${p.id}|${mode}`);
       added++;
     } catch (e) {
@@ -379,7 +413,7 @@ export async function importRecipes(businessUnitId, file) {
         'Isi nama produknya di SETIAP baris bahan (kolom Varian boleh dikosongkan — ia mewarisi baris di atasnya)'
     );
   }
-  return { added, skipped, errors };
+  return { added, skipped, errors, catatan: catatanResep };
 }
 
 function downloadCsv(filename, content) {

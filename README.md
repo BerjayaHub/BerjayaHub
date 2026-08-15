@@ -2555,6 +2555,32 @@ Empat sabotase dicoba, semuanya merah. Audit ini sendiri sempat menghasilkan **d
 
 Satu hal yang **sudah** benar dan sempat saya curigai: berkas CSV yang diunduh diawali BOM (`﻿`) supaya Excel membaca huruf beraksen dengan benar, sementara `lc()` yang menormalkan judul kolom hanya `trim().toLowerCase()` — tidak membuang BOM. Kalau SheetJS meneruskan BOM itu ke judul kolom pertama, `r['nama']` akan selalu kosong dan **seluruh baris** dilewati dengan pesan "kolom Nama kosong". Diuji langsung dengan SheetJS 0.18.5: BOM-nya dibuang saat parsing, jadi tidak ada masalah.
 
+## Impor mode "timpa" — dan kenapa ia tidak jadi perilaku bawaan
+
+Impor bawaannya hanya **melengkapi** kolom yang masih kosong; nilai yang sudah terisi tidak pernah diganti. Itu tetap benar untuk pemakaian sehari-hari: impor sering dijalankan dari berkas lama yang beredar di WhatsApp, dan menimpa diam-diam berarti harga yang baru dikoreksi seseorang bisa mundur ke angka bulan lalu tanpa jejak.
+
+Tapi untuk update massal — harga beli bulanan, misalnya — melengkapi saja tidak cukup. Sekarang ada kotak centang **"Ganti juga nilai yang sudah terisi"** di dialog impor produk, dengan tiga pengaman:
+
+- **Dihitung dulu, tidak langsung disimpan.** Mode timpa menjalankan impor dalam `hanyaRencana`, menampilkan daftar `"Harga Beli: 25000 -> 30000"` per produk, dan baru menyimpan kalau disetujui. Nilai **lama ikut ditulis** — daftar yang cuma berbunyi "Harga Beli diubah" tidak bisa diperiksa siapa pun sebelum menekan Simpan, dan pratinjau yang tidak bisa diperiksa hanya menambah satu ketukan.
+- **Pratinjaunya lewat jalur yang sama** dengan penyimpanan sungguhan, bukan kode tersendiri. Pratinjau yang disusun kode lain akan menyimpang dari yang benar-benar terjadi — dan pratinjau yang berbohong lebih berbahaya daripada tidak ada, karena orang menekan Simpan justru karena sudah memeriksanya. `hanyaRencana` juga tidak mendaftarkan satuan baru: membatalkan harus benar-benar tidak meninggalkan sisa.
+- **Tipe & Satuan Pakai tetap tertutup**, walau kotaknya dicentang. Satuan pakai adalah satuan seluruh resep dan stok yang sudah tercatat; menggantinya membuat semua angka lama berpindah arti tanpa satu pun ikut dikonversi. Tidak ada kotak centang yang pantas membuka pintu itu.
+
+`tools/test-impor-ulang.mjs` naik jadi 39 kasus. Empat sabotase merah, termasuk "timpa jadi perilaku bawaan" dan "struktural ikut ditimpa".
+
+## Tiga bug di jalur pengisian resep
+
+Ketiganya menghasilkan HPP yang **salah tapi terlihat wajar** — jauh lebih mahal daripada gagal simpan, karena angkanya dipakai menetapkan harga jual dan tidak ada yang curiga.
+
+1. **Bahan yang dipilih tapi jumlahnya kosong dibuang diam-diam.** Editor menyaringnya dengan `.filter(i => i.qty > 0)`. Orang memilih lima bahan, lupa mengisi satu jumlah, menekan Simpan, dan mendapat "Resep disimpan." Resepnya berisi empat. Tidak ada layar mana pun yang bisa memberi tahu ada bahan hilang — dari sisi database resep itu memang tidak pernah punya bahan kelima. Sekarang dilaporkan dengan menyebut nama bahannya.
+
+2. **Bahan yang sama dua kali tersimpan dua baris.** `recipe_items` tidak punya unique index, jadi biayanya dijumlahkan dan HPP-nya terlalu mahal. Sekarang **digabung**, bukan ditolak — mengetik bahan yang sama dua kali di spreadsheet panjang itu lumrah, dan yang dimaksudkan hampir selalu total keduanya. Penggabungannya diberitahukan, tidak diam-diam.
+
+3. **Produk bisa jadi bahan bagi dirinya sendiri lewat impor.** Editor sudah mencegahnya (pilihan dirinya sendiri tidak ditawarkan di dropdown), tapi pengimpor tidak — dan di sana itu satu baris yang mudah salah ketik. Akibatnya siklus: HPP-nya `null` selamanya, dengan pesan "belum bisa dihitung" yang menunjuk ke bahan yang kelihatan baik-baik saja.
+
+Ketiganya dijaga satu modul murni, `periksa-resep.js`, dipakai **editor dan pengimpor**. Dikunci `node tools/test-periksa-resep.mjs` (28 kasus); empat sabotase merah, termasuk mengembalikan bug pertama persis seperti aslinya.
+
+Yang **diperiksa dan ternyata sudah benar**, supaya tidak dicari lagi nanti: semua penulisan di ketiga modul sudah memeriksa barisnya benar-benar kena (`audit-tulis-senyap`, 41 titik); tidak ada error yang ditelan `catch` kosong; semua input jumlah memakai `<input type="number">` sehingga `Number()` di sana aman dari jebakan koma desimal; dan `record_menu_waste` sudah memilih varian resep yang benar dengan mundur ke Standalone kalau varian CK tidak ada.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

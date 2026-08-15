@@ -707,13 +707,59 @@ async function openImport(content, businessUnitId, kind, refresh) {
         'Kosongkan untuk memakai varian bawaan tipe produknya. ' +
         'Produk & bahan harus sudah terdaftar di Master Produk. ' +
         'Varian yang resepnya sudah ada akan dilewati — ubah lewat tombol Ubah di tabel.',
-    fields: [{ name: 'file', label: 'File .xlsx / .csv', type: 'file', required: true, accept: '.xlsx,.xls,.csv' }],
+    fields: [
+      { name: 'file', label: 'File .xlsx / .csv', type: 'file', required: true, accept: '.xlsx,.xls,.csv' },
+      ...(isProducts
+        ? [
+            {
+              name: 'timpa',
+              label: 'Ganti juga nilai yang sudah terisi',
+              type: 'checkbox',
+              value: false,
+              help: 'Bawaannya impor hanya MELENGKAPI kolom yang masih kosong. Centang ini untuk update massal (mis. harga beli bulanan) — daftar perubahannya akan ditampilkan dulu sebelum disimpan. Tipe & Satuan Pakai tetap tidak pernah diubah.'
+            }
+          ]
+        : [])
+    ],
     submitText: 'Import'
   });
   if (!v || !v.file) return;
   toast('Memproses file...', 'info');
   try {
-    const res = isProducts ? await importProducts(businessUnitId, v.file) : await importRecipes(businessUnitId, v.file);
+    const timpa = Boolean(v.timpa);
+
+    // MODE TIMPA DIHITUNG DULU, TIDAK LANGSUNG DISIMPAN.
+    //
+    // Melengkapi kolom kosong tidak bisa menghilangkan apa pun, jadi ia boleh
+    // langsung jalan. Menimpa bisa menghapus koreksi manual orang lain — dan
+    // yang paling mungkin terjadi bukan kesalahan besar, melainkan file lama
+    // yang tanpa sadar dipakai lagi. Daftar "sebelum -> sesudah" adalah
+    // satu-satunya cara orangnya bisa mengenali itu sebelum, bukan sesudah.
+    if (isProducts && timpa) {
+      const rencana = await importProducts(businessUnitId, v.file, { timpa: true, hanyaRencana: true });
+      if (!rencana.perubahan.length && !rencana.added) {
+        await infoDialog({ title: 'Tidak ada yang berubah', bodyHtml: '<p>Semua nilai di file sudah sama dengan yang ada di sistem.</p>' });
+        return;
+      }
+      const lanjut = await confirmDialog({
+        title: 'Periksa dulu perubahannya',
+        message:
+          `<p><strong>${rencana.perubahan.length}</strong> produk akan <strong>diganti</strong> nilainya` +
+          (rencana.added ? `, dan <strong>${rencana.added}</strong> produk baru ditambahkan` : '') +
+          `.</p>` +
+          (rencana.perubahan.length
+            ? `<ul style="margin:6px 0 0 16px;padding:0;max-height:260px;overflow:auto;font-size:0.85rem">${rencana.perubahan
+                .map((c) => `<li>${escapeHtml(c)}</li>`)
+                .join('')}</ul>`
+            : ''),
+        confirmText: 'Ya, ganti',
+        danger: true
+      });
+      if (!lanjut) return;
+      toast('Menyimpan perubahan...', 'info');
+    }
+
+    const res = isProducts ? await importProducts(businessUnitId, v.file, { timpa }) : await importRecipes(businessUnitId, v.file);
     const errHtml = res.errors.length
       ? `<p style="color:var(--color-danger);margin-top:8px">Gagal/terlewat (${res.errors.length}):</p><ul style="margin:0;padding-left:18px;max-height:200px;overflow:auto">${res.errors.map((e) => `<li>${escapeHtml(e)}</li>`).join('')}</ul>`
       : '';
@@ -734,6 +780,21 @@ async function openImport(content, businessUnitId, kind, refresh) {
     // "Dilengkapi" dipisahkan dari "ditambahkan" dan "dilewati". Menggabungkannya
     // menyembunyikan justru yang paling ingin diketahui saat mengimpor ulang:
     // apakah data lama benar-benar berubah.
+    // Impor resep punya catatannya sendiri (bahan ganda yang digabung). Tanpa
+    // blok ini ia dihitung tapi tidak pernah terlihat, karena `lengkapHtml`
+    // hanya digambar untuk impor produk.
+    const catatanResepHtml =
+      !isProducts && res.catatan?.length
+        ? `<p style="margin-top:6px">Catatan:</p><ul style="margin:0;padding-left:18px;max-height:160px;overflow:auto;font-size:0.85rem">${res.catatan
+            .map((c) => `<li>${escapeHtml(c)}</li>`)
+            .join('')}</ul>`
+        : '';
+    const ubahHtml = res.perubahan?.length
+      ? `<p style="margin-top:6px"><strong>${res.perubahan.length}</strong> produk <strong>diganti</strong> nilainya.</p>` +
+        `<ul style="margin:0;padding-left:18px;max-height:160px;overflow:auto;font-size:0.85rem">${res.perubahan
+          .map((c) => `<li>${escapeHtml(c)}</li>`)
+          .join('')}</ul>`
+      : '';
     const lengkapHtml = res.dilengkapi
       ? `<p style="margin-top:6px"><strong>${res.dilengkapi}</strong> produk lama <strong>dilengkapi</strong> kolom yang tadinya kosong.</p>` +
         `<ul style="margin:0;padding-left:18px;max-height:160px;overflow:auto;font-size:0.85rem">${res.catatan
@@ -759,7 +820,7 @@ async function openImport(content, businessUnitId, kind, refresh) {
       title: 'Hasil Import',
       bodyHtml:
         `<p><strong>${res.added}</strong> ditambahkan, <strong>${res.skipped}</strong> dilewati (tidak ada yang perlu diubah).</p>` +
-        `${lengkapHtml}${satuanHtml}${peringatanHtml}${errHtml}`
+        `${lengkapHtml}${ubahHtml}${catatanResepHtml}${satuanHtml}${peringatanHtml}${errHtml}`
     });
     await refresh();
   } catch (error) {
