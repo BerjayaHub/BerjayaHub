@@ -14,7 +14,7 @@
  *   - nilai yang sudah ada TIDAK PERNAH tertimpa diam-diam (kalau tidak, satu
  *     impor file lama bisa menghapus koreksi harga yang dikerjakan manual).
  */
-import { rencanaLengkapi } from '../js/modules/product/import-merge.js';
+import { rencanaLengkapi, saringMenurutTipe } from '../js/modules/product/import-merge.js';
 
 let gagal = 0;
 const cek = (nama, dapat, harap) => {
@@ -173,8 +173,51 @@ cek('timpa: dan tidak masuk daftar diubah', t4.diubah, []);
 cek('timpa: kolom kosong di file tidak menghapus nilai lama', rencanaLengkapi(sudahLengkap, { category: '' }, { timpa: true }).patch, {});
 cek('timpa: null di file tidak menghapus', rencanaLengkapi(sudahLengkap, { purchase_price: null }, { timpa: true }).patch, {});
 
+
+// ================= KOLOM MANA BERLAKU UNTUK TIPE APA =================
+//
+// Dua jalur impor sempat menyimpang: "buat baru" membuang purchase_* untuk
+// non-bahan-baku, "lengkapi" menyimpannya. Jadi mengisi Harga Beli untuk sebuah
+// SETENGAH JADI diabaikan kalau produknya baru, tapi tersimpan kalau produknya
+// sudah ada.
+//
+// Nilai itu tidak salah hari ini — HPP setengah jadi dihitung dari resep
+// Produksi, bukan harga beli, dan kolomnya tidak ditampilkan. Yang berbahaya
+// adalah NANTI: begitu tipenya diubah jadi "Bahan Baku", harga basi itu hidup
+// dan ikut menghitung HPP tanpa seorang pun pernah mengetiknya untuk produk itu.
+
+const isiPenuh = { category: 'X', purchase_unit: 'karung', purchase_qty: 25000, purchase_price: 250000, sale_price: 18000 };
+
+const utkRaw = saringMenurutTipe('raw', isiPenuh);
+cek('bahan baku: harga beli dipertahankan', utkRaw.purchase_price, 250000);
+cek('bahan baku: isi per satuan dipertahankan', utkRaw.purchase_qty, 25000);
+cek('bahan baku: harga jual dibuang', 'sale_price' in utkRaw, false);
+
+const utkSemi = saringMenurutTipe('semi', isiPenuh);
+cek('setengah jadi: harga beli dibuang', 'purchase_price' in utkSemi, false);
+cek('setengah jadi: satuan beli dibuang', 'purchase_unit' in utkSemi, false);
+cek('setengah jadi: isi per satuan dibuang', 'purchase_qty' in utkSemi, false);
+cek('setengah jadi: harga jual juga dibuang', 'sale_price' in utkSemi, false);
+
+const utkMenu = saringMenurutTipe('finished', isiPenuh);
+cek('menu: harga jual dipertahankan', utkMenu.sale_price, 18000);
+cek('menu: harga beli dibuang', 'purchase_price' in utkMenu, false);
+
+// Kolom yang tidak ada urusannya dengan tipe tidak boleh ikut terbuang.
+cek('kategori selalu lolos', [utkRaw.category, utkSemi.category, utkMenu.category], ['X', 'X', 'X']);
+
+// DAN INI YANG MENGUNCINYA: dipakai bersama rencanaLengkapi, harga beli tidak
+// bisa menyelinap ke setengah jadi lewat jalur "lengkapi".
+const sirupKosong = { name: 'Sirup Gula', product_type: 'semi', base_unit: 'ml', category: null, purchase_price: null, purchase_qty: null };
+const rs = rencanaLengkapi(sirupKosong, saringMenurutTipe('semi', isiPenuh));
+cek('setengah jadi tidak menerima harga beli lewat impor', rs.patch.purchase_price, undefined);
+cek('tapi kategorinya tetap dilengkapi', rs.patch.category, 'X');
+
+cek('nilai null aman', saringMenurutTipe('raw', null), {});
+cek('tipe tak dikenal diperlakukan paling ketat', saringMenurutTipe('entah', isiPenuh), { category: 'X' });
+
 if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Impor ulang benar untuk 39 kasus: melengkapi yang kosong, dan hanya menimpa kalau diminta dengan sadar. ✅');
+console.log('Impor ulang benar untuk 53 kasus: melengkapi yang kosong, dan hanya menimpa kalau diminta dengan sadar. ✅');

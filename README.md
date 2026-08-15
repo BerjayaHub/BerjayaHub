@@ -2581,6 +2581,28 @@ Ketiganya dijaga satu modul murni, `periksa-resep.js`, dipakai **editor dan peng
 
 Yang **diperiksa dan ternyata sudah benar**, supaya tidak dicari lagi nanti: semua penulisan di ketiga modul sudah memeriksa barisnya benar-benar kena (`audit-tulis-senyap`, 41 titik); tidak ada error yang ditelan `catch` kosong; semua input jumlah memakai `<input type="number">` sehingga `Number()` di sana aman dari jebakan koma desimal; dan `record_menu_waste` sudah memilih varian resep yang benar dengan mundur ke Standalone kalau varian CK tidak ada.
 
+## Harga Beli hanya untuk Bahan Baku — dan dua jalur impor yang menyimpang
+
+Setengah jadi **tidak perlu** diisi Harga Beli. HPP-nya dihitung dari resep Produksi-nya (`Σ bahan ÷ yield`), bukan dari kolom itu — mengisinya tidak akan membuat HPP-nya muncul, dan tidak akan menggantikan resep yang belum dibuat.
+
+Pertanyaannya menyingkap ketidakkonsistenan: **kedua jalur impor memperlakukannya berbeda.**
+
+- Jalur **buat baru** membuang `purchase_*` untuk produk non-bahan-baku (`type === 'raw' ? … : null`).
+- Jalur **lengkapi produk yang sudah ada** menulisnya apa adanya.
+
+Jadi mengisi Harga Beli untuk sebuah setengah jadi **diabaikan kalau produknya baru, tapi tersimpan kalau produknya sudah ada**.
+
+Nilai itu tidak salah hari ini — tidak dipakai menghitung apa pun, dan tidak ditampilkan di tabel mana pun. Yang membuatnya berbahaya adalah nanti: begitu tipe produknya diubah jadi "Bahan Baku", harga basi itu **langsung hidup dan ikut menghitung HPP**, tanpa seorang pun pernah mengetiknya untuk produk itu.
+
+`saringMenurutTipe()` sekarang jadi satu-satunya tempat aturannya tinggal, dipakai **kedua** jalur:
+
+- `purchase_unit` / `purchase_qty` / `purchase_price` → hanya `raw`
+- `sale_price` → hanya `finished`
+
+Satu keputusan yang perlu disebut: tipe yang dipakai memutuskan adalah **tipe di sistem**, bukan yang di file. Impor tidak pernah mengubah tipe (lihat STRUKTURAL), jadi memakai tipe dari file akan membuka celah yang sama lewat pintu lain — cukup menulis "Bahan Baku" di file untuk menitipkan harga beli ke sebuah setengah jadi.
+
+`tools/test-impor-ulang.mjs` naik jadi 53 kasus. Tiga sabotase merah, termasuk "harga beli boleh menempel di setengah jadi". Keterangan di dialog impor dan contoh di template ikut diperjelas.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

@@ -1,6 +1,6 @@
 import { listProducts, createProduct, updateProduct, listRecipesFull, saveRecipe, listUnits, createUnit } from './product.service.js';
 import { bakukanNama, palingMirip, bacaAngka } from '../../core/nama.js';
-import { rencanaLengkapi } from './import-merge.js';
+import { rencanaLengkapi, saringMenurutTipe } from './import-merge.js';
 import { curigaHargaTertukar } from './harga-curiga.js';
 import { periksaBahan } from './periksa-resep.js';
 
@@ -120,16 +120,26 @@ export async function importProducts(businessUnitId, file, { timpa = false, hany
 
     // ---- Nama yang SUDAH ADA: dilengkapi, bukan dibuat ulang atau dilewati ----
     if (sudahAda) {
-      const { patch, terisi, diubah, konflik } = rencanaLengkapi(sudahAda, {
-        category: String(r['kategori'] ?? '').trim(),
-        subcategory: String(r['sub kategori'] ?? r['subkategori'] ?? '').trim(),
-        purchase_unit: String(r['satuan beli'] ?? '').trim(),
-        purchase_qty: num(r['isi per satuan beli']),
-        purchase_price: num(hargaBeli(r)),
-        sale_price: num(r['harga jual']),
-        product_type: type,
-        base_unit: baseUnit
-      }, { timpa });
+      // Tipe yang BERLAKU adalah tipe di sistem, bukan yang di file: impor tidak
+      // pernah mengubah tipe (lihat STRUKTURAL), jadi memakai tipe dari file
+      // untuk memutuskan kolom mana yang boleh ditulis akan membuka celah yang
+      // sama lewat pintu lain — cukup menulis "Bahan Baku" di file untuk
+      // menitipkan harga beli ke sebuah setengah jadi.
+      const tipeBerlaku = sudahAda.product_type ?? type;
+      const { patch, terisi, diubah, konflik } = rencanaLengkapi(
+        sudahAda,
+        saringMenurutTipe(tipeBerlaku, {
+          category: String(r['kategori'] ?? '').trim(),
+          subcategory: String(r['sub kategori'] ?? r['subkategori'] ?? '').trim(),
+          purchase_unit: String(r['satuan beli'] ?? '').trim(),
+          purchase_qty: num(r['isi per satuan beli']),
+          purchase_price: num(hargaBeli(r)),
+          sale_price: num(r['harga jual']),
+          product_type: type,
+          base_unit: baseUnit
+        }),
+        { timpa }
+      );
       if (konflik.length) {
         errors.push(`Baris ${i + 2} — ${name}: ${konflik.join('; ')} — nilai di sistem DIPERTAHANKAN, ubah manual kalau file yang benar`);
       }
@@ -177,10 +187,15 @@ export async function importProducts(businessUnitId, file, { timpa = false, hany
           category: String(r['kategori'] ?? '').trim() || null,
           subcategory: String(r['sub kategori'] ?? r['subkategori'] ?? '').trim() || null,
           base_unit: baseUnit,
-          purchase_unit: type === 'raw' ? String(r['satuan beli'] ?? '').trim() || null : null,
-          purchase_qty: type === 'raw' ? num(r['isi per satuan beli']) : null,
-          purchase_price: type === 'raw' ? num(hargaBeli(r)) : null,
-          sale_price: type === 'finished' ? num(r['harga jual']) : null
+          // Aturan "kolom mana berlaku untuk tipe apa" dipakai dari SATU tempat
+          // yang sama dengan jalur lengkapi. Sebelumnya keduanya menuliskannya
+          // sendiri-sendiri, dan sudah terlanjur menyimpang.
+          ...saringMenurutTipe(type, {
+            purchase_unit: String(r['satuan beli'] ?? '').trim() || null,
+            purchase_qty: num(r['isi per satuan beli']),
+            purchase_price: num(hargaBeli(r)),
+            sale_price: num(r['harga jual'])
+          })
         });
       }
       byName.set(bakukanNama(name), { id: null, name, product_type: type, base_unit: baseUnit });
@@ -431,7 +446,7 @@ export function downloadProductTemplate() {
     'template-produk.csv',
     'Nama,Tipe,Kategori,Sub Kategori,Satuan Pakai,Satuan Beli,Isi per Satuan Beli,Harga Beli (per Satuan Beli),Harga Jual\n' +
       'Gula,Bahan Baku,Bahan Kering,,gram,karung,25000,150000,\n' +
-      'Sirup Gula,Setengah Jadi,,,ml,,,,\n' +
+      'Sirup Gula,Setengah Jadi,Bahan Olahan,,ml,,,,\n' +
       'Es Kopi Susu,Menu,Minuman,Kopi,gelas,,,,18000\n'
   );
 }

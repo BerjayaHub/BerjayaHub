@@ -111,3 +111,39 @@ export function rencanaLengkapi(lama, baru, { timpa = false } = {}) {
 
   return { patch, terisi, diubah, konflik };
 }
+
+/**
+ * Kolom mana yang BERLAKU untuk sebuah tipe produk.
+ *
+ * MASALAH YANG DIPERBAIKI: dua jalur impor memperlakukan ini berbeda. Jalur
+ * "buat baru" membuang `purchase_*` untuk produk non-bahan-baku (`type === 'raw'
+ * ? ... : null`), sedangkan jalur "lengkapi produk yang sudah ada" menulisnya
+ * apa adanya. Jadi mengisi Harga Beli untuk sebuah SETENGAH JADI:
+ *   - diabaikan kalau produknya baru;
+ *   - tersimpan kalau produknya sudah ada.
+ *
+ * Nilai yang tersimpan itu tidak pernah dipakai — HPP setengah jadi dihitung
+ * dari resep Produksi-nya, bukan dari harga beli — dan tidak ditampilkan di
+ * tabel mana pun. Jadi ia tidak salah hari ini. Yang membuatnya berbahaya
+ * adalah nanti: begitu tipe produknya diubah jadi "Bahan Baku", harga basi itu
+ * langsung hidup dan ikut menghitung HPP, tanpa seorang pun pernah mengetiknya
+ * untuk produk itu.
+ *
+ * Aturannya sekarang satu, dipakai KEDUA jalur:
+ *   - `purchase_unit` / `purchase_qty` / `purchase_price` hanya untuk `raw`
+ *   - `sale_price` hanya untuk `finished`
+ *
+ * @param {string} type tipe produk yang berlaku (dari file atau dari sistem)
+ * @param {object} nilai kolom hasil pembacaan file
+ * @returns {object} salinan tanpa kolom yang tidak berlaku
+ */
+export function saringMenurutTipe(type, nilai) {
+  const keluar = { ...(nilai ?? {}) };
+  if (type !== 'raw') {
+    delete keluar.purchase_unit;
+    delete keluar.purchase_qty;
+    delete keluar.purchase_price;
+  }
+  if (type !== 'finished') delete keluar.sale_price;
+  return keluar;
+}
