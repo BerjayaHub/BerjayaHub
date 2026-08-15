@@ -7,6 +7,7 @@ import { periksaPindah, pasanganVarian } from './varian-pindah.js';
 import { curigaHargaTertukar } from './harga-curiga.js';
 import { cocokSaringan, daftarKategori } from './saringan.js';
 import { susunBukuResep } from './buku-resep.js';
+import { susunPanelBahan } from './panel-bahan.js';
 import { exportTablePDF } from '../../core/pdf.js';
 import { exportTableXLSX } from '../../core/xlsx.js';
 import { importProducts, importRecipes, downloadProductTemplate, downloadRecipeTemplate } from './product-import.js';
@@ -25,6 +26,7 @@ import {
   computeCosts,
   costForMode,
   sebabHppKosong,
+  sebabBahan,
   pindahVarianResep,
   listUnits,
   createUnit,
@@ -473,22 +475,36 @@ async function renderRecipesTab(content, businessUnitId) {
         // bawah tabel. Daftar kalimat masih menyuruh orangnya mencocokkan nama
         // sendiri — pada resep berisi 15 bahan itu pekerjaan yang tidak perlu
         // ada, dan yang biasanya terjadi adalah orangnya menyerah membacanya.
-        const baris = (r?.items ?? [])
-          .map((it) => {
-            const bahan = namaProduk.get(it.ingredient_product_id);
-            const masalah = bahan ? sebabBahan(products, recipes, it.ingredient_product_id) : 'Bahan ini sudah tidak ada di Master Produk.';
-            return `<tr${masalah ? ' style="background:var(--color-warning-bg,#fff8e1)"' : ''}>
-              <td>${escapeHtml(bahan?.name ?? 'bahan tidak ditemukan')}${
-                masalah ? `<div style="font-size:0.72rem;color:var(--color-danger,#c0392b);margin-top:2px">⚠ ${escapeHtml(masalah)}</div>` : ''
+        // Isinya disusun `susunPanelBahan()` — SATU sumber dengan Staff App.
+        // Bedanya cuma `denganNilai`: kolom rupiah ada di sini, tidak di sana.
+        // Kalau kedua sisi menyusun sendiri, cepat atau lambat resep yang sama
+        // akan tampil berbeda di dua layar, dan orang berhenti percaya keduanya.
+        const panel = susunPanelBahan({
+          products,
+          recipes,
+          productId: produk.id,
+          mode: m,
+          denganNilai: true,
+          hppBahan: (id) => costForMode(products, recipes, id, null),
+          hppVarian: (id, mode) => costForMode(products, recipes, id, mode),
+          sebabBahan: (id) => sebabBahan(products, recipes, id)
+        });
+        const baris = panel.baris
+          .map(
+            (b) => `<tr${b.masalah ? ' style="background:var(--color-warning-bg,#fff8e1)"' : ''}>
+              <td>${escapeHtml(b.nama)}${
+                b.masalah ? `<div style="font-size:0.72rem;color:var(--color-danger,#c0392b);margin-top:2px">⚠ ${escapeHtml(b.masalah)}</div>` : ''
               }</td>
-              <td style="text-align:right;vertical-align:top">${formatNum(it.qty)} ${escapeHtml(bahan?.base_unit ?? '')}</td>
-            </tr>`;
-          })
+              <td style="text-align:right;vertical-align:top;white-space:nowrap">${formatNum(b.jumlah)} ${escapeHtml(b.satuan)}</td>
+              <td style="text-align:right;vertical-align:top;white-space:nowrap">${b.hppSatuan == null ? '-' : formatRupiah(b.hppSatuan)}</td>
+              <td style="text-align:right;vertical-align:top;white-space:nowrap">${b.biaya == null ? '-' : formatRupiah(b.biaya)}</td>
+            </tr>`
+          )
           .join('');
         const isi = r
-          ? `<table class="data-table" style="margin:6px 0;max-width:420px">
-               <thead><tr><th>Bahan</th><th style="text-align:right">Jumlah</th></tr></thead>
-               <tbody>${baris || `<tr><td colspan="2" style="background:var(--color-warning-bg,#fff8e1)">
+          ? `<div class="table-scroll"><table class="data-table" style="margin:6px 0;min-width:520px">
+               <thead><tr><th>Bahan</th><th style="text-align:right">Jumlah</th><th style="text-align:right">HPP/satuan</th><th style="text-align:right">Biaya</th></tr></thead>
+               <tbody>${baris || `<tr><td colspan="4" style="background:var(--color-warning-bg,#fff8e1)">
                  <strong>Resep ini kosong — bahannya tidak pernah tersimpan.</strong>
                  <div style="font-size:0.78rem;margin-top:3px">
                    Biasanya karena penyimpanan terputus di tengah (sinyal hilang, halaman tertutup, atau aplikasi ditutup paksa)
@@ -496,7 +512,19 @@ async function renderRecipesTab(content, businessUnitId) {
                    supaya kembali berstatus "Belum".
                  </div>
                </td></tr>`}</tbody>
-             </table>
+               ${
+                 panel.baris.length
+                   ? `<tfoot><tr>
+                        <th colspan="3" style="text-align:right">Total bahan per ${escapeHtml(formatNum(panel.yieldQty))} ${escapeHtml(panel.satuan)}</th>
+                        <th style="text-align:right">${panel.totalBiaya == null ? '-' : formatRupiah(panel.totalBiaya)}</th>
+                      </tr>
+                      <tr>
+                        <th colspan="3" style="text-align:right">HPP per ${escapeHtml(panel.satuan)}</th>
+                        <th style="text-align:right">${panel.hpp == null ? '-' : formatRupiah(panel.hpp)}</th>
+                      </tr></tfoot>`
+                   : ''
+               }
+             </table></div>
              <p style="font-size:0.78rem;color:var(--color-text-muted);margin:0 0 8px">
                Hasil/yield: <strong>${formatNum(r.yield_qty)} ${escapeHtml(produk.base_unit)}</strong>
              </p>`

@@ -5,6 +5,7 @@ import { getOutletStockMap, recordMovement, transferStock, getAllowStaffOpname, 
 import { listMyOutlets } from '../../core/my-outlets.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { cocokNama } from '../../core/nama.js';
+import { renderResepStaff } from './resep-staff.js';
 
 export async function renderInventoryPage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = loadingHtml('Memuat inventory…');
@@ -49,8 +50,10 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       <button id="inv-waste">🗑️ Waste / Spoil</button>
       ${allowOpname ? '<button id="inv-opname">📋 Stok Opname</button>' : ''}
       <button id="inv-transfer">Transfer</button>
+      <button id="inv-resep">📖 Resep</button>
     </div>
     <div id="inv-opname-panel"></div>
+    <div id="inv-resep-panel"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
       <div class="field" style="margin:0;max-width:200px">
         <label>Kategori</label>
@@ -206,6 +209,30 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   container.querySelector('#inv-opname')?.addEventListener('click', () => {
     opnameState.open = !opnameState.open;
     renderOpnamePanel();
+  });
+
+  // Panel resep: hanya dibaca, tanpa rupiah. Digambar SEKALI saat pertama
+  // dibuka lalu cukup disembunyikan — menggambar ulang tiap kali ditutup-buka
+  // akan menghapus pencarian yang sedang diketik orangnya.
+  const resepPanel = container.querySelector('#inv-resep-panel');
+  let resepSudahDigambar = false;
+  container.querySelector('#inv-resep')?.addEventListener('click', () => {
+    const tampil = resepPanel.hasAttribute('hidden') || !resepSudahDigambar;
+    if (!resepSudahDigambar) {
+      resepPanel.innerHTML = `
+        <div class="inline-card fade-in" style="max-width:100%">
+          <div class="page-header" style="margin-bottom:8px">
+            <h3 style="margin:0;font-size:1rem">Resep</h3>
+            <button id="resep-close">Tutup</button>
+          </div>
+          <div id="resep-isi"></div>
+        </div>`;
+      renderResepStaff(resepPanel.querySelector('#resep-isi'), products, recipes);
+      resepPanel.querySelector('#resep-close').addEventListener('click', () => resepPanel.setAttribute('hidden', ''));
+      resepSudahDigambar = true;
+    }
+    if (tampil) resepPanel.removeAttribute('hidden');
+    else resepPanel.setAttribute('hidden', '');
   });
 
   function renderOpnamePanel() {

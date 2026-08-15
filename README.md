@@ -2512,6 +2512,31 @@ Tempatnya sekarang disimpan sebagai **jalur**: `master_product/recipes`. Tiap la
 
 Dikunci `node tools/test-saringan-jalur.mjs` (47 kasus, mencakup saringan + jalur + buku resep). Enam sabotase dicoba, semuanya merah — termasuk "gabung meninggalkan potongan kosong", yang menghasilkan `master_product/` dan membuat tab yang dipulihkan meleset diam-diam.
 
+## Panel bahan tidak muncul — dua nama yang tidak pernah diimpor
+
+Gejalanya: mengetuk baris produk di tab Resep tidak menampilkan apa-apa. Sebabnya `sebabBahan()` dipakai di `product.admin.page.js` tanpa pernah diimpor. Berkasnya tetap **sah** sebagai ES module, jadi `audit-syntax` hijau; kesalahannya baru muncul saat baris itu dijalankan — yaitu tepat ketika seseorang mengetuk baris produk. Tidak ada pesan di layar, panelnya hanya diam.
+
+Ini kelas kesalahan yang paling mudah lolos di proyek tanpa build step: tidak ada penyusun yang memeriksa, dan tes modul murni tidak menyentuh berkas layar sama sekali. `tools/audit-nama-tak-dikenal.cjs` sekarang menutupnya — dan pada jalan pertamanya ia menemukan **kesalahan kedua yang belum dilaporkan siapa pun**: `listOutletsSayaKelola()` dipanggil di `cleaning.admin.page.js` tanpa impor, yang berarti halaman admin Daily Activities gagal dimuat sejak perbaikan scope beberapa waktu lalu.
+
+Audit ini butuh dua kali perbaikan sebelum layak dipakai:
+
+- Versi regex-nya menghasilkan **16 temuan palsu** — kata-kata Indonesia dari komentar dan template literal bersarang ("dihitung(", "Catatan(", "tengah(") bocor sebagai panggilan fungsi. Diganti **pemindai karakter** yang melacak `${…}` bersarang dan literal regex. Audit yang sering salah akan dimatikan orang, dan setelah itu tidak menjaga apa pun.
+- Nomor barisnya berbohong: ia mencari nama itu lagi di sumber ASLI dan menunjuk kemunculan pertama di mana pun — termasuk di dalam komentar, yaitu tempat yang justru sedang dibuang. Sekarang dipakai indeks kecocokan yang sebenarnya (panjang teks bersihnya sengaja sama dengan aslinya).
+
+Dibuktikan dengan mengembalikan kedua bug aslinya: keduanya merah.
+
+## Bahan resep bisa dilihat di Staff App juga
+
+Staff App belum pernah punya layar resep sama sekali. Sekarang ada tombol **📖 Resep** di modul Inventory: daftar setengah jadi & menu, ketuk untuk melihat bahannya. **Tanpa rupiah** — yang dibutuhkan orang yang membukanya sambil berdiri di dapur cuma bahan dan takarannya. Bentuknya **kartu, bukan tabel**: tabel dengan gulir mendatar di HP berarti takarannya ada di kolom yang harus digeser dulu, dan takaran adalah satu-satunya alasan layar itu dibuka.
+
+Perlu dicatat jujur: menyembunyikan rupiah di sana **bukan pengaman**. `products_select` membuka harga beli untuk semua anggota BU, jadi staff tetap bisa melihat HPP lewat layar lain. Yang diatur adalah apa yang ikut terbaca di layar yang dipegang sambil bekerja.
+
+Aturannya — bahan mana, ditandai apa, dihitung berapa — datang dari **satu** modul murni, `panel-bahan.js`, dipakai kedua sisi. Tampilannya memang beda (Admin punya kolom HPP/satuan, Biaya, total bahan, dan HPP per satuan di kaki tabel); yang tidak boleh beda adalah isinya. Dua layar yang menampilkan resep yang sama dengan isi berbeda lebih merusak daripada salah satunya salah: setelah orang menemukan bedanya, keduanya berhenti dipercaya dan resepnya dicek ulang manual — pekerjaan yang justru mau dihilangkan aplikasi ini.
+
+Tesnya (`tools/test-panel-bahan.mjs`, 33 kasus) menemukan satu bug nyata saat pertama dijalankan: **bahan yang produknya sudah dihapus tidak menandai biaya sebagai "tidak diketahui"**, sehingga resep berisi satu bahan hantu menghasilkan total **Rp 0** yang terlihat sah — dan nol adalah angka yang paling mudah dipercaya karena tidak terlihat seperti kesalahan.
+
+Satu lagi yang layak dicatat: dari lima sabotase, satu **lolos**. Fixture "Staff App" saya tidak pernah mengirim `hppBahan`, jadi hasilnya null karena fungsinya memang tidak ada — bukan karena penjaga `denganNilai` bekerja. Fixture-nya diperbaiki supaya sengaja mengirimkannya; sekarang satu-satunya yang bisa membuat baris itu lolos adalah penjaganya sendiri.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

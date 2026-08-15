@@ -1,5 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
-export { computeCosts, costForMode, sebabHppKosong } from './hpp.js';
+export { computeCosts, costForMode, sebabHppKosong, sebabBahan } from './hpp.js';
 
 export const PRODUCT_TYPES = [
   { value: 'raw', label: 'Bahan Baku' },
