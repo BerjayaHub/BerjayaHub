@@ -1,6 +1,6 @@
 import { listProducts, createProduct, updateProduct, listRecipesFull, saveRecipe, listUnits, createUnit } from './product.service.js';
 import { bakukanNama, palingMirip, bacaAngka } from '../../core/nama.js';
-import { rencanaLengkapi, saringMenurutTipe, kolomDiabaikan } from './import-merge.js';
+import { rencanaLengkapi, saringMenurutTipe, kolomDiabaikan, petaResep } from './import-merge.js';
 import { curigaHargaTertukar } from './harga-curiga.js';
 import { periksaBahan } from './periksa-resep.js';
 
@@ -324,7 +324,9 @@ export async function importRecipes(businessUnitId, file) {
   const byName = new Map(products.map((p) => [bakukanNama(p.name), p]));
   const semuaNama = products.map((p) => p.name);
   const recipesFull = await listRecipesFull(businessUnitId);
-  const hasRecipe = new Set(recipesFull.map((r) => `${r.product_id}|${r.mode}`));
+  // "Sudah ada" diukur dari ISINYA, bukan dari adanya baris — aturannya di
+  // `petaResep()` beserta alasannya.
+  const { berisi: hasRecipe, kosong: resepKosong } = petaResep(recipesFull);
 
   // Dikelompokkan per PRODUK + VARIAN, bukan per produk saja.
   //
@@ -404,6 +406,20 @@ export async function importRecipes(businessUnitId, file) {
       errors.push(`${prodName} (${MODE_TEKS[mode] ?? mode}): dilewati — resep varian ini sudah ada, hapus/ubah lewat tombol Ubah di tabel`);
       continue;
     }
+    // RESEP KOSONG TIDAK DILEWATI — ia diisi.
+    //
+    // Sebelumnya "sudah ada" diukur dari ADANYA BARIS resep, bukan isinya.
+    // Akibatnya resep yang tertinggal kosong (penyimpanan terputus di tengah —
+    // lihat 0082) menjadi TIDAK BISA DIPERBAIKI LEWAT IMPOR: tiap impor ulang
+    // menjawab "dilewati, resep sudah ada", sementara di layar tetap tertulis
+    // resepnya kosong. Satu-satunya jalan keluar adalah membuka dan mengisi
+    // ratusan resep satu per satu — yang justru pekerjaan yang mau dihindari
+    // dengan mengimpor.
+    //
+    // Baris resepnya tidak dihapus dulu: `saveRecipe` memang memperbarui yang
+    // sudah ada, dan menghapus lebih dulu berarti membuka lagi celah setengah
+    // jadi yang sama.
+    const mengisiYangKosong = resepKosong.has(`${p.id}|${mode}`);
     const items = [];
     let ok = true;
     for (const it of g.items) {
@@ -447,7 +463,11 @@ export async function importRecipes(businessUnitId, file) {
     try {
       await saveRecipe({ productId: p.id, businessUnitId, mode, yield_qty: g.yield || 1, notes: null, items: bersih });
       hasRecipe.add(`${p.id}|${mode}`);
+      resepKosong.delete(`${p.id}|${mode}`);
       added++;
+      if (mengisiYangKosong) {
+        catatanResep.push(`${prodName} (${MODE_TEKS[mode] ?? mode}): resep yang tadinya kosong sekarang terisi`);
+      }
     } catch (e) {
       errors.push(`${prodName}: ${e.message ?? e}`);
     }

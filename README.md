@@ -2623,6 +2623,28 @@ Hasil impor sekarang memuat catatan **"Harga Beli diabaikan di 50 baris — kolo
 
 Ini **bukan** error dan tidak diberi warna merah: filenya tidak salah, isinya cuma tidak berlaku di tipe itu. Kolom yang **kosong** juga tidak ikut dilaporkan — kalau ikut, setiap impor menu biasa akan memunculkan catatan tentang kolom yang memang sengaja dikosongkan, dan catatan yang selalu muncul berhenti dibaca.
 
+## Resep kosong yang tidak bisa diperbaiki lewat impor
+
+Gejala yang dilaporkan: *"produknya sudah ada, tapi tetap belum bisa masuk ke resep, sebagian besar seperti ini."* Layarnya menampilkan "Resep ini kosong — bahannya tidak pernah tersimpan", bahannya ada di Master Produk, dan impor ulang tidak memperbaikinya.
+
+Penyebab pertama sudah diketahui: `saveRecipe` lama mengerjakan tiga perintah HTTP terpisah, dan kalau yang ketiga tidak sampai, baris resepnya tertinggal tanpa bahan (`0082` menjadikannya satu transaksi + membersihkan sisanya).
+
+Yang belum ketahuan adalah **kenapa keadaannya tidak bisa keluar sendiri.** Pengimpor mengukur "resep sudah ada" dari **adanya baris**, bukan dari isinya:
+
+```js
+const hasRecipe = new Set(recipesFull.map((r) => `${r.product_id}|${r.mode}`));
+…
+if (hasRecipe.has(`${p.id}|${mode}`)) { skipped++; errors.push('dilewati — resep varian ini sudah ada'); continue; }
+```
+
+Jadi resep kosong dihitung sebagai "sudah ada". Tiap impor ulang menjawab *"dilewati, resep sudah ada, ubah lewat tombol Ubah di tabel"*, sementara layarnya tetap bilang resepnya kosong. Dua pesan yang saling bertentangan, dan yang tersisa buat penggunanya cuma membuka serta mengisi ratusan resep satu per satu — justru pekerjaan yang mau dihindari dengan mengimpor.
+
+`petaResep()` sekarang memisahkan **berisi** dari **kosong**, dan pengimpor hanya melewati yang berisi. Resep kosong diisi, lalu dilaporkan (*"resep yang tadinya kosong sekarang terisi"*) supaya perbedaannya dengan "ditambahkan baru" tetap terlihat.
+
+Tiga hal kecil yang ikut dikunci tes: `items` yang tidak ada sama sekali diperlakukan sama dengan array kosong (dua bentuk yang sama artinya — membedakannya akan menyisakan sebagian resep tetap tidak bisa diperbaiki); pemisahannya **per varian**, bukan per produk (satu menu bisa punya Standalone berisi dan Dilayani CK kosong); dan baris resepnya **tidak dihapus dulu** sebelum diisi, karena menghapus lebih dulu membuka lagi celah setengah jadi yang sama.
+
+Dikunci `tools/test-impor-ulang.mjs` (69 kasus), tiga sabotase merah termasuk mengembalikan bug aslinya persis.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

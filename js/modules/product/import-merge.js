@@ -172,3 +172,30 @@ export function kolomDiabaikan(type, nilai) {
     .filter((k) => !kosong(nilai?.[k]) && !(k in berlaku))
     .map((k) => label[k]);
 }
+
+/**
+ * Varian resep mana yang boleh diisi impor, dan mana yang harus dilewati.
+ *
+ * BEDANYA HALUS TAPI MENENTUKAN: "resepnya sudah ada" tidak sama dengan
+ * "resepnya sudah berisi". Baris resep tanpa bahan bisa tertinggal kalau
+ * penyimpanan terputus di tengah (lihat 0082) — dan selama "sudah ada" diukur
+ * dari adanya baris, resep semacam itu menjadi TIDAK BISA DIPERBAIKI lewat
+ * impor: tiap impor ulang menjawab "dilewati, resep sudah ada", sementara di
+ * layar tetap tertulis resepnya kosong.
+ *
+ * Yang tersisa buat penggunanya cuma membuka dan mengisi ratusan resep satu per
+ * satu — justru pekerjaan yang mau dihindari dengan mengimpor.
+ *
+ * @param {Array<{product_id: string, mode: string, items?: any[]}>} recipes
+ * @returns {{berisi: Set<string>, kosong: Set<string>}} kunci `productId|mode`
+ */
+export function petaResep(recipes) {
+  const berisi = new Set();
+  const kosong = new Set();
+  for (const r of recipes ?? []) {
+    const kunci = `${r.product_id}|${r.mode}`;
+    if ((r.items ?? []).length > 0) berisi.add(kunci);
+    else kosong.add(kunci);
+  }
+  return { berisi, kosong };
+}

@@ -14,7 +14,7 @@
  *   - nilai yang sudah ada TIDAK PERNAH tertimpa diam-diam (kalau tidak, satu
  *     impor file lama bisa menghapus koreksi harga yang dikerjakan manual).
  */
-import { rencanaLengkapi, saringMenurutTipe, kolomDiabaikan } from '../js/modules/product/import-merge.js';
+import { rencanaLengkapi, saringMenurutTipe, kolomDiabaikan, petaResep } from '../js/modules/product/import-merge.js';
 
 let gagal = 0;
 const cek = (nama, dapat, harap) => {
@@ -237,8 +237,39 @@ cek('nilai null aman', kolomDiabaikan('semi', null), []);
 cek('nilai null aman', saringMenurutTipe('raw', null), {});
 cek('tipe tak dikenal diperlakukan paling ketat', saringMenurutTipe('entah', isiPenuh), { category: 'X' });
 
+
+// ================= RESEP KOSONG BUKAN RESEP YANG SUDAH ADA =================
+//
+// Bedanya halus tapi menentukan. Selama "sudah ada" diukur dari ADANYA BARIS
+// resep, baris kosong yang tertinggal (penyimpanan terputus — lihat 0082)
+// menjadi TIDAK BISA DIPERBAIKI lewat impor: tiap impor ulang menjawab
+// "dilewati, resep sudah ada", sementara layarnya tetap bilang resepnya kosong.
+// Yang tersisa cuma membuka ratusan resep satu per satu — justru pekerjaan yang
+// mau dihindari dengan mengimpor.
+
+const daftarResep = [
+  { product_id: 'es', mode: 'standalone', items: [{ ingredient_product_id: 'kopi', qty: 18 }] },
+  { product_id: 'es', mode: 'served_by_ck', items: [] },          // kosong: sisa penyimpanan terputus
+  { product_id: 'air', mode: 'served_by_ck' },                     // items undefined = kosong juga
+  { product_id: 'sirup', mode: 'production', items: [{ ingredient_product_id: 'gula', qty: 1000 }] }
+];
+const peta = petaResep(daftarResep);
+
+cek('yang berisi masuk "berisi"', [...peta.berisi].sort(), ['es|standalone', 'sirup|production']);
+cek('yang kosong masuk "kosong"', [...peta.kosong].sort(), ['air|served_by_ck', 'es|served_by_ck']);
+// `items` yang tidak ada sama sekali harus diperlakukan sama dengan array
+// kosong — dua bentuk yang sama artinya, dan membedakannya cuma akan membuat
+// sebagian resep kosong tetap tidak bisa diperbaiki.
+cek('items undefined dihitung kosong', peta.kosong.has('air|served_by_ck'), true);
+cek('dan tidak ikut dihitung berisi', peta.berisi.has('air|served_by_ck'), false);
+// Satu produk bisa punya satu varian berisi dan satu varian kosong; keduanya
+// harus dipisahkan per VARIAN, bukan per produk.
+cek('varian dipisah, bukan per produk', peta.berisi.has('es|standalone') && peta.kosong.has('es|served_by_ck'), true);
+cek('daftar kosong aman', petaResep([]), { berisi: new Set(), kosong: new Set() });
+cek('null aman', petaResep(null), { berisi: new Set(), kosong: new Set() });
+
 if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Impor ulang benar untuk 62 kasus: melengkapi yang kosong, dan hanya menimpa kalau diminta dengan sadar. ✅');
+console.log('Impor ulang benar untuk 69 kasus: melengkapi yang kosong, dan hanya menimpa kalau diminta dengan sadar. ✅');
