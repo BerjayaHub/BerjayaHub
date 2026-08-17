@@ -590,15 +590,26 @@ export async function koreksiOutletBasisMassal({ userId, from, to, outletId, not
   return { terpengaruh: Number(row?.terpengaruh ?? 0), dilewati: Number(row?.dilewati ?? 0) };
 }
 
-export async function correctAttendanceRecord(id, { clock_in_at, clock_out_at, notes }) {
+export async function correctAttendanceRecord(id, patch) {
+  // MENAMBAL, bukan menulis ulang seluruh baris.
+  //
+  // Versi lama selalu mengirim `clock_in_at`, `clock_out_at`, dan `notes`
+  // sekaligus. Akibatnya membetulkan salah satu berarti menimpa yang lain
+  // dengan apa pun yang kebetulan ada di dialog — dan kalau isiannya kosong,
+  // jam pulang yang sudah benar ikut terhapus tanpa diminta.
+  //
+  // Kunci yang tidak ada di `patch` memang tidak dikirim; yang bernilai `null`
+  // dikirim sebagai penghapusan yang disengaja.
+  const isi = {};
+  for (const k of ['clock_in_at', 'clock_out_at', 'notes']) {
+    if (patch && k in patch) isi[k] = patch[k];
+  }
+  if (!Object.keys(isi).length) return; // tidak ada yang berubah
+
   // .select() WAJIB: penolakan RLS pada UPDATE tidak menghasilkan error, hanya
   // 0 baris — dan admin melihat "koreksi tersimpan" untuk perubahan yang tidak
   // pernah terjadi.
-  const { data, error } = await supabase
-    .from('attendance_records')
-    .update({ clock_in_at, clock_out_at, notes })
-    .eq('id', id)
-    .select('id');
+  const { data, error } = await supabase.from('attendance_records').update(isi).eq('id', id).select('id');
   if (error) throw error;
   if (!data?.length) throw new Error('Koreksi tidak tersimpan — kamu bukan admin outlet presensi ini.');
 }

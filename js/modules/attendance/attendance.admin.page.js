@@ -1,4 +1,5 @@
 import { listBuStaff } from '../leave/leave.service.js';
+import { rencanaKoreksi, keInputLokal } from './koreksi-presensi.js';
 import {
   listPushEnabledUserIds,
   listAttendanceForAdmin,
@@ -467,7 +468,8 @@ function rowHtml(r, outlet, pushAktif) {
     .join(' ');
 
   return `
-    <tr data-record-id="${r.id}" data-lat="${r.clock_in_lat ?? ''}" data-lng="${r.clock_in_lng ?? ''}">
+    <tr data-record-id="${r.id}" data-lat="${r.clock_in_lat ?? ''}" data-lng="${r.clock_in_lng ?? ''}"
+        data-in="${r.clock_in_at ?? ''}" data-out="${r.clock_out_at ?? ''}">
       <td>${escapeHtml(r.user_profiles?.full_name ?? '-')}${pushTag}</td>
       <td>${escapeHtml(outlet.name)}${storingTag}${
         // Kalau absen di outlet milik BU lain, tampilkan BU lokasinya agar jelas.
@@ -639,15 +641,41 @@ function wireEditButtons(container, outletPilihan = []) {
   container.querySelectorAll('.btn-edit').forEach((btn) => {
     btn.addEventListener('click', sekaliJalan(async () => {
       const row = container.querySelector(`tr[data-record-id="${btn.dataset.recordId}"]`);
-      const currentIn = row.children[5].textContent;
-      const currentOut = row.children[9].textContent === '—' ? '' : row.children[9].textContent;
+      // NILAI ASLINYA (ISO) dibaca dari atribut baris, BUKAN dari teks di sel.
+      //
+      // Teks di sel diformat gaya Indonesia — "17 Agu, 08.15" — dan
+      // `new Date()` tidak bisa membacanya: hasilnya `Invalid Date`, isian
+      // tanggal terbuka kosong, dan karena Clock In wajib, tombol simpan tidak
+      // pernah bisa ditekan. Jadi kasus paling sering (staff lupa absen pulang,
+      // admin cuma mau menambahkan jam pulang) justru satu-satunya yang
+      // mustahil. Teks itu bahkan tidak memuat TAHUN.
+      const isoIn = row.dataset.in || '';
+      const isoOut = row.dataset.out || '';
       const basisSekarang = btn.dataset.nbmOutlet || '';
 
       const values = await formDialog({
         title: 'Koreksi Presensi',
         fields: [
-          { name: 'clock_in_at', label: 'Clock In', type: 'datetime-local', required: true, value: toInputFormat(currentIn) },
-          { name: 'clock_out_at', label: 'Clock Out (kosongkan kalau belum)', type: 'datetime-local', value: toInputFormat(currentOut) },
+          {
+            name: 'clock_in_at',
+            label: 'Jam Masuk',
+            type: 'datetime-local',
+            // TIDAK wajib lagi: mengosongkannya berarti "jangan diubah".
+            value: keInputLokal(isoIn),
+            help: 'Kosongkan kalau tidak ingin mengubah jam masuk.'
+          },
+          {
+            name: 'clock_out_at',
+            label: 'Jam Pulang',
+            type: 'datetime-local',
+            value: keInputLokal(isoOut),
+            help: isoOut
+              ? 'Kosongkan kalau tidak ingin mengubah. Untuk menghapusnya, centang di bawah.'
+              : 'Isi di sini kalau staff lupa absen pulang — jam masuknya tidak akan ikut berubah.'
+          },
+          ...(isoOut
+            ? [{ name: 'hapus_out', label: 'Hapus jam pulang (jadikan belum absen pulang)', type: 'checkbox', value: false }]
+            : []),
           {
             name: 'nbm_outlet_id',
             label: 'Outlet basis (penentu tarif NBM)',
@@ -672,18 +700,34 @@ function wireEditButtons(container, outletPilihan = []) {
         return;
       }
 
+      const { patch, masalah, berubah } = rencanaKoreksi({
+        inSekarang: isoIn,
+        outSekarang: isoOut,
+        inBaru: values.clock_in_at,
+        outBaru: values.clock_out_at,
+        hapusClockOut: Boolean(values.hapus_out)
+      });
+      if (masalah.length) {
+        toast(masalah.join(' '), 'warning');
+        return;
+      }
+      if (!berubah.length && !gantiBasis) {
+        toast('Tidak ada yang diubah.', 'info');
+        return;
+      }
+
       try {
-        await correctAttendanceRecord(btn.dataset.recordId, {
-          clock_in_at: new Date(values.clock_in_at).toISOString(),
-          clock_out_at: values.clock_out_at ? new Date(values.clock_out_at).toISOString() : null
-        });
+        await correctAttendanceRecord(btn.dataset.recordId, patch);
         // Basis diubah lewat RPC terpisah: izinnya lebih ketat (harus admin di
         // outlet asal DAN outlet tujuan), dan itu tidak bisa dijamin oleh
         // update biasa yang tunduk pada policy presensi saja.
         if (gantiBasis) {
           await koreksiOutletBasis(btn.dataset.recordId, values.nbm_outlet_id, values.nbm_note);
         }
-        toast(gantiBasis ? 'Presensi & outlet basis dikoreksi.' : 'Presensi dikoreksi.', 'success');
+        // Yang berubah disebutkan, bukan cuma "dikoreksi": koreksi presensi
+        // memengaruhi perhitungan NBM, dan admin perlu bisa memastikan yang
+        // tersentuh memang yang dimaksud.
+        toast([...berubah, gantiBasis ? 'Outlet basis dikoreksi.' : ''].filter(Boolean).join(' · ') || 'Presensi dikoreksi.', 'success');
         document.getElementById('btn-filter').click();
       } catch (error) {
         toast(error.message ?? 'Gagal koreksi presensi.', 'error');
@@ -705,9 +749,3 @@ function formatTime(iso) {
   });
 }
 
-function toInputFormat(displayText) {
-  const d = new Date(displayText);
-  if (isNaN(d)) return '';
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}

@@ -2676,6 +2676,31 @@ Yang sudah diperbaiki: `listProducts` (785 produk — tinggal sedikit lagi menye
 
 Dikunci `tools/test-ambil-semua.mjs` (26 kasus, server tiruannya **memotong seperti aslinya** — tes dengan server yang jujur tidak akan pernah menangkap bug ini). Lima sabotase merah.
 
+## Koreksi presensi: menambah jam pulang saja
+
+Kasus yang paling sering terjadi — staff lupa absen pulang, NBM-nya jadi tidak bisa dihitung — justru satu-satunya yang **mustahil** dilakukan. Sebabnya dua, bertumpuk:
+
+**1. Isian tanggalnya selalu terbuka kosong.** Dialog koreksi mengisi nilai awalnya dengan membaca **teks yang tertulis di sel tabel**, lalu memasukkannya ke `new Date()`:
+
+```js
+const currentIn = row.children[5].textContent;   // "17 Agu, 08.15"
+value: toInputFormat(currentIn)                  // new Date(...) -> Invalid Date -> ''
+```
+
+Teks itu diformat gaya Indonesia dan tidak bisa dibaca balik. Karena Clock In ditandai `required`, tombol simpan tidak pernah bisa ditekan. Teks itu bahkan tidak memuat **tahun** — andai admin mengetik ulang jam masuknya, ia mengetik dari tebakan.
+
+**2. Koreksi menulis ulang seluruh baris, bukan menambal.** `correctAttendanceRecord` selalu mengirim `clock_in_at`, `clock_out_at`, dan `notes` sekaligus. Jadi membetulkan salah satu berarti menimpa yang lain dengan apa pun yang kebetulan ada di dialog — dan kalau isiannya kosong, jam pulang yang sudah benar ikut terhapus tanpa diminta.
+
+Sekarang: nilai aslinya dibaca sebagai **ISO dari atribut baris**, jam masuk **tidak wajib** (kosong = jangan sentuh), dan penyimpanannya menambal. Tiga hal yang disengaja:
+
+- **Mengosongkan isian ≠ menghapus.** Menghapus jam pulang tetap bisa, tapi lewat centang terpisah — bukan sebagai akibat samping isian kosong. Jam pulang yang hilang diam-diam tidak menghasilkan error, cuma NBM yang berkurang di rekap gaji bulan itu.
+- **Jam pulang lebih awal dari jam masuk ditolak**, dan dibandingkan terhadap **nilai akhir** — termasuk jam masuk yang tidak disentuh. Memeriksa hanya yang diketik akan meloloskan justru bentuk koreksi yang paling sering dipakai di sini. Selisih negatif tidak error di mana pun; ia jadi jam kerja negatif yang ikut dijumlahkan ke rekap.
+- **Yang berubah disebutkan namanya** di notifikasi ("Jam pulang: (kosong) → 17 Agu 2026, 17.00"), bukan cuma "Presensi dikoreksi". Koreksi ini memengaruhi gaji.
+
+`keInputLokal()` memakai waktu **lokal**, bukan `toISOString()`: di WIB selisihnya 7 jam — cukup untuk memindahkan presensi malam ke hari sebelumnya di layar admin.
+
+Dikunci `tools/test-koreksi-presensi.mjs` (27 kasus). Lima sabotase merah, termasuk mengembalikan perilaku lama "selalu kirim kedua kolom". `toInputFormat()` yang jadi biang masalahnya dihapus, bukan dibiarkan yatim — dan `audit-nama-tak-dikenal` menangkap impor yang belum masuk sebelum sempat jadi bug.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
