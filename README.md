@@ -2726,6 +2726,81 @@ Yang **diperiksa dan ternyata sudah benar**: rekap membaca item **dari run**-nya
 
 Dikunci `tools/test-jadwal-item.mjs` (45 kasus, termasuk lintas bulan, lintas tahun, dan 29 Februari 2028). Dari enam sabotase, **lima merah dan satu lolos** — dan yang lolos memang bukan penjaga: `Date.parse` sudah mengurai tanggal polos sebagai UTC menurut spesifikasi, jadi `T00:00:00Z` di situ adalah penegasan, bukan pengaman. Dicatat apa adanya di kodenya; yang menjadikannya bebas zona waktu adalah `.slice(0, 10)`.
 
+## Tampilan HP: soal breakpoint, dan soal yang sebenarnya
+
+Pertanyaannya: apakah 360 / 390 / 412–430 / 768 sudah sesuai? Jawaban jujurnya **daftar itu masuk akal sebagai perangkat uji, tapi tidak cocok dipakai sebagai breakpoint CSS**, dan menambahkannya tidak akan memperbaiki keluhannya.
+
+Yang ada sekarang: **768** (5×), **560** (3×), plus 620/720 untuk arah sebaliknya. Tidak ada satu pun di bawah 560 — artinya 360, 390, dan 430 semuanya menerima tata letak yang sama persis. Menambah tiga breakpoint baru hanya berguna kalau ada yang benar-benar **berubah** di sana; breakpoint yang tidak mengubah apa-apa cuma menambah tempat untuk salah.
+
+Yang menentukan bukan jenis perangkat, melainkan **apakah barisnya masih muat**. Ponsel dalam mode lanskap (≈740px) dan jendela desktop yang disempitkan punya masalah yang sama dengan ponsel 360px, dan keduanya tidak akan pernah tertangkap ambang yang dipatok ke "lebar ponsel".
+
+### Yang diperiksa dan hasilnya
+
+| Diperiksa | Hasil |
+|---|---|
+| `min-width` yang memaksa halaman menggulir di 360px | **Tidak ada.** Satu-satunya ≥320px ada di dalam `.table-scroll`, jadi ia menggulir di wadahnya, bukan menggeser halaman |
+| Target sentuh tombol | **Terbalik** — lihat bawah |
+| Lebar tabel di Staff App | 1 tabel 8 kolom, 3 tabel 7 kolom, 1 tabel 6 kolom |
+
+**Tombolnya justru dikecilkan di HP.** Bawaannya `min-height: 44px`, lalu di dalam `@media (max-width: 768px)` diturunkan jadi **40px**. Arahnya kebalikan dari yang seharusnya: jari lebih besar dan kurang presisi daripada kursor, dan 44px adalah ambang yang dipakai pedoman sentuh Apple maupun Google. Di layar sempit tombol yang meleset berarti mengulang seluruh alur pengisian. Sudah dijadikan 44px, termasuk tombol 🏠 yang paling sering ditekan.
+
+### Masalah yang sebenarnya: tabel 6–8 kolom
+
+Gulir mendatar dengan kolom pertama dibekukan memang menampilkan semuanya, tapi menuntut penggunanya menggeser bolak-balik sambil mengingat kolom mana yang sedang dilihat. Untuk **membaca** masih bisa; untuk **mengisi** ia berarti geser kanan, ketik, geser kiri untuk memastikan barisnya benar. Stok Opname sudah lebih dulu meninggalkan bentuk tabel karena alasan ini.
+
+Sekarang caranya bisa dipakai ulang: kelas `kartu-sempit` membuat barisnya **menumpuk jadi kartu** di ≤560px, dengan judul kolom di kiri tiap nilai. Dipasang di Reservasi (8 kolom), Aset (7), Kas (7), Pengiriman (6), dan Cuti (5).
+
+Tiga hal yang disengaja:
+
+- **Judul tabel disembunyikan dari mata, bukan dari pembaca layar** (`clip`, bukan `display:none`) — hubungan sel dengan judulnya tetap utuh bagi yang memakainya.
+- **Kolom pertama jadi judul kartu**, tanpa label, dengan garis pemisah. Tanpa ini tiap kartu dimulai dengan "Kode: RSV-001" yang mengulang hal yang sudah jelas.
+- **Isian di dalam kartu memakai lebar penuh** dengan tinggi minimum 44px — inilah yang menghilangkan geser-mendatar saat mengisi.
+
+`tools/audit-tabel-kartu.cjs` menjaga agar setiap sel di tabel semacam ini punya `data-label`. Sel yang lupa diberi label tidak menghasilkan error — ia cuma muncul sebagai angka telanjang di tengah kartu yang sel lainnya berlabel rapi, dan itu **lebih** membingungkan daripada tabel tanpa label sama sekali. Pada jalan pertamanya audit ini menemukan **6 sel** yang terlewat, semuanya di baris yang dirender fungsi pembantu di luar blok `<table>`-nya — persis tempat yang luput kalau labelnya dipasang "di sekitar tabel".
+
+### Modul Menu: bukan jumlah kolomnya, tapi isiannya
+
+Tangkapan layar penggunanya menunjukkan modul **Menu** di Staff App: kolom "Jumlah tersedia" — yang berisi kotak isian — **terpotong di tepi kanan**, dan panel bahan yang terbuka di bawahnya ikut meleset keluar layar.
+
+Tabelnya cuma **tiga kolom**, jadi ia lolos dari saringan "6–8 kolom" di atas. Yang membuatnya menderita bukan lebar tabelnya melainkan **ada isian di dalamnya**: `.table-scroll` memakai `width: max-content`, jadi kotak isiannya duduk di luar layar dan harus digeser dulu — untuk tiap menu, satu per satu.
+
+Ini menegaskan aturan yang lebih baik daripada menghitung kolom: **tabel yang berisi isian harus jadi kartu di layar sempit, berapa pun kolomnya.** Membaca sambil menggeser masih bisa ditoleransi; mengisi sambil menggeser tidak.
+
+Modul Menu sekarang ikut `kartu-sempit`, termasuk tabel bahan di panel yang bisa dibuka. Dua penyesuaian kecil menyertainya:
+
+- **Baris rincian menempel pada kartu induknya** (`margin-top: -8px`, sudut atas rata). Tanpa itu ia mengambang sebagai kartu terpisah yang tidak jelas milik menu yang mana — persis kebingungan yang mau dihilangkan.
+- **Sel ber-`colspan` dikecualikan dari gaya "judul kartu"**. Tanpa pengecualian ini, panel rincian yang terbuka tampil sebagai judul tebal bergaris bawah.
+
+Judul kolom `/menu` juga diganti jadi **"Per menu"** — singkatan yang hemat tempat di kepala tabel jadi tidak terbaca begitu ia dipakai sebagai label di sebelah nilainya.
+
+**Yang sengaja TIDAK diubah:** tabel 3–4 kolom yang hanya dibaca (Stok, Penjualan, Produksi, Master Produk staff). Di sana kartu justru merugikan — tinggi halamannya jadi tiga kali lipat untuk data yang sebenarnya sudah muat. Batasnya bukan jumlah kolom, melainkan apakah ada yang perlu diketik.
+
+### Dua bug yang ditemukan saat memeriksa ulang
+
+**1. Baris yang disembunyikan ikut terbuka di mode kartu.** Aturan `display:block` untuk `tr`/`td` berasal dari stylesheet penulis, dan itu **mengalahkan `[hidden] { display:none }` bawaan browser**. Akibatnya di modul Menu, seluruh panel bahan yang seharusnya tertutup terbuka sekaligus begitu layarnya sempit — halamannya jadi berkali-kali lebih panjang dan tombol buka/tutupnya berhenti berarti. Tidak ada error; hanya halaman yang tiba-tiba raksasa. Ditutup dengan `tr[hidden] { display: none }` yang eksplisit.
+
+Panel yang disembunyikan di Kas dan Pengiriman diperiksa juga — keduanya `<div>`, bukan `<tr>`, jadi tidak terpengaruh.
+
+**2. Sel `colspan` diperlakukan sebagai judul kartu.** Baris "Belum ada data" tampil tebal dengan garis bawah, seolah judul sebuah kartu kosong. Dikecualikan.
+
+Sisa yang lebih kecil: bayangan pemisah kolom beku ikut dimatikan di mode kartu — ia menggambar garis tegak di kanan judul kartu, sisa dari tata letak yang sudah tidak berlaku.
+
+### Item berjadwal lenyap tepat setelah dicentang
+
+Ditemukan saat memeriksa ulang modul Daily Activities, dan ini **regresi yang saya buat sendiri** di fitur jadwal.
+
+Begitu item berjadwal dikerjakan hari ini, "terakhir dikerjakan" jadi hari ini, jatuh temponya pindah ke beberapa hari lagi, dan penyaring membuangnya. Staff menekan kirim lalu melihat pekerjaannya **menghilang** — tanpa tanda apakah tersimpan.
+
+Yang membuatnya jelas salah: modul ini punya keputusan tertulis untuk **selalu** menampilkan item yang sudah dikerjakan, karena "apa saja yang sudah beres" adalah pertanyaan paling sering di tengah shift. Aturan jadwal diam-diam membatalkannya.
+
+`saringJatuhTempo()` sekarang menerima daftar item yang **sudah tercatat di run yang sedang dilihat**, dan item itu selalu ditampilkan apa pun jadwalnya — sekaligus tidak ditandai tertunda, karena justru itu yang paling tepat waktu.
+
+Satu catatan jujur soal tesnya: sabotase yang mencabut pembersihan tanda "tertunda" **lolos** di percobaan pertama, karena fixture-nya memakai peta riwayat yang sudah diperbarui sehingga angkanya kebetulan 0. Skenario nyatanya justru peta yang **basi** — riwayat diambil saat layar dibuka, lalu staff mencentang itemnya, dan sampai layarnya dimuat ulang peta masih menyebut tanggal lama. Tanpa pembersihan, item yang baru saja beres berteriak "tertunda 5 hari" — cukup untuk membuat orang mengerjakannya dua kali. Fixture-nya diganti; sekarang sabotasenya merah.
+
+### Yang belum bisa saya pastikan
+
+Semua di atas diperiksa dari **kode**, bukan dari layar sungguhan — saya tidak bisa membuka aplikasinya di HP. Yang tidak terjangkau cara ini: teks yang terpotong karena nama produk kepanjangan, kartu yang terlalu tinggi sehingga perlu banyak gulir, dan apakah 560px ternyata terlalu sempit atau terlalu lebar untuk kasus nyatamu. Itu perlu dicoba langsung.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

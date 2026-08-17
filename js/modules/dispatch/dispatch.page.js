@@ -181,17 +181,17 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       ]);
       hasil.innerHTML = `
         <h3 style="font-size:0.95rem;margin:16px 0 6px">Order (${orders.length})</h3>
-        <div class="table-scroll"><table class="data-table table-freeze-1">
+        <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
           <thead><tr><th>No. Order</th><th>Ke</th><th>Waktu</th><th>Status</th></tr></thead>
           <tbody>${
             orders
               .map(
                 (o) => `<tr>
-                  <td><button class="btn-dok" data-jenis="order" data-id="${o.id}"
+                  <td data-label="No. Order"><button class="btn-dok" data-jenis="order" data-id="${o.id}"
                     style="font-family:ui-monospace,Menlo,monospace;font-size:0.8rem">${esc(o.code ?? '(tanpa nomor)')}</button></td>
-                  <td>${esc(o.to_outlet?.name ?? '-')}</td>
-                  <td style="font-size:0.8rem">${fmtDateTime(o.created_at)}</td>
-                  <td><span class="badge ${ORDER_BADGE[o.status] ?? ''}">${ORDER_STATUS[o.status] ?? o.status}</span></td>
+                  <td data-label="Ke">${esc(o.to_outlet?.name ?? '-')}</td>
+                  <td style="font-size:0.8rem" data-label="Waktu">${fmtDateTime(o.created_at)}</td>
+                  <td data-label="Status"><span class="badge ${ORDER_BADGE[o.status] ?? ''}">${ORDER_STATUS[o.status] ?? o.status}</span></td>
                 </tr>`
               )
               .join('') || '<tr><td colspan="4">Tidak ada order pada rentang ini.</td></tr>'
@@ -199,18 +199,18 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         </table></div>
 
         <h3 style="font-size:0.95rem;margin:18px 0 6px">Pengiriman (${kiriman.length})</h3>
-        <div class="table-scroll"><table class="data-table table-freeze-1">
+        <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
           <thead><tr><th>No. Surat Jalan</th><th>Dari</th><th>Ke</th><th>Waktu</th><th>Status</th></tr></thead>
           <tbody>${
             kiriman
               .map(
                 (d) => `<tr>
-                  <td><button class="btn-dok" data-jenis="dispatch" data-id="${d.id}"
+                  <td data-label="No. Surat Jalan"><button class="btn-dok" data-jenis="dispatch" data-id="${d.id}"
                     style="font-family:ui-monospace,Menlo,monospace;font-size:0.8rem">${esc(d.code ?? '(tanpa nomor)')}</button></td>
-                  <td>${esc(d.from_outlet?.name ?? '-')}</td>
-                  <td>${esc(d.to_outlet?.name ?? '-')}</td>
-                  <td style="font-size:0.8rem">${fmtDateTime(d.created_at)}</td>
-                  <td>${esc(DISPATCH_STATUS[d.status] ?? d.status)}${
+                  <td data-label="Dari">${esc(d.from_outlet?.name ?? '-')}</td>
+                  <td data-label="Ke">${esc(d.to_outlet?.name ?? '-')}</td>
+                  <td style="font-size:0.8rem" data-label="Waktu">${fmtDateTime(d.created_at)}</td>
+                  <td data-label="Status">${esc(DISPATCH_STATUS[d.status] ?? d.status)}${
                     d.received_at ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">diterima ${fmtDateTime(d.received_at)}</div>` : ''
                   }</td>
                 </tr>`
@@ -271,24 +271,24 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       ${
         myOrders.length
           ? `<h3 style="font-size:0.95rem;margin:18px 0 8px">Order Saya</h3>
-             <table class="data-table">
+             <table class="data-table kartu-sempit">
                <thead><tr><th>No. Order</th><th>Ke</th><th>Waktu</th><th>Status</th><th>Keterangan</th><th>Aksi</th></tr></thead>
                <tbody>
                  ${myOrders
                    .map(
                      (o) => `<tr>
-                       <td><button class="btn-dok-order" data-id="${o.id}" title="Lihat & unduh dokumen"
+                       <td data-label="No. Order"><button class="btn-dok-order" data-id="${o.id}" title="Lihat & unduh dokumen"
                          style="font-family:ui-monospace,Menlo,monospace;font-size:0.8rem">${esc(o.code ?? o.id.slice(0, 6))}</button></td>
-                       <td>${esc(o.to_outlet?.name ?? '-')}</td>
-                       <td style="font-size:0.8rem">${fmtDateTime(o.created_at)}</td>
-                       <td><span class="badge ${ORDER_BADGE[o.status] ?? ''}">${ORDER_STATUS[o.status] ?? o.status}</span>
+                       <td data-label="Ke">${esc(o.to_outlet?.name ?? '-')}</td>
+                       <td style="font-size:0.8rem" data-label="Waktu">${fmtDateTime(o.created_at)}</td>
+                       <td data-label="Status"><span class="badge ${ORDER_BADGE[o.status] ?? ''}">${ORDER_STATUS[o.status] ?? o.status}</span>
                          ${o.status === 'rejected' && o.reject_reason ? `<div style="font-size:0.74rem;color:var(--color-danger)">${esc(o.reject_reason)}</div>` : ''}</td>
-                       <td style="font-size:0.78rem">${
+                       <td style="font-size:0.78rem" data-label="Keterangan">${
                          o.edited_at
                            ? `<span class="badge badge-pending">✎</span> Diedit oleh ${esc(o.editor?.full_name ?? 'staff')} · ${fmtDateTime(o.edited_at)}`
                            : '<span style="color:var(--color-text-muted)">-</span>'
                        }</td>
-                       <td>${
+                       <td data-label="Aksi">${
                          o.status === 'open'
                            ? `<button class="btn-edit-order" data-id="${o.id}" data-code="${esc(o.code ?? '')}">Edit</button>
                               <button class="btn-cancel-order" data-id="${o.id}">Batalkan</button>`
@@ -435,17 +435,17 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
             <div style="font-size:0.78rem;color:var(--color-text-muted)">${fmtDateTime(o.created_at)} · oleh ${esc(o.user_profiles?.full_name ?? '-')}${o.notes ? ' · ' + esc(o.notes) : ''} · ketuk untuk proses ▾</div>
           </button>
           <div class="ord-body" hidden style="margin-top:10px">
-            <div class="table-scroll"><table class="data-table table-freeze-1">
+            <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
               <thead><tr><th>Produk</th><th>Diminta</th><th>Stok CK</th><th>Dikirim</th></tr></thead>
               <tbody>
                 ${items
                   .map((it) => {
                     const stok = state.stockMap.get(it.product_id) ?? 0;
                     return `<tr>
-                      <td>${esc(it.products?.name ?? '-')}</td>
-                      <td>${formatNum(it.qty)} ${esc(it.products?.base_unit ?? '')}</td>
-                      <td style="color:${stok < Number(it.qty) ? 'var(--color-danger)' : 'var(--color-text-muted)'}">${formatNum(stok)}</td>
-                      <td><input type="number" class="ord-send-input" min="0" data-product="${it.product_id}" value="${round(it.qty)}" style="max-width:110px" /></td>
+                      <td data-label="Produk">${esc(it.products?.name ?? '-')}</td>
+                      <td data-label="Diminta">${formatNum(it.qty)} ${esc(it.products?.base_unit ?? '')}</td>
+                      <td style="color:${stok < Number(it.qty) ? 'var(--color-danger)' : 'var(--color-text-muted)'}" data-label="Stok CK">${formatNum(stok)}</td>
+                      <td data-label="Dikirim"><input type="number" class="ord-send-input" min="0" data-product="${it.product_id}" value="${round(it.qty)}" style="max-width:110px" /></td>
                     </tr>`;
                   })
                   .join('')}
@@ -620,15 +620,15 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
             <div style="font-size:0.78rem;color:var(--color-text-muted)">${fmtDateTime(d.created_at)} · oleh ${esc(d.user_profiles?.full_name ?? '-')} · ketuk untuk terima ▾</div>
           </button>
           <div class="recv-body" hidden style="margin-top:10px">
-            <div class="table-scroll"><table class="data-table table-freeze-1">
+            <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
               <thead><tr><th>Produk</th><th>Dikirim</th><th>Diterima</th></tr></thead>
               <tbody>
                 ${items
                   .map(
                     (it) => `<tr>
-                      <td>${esc(it.products?.name ?? '-')}</td>
-                      <td>${formatNum(it.sent_qty)} ${esc(it.products?.base_unit ?? '')}</td>
-                      <td><input type="number" class="recv-input" min="0" data-item="${it.id}" value="${round(it.sent_qty)}" style="max-width:100px" /></td>
+                      <td data-label="Produk">${esc(it.products?.name ?? '-')}</td>
+                      <td data-label="Dikirim">${formatNum(it.sent_qty)} ${esc(it.products?.base_unit ?? '')}</td>
+                      <td data-label="Diterima"><input type="number" class="recv-input" min="0" data-item="${it.id}" value="${round(it.sent_qty)}" style="max-width:100px" /></td>
                     </tr>`
                   )
                   .join('')}

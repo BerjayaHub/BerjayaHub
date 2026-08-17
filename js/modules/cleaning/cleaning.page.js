@@ -55,7 +55,7 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
   // Item dimuat SAAT SESI DIBUKA, bukan sekali di awal: sejak 0069 tiap sesi
   // bisa punya daftar item sendiri. Memuatnya di depan berarti sesi kedua
   // menampilkan item sesi pertama — salah tanpa tanda apa pun.
-  async function muatItem(sessionId) {
+  async function muatItem(sessionId, sudahDikerjakan = null) {
     const semua = await listActiveItems(businessUnitId, state.outletId, sessionId);
     // JADWAL (0083): item yang dikerjakan beberapa hari sekali disaring di sini,
     // bukan di query — riwayat pengerjaannya perlu ditanyakan terpisah, dan
@@ -66,7 +66,7 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
     // tertinggal, dan menyaringnya dengan hari ini akan menampilkan daftar yang
     // berbeda dari yang benar-benar berlaku hari itu.
     const terakhir = await petaTerakhirDikerjakan(state.outletId);
-    return saringJatuhTempo(semua, terakhir, state.tanggal);
+    return saringJatuhTempo(semua, terakhir, state.tanggal, sudahDikerjakan);
   }
 
   container.innerHTML = `
@@ -289,8 +289,11 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
 
     let items, sudah, fotoSelesai;
     try {
-      items = await muatItem(session.id);
+      // Urutannya dibalik: yang SUDAH tercatat hari ini diambil DULU, lalu
+      // dipakai memaksa item itu tetap tampil walau jadwalnya sudah lewat.
+      // Tanpa ini, item berjadwal lenyap tepat setelah dicentang.
       sudah = runAda ? await getRunItemIds(runAda.id) : new Map();
+      items = await muatItem(session.id, new Set(sudah.keys()));
       fotoSelesai = await getChecklistPhotoUrls([...sudah.values()].map((r) => r.photo_path)).catch(() => new Map());
     } catch (error) {
       body.innerHTML = `<p class="error-text">${escapeHtml(error.message ?? error)}</p>`;

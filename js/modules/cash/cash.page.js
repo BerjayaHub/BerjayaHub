@@ -135,7 +135,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       const box = container.querySelector('#cash-history');
       box.innerHTML = entries.length
         ? `<div class="table-scroll">
-            <table class="data-table table-freeze-1">
+            <table class="data-table table-freeze-1 kartu-sempit">
             <thead><tr><th>Keterangan</th><th>Tanggal</th><th>Jenis</th>${pakaiKantong ? '<th>Kantong</th>' : ''}<th>Outlet</th><th>Jumlah</th><th></th></tr></thead>
             <tbody>
               ${entries
@@ -147,15 +147,15 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
                     e.cash_categories?.name ||
                     (e.counterpart?.full_name ? `${amt >= 0 ? 'dari' : 'ke'} ${e.counterpart.full_name}` : '-');
                   return `<tr>
-                    <td><strong>${escapeHtml(ket)}</strong>
+                    <td data-label="Keterangan"><strong>${escapeHtml(ket)}</strong>
                       ${e.cash_categories?.name ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${escapeHtml(e.cash_categories.name)}</div>` : ''}
                       ${e.qty ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${formatNum(e.qty)} ${escapeHtml(e.unit ?? '')}</div>` : ''}</td>
-                    <td style="font-size:0.82rem">${fmtDate(e.entry_date)}</td>
-                    <td style="font-size:0.82rem">${escapeHtml(ENTRY_LABEL[e.entry_type] ?? e.entry_type)}</td>
-                    ${pakaiKantong ? `<td style="font-size:0.82rem">${escapeHtml(e.cash_accounts?.name ?? 'Kas Utama')}</td>` : ''}
-                    <td style="font-size:0.82rem">${escapeHtml(e.outlets?.name ?? '-')}</td>
-                    <td style="color:${color};font-weight:600;white-space:nowrap">${amt >= 0 ? '+' : '−'}${formatRupiah(Math.abs(amt))}</td>
-                    <td>${e.proof_path ? `<button class="btn-proof" data-path="${escapeHtml(e.proof_path)}">Bukti</button>` : ''}</td>
+                    <td style="font-size:0.82rem" data-label="Tanggal">${fmtDate(e.entry_date)}</td>
+                    <td style="font-size:0.82rem" data-label="Jenis">${escapeHtml(ENTRY_LABEL[e.entry_type] ?? e.entry_type)}</td>
+                    ${pakaiKantong ? `<td style="font-size:0.82rem" data-label="Kantong">${escapeHtml(e.cash_accounts?.name ?? 'Kas Utama')}</td>` : ''}
+                    <td style="font-size:0.82rem" data-label="Outlet">${escapeHtml(e.outlets?.name ?? '-')}</td>
+                    <td style="color:${color};font-weight:600;white-space:nowrap" data-label="Jumlah">${amt >= 0 ? '+' : '−'}${formatRupiah(Math.abs(amt))}</td>
+                    <td data-label="Bukti">${e.proof_path ? `<button class="btn-proof" data-path="${escapeHtml(e.proof_path)}">Bukti</button>` : '<span style="color:var(--color-text-muted)">—</span>'}</td>
                   </tr>`;
                 })
                 .join('')}

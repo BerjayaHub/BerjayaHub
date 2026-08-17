@@ -68,14 +68,14 @@ export async function renderLeavePage(container, { userId, businessUnitId, outle
       <h3 style="margin-top:0">Hak &amp; Sisa Jatah Cuti ${year}</h3>
       ${
         entitlements.length
-          ? `<table class="data-table">
+          ? `<table class="data-table kartu-sempit">
               <thead><tr><th>Jenis</th><th>Jatah</th><th>Terpakai</th><th>Sisa</th></tr></thead>
               <tbody>
                 ${entitlements
                   .map((e) => {
                     const quota = e.has_quota && e.quota_days != null ? `${e.quota_days} hari` : 'Tanpa batas';
                     const sisa = e.has_quota && e.quota_days != null ? `${e.quota_days - e.used} hari` : '—';
-                    return `<tr><td>${escapeHtml(e.name)}</td><td>${quota}</td><td>${e.used}</td><td>${sisa}</td></tr>`;
+                    return `<tr><td data-label="Jenis">${escapeHtml(e.name)}</td><td data-label="Jatah">${quota}</td><td data-label="Terpakai">${e.used}</td><td data-label="Sisa">${sisa}</td></tr>`;
                   })
                   .join('')}
               </tbody>
@@ -86,7 +86,7 @@ export async function renderLeavePage(container, { userId, businessUnitId, outle
     </div>
 
     <h2 style="font-size:1rem;margin-top:24px">Riwayat Pengajuan</h2>
-    <table class="data-table">
+    <table class="data-table kartu-sempit">
       <thead><tr><th>Jenis</th><th>Tanggal</th><th>Hari</th><th>Status</th><th></th></tr></thead>
       <tbody id="leave-rows">
         ${requests.map(rowHtml).join('') || '<tr><td colspan="5">Belum ada pengajuan.</td></tr>'}
@@ -107,14 +107,14 @@ function rowHtml(r) {
   const canCancel = r.status === 'pending';
   return `
     <tr>
-      <td>${escapeHtml(r.leave_types?.name ?? '-')}</td>
-      <td>${range}</td>
-      <td>${r.day_count}</td>
-      <td>
+      <td data-label="Jenis">${escapeHtml(r.leave_types?.name ?? '-')}</td>
+      <td data-label="Tanggal">${range}</td>
+      <td data-label="Hari">${r.day_count}</td>
+      <td data-label="Status">
         <span class="badge ${badge.cls}">${escapeHtml(badge.label)}</span>
         ${r.review_note ? `<div style="font-size:0.75rem;color:var(--color-text-muted);margin-top:2px">Catatan: ${escapeHtml(r.review_note)}</div>` : ''}
       </td>
-      <td>
+      <td data-label="Aksi">
         ${r.attachment_path ? `<button class="btn-view-attach" data-path="${r.attachment_path}">Lampiran</button>` : ''}
         ${r.status !== 'cancelled' ? `<button class="btn-share" data-msg="${escapeHtml(staffShareMsg(r, range))}">Bagikan</button>` : ''}
         ${canCancel ? `<button class="btn-cancel-leave" data-id="${r.id}">Batalkan</button>` : ''}

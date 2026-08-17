@@ -142,16 +142,34 @@ export function perkiraanBerikutnya({ hariIni, terakhir, interval, jumlah = 5 } 
 /**
  * Menyaring daftar item untuk satu hari & satu outlet.
  *
+ * `sudahDikerjakan` ADALAH PENGAMAN YANG MENENTUKAN, bukan tambahan.
+ *
+ * Tanpa itu, item berjadwal LENYAP dari layar tepat setelah dicentang: begitu
+ * dikerjakan hari ini, "terakhir dikerjakan" jadi hari ini, jatuh temponya
+ * pindah ke beberapa hari lagi, dan penyaring ini membuangnya. Staff menekan
+ * kirim lalu melihat pekerjaannya menghilang — tidak ada tanda apakah tersimpan.
+ *
+ * Modul ini justru sengaja SELALU menampilkan item yang sudah dikerjakan
+ * (lihat catatan di `renderRunForm`), karena "apa saja yang sudah beres" adalah
+ * pertanyaan yang paling sering muncul di tengah shift. Aturan jadwal tidak
+ * boleh diam-diam membatalkan keputusan itu.
+ *
  * @param {Array<{id: string, interval_days?: number|null}>} items
  * @param {Map<string, string>} terakhirPerItem itemId -> 'YYYY-MM-DD'
+ * @param {string} hariIni
+ * @param {Set<string>|Iterable<string>} [sudahDikerjakan] id item yang sudah
+ *   tercatat di run yang sedang dilihat — SELALU ditampilkan apa pun jadwalnya
  * @returns {Array} item yang jatuh tempo, masing-masing diberi `terlambat`
  */
-export function saringJatuhTempo(items, terakhirPerItem, hariIni) {
+export function saringJatuhTempo(items, terakhirPerItem, hariIni, sudahDikerjakan = null) {
   const peta = terakhirPerItem ?? new Map();
+  const sudah = sudahDikerjakan instanceof Set ? sudahDikerjakan : new Set(sudahDikerjakan ?? []);
   return (items ?? [])
-    .filter((it) => jatuhTempo({ hariIni, terakhir: peta.get(it.id) ?? null, interval: it?.interval_days }))
+    .filter((it) => sudah.has(it.id) || jatuhTempo({ hariIni, terakhir: peta.get(it.id) ?? null, interval: it?.interval_days }))
     .map((it) => ({
       ...it,
-      terlambat: hariTerlambat({ hariIni, terakhir: peta.get(it.id) ?? null, interval: it?.interval_days })
+      // Item yang muncul HANYA karena sudah dikerjakan tidak boleh ditandai
+      // tertunda — ia justru yang paling tepat waktu.
+      terlambat: sudah.has(it.id) ? 0 : hariTerlambat({ hariIni, terakhir: peta.get(it.id) ?? null, interval: it?.interval_days })
     }));
 }

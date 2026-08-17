@@ -49,7 +49,7 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
         <select id="menu-cat"><option value="">Semua</option>${categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
       </div>
     </div>
-    <div class="table-scroll"><table class="data-table table-freeze-1">
+    <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
       <thead><tr><th>Menu</th><th>Kategori</th><th>Jumlah tersedia</th></tr></thead>
       <tbody id="menu-rows"></tbody>
     </table></div>
@@ -76,14 +76,14 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
         .map(
           (m) => `
         <tr class="menu-row">
-          <td><button class="menu-expand" data-id="${m.id}" style="border:none;background:none;color:var(--color-primary);cursor:pointer;font-size:0.92rem;padding:0;text-align:left">${esc(m.name)} ▾</button></td>
-          <td>${esc(m.category ?? '-')}</td>
-          <td>
+          <td data-label="Menu"><button class="menu-expand" data-id="${m.id}" style="border:none;background:none;color:var(--color-primary);cursor:pointer;font-size:0.92rem;padding:0;text-align:left">${esc(m.name)} ▾</button></td>
+          <td data-label="Kategori">${esc(m.category ?? '-')}</td>
+          <td data-label="Jumlah tersedia">
             <input type="number" class="menu-qty" data-id="${m.id}" min="0" value="${state.plans.has(m.id) ? state.plans.get(m.id) : ''}" style="max-width:90px" />
             <span class="menu-saved" data-id="${m.id}" style="color:var(--color-primary);font-size:0.72rem;margin-left:4px"></span>
           </td>
         </tr>
-        <tr class="menu-detail" data-id="${m.id}" hidden><td colspan="3"><div class="menu-detail-body" style="padding:6px 2px"></div></td></tr>`
+        <tr class="menu-detail" data-id="${m.id}" hidden><td colspan="3" class="sel-penuh"><div class="menu-detail-body" style="padding:6px 2px"></div></td></tr>`
         )
         .join('') || '<tr><td colspan="3">Tidak ada menu di kategori ini.</td></tr>';
 
@@ -141,11 +141,11 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
       const need = Number(it.qty) / yieldQty; // per 1 menu
       const stock = state.stock.get(it.ingredient_product_id) ?? 0;
       if (need > 0) maxMake = Math.min(maxMake, Math.floor(stock / need));
-      return `<tr><td>${esc(it.products?.name ?? '-')}</td><td>${formatNum(need)} ${esc(it.products?.base_unit ?? '')}</td><td>${formatNum(stock)} ${esc(it.products?.base_unit ?? '')}</td></tr>`;
+      return `<tr><td data-label="Bahan">${esc(it.products?.name ?? '-')}</td><td data-label="Per menu">${formatNum(need)} ${esc(it.products?.base_unit ?? '')}</td><td data-label="Stok">${formatNum(stock)} ${esc(it.products?.base_unit ?? '')}</td></tr>`;
     });
     body.innerHTML = `
       <div style="font-size:0.82rem;color:var(--color-text-muted);margin-bottom:4px">Resep ${mode === 'served_by_ck' ? 'Dilayani CK' : 'Standalone'} · perkiraan bisa dibuat: <strong>${Number.isFinite(maxMake) ? maxMake : '—'}</strong> menu</div>
-      <table class="data-table"><thead><tr><th>Bahan</th><th>/menu</th><th>Stok</th></tr></thead><tbody>${rows.join('')}</tbody></table>
+      <table class="data-table kartu-sempit"><thead><tr><th>Bahan</th><th>Per menu</th><th>Stok</th></tr></thead><tbody>${rows.join('')}</tbody></table>
     `;
   }
 

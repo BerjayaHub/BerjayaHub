@@ -110,20 +110,20 @@ async function render(container, { businessUnitId }, isAdmin) {
         ${rusak ? ` · <span style="color:var(--color-danger)"><strong>${rusak}</strong> rusak</span>` : ''}
       </p>
       <div class="table-scroll">
-        <table class="data-table table-freeze-1">
+        <table class="data-table table-freeze-1 kartu-sempit">
           <thead><tr><th>Nama Barang</th><th>Foto</th><th>Jumlah</th><th>Ukuran</th><th>Kondisi</th>${isAdmin ? '<th>Outlet</th>' : ''}<th>Aksi</th></tr></thead>
           <tbody>
             ${
               rows
                 .map(
                   (a) => `<tr>
-                    <td><strong>${esc(a.name)}</strong>${a.notes ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${esc(a.notes)}</div>` : ''}</td>
-                    <td>${fotoSel(a, fotoUrl)}</td>
-                    <td style="text-align:right">${formatNum(a.qty)}</td>
-                    <td style="font-size:0.85rem">${esc(a.size ?? '-')}</td>
-                    <td><span class="badge ${ASSET_CONDITION_BADGE[a.condition] ?? ''}">${esc(conditionText(a))}</span></td>
-                    ${isAdmin ? `<td style="font-size:0.82rem">${esc(a.outlets?.name ?? '-')}</td>` : ''}
-                    <td>
+                    <td data-label="Nama Barang"><strong>${esc(a.name)}</strong>${a.notes ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${esc(a.notes)}</div>` : ''}</td>
+                    <td data-label="Foto">${fotoSel(a, fotoUrl)}</td>
+                    <td style="text-align:right" data-label="Jumlah">${formatNum(a.qty)}</td>
+                    <td style="font-size:0.85rem" data-label="Ukuran">${esc(a.size ?? '-')}</td>
+                    <td data-label="Kondisi"><span class="badge ${ASSET_CONDITION_BADGE[a.condition] ?? ''}">${esc(conditionText(a))}</span></td>
+                    ${isAdmin ? `<td style="font-size:0.82rem" data-label="Outlet">${esc(a.outlets?.name ?? '-')}</td>` : ''}
+                    <td data-label="Aksi">
                       <button class="as-edit" data-id="${a.id}">Edit</button>
                       <button class="as-del" data-id="${a.id}">Hapus</button>
                     </td>

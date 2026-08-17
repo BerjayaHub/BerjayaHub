@@ -126,8 +126,55 @@ cek('outlet baru: semua item muncul', saringJatuhTempo(items, new Map(), '2026-0
 cek('peta null aman', saringJatuhTempo(items, null, '2026-08-17').length, 4);
 cek('items null aman', saringJatuhTempo(null, new Map(), '2026-08-17'), []);
 
+
+// ================= YANG SUDAH DIKERJAKAN TETAP TAMPIL =================
+//
+// REGRESI YANG PERNAH TERJADI: item berjadwal LENYAP dari layar tepat setelah
+// dicentang. Begitu dikerjakan hari ini, "terakhir dikerjakan" jadi hari ini,
+// jatuh temponya pindah ke beberapa hari lagi, dan penyaring membuangnya.
+// Staff menekan kirim lalu melihat pekerjaannya menghilang — tanpa tanda apakah
+// tersimpan.
+//
+// Modul ini justru SENGAJA selalu menampilkan item yang sudah dikerjakan,
+// karena "apa saja yang sudah beres" adalah pertanyaan paling sering di tengah
+// shift. Aturan jadwal tidak boleh diam-diam membatalkan keputusan itu.
+
+const barusanDikerjakan = new Map([['tandon', '2026-08-17']]); // dicentang HARI INI
+const tanpaPengaman = saringJatuhTempo(items, barusanDikerjakan, '2026-08-17');
+cek('tanpa pengaman: item yang baru dicentang hilang', tanpaPengaman.some((h) => h.id === 'tandon'), false);
+
+const denganPengaman = saringJatuhTempo(items, barusanDikerjakan, '2026-08-17', new Set(['tandon']));
+cek('dengan pengaman: tetap tampil', denganPengaman.some((h) => h.id === 'tandon'), true);
+
+// TERTUNDA HARUS DIBERSIHKAN — dan ini hanya teruji kalau petanya BASI.
+//
+// Skenario nyatanya: riwayat pengerjaan diambil saat layar dibuka, lalu staff
+// mencentang itemnya. Sampai layarnya dimuat ulang, peta masih menyebut tanggal
+// LAMA (5 Agustus), sementara item itu sudah tercatat di run hari ini.
+// Tanpa pembersihan, item yang baru saja beres tetap berteriak "tertunda 5
+// hari" — persis kebalikan dari keadaannya, dan cukup untuk membuat orang
+// mengerjakannya dua kali.
+//
+// Versi pertama tes ini memakai peta yang sudah diperbarui, sehingga angkanya
+// kebetulan 0 dan penjaganya tidak pernah diuji: sabotase yang mencabutnya
+// tetap hijau.
+const petaBasi = new Map([['tandon', '2026-08-05']]); // 12 hari lalu -> tertunda 5
+const setelahDicentang = saringJatuhTempo(items, petaBasi, '2026-08-17', new Set(['tandon']));
+cek('peta basi + baru dicentang -> tidak ditandai tertunda', setelahDicentang.find((h) => h.id === 'tandon').terlambat, 0);
+// Sedangkan yang BELUM dicentang dengan peta yang sama tetap ditandai.
+cek('yang belum dicentang tetap ditandai tertunda', saringJatuhTempo(items, petaBasi, '2026-08-17').find((h) => h.id === 'tandon').terlambat, 5);
+
+// Pengaman tidak boleh MEMUNCULKAN yang seharusnya belum waktunya dan belum
+// disentuh — ia hanya menahan yang sudah tercatat hari itu.
+const minyakBelumWaktunya = saringJatuhTempo(items, new Map([['minyak', '2026-08-17']]), '2026-08-17', new Set(['tandon']));
+cek('yang belum waktunya tetap disembunyikan', minyakBelumWaktunya.some((h) => h.id === 'minyak'), false);
+
+// Menerima Set maupun daftar biasa — pemanggilnya punya Map.keys().
+cek('menerima iterable, bukan cuma Set', saringJatuhTempo(items, barusanDikerjakan, '2026-08-17', ['tandon']).some((h) => h.id === 'tandon'), true);
+cek('null = tanpa pengaman', saringJatuhTempo(items, barusanDikerjakan, '2026-08-17', null).some((h) => h.id === 'tandon'), false);
+
 if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Jadwal item Daily Activities benar untuk 45 kasus. ✅');
+console.log('Jadwal item Daily Activities benar untuk 52 kasus. ✅');

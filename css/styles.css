@@ -408,12 +408,17 @@ button.primary:active { transform: translateY(1px); }
     align-items: stretch !important;
   }
 
+  /* TERBALIK SEBELUMNYA: tombol dikecilkan jadi 40px justru DI MOBILE,
+     sementara bawaannya 44px. Arahnya seharusnya kebalikannya — jari lebih
+     besar dan kurang presisi daripada kursor, dan 44px adalah ambang yang
+     dipakai pedoman sentuh Apple maupun Google. Di layar sempit tombol yang
+     meleset berarti mengulang seluruh alur pengisian. */
   button.primary,
   .btn-edit,
   .btn-toggle-active,
   .btn-add-scope,
   .btn-set-geofence {
-    min-height: 40px;
+    min-height: 44px;
   }
 }
 
@@ -949,7 +954,7 @@ select.sc-cell.is-off {
   background: var(--color-surface);
   border-radius: var(--radius);
   padding: 8px 14px;
-  min-height: 40px;
+  min-height: 44px; /* target sentuh: tombol ini yang paling sering ditekan di HP */
   font-size: 0.85rem;
   cursor: pointer;
 }
@@ -1803,5 +1808,185 @@ select.sc-cell.is-off {
 @media (min-width: 720px) {
   .opname-kartu {
     max-width: 640px;
+  }
+}
+
+/* =========================================================
+   TABEL YANG BERUBAH JADI KARTU DI LAYAR SEMPIT
+   =========================================================
+   MASALAHNYA. Tabel enam sampai delapan kolom tidak muat di layar 360–430 px
+   dengan cara apa pun. Yang selama ini dipakai — gulir mendatar dengan kolom
+   pertama dibekukan — memang menampilkan semuanya, tapi menuntut penggunanya
+   menggeser bolak-balik sambil mengingat kolom mana yang sedang dilihat. Untuk
+   sekadar MEMBACA masih bisa; untuk MENGISI (mis. jumlah fisik saat opname) ia
+   berarti menggeser ke kanan, mengetik, menggeser ke kiri untuk memastikan
+   barisnya benar. Stok Opname sudah lebih dulu meninggalkan bentuk tabel karena
+   alasan ini; aturan di bawah menjadikan caranya bisa dipakai ulang.
+
+   CARANYA. Tiap sel membawa judul kolomnya sendiri lewat `data-label`, lalu di
+   layar sempit barisnya ditumpuk jadi kartu dan judulnya ditampilkan di kiri
+   tiap nilai. Judul tabel disembunyikan, bukan dihapus dari HTML — pembaca
+   layar tetap membacanya, dan tabelnya kembali utuh begitu layarnya melebar.
+
+   AMBANGNYA 560px, bukan 430px. Alasannya: yang menentukan bukan jenis
+   perangkat melainkan apakah barisnya masih muat. Ponsel dalam mode lanskap dan
+   jendela desktop yang disempitkan sama-sama perlu perlakuan ini, dan keduanya
+   tidak akan pernah tertangkap ambang yang dipatok ke "lebar ponsel".
+   ========================================================= */
+@media (max-width: 560px) {
+  .table-scroll:has(.data-table.kartu-sempit) {
+    overflow-x: visible;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .data-table.kartu-sempit,
+  .table-scroll .data-table.kartu-sempit {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+    border: none;
+    box-shadow: none;
+  }
+
+  .data-table.kartu-sempit thead {
+    /* Disembunyikan dari mata, TIDAK dari pembaca layar. `display:none` akan
+       membuat hubungan sel-dengan-judulnya hilang untuk yang memakainya. */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .data-table.kartu-sempit tbody,
+  .data-table.kartu-sempit tr,
+  .data-table.kartu-sempit td {
+    display: block;
+    width: auto;
+  }
+
+  /* `[hidden]` HARUS TETAP MENYEMBUNYIKAN.
+     Aturan `display:block` di atas berasal dari stylesheet penulis, dan itu
+     mengalahkan `[hidden] { display:none }` bawaan browser — tanpa baris ini,
+     SEMUA baris rincian yang seharusnya tertutup (mis. panel bahan tiap menu)
+     terbuka sekaligus begitu layarnya sempit. Tidak ada error, tidak ada yang
+     rusak: halamannya cuma tiba-tiba jadi berkali-kali lebih panjang, dan
+     tombol buka/tutupnya berhenti berarti. */
+  .data-table.kartu-sempit tr[hidden],
+  .data-table.kartu-sempit td[hidden] {
+    display: none;
+  }
+
+  .data-table.kartu-sempit tr {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-sm);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+  }
+
+  .data-table.kartu-sempit td {
+    border: none;
+    padding: 4px 0;
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    justify-content: space-between;
+    text-align: right;
+  }
+
+  .data-table.kartu-sempit td::before {
+    content: attr(data-label);
+    flex: 0 0 40%;
+    text-align: left;
+    font-size: 0.78rem;
+    color: var(--color-text-muted);
+  }
+
+  /* Sel tanpa `data-label` (mis. baris "belum ada data" ber-colspan) tidak
+     boleh ikut dipaksa dua kolom — ia berdiri sendiri apa adanya. */
+  .data-table.kartu-sempit td:not([data-label]) {
+    display: block;
+    text-align: left;
+  }
+  .data-table.kartu-sempit td:not([data-label])::before {
+    content: none;
+  }
+
+  /* Sel yang membentang penuh (baris rincian yang bisa dibuka, atau pesan
+     "belum ada data") BUKAN judul kartu — ia isi. Tanpa pengecualian ini, panel
+     rincian yang terbuka akan tampil sebagai judul tebal bergaris bawah. */
+  .data-table.kartu-sempit td.sel-penuh,
+  .data-table.kartu-sempit td[colspan] {
+    display: block;
+    text-align: left;
+    font-weight: inherit;
+    border-bottom: none;
+    padding: 0;
+    margin: 0;
+  }
+  .data-table.kartu-sempit td.sel-penuh::before,
+  .data-table.kartu-sempit td[colspan]::before {
+    content: none;
+  }
+
+  /* Baris rincian menempel pada kartu induknya, bukan mengambang sendiri:
+     tanpa ini ia tampak seperti kartu terpisah yang tidak jelas milik menu
+     yang mana — persis kebingungan yang mau dihilangkan. */
+  .data-table.kartu-sempit tr.menu-detail {
+    margin-top: -8px;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    border-top: none;
+  }
+
+  /* Tabel bahan DI DALAM kartu tidak perlu bingkai lagi — bingkai di dalam
+     bingkai membuat layar sempit terasa penuh garis. */
+  .data-table.kartu-sempit .data-table.kartu-sempit tr {
+    border: none;
+    box-shadow: none;
+    background: transparent;
+    padding: 6px 0;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  /* Kolom pertama jadi judul kartu: paling besar, tanpa label, satu baris utuh. */
+  .data-table.kartu-sempit td:first-child:not(.sel-penuh):not([colspan]) {
+    display: block;
+    text-align: left;
+    font-weight: 600;
+    padding-bottom: 6px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .data-table.kartu-sempit td:first-child:not(.sel-penuh):not([colspan])::before {
+    content: none;
+  }
+
+  /* Kolom beku tidak berarti apa-apa saat barisnya sudah jadi kartu. */
+  .table-freeze-1.kartu-sempit th:first-child,
+  .table-freeze-1.kartu-sempit td:first-child {
+    position: static;
+    /* Bayangan pemisah kolom beku ikut dimatikan. Kalau dibiarkan, ia
+       menggambar garis tegak di kanan judul kartu — sisa dari tata letak yang
+       sudah tidak berlaku lagi, dan garis yang tidak berarti apa-apa lebih
+       mengganggu daripada tidak ada garis. */
+    box-shadow: none;
+    z-index: auto;
+  }
+
+  /* Isian di dalam kartu memakai lebar penuh — inilah yang membuat pengisian
+     tidak lagi menuntut geser mendatar. */
+  .data-table.kartu-sempit td input,
+  .data-table.kartu-sempit td select {
+    width: 100%;
+    max-width: 180px;
+    min-height: 44px;
   }
 }

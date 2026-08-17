@@ -145,22 +145,22 @@ export async function renderReservationPage(container, { businessUnitId }) {
         <strong>${rows.length}</strong> reservasi · <strong>${tamu}</strong> tamu (menunggu + dikonfirmasi)
       </p>
       <div class="table-scroll">
-        <table class="data-table table-freeze-1">
+        <table class="data-table table-freeze-1 kartu-sempit">
           <thead><tr><th>Kode</th><th>Tanggal &amp; Jam</th><th>Customer</th><th>Tamu</th><th>Area</th><th>DP</th><th>Sumber</th><th>Status</th></tr></thead>
           <tbody>
             ${
               rows
                 .map(
                   (r) => `<tr>
-                    <td style="font-family:ui-monospace,Menlo,monospace;font-size:0.78rem">${esc(r.code ?? '-')}</td>
-                    <td style="font-size:0.85rem">${fmtDate(r.reserve_date)}
+                    <td style="font-family:ui-monospace,Menlo,monospace;font-size:0.78rem" data-label="Kode">${esc(r.code ?? '-')}</td>
+                    <td style="font-size:0.85rem" data-label="Tanggal & Jam">${fmtDate(r.reserve_date)}
                       <div style="font-weight:600">${String(r.reserve_time).slice(0, 5)}</div></td>
-                    <td>${esc(r.customer_name)}
+                    <td data-label="Customer">${esc(r.customer_name)}
                       <div style="font-size:0.74rem;color:var(--color-text-muted)">${esc(r.phone)}</div>
                       ${r.notes ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">💬 ${esc(r.notes)}</div>` : ''}</td>
-                    <td style="text-align:right">${r.pax}</td>
-                    <td style="font-size:0.82rem">${esc(r.reservation_areas?.name ?? '-')}</td>
-                    <td style="font-size:0.8rem;white-space:nowrap">
+                    <td style="text-align:right" data-label="Tamu">${r.pax}</td>
+                    <td style="font-size:0.82rem" data-label="Area">${esc(r.reservation_areas?.name ?? '-')}</td>
+                    <td style="font-size:0.8rem;white-space:nowrap" data-label="DP">
                       ${
                         r.deposit_amount
                           ? `${esc(formatRupiah(Number(r.deposit_amount)))}${
@@ -173,8 +173,8 @@ export async function renderReservationPage(container, { businessUnitId }) {
                             : '<span style="color:var(--color-text-muted);font-size:0.75rem" title="DP reservasi ini dicatat oleh staff yang membuatnya, atau oleh admin">—</span>'
                       }
                     </td>
-                    <td style="font-size:0.78rem">${esc(SOURCE_LABEL[r.source] ?? r.source)}</td>
-                    <td><span class="badge ${RES_BADGE[r.status] ?? ''}">${RES_STATUS[r.status] ?? r.status}</span>
+                    <td style="font-size:0.78rem" data-label="Sumber">${esc(SOURCE_LABEL[r.source] ?? r.source)}</td>
+                    <td data-label="Status"><span class="badge ${RES_BADGE[r.status] ?? ''}">${RES_STATUS[r.status] ?? r.status}</span>
                       ${r.review_note ? `<div style="font-size:0.72rem;color:var(--color-text-muted)">${esc(r.review_note)}</div>` : ''}</td>
                   </tr>`
                 )
