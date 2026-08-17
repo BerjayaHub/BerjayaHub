@@ -4,6 +4,7 @@ import {
   listBuOutlets,
   listActiveSessions,
   listActiveItems,
+  petaTerakhirDikerjakan,
   listSessionRuns,
   getRunItems,
   getRunItemIds,
@@ -19,6 +20,7 @@ import {
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { dorongSubHalaman } from '../../core/navigasi.js';
 import { ingatLayar } from '../../core/ingatan-layar.js';
+import { saringJatuhTempo, labelJadwal } from './jadwal-item.js';
 
 export async function renderCleaningPage(container, { userId, businessUnitId, outletId, layarAwal = null }) {
   container.innerHTML = loadingHtml('Memuat daily activities…');
@@ -54,7 +56,17 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
   // bisa punya daftar item sendiri. Memuatnya di depan berarti sesi kedua
   // menampilkan item sesi pertama — salah tanpa tanda apa pun.
   async function muatItem(sessionId) {
-    return listActiveItems(businessUnitId, state.outletId, sessionId);
+    const semua = await listActiveItems(businessUnitId, state.outletId, sessionId);
+    // JADWAL (0083): item yang dikerjakan beberapa hari sekali disaring di sini,
+    // bukan di query — riwayat pengerjaannya perlu ditanyakan terpisah, dan
+    // kalau riwayat itu gagal dibaca, SEMUA item tetap muncul.
+    //
+    // Disaring terhadap tanggal yang sedang dilihat (`state.tanggal`), bukan
+    // hari ini: staff bisa membuka tanggal kemarin untuk melanjutkan sesi yang
+    // tertinggal, dan menyaringnya dengan hari ini akan menampilkan daftar yang
+    // berbeda dari yang benar-benar berlaku hari itu.
+    const terakhir = await petaTerakhirDikerjakan(state.outletId);
+    return saringJatuhTempo(semua, terakhir, state.tanggal);
   }
 
   container.innerHTML = `
@@ -376,7 +388,7 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
             <div class="clean-item-block" data-block="${escapeHtml(it.id)}" style="border:1px solid var(--color-border,#e3e3e3);border-radius:10px;padding:10px;margin-bottom:8px">
               <label class="clean-item" style="margin:0">
                 <input type="checkbox" class="clean-check" data-item="${escapeHtml(it.id)}" />
-                <span>${escapeHtml(it.label)}</span>
+                <span>${escapeHtml(it.label)}${jadwalHtml(it)}</span>
               </label>
               <div class="clean-photo-wrap" data-for="${escapeHtml(it.id)}" hidden style="margin-top:8px">
                 ${photoInputHtml({ name: `foto-${it.id}`, label: 'Foto bukti item ini', facing: 'environment' })}
@@ -588,6 +600,25 @@ function jamOf(iso) {
 function fmtDate(d) {
   return new Date(d + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' });
 }
+/**
+ * Tanda jadwal di sebelah nama item.
+ *
+ * Dua hal yang berbeda dan sengaja dibedakan tampilannya:
+ *   - "tiap 7 hari" — keterangan biasa, supaya staff tahu ini bukan pekerjaan
+ *     harian dan tidak bingung kenapa kemarin tidak ada.
+ *   - "tertunda 5 hari" — peringatan. Angkanya disebut, bukan cuma kata
+ *     "tertunda": beda antara telat sehari dan telat dua minggu adalah beda
+ *     antara kelalaian kecil dan sesuatu yang harus ditanyakan ke atasan.
+ */
+function jadwalHtml(it) {
+  const label = labelJadwal(it?.interval_days);
+  if (!label && !it?.terlambat) return '';
+  const tunda = Number(it?.terlambat) > 0
+    ? `<span style="color:var(--color-danger);font-weight:600"> · tertunda ${it.terlambat} hari</span>`
+    : '';
+  return `<span style="font-size:0.75rem;color:var(--color-text-muted)"> (${escapeHtml(label ?? 'berjadwal')})</span>${tunda}`;
+}
+
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }

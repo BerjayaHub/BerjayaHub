@@ -67,11 +67,32 @@ const cakupan = (q, outletId) =>
  * "tanpa baris berarti semua" sulit ditulis sebagai filter PostgREST tanpa
  * menjadi query yang tidak bisa dibaca siapa pun enam bulan lagi.
  */
+/**
+ * Kapan tiap item TERAKHIR dikerjakan di sebuah outlet (0083).
+ *
+ * Per OUTLET, bukan per item: satu item bisa berlaku untuk beberapa outlet, dan
+ * Gading Serpong mengganti minyak hari ini tidak boleh membuat item itu hilang
+ * dari layar Sentul — di sana pekerjaannya belum dikerjakan.
+ *
+ * Gagal baca -> peta kosong, bukan error. Peta kosong berarti "belum pernah
+ * dikerjakan", dan itu membuat SEMUA item muncul. Memihak ke arah menampilkan
+ * pekerjaan yang mungkin tidak perlu, bukan menyembunyikan yang perlu.
+ */
+export async function petaTerakhirDikerjakan(outletId) {
+  if (!outletId) return new Map();
+  const { data, error } = await supabase.rpc('item_terakhir_dikerjakan', { p_outlet: outletId });
+  if (error) {
+    console.warn('[daily] riwayat pengerjaan tidak terbaca:', error.message);
+    return new Map();
+  }
+  return new Map((data ?? []).map((r) => [r.item_id, r.terakhir]));
+}
+
 export async function listActiveItems(businessUnitId, outletId = null, sessionId = null) {
   const { data, error } = await cakupan(
     supabase
       .from('checklist_items')
-      .select('id, label, sort_order, outlet_id')
+      .select('id, label, sort_order, outlet_id, interval_days')
       .eq('business_unit_id', businessUnitId)
       .eq('is_active', true),
     outletId
@@ -277,7 +298,7 @@ function pastikanKena(data, jenis) {
 export async function listAllItems(businessUnitId) {
   const { data, error } = await supabase
     .from('checklist_items')
-    .select('id, label, sort_order, is_active, outlet_id')
+    .select('id, label, sort_order, is_active, outlet_id, interval_days')
     .eq('business_unit_id', businessUnitId)
     .order('outlet_id', { nullsFirst: true })
     .order('sort_order')
@@ -288,7 +309,7 @@ export async function listAllItems(businessUnitId) {
 
 export async function listItems(businessUnitId, outletId = null) {
   const { data, error } = await cakupan(
-    supabase.from('checklist_items').select('id, label, sort_order, is_active, outlet_id').eq('business_unit_id', businessUnitId),
+    supabase.from('checklist_items').select('id, label, sort_order, is_active, outlet_id, interval_days').eq('business_unit_id', businessUnitId),
     outletId
   )
     .order('sort_order')
@@ -297,10 +318,18 @@ export async function listItems(businessUnitId, outletId = null) {
   return data ?? [];
 }
 /** Mengembalikan baris barunya — id-nya dibutuhkan untuk menetapkan cakupan multi-outlet (0076). */
-export async function createItem({ businessUnitId, outletId, label, sort_order }) {
+export async function createItem({ businessUnitId, outletId, label, sort_order, interval_days }) {
   const { data, error } = await supabase
     .from('checklist_items')
-    .insert({ business_unit_id: businessUnitId, outlet_id: outletId || null, label, sort_order: sort_order ?? 0 })
+    .insert({
+      business_unit_id: businessUnitId,
+      outlet_id: outletId || null,
+      label,
+      sort_order: sort_order ?? 0,
+      // NULL = harian. Sengaja bukan 1: keduanya berperilaku sama, tapi NULL
+      // berarti "tidak pernah diatur" sementara 1 berarti "diatur harian".
+      interval_days: Number(interval_days) > 1 ? Number(interval_days) : null
+    })
     .select('id')
     .single();
   if (error) throw error;
@@ -323,9 +352,10 @@ export async function createItem({ businessUnitId, outletId, label, sort_order }
  * `undefined` berarti "jangan diubah" — beda dari `null` yang berarti
  * "berlaku di semua outlet".
  */
-export async function updateItem(id, { label, sort_order, is_active, outlet_id }) {
+export async function updateItem(id, { label, sort_order, is_active, outlet_id, interval_days }) {
   const isi = { label, sort_order, is_active };
   if (outlet_id !== undefined) isi.outlet_id = outlet_id;
+  if (interval_days !== undefined) isi.interval_days = Number(interval_days) > 1 ? Number(interval_days) : null;
   const { data, error } = await supabase
     .from('checklist_items')
     .update(isi)

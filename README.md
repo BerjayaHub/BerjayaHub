@@ -2701,6 +2701,31 @@ Sekarang: nilai aslinya dibaca sebagai **ISO dari atribut baris**, jam masuk **t
 
 Dikunci `tools/test-koreksi-presensi.mjs` (27 kasus). Lima sabotase merah, termasuk mengembalikan perilaku lama "selalu kirim kedua kolom". `toInputFormat()` yang jadi biang masalahnya dihapus, bukan dibiarkan yatim — dan `audit-nama-tak-dikenal` menangkap impor yang belum masuk sebelum sempat jadi bug.
 
+## Daily Activities: pekerjaan yang tidak harian
+
+Ganti minyak tiap 2 hari, kuras tandon tiap 7 hari. Selama semuanya harian, dua hal buruk terjadi sekaligus: daftar staff penuh item yang hari ini memang tidak perlu dikerjakan, dan rekap menghitungnya sebagai "tidak dikerjakan" **setiap hari** — sehingga angka kepatuhannya berhenti berarti apa-apa.
+
+**Dasar hitungannya: dari terakhir dikerjakan**, bukan dari tanggal tetap. Untuk pekerjaan seperti ini yang penting adalah **jarak** antar pengerjaan ("minyak tidak boleh lebih dari 2 hari"), bukan jatuh pada tanggal ganjil. Kalau kemarin libur dan baru dikerjakan hari ini, hitungan berikutnya dimulai dari hari ini.
+
+Cara ini biasanya punya kelemahan terkenal — *"kalau tidak pernah dikerjakan, ia tidak pernah muncul lagi"* — dan itu **tidak berlaku di sini**, bukan karena kebetulan: item yang belum pernah dikerjakan dianggap jatuh tempo, dan item yang lewat jadwalnya **tetap** jatuh tempo tiap hari sampai benar-benar dicentang. Jadi pekerjaan yang diabaikan justru makin menonjol.
+
+Efek sampingnya menyenangkan: **"kalau terlewat" tidak butuh mekanisme tersendiri.** Satu aturan yang sama menghasilkan carry-over dengan sendirinya.
+
+Empat keputusan yang layak dicatat:
+
+- **Per outlet, bukan per item.** Satu item bisa berlaku di beberapa outlet (0054/0076). Gading Serpong mengganti minyak hari ini tidak boleh membuat item itu hilang dari layar Sentul — di sana pekerjaannya belum dikerjakan.
+- **Hanya yang `checked` yang dihitung.** Item yang dibuka tapi tidak dicentang bukan pekerjaan yang selesai; menghitungnya akan menunda kemunculan berikutnya untuk pekerjaan yang justru belum dilakukan.
+- **Gagal baca riwayat → semua item muncul**, bukan kosong. Memihak ke arah menampilkan pekerjaan yang mungkin tidak perlu, bukan menyembunyikan yang perlu. Sama alasannya dengan penanganan gagal-baca yang sudah ada di modul ini.
+- **Disaring terhadap tanggal yang sedang dilihat**, bukan hari ini. Staff bisa membuka tanggal kemarin untuk melanjutkan sesi yang tertinggal; menyaringnya dengan hari ini akan menampilkan daftar yang berbeda dari yang berlaku hari itu.
+
+Di layar staff, item berjadwal diberi keterangan ("tiap 7 hari") dan yang lewat diberi peringatan dengan **angkanya** ("tertunda 5 hari") — beda antara telat sehari dan telat dua minggu adalah beda antara kelalaian kecil dan sesuatu yang harus ditanyakan.
+
+Pratinjau di sisi admin ditulis sebagai **perkiraan, dengan alasannya**: karena hitungannya dari terakhir dikerjakan, tanggal kedua dan seterusnya mengandaikan itemnya dikerjakan tepat pada tanggal sebelumnya. Menyebutnya "jadwal" akan membuat admin menjanjikan ke stafnya sesuatu yang tidak dijamin sistemnya.
+
+Yang **diperiksa dan ternyata sudah benar**: rekap membaca item **dari run**-nya (`getRunItems`), bukan dari seluruh daftar item — jadi item yang bukan jadwalnya tidak pernah masuk run dan tidak bisa terhitung "tidak dikerjakan". Tidak ada perubahan yang diperlukan di sana.
+
+Dikunci `tools/test-jadwal-item.mjs` (45 kasus, termasuk lintas bulan, lintas tahun, dan 29 Februari 2028). Dari enam sabotase, **lima merah dan satu lolos** — dan yang lolos memang bukan penjaga: `Date.parse` sudah mengurai tanggal polos sebagai UTC menurut spesifikasi, jadi `T00:00:00Z` di situ adalah penegasan, bukan pengaman. Dicatat apa adanya di kodenya; yang menjadikannya bebas zona waktu adalah `.slice(0, 10)`.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

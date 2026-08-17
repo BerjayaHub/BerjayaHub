@@ -19,7 +19,8 @@ import {
   getItemOutletMap,
   setItemCakupan
 } from './cleaning.service.js';
-import { monthRangeWIB } from '../../core/dates.js';
+import { monthRangeWIB, todayWIB } from '../../core/dates.js';
+import { perkiraanBerikutnya, labelJadwal } from './jadwal-item.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 const TABS = [
@@ -86,7 +87,7 @@ async function renderItemsTab(content, businessUnitId, outlets = [], outletsKelo
       Begitu kamu menugaskannya ke satu sesi, ia <strong>berhenti muncul di sesi lain</strong>.
     </p>
     <div class="table-scroll"><table class="data-table">
-      <thead><tr><th>Urutan</th><th>Item</th><th>Berlaku di</th><th>Sesi</th><th>Status</th><th>Aksi</th></tr></thead>
+      <thead><tr><th>Urutan</th><th>Item</th><th>Jadwal</th><th>Berlaku di</th><th>Sesi</th><th>Status</th><th>Aksi</th></tr></thead>
       <tbody>
         ${items
           .map(
@@ -94,6 +95,10 @@ async function renderItemsTab(content, businessUnitId, outlets = [], outletsKelo
           <tr>
             <td>${it.sort_order}</td>
             <td>${escapeHtml(it.label)}</td>
+            <td style="font-size:0.85rem">${
+              labelJadwal(it.interval_days) ??
+              '<span style="color:var(--color-text-muted)">tiap hari</span>'
+            }</td>
             <td style="font-size:0.82rem">${
               it.outlet_id
                 ? escapeHtml(outlets.find((o) => o.id === it.outlet_id)?.name ?? 'Outlet')
@@ -231,12 +236,52 @@ async function openItemDialog(content, businessUnitId, existing, outlets = [], p
         type: 'checkbox',
         value: outletAwal.includes(o.id)
       })),
+      {
+        name: 'interval_days',
+        label: 'Dikerjakan tiap berapa hari',
+        type: 'number',
+        min: 1,
+        max: 365,
+        value: existing?.interval_days ?? 1,
+        // Dihitung dari TERAKHIR DIKERJAKAN, bukan tanggal tetap — dan itu
+        // harus disebut, karena kedua tafsirnya sama-sama masuk akal dan
+        // menghasilkan jadwal yang berbeda.
+        help:
+          '1 = setiap hari (standar). Isi 2 untuk dua hari sekali, 7 untuk seminggu sekali. ' +
+          'Dihitung dari TERAKHIR item ini dikerjakan di outlet bersangkutan — bukan dari tanggal tetap. ' +
+          'Kalau terlewat, item tetap muncul sampai dikerjakan.'
+      },
       { name: 'sort_order', label: 'Urutan', type: 'number', min: 0, value: existing?.sort_order ?? 0 },
       ...(isEdit ? [{ name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing.is_active }] : [])
     ],
     submitText: 'Simpan'
   });
   if (!values) return;
+
+  // PRATINJAU sebelum menyimpan, hanya kalau memang berjadwal.
+  //
+  // Ditampilkan sebagai PERKIRAAN dengan alasannya, bukan sebagai kalender
+  // pasti: karena hitungannya dari terakhir dikerjakan, tanggal kedua dan
+  // seterusnya mengandaikan itemnya dikerjakan TEPAT pada tanggal sebelumnya.
+  // Menyebutnya "jadwal" akan membuat admin menjanjikan ke stafnya sesuatu yang
+  // tidak dijamin sistemnya.
+  const intervalBaru = Number(values.interval_days);
+  if (Number.isFinite(intervalBaru) && intervalBaru > 1) {
+    const tanggal = perkiraanBerikutnya({ hariIni: todayWIB(), terakhir: null, interval: intervalBaru, jumlah: 5 });
+    const lanjut = await confirmDialog({
+      title: `Muncul ${labelJadwal(intervalBaru)}`,
+      message:
+        `<p>Kalau <strong>${escapeHtml(values.label)}</strong> dikerjakan tepat waktu, ia akan muncul di Staff App pada:</p>` +
+        `<ul style="margin:6px 0 0 16px;padding:0">${tanggal.map((t) => `<li>${tanggalPanjang(t)}</li>`).join('')}</ul>` +
+        `<p style="margin-top:8px;font-size:0.85rem;color:var(--color-text-muted)">
+           Ini <strong>perkiraan</strong>. Hitungannya dari terakhir dikerjakan, jadi kalau telat sehari,
+           tanggal-tanggal sesudahnya ikut bergeser. Item yang terlewat tetap muncul sampai dikerjakan.
+         </p>`,
+      confirmText: 'Simpan'
+    });
+    if (!lanjut) return;
+  }
+
   try {
     if (isEdit) {
       const pilihan = values.cakupan === 'pilih' ? outletsKelola.filter((o) => values[`o_${o.id}`]).map((o) => o.id) : [];
@@ -257,6 +302,7 @@ async function openItemDialog(content, businessUnitId, existing, outlets = [], p
       }
       await updateItem(existing.id, {
         label: values.label,
+        interval_days: values.interval_days,
         sort_order: Number(values.sort_order) || 0,
         is_active: values.is_active
       });
@@ -274,6 +320,7 @@ async function openItemDialog(content, businessUnitId, existing, outlets = [], p
         businessUnitId,
         outletId: pilihan.length === 1 ? pilihan[0] : null,
         label: values.label,
+        interval_days: values.interval_days,
         sort_order: Number(values.sort_order) || 0
       });
       if (pilihan.length > 1 && baru?.id) await setItemCakupan(baru.id, pilihan);
@@ -575,6 +622,17 @@ async function loadReport(content, businessUnitId) {
 function jamOf(iso) {
   if (!iso) return '';
   return new Date(iso).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' });
+}
+
+/** Tanggal panjang untuk pratinjau: "Rabu, 19 Agu 2026". */
+function tanggalPanjang(iso) {
+  // Ditambah 'T00:00:00' supaya diurai sebagai waktu LOKAL. Tanpa itu string
+  // tanggal polos diurai sebagai UTC, dan di WIB namanya bergeser ke hari
+  // sebelumnya — pratinjau yang menyebut hari yang salah lebih buruk daripada
+  // tidak ada pratinjau.
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('id-ID', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function escapeHtml(s) {

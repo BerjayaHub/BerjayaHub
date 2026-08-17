@@ -49,6 +49,7 @@ pernah dijalankan.
 | 0080 | `0080_batas_pesan_h_min.sql` | **Batas pemesanan H- sekian HARI** + jam batas di hari itu (bukan cuma H- sekian jam), berlaku di jalur website |
 | 0081 | `0081_outlet_yang_saya_kelola.sql` | **Perbaikan bug**: admin outlet dapat *"new row violates row-level security policy"* saat mengatur Jadwal Shift — dropdown-nya memakai daftar outlet yang boleh DILIHAT, bukan yang boleh DIATUR |
 | 0082 | `0082_simpan_resep_utuh.sql` | **Perbaikan bug**: resep bisa tertinggal TANPA BAHAN kalau penyimpanan terputus di tengah — penyimpanan dijadikan satu transaksi (`simpan_resep_utuh`), dan resep kosong yang sudah telanjur ada ikut dibersihkan |
+| 0083 | `0083_item_berjadwal.sql` | **Item Daily Activities beberapa hari sekali**: kolom `interval_days` + fungsi `item_terakhir_dikerjakan()` (per outlet) + 2 indeks riwayat pengerjaan |
 
 > ⚠️ Kalau `0074` sudah terlanjur dijalankan sebelum 7 Agustus sore, **jalankan
 > ulang** — versi pertamanya memakai `ss.created_at`, kolom yang tidak ada di
