@@ -6,10 +6,12 @@ import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
 import { loadingHtml } from '../../core/loading.js';
 import { cocokNama } from '../../core/nama.js';
+import { renderOpnameAdmin } from './opname.admin.js';
 
 const TABS = [
   { key: 'stock', label: 'Stok' },
-  { key: 'history', label: 'Riwayat' }
+  { key: 'history', label: 'Riwayat' },
+  { key: 'opname', label: 'Opname' }
 ];
 
 export async function renderInventoryAdminPage(container, { businessUnitId }) {
@@ -33,6 +35,7 @@ export async function renderInventoryAdminPage(container, { businessUnitId }) {
     container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));
     if (key === 'stock') await renderStockTab(content, businessUnitId, outlets);
     if (key === 'history') await renderHistoryTab(content, businessUnitId, outlets);
+    if (key === 'opname') await renderOpnameAdmin(content, { businessUnitId, outlets });
   }
   container.querySelectorAll('.tab-btn').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
   await showTab('stock');

@@ -51,6 +51,7 @@ pernah dijalankan.
 | 0082 | `0082_simpan_resep_utuh.sql` | **Perbaikan bug**: resep bisa tertinggal TANPA BAHAN kalau penyimpanan terputus di tengah — penyimpanan dijadikan satu transaksi (`simpan_resep_utuh`), dan resep kosong yang sudah telanjur ada ikut dibersihkan |
 | 0083 | `0083_item_berjadwal.sql` | **Item Daily Activities beberapa hari sekali**: kolom `interval_days` + fungsi `item_terakhir_dikerjakan()` (per outlet) + 2 indeks riwayat pengerjaan |
 | 0084 | `0084_nota_penerimaan.sql` | **Terima barang PER NOTA**: tabel `goods_receipts` + itemnya, nomor `TRM-YYMMDD-XXXX` otomatis, foto opsional, dan `ubah_nota_terima()` yang mengoreksi stok lewat pergerakan PENYEIMBANG (riwayat lama tidak diubah) |
+| 0085 | `0085_opname_bernomor.sql` | **Stok Opname bernomor & bersama**: `stock_counts` + itemnya, satu sesi terbuka per outlet (dijamin unique index), hitungan terakhir menang tapi yang lama disimpan di `sebelumnya`, stok baru berubah saat `tutup_opname()`. Buka/tutup/batalkan HANYA Admin BU & Super Admin (`is_bu_admin`, dipakai apa adanya — fungsinya tidak diubah) |
 
 > ⚠️ Kalau `0074` sudah terlanjur dijalankan sebelum 7 Agustus sore, **jalankan
 > ulang** — versi pertamanya memakai `ss.created_at`, kolom yang tidak ada di

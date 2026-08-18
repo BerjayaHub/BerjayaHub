@@ -6,6 +6,7 @@ import { listMyOutlets } from '../../core/my-outlets.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { cocokNama } from '../../core/nama.js';
 import { renderResepStaff } from './resep-staff.js';
+import { sesiTerbuka, catatHitungan } from './opname.service.js';
 
 export async function renderInventoryPage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = loadingHtml('Memuat inventory…');
@@ -235,18 +236,50 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     else resepPanel.setAttribute('hidden', '');
   });
 
-  function renderOpnamePanel() {
+  let sesi = null;
+
+  async function renderOpnamePanel() {
     const panel = container.querySelector('#inv-opname-panel');
     if (!opnameState.open) {
       panel.innerHTML = '';
       return;
     }
+    sesi = await sesiTerbuka(state.outletId).catch(() => null);
+
+    // Tanpa sesi terbuka, tidak ada tempat menyimpan hitungan. Ditolak DI SINI
+    // dengan kalimat yang menyebut siapa yang bisa membukanya — bukan dibiarkan
+    // sampai orangnya selesai menghitung seratus bahan lalu ditolak server.
+    if (!sesi) {
+      panel.innerHTML = `
+        <div class="inline-card fade-in" style="max-width:100%">
+          <div class="page-header" style="margin-bottom:8px">
+            <h3 style="margin:0;font-size:1rem">Stok Opname</h3>
+            <button id="opname-close">Tutup</button>
+          </div>
+          <p style="margin:0;color:var(--color-text-muted)">
+            Belum ada sesi opname yang dibuka untuk outlet ini.
+            <br />Minta <strong>Admin BU</strong> membukanya dari Admin Portal → Inventory → Opname.
+          </p>
+        </div>`;
+      panel.querySelector('#opname-close').addEventListener('click', () => {
+        opnameState.open = false;
+        renderOpnamePanel();
+      });
+      return;
+    }
+
     panel.innerHTML = `
       <div class="inline-card fade-in" style="max-width:100%">
         <div class="page-header" style="margin-bottom:8px">
           <h3 style="margin:0;font-size:1rem">Stok Opname — ${esc(outlets.find((o) => o.id === state.outletId)?.name ?? '')}</h3>
           <button id="opname-close">Tutup</button>
         </div>
+        <p style="margin:0 0 10px;font-size:0.85rem">
+          Nomor <strong>${esc(sesi.code)}</strong> · dibuka ${esc(sesi.pembuka?.full_name ?? '-')}
+          <br /><span style="color:var(--color-text-muted)">
+            Hitunganmu bisa diubah berkali-kali. <strong>Stok belum berubah</strong> sampai admin menutup sesi ini.
+          </span>
+        </p>
         <p style="font-size:0.83rem;color:var(--color-text-muted);margin:0 0 10px">
           Isi <strong>Stok Fisik</strong> hasil hitung di lapangan. Baris yang dikosongkan diabaikan; selisih dihitung otomatis.
         </p>
@@ -359,44 +392,44 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     });
 
     panel.querySelector('#opname-save').addEventListener('click', async (e) => {
-      const changes = [];
-      for (const [pid, raw] of draft.entries()) {
-        if (raw === '') continue;
-        const sys = stockMap?.get(pid) ?? 0;
-        const delta = Number(raw) - sys;
-        if (delta !== 0) changes.push({ pid, actual: Number(raw), sys, delta });
-      }
-      if (!changes.length) {
-        toast('Tidak ada selisih untuk disimpan.', 'info');
+      if (!sesi) {
+        toast('Belum ada sesi opname yang terbuka. Minta admin membukanya dulu.', 'warning');
         return;
       }
-      const ok = await confirmDialog({
-        title: 'Simpan hasil opname?',
-        message: `${changes.length} bahan akan dikoreksi sesuai hitungan fisik. Stok sistem akan disesuaikan.`,
-        confirmText: 'Simpan'
-      });
-      if (!ok) return;
+
+      // SEMUA yang diisi dikirim, termasuk yang selisihnya nol.
+      //
+      // Versi lama hanya mengirim yang berselisih, dengan alasan "tidak ada yang
+      // perlu dikoreksi". Tapi di sesi bernomor, "dihitung dan ternyata cocok"
+      // adalah informasi yang berbeda dari "belum dihitung" — dan justru itu
+      // yang membedakan opname yang tuntas dari opname yang berhenti separuh
+      // jalan. Yang tidak diisi tetap tidak dikirim.
+      const isian = [];
+      for (const [pid, raw] of draft.entries()) {
+        if (raw === '') continue;
+        isian.push({ pid, counted: Number(raw), sys: stockMap?.get(pid) ?? 0 });
+      }
+      if (!isian.length) {
+        toast('Belum ada bahan yang diisi.', 'info');
+        return;
+      }
+
       e.target.disabled = true;
-      let saved = 0;
+      let tersimpan = 0;
       try {
-        for (const c of changes) {
-          await recordMovement({
-            businessUnitId,
-            outletId: state.outletId,
-            productId: c.pid,
-            movementType: 'adjustment',
-            qtyDelta: c.delta,
-            unitCost: costs.get(c.pid) ?? null,
-            notes: `Opname: fisik ${c.actual} (sistem ${round(c.sys)})`
-          });
-          saved++;
+        for (const it of isian) {
+          await catatHitungan({ countId: sesi.id, productId: it.pid, counted: it.counted, systemQty: it.sys });
+          tersimpan++;
         }
-        toast(`Opname tersimpan — ${saved} bahan dikoreksi.`, 'success');
-        stockMap = await refresh();
+        // Sengaja TIDAK menyebut "stok dikoreksi": stok belum bergerak sama
+        // sekali. Menulis "tersimpan" untuk sesuatu yang mengubah stok padahal
+        // tidak, adalah cara tercepat membuat orang salah paham soal kapan
+        // angkanya benar-benar berlaku.
+        toast(`${tersimpan} hitungan tersimpan ke ${sesi.code}. Stok berubah setelah admin menutup sesi.`, 'success');
         opnameState.open = false;
         renderOpnamePanel();
       } catch (error) {
-        toast(`${error.message ?? 'Gagal menyimpan opname.'} (${saved} tersimpan)`, 'error');
+        toast(`${error.message ?? 'Gagal menyimpan hitungan.'} (${tersimpan} tersimpan)`, 'error');
         e.target.disabled = false;
       }
     });

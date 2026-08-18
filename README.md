@@ -2801,6 +2801,41 @@ Satu catatan jujur soal tesnya: sabotase yang mencabut pembersihan tanda "tertun
 
 Semua di atas diperiksa dari **kode**, bukan dari layar sungguhan — saya tidak bisa membuka aplikasinya di HP. Yang tidak terjangkau cara ini: teks yang terpotong karena nama produk kepanjangan, kartu yang terlalu tinggi sehingga perlu banyak gulir, dan apakah 560px ternyata terlalu sempit atau terlalu lebar untuk kasus nyatamu. Itu perlu dicoba langsung.
 
+## Stok Opname bernomor, dikerjakan bersama
+
+Sebelumnya opname langsung menulis penyesuaian stok per item, tanpa nomor dan tanpa riwayat — yang tersisa cuma pergerakan `adjustment` berserakan di antara penerimaan dan transfer, dan tidak ada tempat yang bisa menjawab "opname tanggal 17 hasilnya apa".
+
+**Alur barunya:** admin membuka sesi → staff mengisi hitungan lewat Staff App, boleh diubah berkali-kali → admin menutup. **Stok tidak bergerak sama sekali sampai penutupan.**
+
+Empat hal yang menentukan bentuknya:
+
+- **Satu sesi terbuka per outlet, dijamin database** lewat unique index parsial (`where status = 'open'`) — bukan diserahkan pada disiplin orangnya. `buka_opname()` sengaja tidak error kalau sesinya sudah ada: "mulai" dan "lanjutkan" adalah niat yang sama.
+- **Membuka/menutup/membatalkan = Admin BU & Super Admin.** `is_bu_admin()` dipakai **apa adanya**; fungsinya tidak disentuh. Ia dipakai 55 policy lain — mengubah isinya untuk keperluan opname akan diam-diam menggeser wewenang di kas, presensi, reservasi, dan produk sekaligus. Menambah pemakaian aman; mengubah fungsinya tidak.
+- **Hitungan terakhir menang, yang lama disimpan** di `sebelumnya`. Kalau dua orang menghitung 12 dan 40 untuk barang yang sama, angka mana pun yang dipakai, yang justru penting adalah selisihnya sebesar itu — salah satu menghitung tempat yang keliru. Item semacam itu ditandai ⚠ dan disebut sebelum sesi ditutup.
+- **Yang tidak dihitung tidak disentuh.** Opname parsial sah. Kebalikannya akan menghapus stok gudang hanya karena orangnya belum sampai ke rak itu.
+
+### Bug yang ditemukan dari satu pertanyaan
+
+Waktu memastikan alurnya, ketahuan `system_qty` tidak ikut diperbarui saat item dihitung ulang:
+
+> Jam 10 dihitung 92, potret sistem 100. Siang masuk nota 50 (stok jadi 150). Jam 14 dihitung ulang jadi 145 — potretnya masih 100, jadi selisihnya **+45**, dan penutupan menghasilkan stok **195** alih-alih 145.
+
+Salah 50 unit, tanpa error. Potret sistem sekarang ikut diperbarui tiap kali dihitung ulang.
+
+Yang menarik: aritmetika selisihnya sendiri **sudah benar** untuk barang masuk di tengah sesi, karena penutupan menerapkan *delta*, bukan menimpa angka absolut. 92 saat sistem 100 → −8; nota 50 masuk → 150; ditutup → 142. Dan 92 + 50 memang 142. Yang rusak hanya kalau potretnya basi.
+
+### Kotak hitungan sengaja dibiarkan kosong
+
+Permintaan awalnya: kotak isian langsung terisi stok sistem. Itu tidak dibangun, dan alasannya disetujui — kalau kotaknya sudah terisi angka sistem, tindakan termudah (simpan tanpa melihat rak) menghasilkan selisih nol untuk semua barang. Opname berubah dari *menghitung* jadi *membenarkan apa yang sistem sudah percaya*, dan hasilnya laporan bersih tanpa error yang tidak berarti apa-apa.
+
+Yang dipakai: stok sistem tampil sebagai **teks di sebelah kotak**, kotaknya kosong, selisih dihitung hidup saat mengetik. Kotak terisi berarti ada orang yang benar-benar menghitung.
+
+### "Batalkan sesi"
+
+Menutup tanpa menyentuh stok, alasan wajib diisi. Perlu ada karena tanpa itu, sesi yang telanjur diisi ngawur memaksa admin memilih antara dua hal buruk: menerapkan angka ngawur ke stok, atau membiarkan sesinya terbuka selamanya sehingga opname berikutnya tidak bisa dimulai. Hitungannya tidak dihapus — yang dibatalkan akibatnya pada stok, bukan catatan bahwa ada orang menghitung.
+
+Laporannya (`laporan-opname.js`, 28 kasus) memisahkan **nilai kurang dan lebih**, tidak menjumlahkannya jadi angka bersih: kehilangan Rp 2 juta yang tertutup kelebihan Rp 2 juta bukan "impas" — itu dua masalah, dan nol menyembunyikan keduanya. Lima sabotase merah, termasuk membalik arah selisih.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
