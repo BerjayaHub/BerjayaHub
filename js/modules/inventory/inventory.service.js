@@ -100,17 +100,18 @@ export async function recordMenuWaste({ businessUnitId, outletId, productId, qty
   if (error) throw error;
 }
 
-export async function transferStock({ fromOutlet, toOutlet, productId, qty, unitCost, notes }) {
-  const { error } = await supabase.rpc('transfer_stock', {
-    p_from_outlet: fromOutlet,
-    p_to_outlet: toOutlet,
-    p_product_id: productId,
-    p_qty: qty,
-    p_unit_cost: unitCost ?? null,
-    p_notes: notes || null
-  });
-  if (error) throw error;
-}
+/*
+ * `transferStock()` DIHAPUS bersama tombol Transfer di Staff App.
+ *
+ * Setelah tombolnya hilang, tidak ada satu layar pun yang memanggilnya — dan
+ * fungsi pengirim data yang menganggur akan dipanggil lagi suatu hari oleh
+ * orang yang mengira ia masih jalur yang benar. Jalur yang benar adalah modul
+ * **Pengiriman**, yang punya surat jalan, nomor, dan penerimaan di sisi tujuan.
+ *
+ * RPC `transfer_stock` di database TIDAK dihapus: ia masih bisa dipanggil dari
+ * SQL Editor untuk koreksi darurat, dan menghapusnya berarti membuang jalan
+ * keluar yang suatu saat dibutuhkan tanpa ada penggantinya.
+ */
 
 export async function listMovements({ businessUnitId, outletId, movementType, dateFrom, dateTo }) {
   let query = supabase

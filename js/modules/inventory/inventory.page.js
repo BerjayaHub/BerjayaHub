@@ -1,7 +1,7 @@
 import { toast, formDialog, confirmDialog, fuzzyMatch } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
-import { getOutletStockMap, recordMovement, transferStock, getAllowStaffOpname, recordMenuWaste } from './inventory.service.js';
+import { getOutletStockMap, recordMovement, getAllowStaffOpname, recordMenuWaste } from './inventory.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { cocokNama } from '../../core/nama.js';
@@ -26,7 +26,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     return;
   }
   // Bahan = bahan baku + setengah jadi. Produk bertipe MENU sengaja tidak
-  // ditampilkan di form bahan (penerimaan/spoil/opname/transfer) — menu hanya
+  // ditampilkan di form bahan (penerimaan/spoil/opname) — menu hanya
   // dipakai untuk Waste menu & modul Menu.
   const activeProducts = products.filter((p) => p.is_active !== false && p.product_type !== 'finished');
   const menuProducts = products.filter((p) => p.is_active !== false && p.product_type === 'finished');
@@ -52,7 +52,6 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       <button class="primary" id="inv-receive" style="max-width:220px">📥 Terima dari Supplier</button>
       <button id="inv-waste">🗑️ Waste / Spoil</button>
       ${allowOpname ? '<button id="inv-opname">📋 Stok Opname</button>' : ''}
-      <button id="inv-transfer">Transfer</button>
       <button id="inv-resep">📖 Resep</button>
       <button id="inv-menipis">⚠️ Bahan Menipis</button>
     </div>
@@ -156,16 +155,10 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   container.querySelector('#inv-cat').addEventListener('change', () => gambarStok(stockMap));
   container.querySelector('#inv-q').addEventListener('input', () => gambarStok(stockMap));
 
-  // TERIMA DARI SUPPLIER: panel per NOTA, bukan dialog per produk.
-  //
-  // Bentuk lamanya menuntut satu dialog untuk tiap barang — untuk nota berisi
-  // belasan item itu belasan kali memilih produk dan mengetik jumlah, dan
-  // sesudahnya tidak ada nomor yang bisa dipakai mencocokkan dengan tagihan
-  // supplier.
   // BAHAN MENIPIS.
   //
   // `stockMap` diambil SAAT DITEKAN, bukan dipegang dari awal: panel ini
-  // menghitung "cukup berapa hari lagi", dan menghitungnya dari stok basi
+  // menghitung "cukup berapa porsi lagi", dan menghitungnya dari stok basi
   // menghasilkan daftar belanja yang salah tanpa satu pun tanda di layar.
   const menipisPanel = container.querySelector('#inv-menipis-panel');
   container.querySelector('#inv-menipis').addEventListener('click', async () => {
@@ -189,6 +182,12 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     });
   });
 
+  // TERIMA DARI SUPPLIER: panel per NOTA, bukan dialog per produk.
+  //
+  // Bentuk lamanya menuntut satu dialog untuk tiap barang — untuk nota berisi
+  // belasan item itu belasan kali memilih produk dan mengetik jumlah, dan
+  // sesudahnya tidak ada nomor yang bisa dipakai mencocokkan dengan tagihan
+  // supplier.
   const notaPanel = container.querySelector('#inv-nota-panel');
   container.querySelector('#inv-receive').addEventListener('click', () => {
     if (!notaPanel.hasAttribute('hidden')) {
@@ -491,38 +490,21 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     renderRows();
   }
 
-  container.querySelector('#inv-transfer').addEventListener('click', sekaliJalan(async () => {
-    const dests = outlets.filter((o) => o.id !== state.outletId);
-    if (!dests.length) {
-      toast('Tidak ada outlet tujuan lain di BU ini.', 'warning');
-      return;
-    }
-    const v = await formDialog({
-      title: 'Transfer Stok ke Outlet Lain',
-      fields: [
-        { name: 'product_id', label: 'Produk', type: 'searchselect', required: true, options: productOptions },
-        { name: 'qty', label: 'Jumlah dikirim', type: 'number', required: true, min: 0 },
-        { name: 'to_outlet', label: 'Outlet tujuan', type: 'select', required: true, options: dests.map((o) => ({ value: o.id, label: o.name })) },
-        { name: 'notes', label: 'Catatan (opsional)', type: 'text' }
-      ],
-      submitText: 'Kirim'
-    });
-    if (!v) return;
-    try {
-      await transferStock({
-        fromOutlet: state.outletId,
-        toOutlet: v.to_outlet,
-        productId: v.product_id,
-        qty: Math.abs(Number(v.qty)),
-        unitCost: costs.get(v.product_id) ?? null,
-        notes: v.notes
-      });
-      toast('Transfer tercatat (keluar & masuk).', 'success');
-      stockMap = await refresh();
-    } catch (error) {
-      toast(error.message ?? 'Gagal transfer.', 'error');
-    }
-  }));
+  // TOMBOL TRANSFER DIHAPUS DARI STAFF APP.
+  //
+  // Memindahkan bahan antar outlet punya DUA jalan sebelumnya: tombol ini, dan
+  // modul Pengiriman. Keduanya menghasilkan pergerakan stok yang sama, tapi
+  // hanya Pengiriman yang punya surat jalan, nomor, dan penerimaan di sisi
+  // tujuan. Barang yang dipindahkan lewat jalur ini sampai tanpa satu pun
+  // dokumen — dan saat stok tidak cocok, tidak ada yang bisa ditelusuri.
+  //
+  // `transferStock()` di service ikut dihapus, karena sesudah tombol ini
+  // hilang tidak ada layar mana pun yang memanggilnya. (Saya sempat menulis
+  // di sini bahwa Admin Portal masih memakainya — itu keliru, dan komentar
+  // yang salah mengirim orang mencari pemakaian yang tidak ada.)
+  //
+  // RPC `transfer_stock` di database tetap ada untuk koreksi darurat lewat
+  // SQL Editor.
 
   async function doMovement(type, productId, qtyDelta, notes) {
     try {

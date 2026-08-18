@@ -2949,6 +2949,12 @@ Gas, tisu, sedotan, kemasan tidak dipakai resep mana pun, jadi tidak punya angka
 
 Batas manual punya tiga niat yang dipilih dari daftar, bukan disimpulkan dari kosong/nol: **Otomatis** (hapus barisnya) · **Angka tetap** · **Jangan awasi** (simpan 0). Bentuk pertamanya satu kotak angka, dan itu tidak bisa bekerja — `type: 'qty'` mengubah kosong jadi 0 lewat `parseNumber`, jadi "kembali ke otomatis" tersimpan diam-diam sebagai "jangan diawasi". Dua niat berlawanan, hasil sama, tanpa error.
 
+### Transfer bahan hanya lewat Pengiriman
+
+Tombol **Transfer** dihapus dari modul Bahan di Staff App. Sebelumnya memindahkan bahan antar outlet punya dua jalan yang menghasilkan pergerakan stok sama — tapi hanya **Pengiriman** yang punya surat jalan, nomor, dan penerimaan di sisi tujuan. Barang yang dipindahkan lewat tombol itu sampai tanpa satu pun dokumen, dan saat stok tidak cocok tidak ada yang bisa ditelusuri.
+
+`transferStock()` di service ikut dihapus: sesudah tombolnya hilang tidak ada layar mana pun yang memanggilnya. Saya sempat menulis di komentar bahwa Admin Portal masih memakainya — **itu keliru**, dan komentar yang salah mengirim orang mencari pemakaian yang tidak ada. RPC `transfer_stock` di database tetap ada untuk koreksi darurat lewat SQL Editor.
+
 ### Kirim daftar belanja lewat WhatsApp
 
 Tombolnya ada di Staff App maupun Admin Portal, memakai `shareDialog` yang sudah ada (share sheet native / `wa.me` / salin — tanpa API).
