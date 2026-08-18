@@ -3060,6 +3060,69 @@ Sesi hantu yang sudah terlanjur ada dibersihkan sekali di migration itu — term
 
 Di Staff App, konfirmasi hapusnya menyebutkan akibatnya **sebelum** ditekan kalau itu item terakhir, dan sesudah menghapus run-nya dicari ulang alih-alih memakai id yang mungkin sudah tidak ada — memakai id basi akan memuat item dari sesi hantu, dan kelihatannya normal.
 
+## Menu di Staff App: perkiraan pindah ke sebelah kotak isian
+
+Angka *"perkiraan bisa dibuat"* sebelumnya hanya muncul kalau menunya **dibuka**. Untuk angka yang justru menentukan berapa yang boleh diisi, itu urutan yang terbalik — orangnya harus membuka satu per satu untuk tahu, lalu menutupnya lagi untuk mengisi.
+
+Sekarang ia jadi label tepat di bawah/di samping kotak isian, terbaca tanpa membuka apa pun. Isi resepnya tetap di bawah menu saat di-expand.
+
+### Konsekuensinya: resep harus dimuat untuk semua menu
+
+Angka itu kini dibutuhkan di **setiap baris**, bukan cuma yang dibuka. `getRecipeForProduct` per menu berarti satu permintaan jaringan per baris — untuk 60 menu, 60 permintaan sebelum layarnya berguna. Diganti `listRecipesFull` yang mengambil semuanya dalam dua permintaan.
+
+Efek sampingnya yang lebih penting: **satu sumber angka.** Sebelumnya perkiraan di rincian dihitung terpisah dari yang akan tampil di baris — dua hitungan untuk pertanyaan yang sama selalu berakhir menyimpang, dan tidak ada yang tahu sampai keduanya berbeda di layar yang sama.
+
+### Sengaja berhenti di satu tingkat
+
+Berbeda dari "bahan menipis" yang membentangkan resep sampai bahan baku, perhitungan di sini **berhenti di bahan langsung resepnya** — karena pertanyaannya berbeda:
+
+- *Bahan menipis* bertanya **apa yang harus dibeli** → cabai untuk membuat sambal harus ikut dihitung.
+- *Layar ini* bertanya **berapa porsi bisa dibuat sekarang** → sambal yang sudah jadi di kulkas bisa langsung dipakai, cabainya tidak relevan lagi.
+
+Kalau dibentangkan di sini, sambal siap pakai akan diabaikan dan menunya dilaporkan tidak bisa dibuat padahal bahannya ada di depan mata.
+
+### Bug yang ditangkap tes sebelum sempat dipakai
+
+`0,6 kg ayam ÷ 0,2 kg/porsi` jelas 3 porsi. Di floating point hasilnya `2.9999999999999996`, dan `Math.floor` memotongnya jadi **2**. Staff melihat stok cukup di depan mata sementara layar bilang kurang satu — tanpa satu pun error yang menjelaskannya. Tesnya ditulis sebelum kodenya dianggap selesai, jadi ini merah sejak awal alih-alih ditemukan di lapangan.
+
+`perkiraan.js` diuji 38 kasus; tujuh sabotase merah semua — termasuk membuang toleransi itu lagi, membulatkan ke atas, mengambil bahan yang paling banyak sebagai pembatas, dan membiarkan varian CK jatuh ke resep Standalone.
+
+### Satu bahan dipakai beberapa menu
+
+Pertanyaan yang kamu ajukan, dan jawabannya ternyata perlu diperbaiki.
+
+Versi pertama menghitung tiap menu **sendiri-sendiri**, seolah cuma menu itu yang dibuat. Tiap angkanya benar satu per satu, tapi bersama-sama menipu:
+
+```
+Ayam 1 kg
+  Nasi Ayam   (0,20 kg/porsi) → 5
+  Soto        (0,10 kg/porsi) → 10
+  Ayam Goreng (0,25 kg/porsi) → 4
+
+Kalau ketiganya dibuat sebanyak itu: 5×0,2 + 10×0,1 + 4×0,25 = 3 kg.
+Yang ada 1 kg.
+```
+
+Layar itu menjanjikan tiga kali lipat dari yang ada, dan tidak ada apa pun yang menandakannya.
+
+Sekarang jumlah yang **sudah diisi staff untuk menu lain** dikurangkan lebih dulu dari stoknya. Datanya memang sudah ada di layar yang sama — kolom Jumlah Tersedia — jadi ini bukan tebakan, melainkan konsekuensi dari pilihan yang baru saja dibuat orangnya. Labelnya diperbarui **saat mengetik** (`input`, bukan `change`): label yang tertinggal satu langkah dari yang diketik lebih menyesatkan daripada tidak ada label.
+
+**Menu itu sendiri tidak mengurangi dirinya.** Kalau ikut dikurangkan, mengetik 3 di Nasi Ayam langsung menurunkan angka Nasi Ayam sendiri — dan orangnya tidak punya cara membedakan "sudah saya pakai" dari "ternyata tidak cukup".
+
+Angka yang sudah dikurangi ditandai **"(sisa)"**. Tanpa penanda, staff melihat angkanya turun tanpa tahu apakah karena stoknya berkurang atau karena pilihannya sendiri di menu lain — dua sebab yang menuntut tindakan berbeda.
+
+Panel rincian memakai perhitungan yang **sama persis**, termasuk pengurangannya. Menghitungnya ulang di sana dengan stok penuh akan menampilkan dua angka berbeda untuk satu menu, di layar yang sama, tanpa ada yang salah kelihatannya.
+
+Dua kesalahan saya sendiri ditangkap tesnya di sini: penanda "(sisa)" sempat menyala untuk menu yang tidak berbagi bahan sama sekali (Es Teh ikut ditandai hanya karena ada orang mengisi Nasi Ayam — penanda yang menyala tanpa sebab mengajari orang mengabaikannya), dan satu sabotase **lolos** karena penjepitan `Math.max(0, …)` pada sisa stok ternyata bukan penjaganya — `perkiraanMenu()` sudah menjepit di ujung. Yang kedua dicatat apa adanya sebagai pertahanan berlapis, bukan dibiarkan terlihat load-bearing.
+
+### Bentuk mobile-first
+
+Layar ini diisi sambil berdiri di depan rak sebelum buka toko — satu tangan memegang HP. Yang menentukan cuma dua hal: kotaknya cukup besar untuk jempol (44px), dan angka perkiraannya terbaca tanpa membuka apa pun.
+
+Perkiraannya menempel pada kotak isiannya, **bukan** di kolom terpisah. Di kolom terpisah keduanya terpisah lebar layar dan pembacanya harus memasangkan sendiri baris mana dengan baris mana — kesalahan yang paling mahal di sini, karena hasilnya menu yang dijanjikan padahal bahannya tidak ada.
+
+Di mode kartu (≤560px) sel "Jumlah tersedia" diberi ruang sendiri dengan pemisah, nama menu dibesarkan jadi judul kartu, dan **bahan pembatas ditandai** di rincian — itu satu-satunya yang perlu ditambah supaya angkanya naik. Tanpa penanda, staff harus membandingkan tiap baris sendiri, dan yang paling sering terjadi adalah membeli yang salah.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

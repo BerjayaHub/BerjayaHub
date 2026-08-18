@@ -1,6 +1,7 @@
 import { toast } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
-import { listProducts, getRecipeForProduct } from '../product/product.service.js';
+import { listProducts, listRecipesFull } from '../product/product.service.js';
+import { petaPerkiraan, labelPerkiraan } from './perkiraan.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { getMenuPlans, upsertMenuPlan, todayWIB } from './menu.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
@@ -10,11 +11,23 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
   container.innerHTML = loadingHtml('Memuat menu…');
   const date = todayWIB();
 
-  let outlets, products;
+  // RESEP DIMUAT SEKALI DI AWAL, bukan per menu saat dibuka.
+  //
+  // Perkiraan "bisa dibuat" sekarang tampil di SETIAP baris tanpa perlu
+  // dibuka, jadi angkanya harus ada untuk semua menu sejak awal. Memanggil
+  // `getRecipeForProduct` per menu berarti satu permintaan jaringan per baris
+  // — untuk 60 menu itu 60 permintaan sebelum layarnya berguna.
+  //
+  // `listRecipesFull` mengambil semuanya dalam dua permintaan, dan sekaligus
+  // menghapus sumber perbedaan: sebelumnya angka di rincian dihitung terpisah
+  // dari yang di baris, dan dua hitungan untuk pertanyaan yang sama selalu
+  // berakhir menyimpang.
+  let outlets, products, recipes;
   try {
-    [outlets, products] = await Promise.all([
+    [outlets, products, recipes] = await Promise.all([
       listMyOutlets(businessUnitId),
-      listProducts(businessUnitId)
+      listProducts(businessUnitId),
+      listRecipesFull(businessUnitId)
     ]);
   } catch (error) {
     container.innerHTML = `<p class="error-text">Gagal memuat: ${error.message ?? error}</p>`;
@@ -30,7 +43,7 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
     return;
   }
   const categories = [...new Set(menus.map((m) => m.category).filter(Boolean))].sort();
-  const recipeCache = new Map();
+  const produkById = new Map(products.map((p) => [p.id, p]));
   const state = {
     outletId: outlets.some((o) => o.id === outletId) ? outletId : outlets[0].id,
     category: '',
@@ -68,9 +81,25 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
     renderRows();
   }
 
+  /** Jumlah yang sedang tampak di kotak isian (belum tentu tersimpan). */
+  function rencanaSekarang() {
+    const tbody = container.querySelector('#menu-rows');
+    if (!tbody) return new Map(state.plans);
+    return new Map([...tbody.querySelectorAll('.menu-qty')].map((el) => [el.dataset.id, el.value === '' ? 0 : Number(el.value)]));
+  }
+
+  /** Varian resep yang berlaku di outlet ini — gerai CK memakai resep CK. */
+  function modeOutlet() {
+    return outlets.find((o) => o.id === state.outletId)?.outlet_role === 'served_by_ck' ? 'served_by_ck' : 'standalone';
+  }
+
   function renderRows() {
     const tbody = container.querySelector('#menu-rows');
     const list = state.category ? menus.filter((m) => m.category === state.category) : menus;
+    // Dihitung SETIAP kali baris digambar ulang, bukan sekali di awal: stok
+    // berubah saat outlet berganti, dan angka perkiraan dari stok outlet
+    // sebelumnya akan terlihat normal sambil menyesatkan.
+
     tbody.innerHTML =
       list
         .map(
@@ -79,15 +108,47 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
           <td data-label="Menu"><button class="menu-expand" data-id="${m.id}" style="border:none;background:none;color:var(--color-primary);cursor:pointer;font-size:0.92rem;padding:0;text-align:left">${esc(m.name)} ▾</button></td>
           <td data-label="Kategori">${esc(m.category ?? '-')}</td>
           <td data-label="Jumlah tersedia">
-            <input type="number" class="menu-qty" data-id="${m.id}" min="0" value="${state.plans.has(m.id) ? state.plans.get(m.id) : ''}" style="max-width:90px" />
-            <span class="menu-saved" data-id="${m.id}" style="color:var(--color-primary);font-size:0.72rem;margin-left:4px"></span>
+            <div class="menu-isi">
+              <input type="number" class="menu-qty" data-id="${m.id}" min="0" inputmode="numeric"
+                     value="${state.plans.has(m.id) ? state.plans.get(m.id) : ''}" aria-label="Jumlah tersedia ${esc(m.name)}" />
+              <span class="menu-perkiraan" data-id="${m.id}"></span>
+            </div>
+            <span class="menu-saved" data-id="${m.id}"></span>
           </td>
         </tr>
         <tr class="menu-detail" data-id="${m.id}" hidden><td colspan="3" class="sel-penuh"><div class="menu-detail-body" style="padding:6px 2px"></div></td></tr>`
         )
         .join('') || '<tr><td colspan="3">Tidak ada menu di kategori ini.</td></tr>';
 
-    tbody.querySelectorAll('.menu-qty').forEach((inp) =>
+    /**
+     * Gambar ulang SEMUA label perkiraan dari isian yang sedang tampak.
+     *
+     * Dibaca dari kotak isiannya, bukan dari `state.plans`: staff harus
+     * melihat akibat angkanya SEKARANG, bukan setelah tersimpan. Menunggu
+     * simpan berarti label yang tertinggal satu langkah dari yang diketik —
+     * dan label yang tertinggal lebih menyesatkan daripada tidak ada label.
+     *
+     * Yang diperbarui cuma isi <span>-nya, bukan seluruh tabel. Menggambar
+     * ulang tabel saat mengetik akan membuang fokus dari kotak yang sedang
+     * diisi, dan angka yang sedang diketik ikut hilang.
+     */
+    function perbaruiPerkiraan() {
+      const peta = petaPerkiraan({ menus: list, recipes, stok: state.stock, mode: modeOutlet(), rencana: rencanaSekarang() });
+      for (const span of tbody.querySelectorAll('.menu-perkiraan')) {
+        const h = peta.get(span.dataset.id);
+        span.textContent = labelPerkiraan(h) + (h?.dikurangi ? ' (sisa)' : '');
+        span.classList.toggle('menu-perkiraan-habis', h?.bisa === 0);
+        span.title = h?.dikurangi
+          ? 'Sudah dikurangi bahan yang terpakai menu lain yang kamu isi.'
+          : '';
+      }
+    }
+    perbaruiPerkiraan();
+
+    tbody.querySelectorAll('.menu-qty').forEach((inp) => {
+      // `input`, bukan `change`: angkanya harus ikut berubah saat diketik,
+      // bukan menunggu jempolnya pindah ke tempat lain.
+      inp.addEventListener('input', perbaruiPerkiraan);
       inp.addEventListener('change', async () => {
         const qty = inp.value === '' ? 0 : Number(inp.value);
         try {
@@ -98,18 +159,28 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
             s.textContent = '✓ tersimpan';
             setTimeout(() => (s.textContent = ''), 1500);
           }
+          perbaruiPerkiraan();
         } catch (error) {
           toast(error.message ?? 'Gagal menyimpan jumlah.', 'error');
         }
-      })
-    );
+      });
+    });
 
     tbody.querySelectorAll('.menu-expand').forEach((btn) =>
       btn.addEventListener('click', () => toggleDetail(tbody, menus.find((m) => m.id === btn.dataset.id)))
     );
   }
 
-  async function toggleDetail(tbody, menu) {
+  /**
+   * Rincian bahan satu menu.
+   *
+   * Angka "bisa dibuat" TIDAK dihitung lagi di sini — ia diambil dari
+   * perhitungan yang sama dengan yang tampil di barisnya. Sebelumnya keduanya
+   * dihitung terpisah, dan dua hitungan untuk pertanyaan yang sama selalu
+   * berakhir menyimpang: yang satu diperbaiki, yang lain tertinggal, dan tidak
+   * ada yang tahu sampai angkanya berbeda di layar yang sama.
+   */
+  function toggleDetail(tbody, menu) {
     const detailRow = tbody.querySelector(`.menu-detail[data-id="${menu.id}"]`);
     if (!detailRow) return;
     if (!detailRow.hidden) {
@@ -117,34 +188,50 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
       return;
     }
     detailRow.hidden = false;
+
+    const mode = modeOutlet();
+    const namaVarian = mode === 'served_by_ck' ? 'Dilayani CK' : 'Standalone';
+    const resep = recipes.find((r) => r.product_id === menu.id && r.mode === mode) ?? null;
     const body = detailRow.querySelector('.menu-detail-body');
-    body.innerHTML = 'Memuat resep...';
-    const outlet = outlets.find((o) => o.id === state.outletId);
-    const mode = outlet?.outlet_role === 'served_by_ck' ? 'served_by_ck' : 'standalone';
-    let recipe = recipeCache.get(`${menu.id}|${mode}`);
-    if (!recipe) {
-      try {
-        recipe = await getRecipeForProduct(menu.id, mode);
-        recipeCache.set(`${menu.id}|${mode}`, recipe);
-      } catch {
-        body.innerHTML = '<span class="error-text">Gagal memuat resep.</span>';
-        return;
-      }
-    }
-    if (!recipe.recipe || !recipe.items.length) {
-      body.innerHTML = `<span style="color:var(--color-text-muted)">Resep (${mode === 'served_by_ck' ? 'Dilayani CK' : 'Standalone'}) belum diatur untuk menu ini.</span>`;
+
+    if (!resep || !resep.items?.length) {
+      body.innerHTML = `<span style="color:var(--color-text-muted)">Resep (${esc(namaVarian)}) belum diatur untuk menu ini.</span>`;
       return;
     }
-    const yieldQty = Number(recipe.recipe.yield_qty) || 1;
-    let maxMake = Infinity;
-    const rows = recipe.items.map((it) => {
-      const need = Number(it.qty) / yieldQty; // per 1 menu
-      const stock = state.stock.get(it.ingredient_product_id) ?? 0;
-      if (need > 0) maxMake = Math.min(maxMake, Math.floor(stock / need));
-      return `<tr><td data-label="Bahan">${esc(it.products?.name ?? '-')}</td><td data-label="Per menu">${formatNum(need)} ${esc(it.products?.base_unit ?? '')}</td><td data-label="Stok">${formatNum(stock)} ${esc(it.products?.base_unit ?? '')}</td></tr>`;
+
+    const yieldQty = Number(resep.yield_qty) > 0 ? Number(resep.yield_qty) : 1;
+    // Angka & pembatasnya diambil dari perhitungan yang SAMA dengan barisnya —
+    // termasuk pengurangan oleh menu lain yang sudah diisi. Menghitungnya
+    // ulang di sini dengan stok penuh akan menampilkan dua angka berbeda untuk
+    // satu menu, di layar yang sama, tanpa ada yang salah kelihatannya.
+    const hasil = petaPerkiraan({
+      menus: menus.map((x) => ({ id: x.id })),
+      recipes,
+      stok: state.stock,
+      mode,
+      rencana: rencanaSekarang()
+    }).get(menu.id) ?? { bisa: null, sebab: 'tanpa-resep', pembatas: null };
+
+    const rows = resep.items.map((it) => {
+      const p = produkById.get(it.ingredient_product_id);
+      const butuh = Number(it.qty) / yieldQty;
+      const ada = Number(state.stock.get(it.ingredient_product_id) ?? 0);
+      const satuan = esc(p?.base_unit ?? '');
+      // Bahan PEMBATAS ditandai: itu satu-satunya yang perlu ditambah supaya
+      // angkanya naik. Tanpa penanda, staff harus membandingkan sendiri tiap
+      // baris — dan yang paling sering terjadi adalah membeli yang salah.
+      const batas = it.ingredient_product_id === hasil.pembatas;
+      return `<tr${batas ? ' class="menu-bahan-batas"' : ''}>
+        <td data-label="Bahan">${esc(p?.name ?? '(produk terhapus)')}${batas ? ' <span class="menu-tag-batas">pembatas</span>' : ''}</td>
+        <td data-label="Per menu">${formatNum(butuh)} ${satuan}</td>
+        <td data-label="Stok">${formatNum(ada)} ${satuan}</td>
+      </tr>`;
     });
+
     body.innerHTML = `
-      <div style="font-size:0.82rem;color:var(--color-text-muted);margin-bottom:4px">Resep ${mode === 'served_by_ck' ? 'Dilayani CK' : 'Standalone'} · perkiraan bisa dibuat: <strong>${Number.isFinite(maxMake) ? maxMake : '—'}</strong> menu</div>
+      <div style="font-size:0.82rem;color:var(--color-text-muted);margin-bottom:6px">
+        Resep ${esc(namaVarian)} · ${esc(labelPerkiraan(hasil))}
+      </div>
       <table class="data-table kartu-sempit"><thead><tr><th>Bahan</th><th>Per menu</th><th>Stok</th></tr></thead><tbody>${rows.join('')}</tbody></table>
     `;
   }

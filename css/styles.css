@@ -1990,3 +1990,113 @@ select.sc-cell.is-off {
     min-height: 44px;
   }
 }
+
+/* =========================================================
+   MODUL MENU (Staff App) — kotak isian + perkiraan berdampingan
+
+   MOBILE-FIRST, dan alasannya bukan gaya. Layar ini diisi sambil berdiri di
+   depan rak sebelum buka toko: satu tangan memegang HP, satu tangan lain
+   memeriksa barang. Yang menentukan bisa-tidaknya dipakai cuma dua hal —
+   kotak isiannya cukup besar untuk ditekan jempol, dan angka perkiraannya
+   terbaca TANPA membuka apa pun.
+
+   Perkiraannya ditaruh TEPAT DI BAWAH kotak isian, bukan di kolom terpisah.
+   Di kolom terpisah, keduanya terpisah lebar layar dan pembacanya harus
+   memasangkan sendiri baris mana dengan baris mana — persis kesalahan yang
+   paling mahal di sini, karena hasilnya adalah menu yang dijanjikan padahal
+   bahannya tidak ada.
+   ========================================================= */
+.menu-isi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-end;
+}
+
+.menu-isi .menu-qty {
+  /* 44px = ukuran sasaran sentuh minimum. Lebih kecil dari ini, jempol
+     meleset ke baris sebelahnya — dan yang terisi menu yang salah. */
+  min-height: 44px;
+  max-width: 96px;
+  text-align: right;
+  font-size: 1rem;
+  margin: 0;
+}
+
+.menu-perkiraan {
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* "bahan habis" bukan sekadar angka kecil — itu alasan menu ini tidak boleh
+   dijanjikan hari ini, dan harus terbaca berbeda dari angka biasa. */
+.menu-perkiraan-habis {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.menu-saved {
+  color: var(--color-primary);
+  font-size: 0.72rem;
+}
+
+/* Bahan yang membatasi jumlahnya — satu-satunya yang perlu ditambah supaya
+   angkanya naik. */
+.menu-tag-batas {
+  font-size: 0.68rem;
+  color: var(--color-danger);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 6px;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  /* Di mode kartu, sel "Jumlah tersedia" adalah satu-satunya yang DIISI.
+     Ia diberi ruang sendiri di bawah judulnya alih-alih berdesakan di kanan,
+     supaya kotaknya bisa lebih besar dan angkanya tidak terhimpit. */
+  .data-table.kartu-sempit td[data-label='Jumlah tersedia'] {
+    display: block;
+    text-align: left;
+    border-top: 1px dashed var(--color-border);
+    margin-top: 6px;
+    padding-top: 8px;
+  }
+  .data-table.kartu-sempit td[data-label='Jumlah tersedia']::before {
+    display: block;
+    flex: none;
+    margin-bottom: 4px;
+  }
+
+  .menu-isi {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+  .menu-isi .menu-qty {
+    max-width: 110px;
+    flex: 0 0 auto;
+  }
+  .menu-perkiraan {
+    font-size: 0.82rem;
+    white-space: normal;
+  }
+
+  /* Nama menu adalah judul kartunya — dibuat cukup besar untuk dibaca sekilas
+     sambil berjalan, bukan seukuran label. */
+  .data-table.kartu-sempit td[data-label='Menu'] button.menu-expand {
+    font-size: 1rem !important;
+    font-weight: 600;
+  }
+}
+
+/* Angka yang SUDAH dikurangi pemakaian menu lain ditandai "(sisa)".
+   Tanpa penanda, staff melihat angkanya turun dan tidak tahu apakah itu
+   karena stoknya berkurang atau karena pilihannya sendiri di menu lain —
+   dua sebab yang menuntut tindakan berbeda. */
+.menu-perkiraan[title]:not([title='']) {
+  border-bottom: 1px dotted currentColor;
+  cursor: help;
+}
