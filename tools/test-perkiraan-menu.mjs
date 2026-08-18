@@ -41,11 +41,60 @@ const stok = new Map([['ayam', 0.6], ['nasi', 15]]);
 
 const h = perkiraanMenu(nasiAyam, stok);
 cek('dibatasi bahan paling sedikit, bukan rata-rata', h.bisa, 3);
-cek('pembatasnya disebut', h.pembatas, 'ayam');
+cek('pembatasnya disebut', h.pembatas, ['ayam']);
 cek('sebabnya ok', h.sebab, 'ok');
 
 // Menambah ayam memindahkan pembatasnya.
-cek('tambah ayam -> nasi jadi pembatas', perkiraanMenu(nasiAyam, new Map([['ayam', 100], ['nasi', 15]])).pembatas, 'nasi');
+cek('tambah ayam -> nasi jadi pembatas', perkiraanMenu(nasiAyam, new Map([['ayam', 100], ['nasi', 15]])).pembatas, ['nasi']);
+
+// =====================================================================
+// SEMUA BAHAN YANG SAMA-SAMA MEPET IKUT DITANDAI
+//
+// Kalau cuma yang pertama ditemukan yang ditandai, staff membeli bahan itu,
+// kembali, dan angkanya TIDAK naik sama sekali — karena bahan kedua sama
+// mepetnya. Penanda yang menyuruh berbelanja hal yang tidak menyelesaikan
+// apa pun lebih buruk daripada tidak ada penanda.
+// =====================================================================
+const tigaBahan = {
+  yield_qty: 1,
+  items: [
+    { ingredient_product_id: 'ayam', qty: 0.2 },
+    { ingredient_product_id: 'sambal', qty: 0.1 },
+    { ingredient_product_id: 'nasi', qty: 0.15 }
+  ]
+};
+
+// ayam 0,6 -> 3 porsi | sambal 0,3 -> 3 porsi | nasi 15 -> 100 porsi
+const seri = perkiraanMenu(tigaBahan, new Map([['ayam', 0.6], ['sambal', 0.3], ['nasi', 15]]));
+cek('dua bahan sama mepet: angkanya tetap 3', seri.bisa, 3);
+cek('  dan KEDUANYA ditandai', seri.pembatas, ['ayam', 'sambal']);
+cek('  nasi yang longgar tidak ikut', seri.pembatas.includes('nasi'), false);
+
+// Tiga-tiganya mepet.
+const seriTiga = perkiraanMenu(tigaBahan, new Map([['ayam', 0.6], ['sambal', 0.3], ['nasi', 0.45]]));
+cek('tiga bahan sama mepet: semuanya ditandai', seriTiga.pembatas.sort(), ['ayam', 'nasi', 'sambal']);
+
+// Menambah SATU dari dua yang seri memindahkan penandanya ke sisanya —
+// dan angkanya baru naik setelah keduanya ditambah.
+const setelahAyam = perkiraanMenu(tigaBahan, new Map([['ayam', 10], ['sambal', 0.3], ['nasi', 15]]));
+cek('tambah ayam saja: angkanya TETAP 3', setelahAyam.bisa, 3);
+cek('  penandanya pindah ke sambal saja', setelahAyam.pembatas, ['sambal']);
+
+const setelahKeduanya = perkiraanMenu(tigaBahan, new Map([['ayam', 10], ['sambal', 10], ['nasi', 15]]));
+cek('setelah keduanya ditambah, angkanya baru naik', setelahKeduanya.bisa, 50);
+cek('  dan pembatasnya jadi ayam', setelahKeduanya.pembatas, ['ayam']);
+
+// Semua bahan habis -> semuanya pembatas, bukan cuma satu.
+const habisSemua = perkiraanMenu(tigaBahan, new Map());
+cek('semua habis: semuanya ditandai', habisSemua.pembatas.length, 3);
+cek('  dan hasilnya 0', habisSemua.bisa, 0);
+
+// Satu bahan saja -> tetap berupa daftar berisi satu, bukan string.
+cek(
+  'satu bahan tetap berupa daftar',
+  perkiraanMenu({ yield_qty: 1, items: [{ ingredient_product_id: 'x', qty: 1 }] }, new Map([['x', 5]])).pembatas,
+  ['x']
+);
 
 // =====================================================================
 // PEMBULATAN KE BAWAH
@@ -76,8 +125,8 @@ cek('stok negatif tetap 0, bukan minus', perkiraanMenu(nasiAyam, new Map([['ayam
 // =====================================================================
 // RESEP YANG TIDAK BISA DIHITUNG
 // =====================================================================
-cek('tanpa resep', perkiraanMenu(null, stok), { bisa: null, sebab: 'tanpa-resep', pembatas: null });
-cek('resep tanpa item', perkiraanMenu({ yield_qty: 1, items: [] }, stok), { bisa: null, sebab: 'resep-kosong', pembatas: null });
+cek('tanpa resep', perkiraanMenu(null, stok), { bisa: null, sebab: 'tanpa-resep', pembatas: [] });
+cek('resep tanpa item', perkiraanMenu({ yield_qty: 1, items: [] }, stok), { bisa: null, sebab: 'resep-kosong', pembatas: [] });
 cek('items undefined aman', perkiraanMenu({ yield_qty: 1 }, stok).sebab, 'resep-kosong');
 
 // TAKARAN 0 TIDAK BOLEH JADI "TAK TERBATAS".
@@ -243,4 +292,4 @@ if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Perkiraan menu benar untuk 56 kasus — pembatas, pembulatan ke bawah, takaran 0, dan varian per peran outlet. ✅');
+console.log('Perkiraan menu benar untuk 67 kasus — pembatas, pembulatan ke bawah, takaran 0, dan varian per peran outlet. ✅');

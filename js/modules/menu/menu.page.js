@@ -210,7 +210,7 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
       stok: state.stock,
       mode,
       rencana: rencanaSekarang()
-    }).get(menu.id) ?? { bisa: null, sebab: 'tanpa-resep', pembatas: null };
+    }).get(menu.id) ?? { bisa: null, sebab: 'tanpa-resep', pembatas: [] };
 
     const rows = resep.items.map((it) => {
       const p = produkById.get(it.ingredient_product_id);
@@ -220,7 +220,11 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
       // Bahan PEMBATAS ditandai: itu satu-satunya yang perlu ditambah supaya
       // angkanya naik. Tanpa penanda, staff harus membandingkan sendiri tiap
       // baris — dan yang paling sering terjadi adalah membeli yang salah.
-      const batas = it.ingredient_product_id === hasil.pembatas;
+      // SEMUA bahan yang sama-sama mepet ditandai, bukan cuma yang pertama.
+      // Menambah satu dari dua yang seri tidak menaikkan angkanya sama sekali,
+      // dan penanda yang menyuruh membeli hal yang tidak menyelesaikan apa pun
+      // lebih buruk daripada tidak ada penanda.
+      const batas = (hasil.pembatas ?? []).includes(it.ingredient_product_id);
       return `<tr${batas ? ' class="menu-bahan-batas"' : ''}>
         <td data-label="Bahan">${esc(p?.name ?? '(produk terhapus)')}${batas ? ' <span class="menu-tag-batas">pembatas</span>' : ''}</td>
         <td data-label="Per menu">${formatNum(butuh)} ${satuan}</td>
@@ -230,7 +234,11 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
 
     body.innerHTML = `
       <div style="font-size:0.82rem;color:var(--color-text-muted);margin-bottom:6px">
-        Resep ${esc(namaVarian)} · ${esc(labelPerkiraan(hasil))}
+        Resep ${esc(namaVarian)} · ${esc(labelPerkiraan(hasil))}${
+          (hasil.pembatas ?? []).length > 1
+            ? ` · <strong>${hasil.pembatas.length} bahan sama-sama mepet</strong> — menambah salah satu saja belum menaikkan angkanya`
+            : ''
+        }
       </div>
       <table class="data-table kartu-sempit"><thead><tr><th>Bahan</th><th>Per menu</th><th>Stok</th></tr></thead><tbody>${rows.join('')}</tbody></table>
     `;

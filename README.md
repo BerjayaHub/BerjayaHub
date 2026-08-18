@@ -3087,6 +3087,14 @@ Kalau dibentangkan di sini, sambal siap pakai akan diabaikan dan menunya dilapor
 
 `perkiraan.js` diuji 38 kasus; tujuh sabotase merah semua — termasuk membuang toleransi itu lagi, membulatkan ke atas, mengambil bahan yang paling banyak sebagai pembatas, dan membiarkan varian CK jatuh ke resep Standalone.
 
+### Bahan pembatas: semua yang sama-sama mepet ditandai
+
+Penanda **"pembatas"** di panel rincian menunjuk bahan yang menahan angkanya. Bahan lain tidak diabaikan — semua diperiksa, masing-masing menjawab "kalau cuma aku, cukup berapa porsi?", dan yang paling kecil menang. Penandanya berpindah sendiri mengikuti stok: tambah ayam, dan sambal yang gantian jadi pembatas.
+
+Versi pertama hanya menandai **yang pertama ditemukan**. Kalau dua bahan sama-sama mepet — ayam cukup 3 porsi dan sambal juga 3 — staff membeli ayam, kembali, dan angkanya **tidak naik sama sekali**. Penanda yang menyuruh berbelanja hal yang tidak menyelesaikan apa pun lebih buruk daripada tidak ada penanda.
+
+Sekarang `pembatas` berupa **daftar**, dan kalau isinya lebih dari satu, panelnya menyebut *"2 bahan sama-sama mepet — menambah salah satu saja belum menaikkan angkanya"*. Perbandingan serinya aman dari floating point: `dapat` sudah bilangan bulat hasil `Math.floor`, jadi `===` membandingkan bilangan bulat, bukan pecahan yang hampir sama.
+
 ### Satu bahan dipakai beberapa menu
 
 Pertanyaan yang kamu ajukan, dan jawabannya ternyata perlu diperbaiki.

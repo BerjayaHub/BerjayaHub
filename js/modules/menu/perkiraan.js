@@ -43,16 +43,26 @@ const EPS = 1e-9;
 /**
  * @param {object|null} resep `{yield_qty, items:[{ingredient_product_id, qty}]}`
  * @param {Map<string, number>} stok productId → jumlah
- * @returns {{bisa: number|null, sebab: 'ok'|'tanpa-resep'|'resep-kosong', pembatas: string|null}}
+ * @returns {{bisa: number|null, sebab: 'ok'|'tanpa-resep'|'resep-kosong', pembatas: string[]}}
+ *
+ * `pembatas` adalah DAFTAR, bukan satu bahan.
+ *
+ * Versi pertama cuma menyimpan yang pertama ditemukan. Kalau dua bahan
+ * sama-sama mepet — ayam cukup 3 porsi dan sambal juga 3 — yang ditandai
+ * hanya salah satunya, dan menambah bahan itu saja TIDAK menaikkan angkanya
+ * sama sekali. Staff membeli ayam, kembali, dan angkanya masih 3.
+ *
+ * Penanda yang menyuruh orang berbelanja hal yang tidak menyelesaikan apa pun
+ * lebih buruk daripada tidak ada penanda.
  */
 export function perkiraanMenu(resep, stok) {
-  if (!resep) return { bisa: null, sebab: 'tanpa-resep', pembatas: null };
+  if (!resep) return { bisa: null, sebab: 'tanpa-resep', pembatas: [] };
 
   const items = resep.items ?? [];
   const yieldQty = Number(resep.yield_qty) > 0 ? Number(resep.yield_qty) : 1;
 
   let bisa = Infinity;
-  let pembatas = null;
+  let pembatas = [];
   let adaBahan = false;
 
   for (const it of items) {
@@ -76,13 +86,19 @@ export function perkiraanMenu(resep, stok) {
     // itu, angkanya akan salah satu porsi pada takaran desimal apa pun dan
     // tetap terlihat masuk akal.
     const dapat = Math.floor((Number.isFinite(ada) ? ada : 0) / butuh + EPS);
+
+    // Perbandingannya AMAN dari floating point: `dapat` sudah bilangan bulat
+    // hasil `Math.floor`, jadi `===` di sini membandingkan bilangan bulat —
+    // bukan pecahan yang hampir sama.
     if (dapat < bisa) {
       bisa = dapat;
-      pembatas = it.ingredient_product_id;
+      pembatas = [it.ingredient_product_id];
+    } else if (dapat === bisa) {
+      pembatas.push(it.ingredient_product_id);
     }
   }
 
-  if (!adaBahan) return { bisa: null, sebab: 'resep-kosong', pembatas: null };
+  if (!adaBahan) return { bisa: null, sebab: 'resep-kosong', pembatas: [] };
   return { bisa: Math.max(0, bisa), sebab: 'ok', pembatas };
 }
 
