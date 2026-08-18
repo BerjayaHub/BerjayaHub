@@ -1,4 +1,17 @@
 -- =========================================================
+-- ⚠️ SEBAGIAN MIGRATION INI SUDAH DIGANTI 0091.
+--
+-- `outlets.safety_days` dan `set_safety_days()` DIBUANG di 0091: dasarnya
+-- bukan lagi pemakaian/hari dari penjualan, melainkan stok dibagi takaran
+-- resep = cukup berapa porsi. Yang dibaca di sini tetap benar sebagai
+-- catatan sejarah, tapi jangan dipakai sebagai gambaran keadaan sekarang.
+--
+-- `product_min_stock` (batas manual per bahan) TETAP BERLAKU dan makin
+-- penting — ia satu-satunya cara mengawasi bahan yang tidak dipakai resep
+-- mana pun (gas, tisu, kemasan).
+-- =========================================================
+
+-- =========================================================
 -- 0087 — Batas "bahan menipis"
 --
 -- Menyimpan DUA hal saja, dan sengaja tidak lebih:

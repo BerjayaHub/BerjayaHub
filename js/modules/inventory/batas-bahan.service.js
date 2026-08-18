@@ -1,37 +1,18 @@
 /**
- * Pengaturan & data untuk tabel "Bahan Menipis" (0087).
+ * Pengaturan untuk tabel "Bahan Menipis" (0087, diubah 0091).
  *
- * Yang diambil dari server cuma tiga hal: penjualan pada rentangnya, batas
- * manual, dan hari aman outlet. Pembentangan resepnya dikerjakan di
- * `bahan-menipis.js` memakai data resep yang MEMANG SUDAH dimuat layar itu —
- * bukan lewat query baru.
+ * Sejak 0091 dasarnya bukan lagi penjualan × hari, melainkan **stok akhir
+ * dibagi takaran resep = cukup berapa porsi**. Jadi yang diambil dari server
+ * tinggal dua: porsi minimum outlet, dan batas manual per bahan.
+ *
+ * `penjualanRentang()` DIHAPUS bersama modelnya. Ia tidak disimpan
+ * "untuk jaga-jaga": fungsi pengambil data yang tidak dipakai siapa pun akan
+ * dipanggil lagi suatu hari oleh orang yang mengira ia masih bagian dari
+ * perhitungannya.
  */
 
 import { supabase } from '../../config/supabase-client.js';
 import { ambilSemua } from '../../core/ambil-semua.js';
-
-/** Berapa hari penjualan yang dipakai menghitung rata-rata. */
-export const HARI_RIWAYAT = 28;
-
-/**
- * Penjualan satu outlet pada rentang tanggal.
- *
- * Hanya `product_id` dan `qty` — nama & harga tidak dipakai menghitung
- * pemakaian bahan, dan mengambilnya berarti embed tambahan yang bisa
- * menggagalkan seluruh permintaan (lihat 0086).
- */
-export async function penjualanRentang(outletId, dari, sampai) {
-  if (!outletId) return [];
-  return ambilSemua((a, b) =>
-    supabase
-      .from('sales')
-      .select('product_id, qty', { count: 'exact' })
-      .eq('outlet_id', outletId)
-      .gte('sale_date', dari)
-      .lte('sale_date', sampai)
-      .range(a, b)
-  );
-}
 
 /** Batas manual per bahan di satu outlet → Map<product_id, min_qty>. */
 export async function batasManual(outletId) {
@@ -44,17 +25,17 @@ export async function batasManual(outletId) {
   return new Map(baris.map((r) => [r.product_id, Number(r.min_qty)]));
 }
 
-/** Hari aman outlet. */
-export async function hariAmanOutlet(outletId) {
-  if (!outletId) return 7;
-  const { data, error } = await supabase.from('outlets').select('safety_days').eq('id', outletId).maybeSingle();
+/** Porsi minimum outlet — stok harus cukup untuk sekian porsi menu. */
+export async function porsiMinimumOutlet(outletId) {
+  if (!outletId) return 30;
+  const { data, error } = await supabase.from('outlets').select('min_porsi').eq('id', outletId).maybeSingle();
   if (error) throw error;
-  return Number(data?.safety_days ?? 7);
+  return Number(data?.min_porsi ?? 30);
 }
 
-/** Ubah hari aman (admin saja — dijaga RPC-nya). */
-export async function setHariAman(outletId, hari) {
-  const { error } = await supabase.rpc('set_safety_days', { p_outlet: outletId, p_days: Number(hari) });
+/** Ubah porsi minimum (admin saja — dijaga RPC-nya). */
+export async function setPorsiMinimum(outletId, porsi) {
+  const { error } = await supabase.rpc('set_min_porsi', { p_outlet: outletId, p_porsi: Number(porsi) });
   if (error) throw new Error(error.message ?? String(error));
 }
 

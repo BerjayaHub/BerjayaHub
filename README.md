@@ -2915,91 +2915,55 @@ Di PostgREST ini bukan sekadar mubazir. **Embed yang gagal membatalkan SELURUH q
 
 Satu lagi yang layak dicatat: sabotase pertama pada audit ini **lolos**, dan penyebabnya justru perbaikan yang baru saja saya buat — begitu daftar kolomnya dipindah ke variabel (`const kolom = '…' + (…)`), embednya tidak lagi berdekatan dengan `.select(`, dan detektor berbasis kedekatan berhenti melihatnya. Sekarang embed dicari di dalam string literal, dengan syarat nama tabelnya benar-benar ada di skema.
 
-## Bahan menipis: dari penjualan × resep (migration `0087`)
+## Bahan menipis: stok ÷ resep = cukup berapa porsi (migration `0087`, diubah `0091`)
 
-Kartu **Inventory** di Staff App sekarang bernama **Bahan** — istilah yang dipakai orang yang berdiri di gudang, bukan yang membaca laporannya. Namanya diganti lewat `pakaiLabelStaff()` di `module-icons.js`, **bukan** dengan `update modules set name`: kolom itu juga dipakai layar admin (toggle modul, akses per user), dan mengubahnya di database berarti mengganti nama di tempat yang tidak diminta.
-
-Tabel bahan menipis menjawab satu pertanyaan: *"apa yang harus dibeli, dan berapa?"*
+Kartu **Inventory** di Staff App bernama **Bahan** — istilah yang dipakai orang yang berdiri di gudang, bukan yang membaca laporannya. Diganti lewat `pakaiLabelStaff()`, **bukan** `update modules set name`: kolom itu juga dipakai layar admin.
 
 ```
-batas = batas manual              kalau ada barisnya
-      = pemakaian/hari × hari aman  kalau tidak
+batas (satuan bahan)
+  = batas manual                       kalau ada barisnya
+  = takaran rata-rata × porsi minimum  kalau tidak
 ```
 
-**Perhitungannya ada di `js/`, bukan di SQL.** Menghitung ini menuntut membentangkan resep secara rekursif (menu → setengah jadi → bahan baku) — logika yang sudah ada dan sudah teruji di `hpp.js`. Menulisnya ulang dalam SQL berarti dua sumber kebenaran untuk pertanyaan yang sama, dan yang menyimpang lebih dulu hampir pasti yang ini, karena lebih jarang diperiksa. Akibatnya daftar belanja yang salah tanpa ada yang tahu, karena angkanya tetap masuk akal.
+**Perhitungannya di `js/`, bukan SQL.** Membentangkan resep secara rekursif sudah ada dan teruji di `hpp.js`; menulisnya ulang di SQL berarti dua sumber kebenaran yang pasti menyimpang — dan yang menyimpang lebih dulu adalah yang jarang diperiksa.
+
+### Kenapa porsi, bukan hari (0091 mengganti 0087)
+
+Versi pertama menghitung pemakaian/hari dari penjualan 28 hari terakhir × resep. Itu menuntut penjualan diinput rajin setiap hari — dan outlet yang belum pernah mengisinya mendapat pemakaian nol untuk semua bahan, sehingga daftarnya selalu kosong. **Layar yang selalu bilang "tidak ada yang menipis" persis sama tidak bergunanya dengan layar yang tidak ada.**
+
+"Cukup berapa porsi lagi" hanya butuh dua hal yang memang selalu ada: stok dan resep. Ia bekerja di hari pertama outlet dipakai. Admin menetapkan satu angka porsi minimum per outlet, berlaku untuk semua menu sekaligus — tidak diatur per menu.
+
+`outlets.safety_days` dan `set_safety_days()` **dibuang**, bukan dibiarkan. Kolom mati yang ditinggalkan "untuk jaga-jaga" akan dibaca lagi suatu hari oleh orang yang mengira ia masih berarti — dan angkanya akan terlihat masuk akal, karena memang pernah masuk akal.
 
 ### Tiga keputusan model yang menentukan angkanya
 
-**Pemakaian dijumlahkan di setiap tingkat, bukan cuma di daun.** Menjual Nasi Ayam memakai sambal (setengah jadi); membuat sambal memakai cabai. Dua-duanya habis, dan dua-duanya perlu diawasi — sambal karena itu yang diambil saat jam sibuk, cabai karena itu yang dibeli.
+**Satu bahan dipakai banyak menu → takaran RATA-RATA.** Ayam dipakai Nasi Ayam (0,2 kg/porsi) dan Soto (0,1 kg/porsi) → 0,15 kg/porsi. Ini pilihan yang diminta, dan konsekuensinya perlu ditulis terang-terangan: rata-rata bisa **terlambat** memperingatkan kalau menu yang paling laris kebetulan yang paling boros. Ayam 5 kg terbaca "cukup 33 porsi", padahal kalau semuanya Nasi Ayam ia cuma cukup 25. Yang menutup celah itu batas manual — dan tabel admin menandai bahan yang dipakai lebih dari satu menu beserta rentang takarannya, supaya yang paling mungkin menyesatkan terlihat.
 
-**Menu "Dilayani CK" tidak dibentang jadi bahan.** Kalau CK yang membuatnya dan outlet menerimanya jadi, menjualnya memakai stok menu itu sendiri. Membentangkannya akan melaporkan gerai kehabisan cabai — padahal cabainya tidak pernah ada di sana dan memang tidak seharusnya ada. Daftar belanja yang menyuruh gerai membeli bahan yang bukan urusannya adalah daftar yang berhenti dibaca orang.
+**Pemakaian dijumlahkan di setiap tingkat.** Menjual Nasi Ayam memakai sambal (setengah jadi); membuat sambal memakai cabai. Dua-duanya habis.
 
-**Kebutuhan dihitung KOTOR — stok setengah jadi tidak dikurangkan.** Kalau ada 5 kg sambal di kulkas, cabainya sebenarnya belum perlu dibeli. Itu tidak diperhitungkan, jadi daftarnya bisa sedikit berlebih dan tidak pernah kurang. Arah kesalahannya dipilih sadar: berlebih terlihat dari raknya, kurang berarti kehabisan di tengah jam ramai.
+**Menu "Dilayani CK" tidak dibentang.** Kalau CK yang membuatnya dan outlet menerimanya jadi, bahannya tidak pernah ada di gerai. Membentangkannya akan menyuruh gerai membeli cabai yang bukan urusannya — dan daftar seperti itu berhenti dibaca orang.
 
-### Batas manual: tiga niat, tiga jalan
+### Bahan non-resep: satu-satunya jalan lewat batas manual
 
-Bentuk pertamanya satu kotak angka — kosong berarti otomatis, 0 berarti jangan diawasi. **Itu tidak bisa bekerja**: `type: 'qty'` mengubah kosong jadi 0 lewat `parseNumber`, jadi "kembali ke otomatis" akan diam-diam tersimpan sebagai "jangan diawasi". Dua niat berlawanan, hasil sama, tanpa error. Sekarang niatnya dipilih dari daftar: **Otomatis** (hapus barisnya) · **Angka tetap** · **Jangan awasi** (simpan 0).
+Gas, tisu, sedotan, kemasan tidak dipakai resep mana pun, jadi tidak punya angka porsi. Mereka **hanya** diawasi kalau admin memberi batas manual. Yang tidak punya keduanya disembunyikan — tapi jumlahnya tetap disebut di bawah tabel ("12 bahan tidak dipakai resep mana pun"), dan jalan keluarnya ditulis di layar itu juga, bukan cuma di dokumen ini.
 
-Ketahuan juga bahwa `step` termasuk atribut yang **didiamkan** `formDialog` — sama seperti `list` dulu. Sudah ditambahkan, walau untuk jumlah `type: 'qty'` tetap lebih tepat karena membaca koma desimal Indonesia.
+Batas manual punya tiga niat yang dipilih dari daftar, bukan disimpulkan dari kosong/nol: **Otomatis** (hapus barisnya) · **Angka tetap** · **Jangan awasi** (simpan 0). Bentuk pertamanya satu kotak angka, dan itu tidak bisa bekerja — `type: 'qty'` mengubah kosong jadi 0 lewat `parseNumber`, jadi "kembali ke otomatis" tersimpan diam-diam sebagai "jangan diawasi". Dua niat berlawanan, hasil sama, tanpa error.
 
-### Yang disembunyikan, dan kenapa itu perlu disebut
+### Kirim daftar belanja lewat WhatsApp
 
-Bahan yang belum pernah terpakai dalam 28 hari **tidak ditampilkan** — itu yang diminta, supaya daftarnya tidak penuh peringatan yang tidak berarti di awal pemakaian. Sisi buruknya nyata: bahan menu baru yang stoknya habis tidak akan muncul di mana pun.
+Tombolnya ada di Staff App maupun Admin Portal, memakai `shareDialog` yang sudah ada (share sheet native / `wa.me` / salin — tanpa API).
 
-Dua hal menahannya. Jumlah yang disembunyikan **tetap disebut** di bawah tabel ("12 bahan belum bisa dihitung"), jadi tidak hilang tanpa jejak. Dan memberi **batas manual** langsung memunculkannya — jalan keluar yang disebutkan di layar itu juga, bukan hanya di dokumen ini.
+Di Staff App tombolnya sempat diletakkan **di dalam** cabang "ada yang perlu dibeli", jadi lenyap persis ketika daftarnya kosong. Dari sisi staff itu terbaca seperti fiturnya tidak ada — dan mengabarkan "semua aman" ke grup juga kabar yang berguna. Sekarang selalu tampil.
 
-`bahan-menipis.js` diuji 65 kasus; enam sabotase, lima langsung merah. Yang keenam — membuang prioritas status pada pengurutan — **lolos**, karena di fixture-nya bahan yang habis kebetulan juga yang paling cepat habis. Ditambahkan kasus yang benar-benar memisahkan kedua aturan (bahan habis tanpa data pemakaian, `cukupHari = null`), dan sabotasenya jadi merah.
+`bahan-menipis.js` diuji 67 kasus; tujuh sabotase, semuanya merah — termasuk mengganti rata-rata jadi takaran terbesar, membentangkan menu CK, dan menganggap batas manual 0 sebagai "belum diatur".
 
 ### Audit yang lulus dengan tenang selama tiga layar
 
-`audit-outlet-tulis` dibuat untuk memastikan layar admin yang MENULIS tidak memakai daftar "outlet yang boleh dilihat". Ia hanya memindai `*.admin.page.js` — sementara tab-tab Inventory yang baru bernama `nota.admin.js`, `opname.admin.js`, `menipis.admin.js`. **Tidak satu pun pernah diperiksa**, hanya karena namanya berbeda satu kata.
+`audit-outlet-tulis` hanya memindai `*.admin.page.js` — sementara tab Inventory yang baru bernama `nota.admin.js`, `opname.admin.js`, `menipis.admin.js`, dan menerima daftar outlet **sebagai parameter** alih-alih memanggilnya. Tidak satu pun pernah diperiksa. Catatan pengecualian untuk `inventory.admin.page.js` pun masih berbunyi "hanya menampilkan", yang sudah tidak benar sejak dua tab yang menulis ditambahkan.
 
-Lebih dalam lagi: tab-tab itu tidak memanggil `listMyOutlets` sendiri — mereka **menerimanya sebagai parameter**, jadi audit yang mencari pemanggilan langsung tidak akan pernah melihatnya. Dan catatan pengecualian untuk `inventory.admin.page.js` masih berbunyi *"hanya menampilkan"*, yang benar saat ditulis dan sudah tidak benar sejak dua tab yang menulis ditambahkan. Alasan pengecualian yang basi lebih buruk daripada tidak ada — yang membacanya akan yakin halaman itu tidak menulis.
+Percobaan pertama menutupnya dengan mendeteksi `.rpc(`/`.upsert(` di berkasnya melaporkan **"0 tab diperiksa"** dengan tenang — tulisannya lewat fungsi service yang diimpor. Aturannya lalu dibalik: setiap tab admin yang menerima daftar outlet **wajib menjawab**, entah dengan menyebut penjaganya (`sayaAdminBu`) atau terdaftar sebagai hanya-baca beserta alasannya. Tidak ada jalan diam.
 
-Percobaan pertama menutup celah ini dengan mendeteksi `.rpc(`/`.upsert(` di berkasnya, dan melaporkan **"0 tab diperiksa"** dengan tenang: tulisannya lewat fungsi service yang diimpor. Aturannya lalu dibalik — setiap tab admin yang menerima daftar outlet **wajib menjawab**, entah dengan menyebut penjaganya (`sayaAdminBu`) atau terdaftar sebagai hanya-baca beserta alasannya. Tidak ada jalan diam. Dua sabotase merah.
-
-Substansinya sendiri ternyata aman: semua tulisannya berskala BU dan dijaga `sayaAdminBu()` di layar serta `is_bu_admin()` di RPC/policy. Yang rusak bukan izinnya, melainkan keyakinan bahwa auditnya sedang menjaga sesuatu.
-
-## Daily Activities: dua bug yang dilaporkan (migration `0088`)
-
-### 1. Super admin tidak bisa MEMULAI sesi
-
-Gejalanya terbaca sebagai *"sepertinya cuma staff yang bisa mengisi"*. Yang sebenarnya terjadi lebih sempit — dan itulah yang membuatnya membingungkan: **super_admin tidak bisa menjadi orang PERTAMA** yang mengisi sebuah sesi pada hari itu. Kalau staff sudah memulainya, super_admin bisa menambahkan item dengan normal, karena penambahan item dijaga policy lain (`0071`) yang sudah memakai `has_outlet_scope()`.
-
-Jadi berhasil-tidaknya bergantung pada siapa yang kebetulan mengisi lebih dulu.
-
-Sebabnya: `checklist_runs_insert_own` dari `0016` menulis syaratnya sendiri alih-alih memanggil helper yang sudah ada —
-
-```sql
-and exists (select 1 from membership_scopes ms
-            where ms.user_id = auth.uid()
-              and ms.business_unit_id = checklist_runs.business_unit_id)
-```
-
-Itu menuntut baris keanggotaan **di BU itu persis**. Untuk staff, bu_admin, dan outlet_admin syarat itu terpenuhi sendirinya. Untuk super_admin tidak: wewenangnya lintas BU, tapi baris `membership_scopes`-nya tetap menunjuk satu BU. `has_bu_scope()` sudah menangani ini dengan benar sejak 0001 — policy-nya saja yang tidak memakainya.
-
-Pelajarannya: policy yang **menyalin** logika keanggotaan alih-alih **memanggil** helper-nya akan selalu ketinggalan. Dari 55+ policy yang memakai tangga wewenang, yang ini salah satu dari sedikit yang menulis `exists (...)` sendiri — dan justru itu yang menyimpang.
-
-Saya sempat menulis di migration itu bahwa sisi `select` juga rusak. **Itu keliru** — `0068` sudah menanganinya dengan definisi yang persis sama. Koreksinya dibiarkan tercatat, karena penjelasan yang salah mengirim orang membetulkan hal yang tidak rusak.
-
-### 2. Halaman reset setelah mengambil foto, foto tidak terunggah
-
-Sebelumnya file mentah dari kamera ditahan apa adanya sampai tombol Kirim ditekan. Satu foto HP hari ini 3–5 MB / 12 megapiksel. Untuk sesi berisi sepuluh item itu berarti ~40 MB berkas mentah menganggur, **ditambah** sepuluh pratinjau `<img>` yang masing-masing mendekode gambar penuh — kotaknya 76×76 px, tapi bitmap yang didekode tetap 12 MP × 4 byte ≈ **48 MB per gambar**.
-
-Ratusan megabyte di halaman yang sedang di **latar belakang**, karena aplikasi kamera (yang juga rakus memori) sedang di depan. Android membuang halaman latar belakang lebih dulu; begitu orangnya kembali, halamannya dimuat ulang dari nol — layar reset, dan file yang cuma ada di memori ikut hilang. Persis dua gejala yang dilaporkan.
-
-Sekarang fotonya **dikecilkan saat dipilih**, bukan saat dikirim (~25× lebih sedikit memori). Kompresinya tidak pernah menggagalkan pilihan foto: `compressImage` mengembalikan file aslinya kalau gagal.
-
-**Yang tidak bisa saya pastikan:** saya tidak bisa memutar ulang kejadiannya di HP itu. Mekanismenya bisa dihitung dan cocok dengan gejalanya, tapi kalau gejalanya masih muncul sesudah ini, sebabnya bukan yang ini.
-
-Dua hal ikut dijaga karena perubahan ini memunculkannya:
-
-- **Kompresi tidak boleh dua kali.** `wirePhotoInput` hanya mengecilkan kalau preset diminta, dan menandai hasilnya di `WeakSet`. `cleaning.service` memeriksa penanda itu sebelum mengecilkan lagi. Defaultnya **tidak mengecilkan** — modul lain (kas, aset, presensi, avatar, cuti) sudah punya preset sendiri, dan `leave` bahkan menerima PDF lewat jalur yang sama.
-- **Foto yang dipilih terakhir harus menang.** Kompresi butuh ratusan milidetik; memotret ulang sebelum yang pertama selesai akan membuat hasil lama mendarat belakangan dan menimpa yang baru — pratinjau menampilkan foto baru, yang tersimpan foto lama.
-
-`test-pilih-foto.mjs` menguji 17 kasus. Sabotase pertama pada bagian "selagi menyiapkan" **lolos**, karena fixture-nya mulai dari kosong dan pemilih baru memang bernilai null — jadi tidak membuktikan apa pun. Diganti dengan kasus **mengganti** foto, yang menangkap bahaya sebenarnya: mengirim foto lama selagi penggantinya disiapkan. Sesudah itu merah.
-
-Perlu dicatat juga bahwa penjaga urutannya diuji lewat **tiruan**, bukan kode yang benar-benar berjalan — ia hidup di dalam `wirePhotoInput` yang menuntut DOM. Tesnya menjaga aturannya tetap benar, bukan implementasinya; keduanya harus diubah bersamaan.
+Substansinya ternyata aman: semua tulisannya berskala BU dan dijaga `sayaAdminBu()` di layar serta `is_bu_admin()` di RPC/policy. Yang rusak bukan izinnya, melainkan keyakinan bahwa auditnya sedang menjaga sesuatu.
 
 ## Rekaman layar mengubah diagnosisnya (migration `0089`)
 
@@ -3113,5 +3077,5 @@ Di Staff App, konfirmasi hapusnya menyebutkan akibatnya **sebelum** ditekan kala
 - [x] **Reservasi: jam bebas, S&K per outlet, DP + bukti transfer, koreksi/reschedule oleh admin** — jam tidak harus .00 (kuota tetap dihitung per slot), S&K ikut di pesan WhatsApp, DP dicatat beserta fotonya **dari Staff App maupun Admin Portal** (**tidak masuk modul Kas**)
 - [x] **Kantong kas (sub-kas) & outlet peruntukan** — form Kas Masuk/Keluar dibedakan, jumlah kantong per user diatur admin, pindah saldo antar kantong sendiri, Laporan Kas bisa disaring per outlet & kategori
 - [x] **Terima dari supplier per nota** — satu kali input banyak barang + foto nota (boleh menyusul), nomor `TRM-YYMMDD-XXXX` dibuat sistem, edit mengoreksi stok lewat pergerakan penyeimbang; Admin Portal punya tab **Nota Terima** dengan rincian per nomor + unduh xlsx
-- [x] **Bahan menipis (dari penjualan × resep)** — pemakaian/hari dibentangkan menu → setengah jadi → bahan baku, batas = pemakaian × **hari aman** per outlet, bisa **ditimpa manual** per bahan; tabel di Staff App (kartu di HP) + tab Admin Portal, unduh xlsx & kirim daftar belanja lewat WhatsApp tanpa API
+- [x] **Bahan menipis (stok ÷ takaran resep = cukup berapa porsi)** — takaran rata-rata dari semua menu yang memakai bahan itu, ambang **porsi minimum per outlet** berlaku untuk semua menu sekaligus, bisa **ditimpa manual** per bahan (satu-satunya cara mengawasi gas/tisu/kemasan); tabel di Staff App (kartu di HP) + tab Admin Portal, unduh xlsx & kirim daftar belanja lewat WhatsApp tanpa API
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin

@@ -2,12 +2,12 @@
  * Tab BAHAN MENIPIS di Admin Portal.
  *
  * Dua hal yang tidak ada di Staff App:
- *   1. mengatur **hari aman** outlet,
+ *   1. mengatur **porsi minimum** outlet,
  *   2. memberi/menghapus **batas manual** per bahan,
  * ditambah unduh xlsx daftar belanja.
  *
  * Tombolnya disembunyikan untuk yang bukan Admin BU, TAPI ITU BUKAN PENGAMAN.
- * Penjaganya ada di `set_safety_days()` dan policy `pms_modify` (0087); yang
+ * Penjaganya ada di `set_min_porsi()` (0091) dan policy `pms_modify` (0087); yang
  * di sini hanya supaya orang tidak menekan sesuatu yang pasti ditolak.
  */
 
@@ -20,7 +20,7 @@ import { sayaAdminBu } from '../../core/base-scope.js';
 import { listProducts, listRecipesFull } from '../product/product.service.js';
 import { listStockBalances } from './inventory.service.js';
 import { susunBahanMenipis, teksBelanja } from './bahan-menipis.js';
-import { penjualanRentang, batasManual, hariAmanOutlet, setHariAman, simpanBatasManual, HARI_RIWAYAT } from './batas-bahan.service.js';
+import { batasManual, porsiMinimumOutlet, setPorsiMinimum, simpanBatasManual } from './batas-bahan.service.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -31,20 +31,14 @@ const LENCANA = {
   aman: '<span class="badge badge-approved">Aman</span>'
 };
 
-function mundurHari(tgl, n) {
-  const d = new Date(`${tgl}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - n);
-  return d.toISOString().slice(0, 10);
-}
-
 const KOLOM_XLSX = [
   { header: 'Bahan', width: 2.2 },
   { header: 'Kategori', width: 1.2 },
   { header: 'Status', width: 0.9 },
   { header: 'Stok', width: 0.8, align: 'right' },
   { header: 'Satuan', width: 0.7 },
-  { header: 'Pakai/hari', width: 1, align: 'right' },
-  { header: 'Cukup (hari)', width: 1, align: 'right' },
+  { header: 'Takaran/porsi', width: 1.1, align: 'right' },
+  { header: 'Cukup (porsi)', width: 1, align: 'right' },
   { header: 'Batas', width: 0.9, align: 'right' },
   { header: 'Saran beli', width: 1, align: 'right' }
 ];
@@ -55,8 +49,8 @@ const barisXlsx = (r) => [
   r.status,
   formatNum(r.stok),
   r.satuan,
-  formatNum(r.perHari),
-  r.cukupHari == null ? '-' : formatNum(r.cukupHari),
+  r.takaran == null ? '-' : formatNum(r.takaran),
+  r.porsi == null ? '-' : formatNum(r.porsi),
   formatNum(r.batas) + (r.batasManual ? ' (manual)' : ''),
   r.saranBeli > 0 ? formatNum(r.saranBeli) : '-'
 ];
@@ -69,7 +63,8 @@ export async function renderMenipisAdmin(container, { businessUnitId, outlets })
       <h2 style="font-size:1.05rem;margin:0">Bahan Menipis</h2>
     </div>
     <p style="color:var(--color-text-muted);font-size:0.88rem;margin:0 0 12px;max-width:660px">
-      Pemakaian dihitung dari <strong>penjualan ${HARI_RIWAYAT} hari terakhir × resep</strong>, dibentangkan sampai bahan baku.
+      Stok dibagi <strong>takaran resep</strong> = cukup berapa porsi lagi. Bahan yang dipakai beberapa menu memakai
+      <strong>takaran rata-rata</strong> menu-menu itu.
       Menu yang <strong>Dilayani CK</strong> tidak dibentang jadi bahan di outlet gerai — yang terpakai di sana adalah menunya sendiri.
     </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
@@ -105,15 +100,13 @@ export async function renderMenipisAdmin(container, { businessUnitId, outlets })
 
   async function muat() {
     hasil.innerHTML = loadingHtml('Menghitung…', { baris: 5 });
-    const sampai = todayWIB();
-    const dari = mundurHari(sampai, HARI_RIWAYAT - 1);
+    const hariIni = todayWIB();
 
-    let sales, manual, hariAman, saldo;
+    let manual, minPorsi, saldo;
     try {
-      [sales, manual, hariAman, saldo] = await Promise.all([
-        penjualanRentang(state.outletId, dari, sampai),
+      [manual, minPorsi, saldo] = await Promise.all([
         batasManual(state.outletId).catch(() => new Map()),
-        hariAmanOutlet(state.outletId).catch(() => 7),
+        porsiMinimumOutlet(state.outletId).catch(() => 30),
         listStockBalances(businessUnitId, state.outletId)
       ]);
     } catch (e) {
@@ -124,27 +117,29 @@ export async function renderMenipisAdmin(container, { businessUnitId, outlets })
     const stok = new Map();
     for (const b of saldo ?? []) stok.set(b.product_id, (stok.get(b.product_id) ?? 0) + Number(b.qty));
 
-    const lap = susunBahanMenipis({ products, recipes, sales, hari: HARI_RIWAYAT, stok, hariAman, batasManual: manual });
+    const lap = susunBahanMenipis({ products, recipes, stok, minPorsi, batasManual: manual });
     const namaOutlet = outlets.find((o) => o.id === state.outletId)?.name ?? '';
 
     container.querySelector('#mn-atur').innerHTML = bolehKelola
-      ? `<button id="mn-hari">🎯 Hari aman: <strong>${lap.hariAman}</strong></button>`
-      : `<span style="font-size:0.85rem;color:var(--color-text-muted)">Target stok ${lap.hariAman} hari</span>`;
+      ? `<button id="mn-porsi">🎯 Porsi minimum: <strong>${lap.minPorsi}</strong></button>`
+      : `<span style="font-size:0.85rem;color:var(--color-text-muted)">Target cukup ${lap.minPorsi} porsi</span>`;
 
-    container.querySelector('#mn-hari')?.addEventListener(
+    container.querySelector('#mn-porsi')?.addEventListener(
       'click',
       sekaliJalan(async () => {
         const v = await formDialog({
-          title: `Hari Aman — ${namaOutlet}`,
+          title: `Porsi Minimum — ${namaOutlet}`,
           description:
-            'Batas otomatis = pemakaian per hari × angka ini. Isi sesuai jarak antar belanja/kiriman: outlet yang dikirimi 2 hari sekali tidak perlu menimbun seminggu.',
-          fields: [{ name: 'hari', label: 'Stok harus cukup berapa hari?', type: 'number', required: true, value: String(lap.hariAman), min: 1, max: 90 }],
+            'Batas otomatis = takaran rata-rata per porsi × angka ini. Berlaku untuk SEMUA menu sekaligus, tidak diatur per menu. Isi sesuai jarak antar belanja: outlet yang belanja tiap hari tidak perlu menimbun sebanyak yang belanja seminggu sekali.',
+          fields: [
+            { name: 'porsi', label: 'Stok harus cukup untuk berapa porsi?', type: 'number', required: true, value: String(lap.minPorsi), min: 1, max: 10000 }
+          ],
           submitText: 'Simpan'
         });
         if (!v) return;
         try {
-          await setHariAman(state.outletId, v.hari);
-          toast(`Hari aman ${namaOutlet} jadi ${v.hari} hari.`, 'success');
+          await setPorsiMinimum(state.outletId, v.porsi);
+          toast(`Porsi minimum ${namaOutlet} jadi ${v.porsi} porsi.`, 'success');
           await muat();
         } catch (e) {
           toast(e.message ?? 'Gagal menyimpan.', 'error');
@@ -158,8 +153,20 @@ export async function renderMenipisAdmin(container, { businessUnitId, outlets })
         <td data-label="Kategori">${esc(r.kategori ?? '-')}</td>
         <td data-label="Status">${LENCANA[r.status]}</td>
         <td data-label="Stok">${formatNum(r.stok)} ${esc(r.satuan)}</td>
-        <td data-label="Pakai/hari">${formatNum(r.perHari)}</td>
-        <td data-label="Cukup">${r.cukupHari == null ? '-' : `${formatNum(r.cukupHari)} hari`}</td>
+        <td data-label="Takaran/porsi">${
+          r.takaran == null
+            ? '-'
+            : `${formatNum(r.takaran)} ${esc(r.satuan)}` +
+              // Selisih takaran antar menu ditandai: di situlah rata-rata
+              // paling mungkin menyesatkan, dan di situ pula batas manual
+              // paling berguna.
+              (r.jumlahMenu > 1
+                ? ` <span style="font-size:0.72rem;color:var(--color-text-muted)" title="${formatNum(r.takaranMin)}–${formatNum(r.takaranMaks)} ${esc(
+                    r.satuan
+                  )}">rata² ${r.jumlahMenu} menu</span>`
+                : '')
+        }</td>
+        <td data-label="Cukup">${r.porsi == null ? '-' : `${formatNum(r.porsi)} porsi`}</td>
         <td data-label="Batas">${formatNum(r.batas)}${
           r.batasManual ? ' <span style="font-size:0.72rem;color:var(--color-text-muted)">manual</span>' : ''
         }</td>
@@ -176,13 +183,13 @@ export async function renderMenipisAdmin(container, { businessUnitId, outlets })
         ${lap.jumlahAman} aman
       </p>
       <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
-        <thead><tr><th>Bahan</th><th>Kategori</th><th>Status</th><th>Stok</th><th>Pakai/hari</th><th>Cukup</th><th>Batas</th><th>Saran beli</th><th>Aksi</th></tr></thead>
+        <thead><tr><th>Bahan</th><th>Kategori</th><th>Status</th><th>Stok</th><th>Takaran/porsi</th><th>Cukup</th><th>Batas</th><th>Saran beli</th><th>Aksi</th></tr></thead>
         <tbody>${lap.baris.map(baris).join('') || '<tr><td colspan="9">Belum ada bahan yang bisa dihitung — penjualan pada rentang ini masih kosong.</td></tr>'}</tbody>
       </table></div>
       ${
         lap.tersembunyi
           ? `<p style="margin-top:10px;font-size:0.82rem;color:var(--color-text-muted)">
-               ${lap.tersembunyi} bahan belum pernah terpakai dalam ${HARI_RIWAYAT} hari terakhir, jadi tidak ditampilkan.
+               ${lap.tersembunyi} bahan tidak dipakai resep mana pun (mis. gas, tisu, kemasan), jadi tidak bisa dihitung per porsi.
                Beri <strong>batas manual</strong> kalau tetap perlu diawasi — itu satu-satunya cara memunculkannya di sini.
              </p>`
           : ''
@@ -194,10 +201,10 @@ export async function renderMenipisAdmin(container, { businessUnitId, outlets })
 
     hasil.querySelector('#mn-xlsx').addEventListener('click', async () => {
       await exportTableXLSX({
-        filename: `bahan-menipis-${namaOutlet.replace(/[^\w.-]+/g, '-')}-${sampai}`,
+        filename: `bahan-menipis-${namaOutlet.replace(/[^\w.-]+/g, '-')}-${hariIni}`,
         sheetName: 'Bahan Menipis',
         title: `Bahan Menipis — ${namaOutlet}`,
-        subtitle: `Penjualan ${dari} s/d ${sampai} · target stok ${lap.hariAman} hari`,
+        subtitle: `Per ${hariIni} · target stok cukup ${lap.minPorsi} porsi`,
         columns: KOLOM_XLSX,
         // SELURUH baris, bukan hanya yang menipis: berkas ini dipakai juga
         // untuk memeriksa apakah batasnya masuk akal, dan itu menuntut melihat
@@ -210,7 +217,7 @@ export async function renderMenipisAdmin(container, { businessUnitId, outlets })
       await infoDialog({
         title: 'Daftar Belanja',
         bodyHtml: `<pre style="white-space:pre-wrap;font-family:inherit;font-size:0.88rem;margin:0">${esc(
-          teksBelanja(lap, { outlet: namaOutlet, tanggal: sampai })
+          teksBelanja(lap, { outlet: namaOutlet, tanggal: hariIni })
         )}</pre>`
       });
     });
@@ -236,7 +243,7 @@ export async function renderMenipisAdmin(container, { businessUnitId, outlets })
           // dengan nyaman di HP.
           const v = await formDialog({
             title: `Batas Minimum — ${b.dataset.nama}`,
-            description: `Otomatis = pemakaian per hari × ${lap.hariAman} hari, ikut naik-turun sendiri saat ramai atau sepi.`,
+            description: `Otomatis = takaran rata-rata per porsi × ${lap.minPorsi} porsi.`,
             fields: [
               {
                 name: 'cara',
@@ -245,7 +252,7 @@ export async function renderMenipisAdmin(container, { businessUnitId, outlets })
                 required: true,
                 value: !punya ? 'otomatis' : nilaiKini > 0 ? 'manual' : 'abaikan',
                 options: [
-                  { value: 'otomatis', label: 'Otomatis dari penjualan' },
+                  { value: 'otomatis', label: 'Otomatis dari resep' },
                   { value: 'manual', label: 'Angka tetap (isi di bawah)' },
                   { value: 'abaikan', label: 'Jangan awasi bahan ini' }
                 ]

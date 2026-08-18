@@ -15,7 +15,7 @@ import { formatNum } from '../../core/format.js';
 import { loadingHtml } from '../../core/loading.js';
 import { todayWIB } from '../../core/dates.js';
 import { susunBahanMenipis, teksBelanja } from './bahan-menipis.js';
-import { penjualanRentang, batasManual, hariAmanOutlet, HARI_RIWAYAT } from './batas-bahan.service.js';
+import { batasManual, porsiMinimumOutlet } from './batas-bahan.service.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -25,13 +25,6 @@ const LENCANA = {
   menipis: '<span class="badge badge-pending">Menipis</span>',
   aman: '<span class="badge badge-approved">Aman</span>'
 };
-
-/** Mundur N hari dari 'YYYY-MM-DD' — dipakai menentukan awal rentang riwayat. */
-function mundurHari(tgl, n) {
-  const d = new Date(`${tgl}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() - n);
-  return d.toISOString().slice(0, 10);
-}
 
 /**
  * @param {HTMLElement} wadah
@@ -43,24 +36,20 @@ function mundurHari(tgl, n) {
  * @param {Map} o.stok productId → jumlah
  */
 export async function renderMenipisStaff(wadah, { outletId, outletName, products, recipes, stok }) {
-  wadah.innerHTML = `<div class="inline-card fade-in">${loadingHtml('Menghitung pemakaian…', { baris: 3 })}</div>`;
+  wadah.innerHTML = `<div class="inline-card fade-in">${loadingHtml('Menghitung…', { baris: 3 })}</div>`;
 
-  const sampai = todayWIB();
-  const dari = mundurHari(sampai, HARI_RIWAYAT - 1);
-
-  let sales, manual, hariAman;
+  let manual, minPorsi;
   try {
-    [sales, manual, hariAman] = await Promise.all([
-      penjualanRentang(outletId, dari, sampai),
+    [manual, minPorsi] = await Promise.all([
       batasManual(outletId).catch(() => new Map()),
-      hariAmanOutlet(outletId).catch(() => 7)
+      porsiMinimumOutlet(outletId).catch(() => 30)
     ]);
   } catch (e) {
     wadah.innerHTML = `<div class="inline-card"><p class="error-text">${esc(e.message ?? e)}</p></div>`;
     return;
   }
 
-  const lap = susunBahanMenipis({ products, recipes, sales, hari: HARI_RIWAYAT, stok, hariAman, batasManual: manual });
+  const lap = susunBahanMenipis({ products, recipes, stok, minPorsi, batasManual: manual });
 
   const baris = (r) => `
     <tr>
@@ -69,15 +58,14 @@ export async function renderMenipisStaff(wadah, { outletId, outletName, products
       }</td>
       <td data-label="Status">${LENCANA[r.status]}</td>
       <td data-label="Stok">${formatNum(r.stok)} ${esc(r.satuan)}</td>
-      <td data-label="Pakai/hari">${formatNum(r.perHari)} ${esc(r.satuan)}</td>
-      <td data-label="Cukup">${r.cukupHari == null ? '-' : `${formatNum(r.cukupHari)} hari`}</td>
+      <td data-label="Cukup">${r.porsi == null ? '-' : `${formatNum(r.porsi)} porsi`}</td>
       <td data-label="Batas">${formatNum(r.batas)} ${esc(r.satuan)}</td>
       <td data-label="Saran beli">${r.saranBeli > 0 ? `<strong>${formatNum(r.saranBeli)} ${esc(r.satuan)}</strong>` : '-'}</td>
     </tr>`;
 
   const tabel = (rows) => `
     <div class="table-scroll"><table class="data-table kartu-sempit">
-      <thead><tr><th>Bahan</th><th>Status</th><th>Stok</th><th>Pakai/hari</th><th>Cukup</th><th>Batas</th><th>Saran beli</th></tr></thead>
+      <thead><tr><th>Bahan</th><th>Status</th><th>Stok</th><th>Cukup</th><th>Batas</th><th>Saran beli</th></tr></thead>
       <tbody>${rows.map(baris).join('')}</tbody>
     </table></div>`;
 
@@ -88,8 +76,8 @@ export async function renderMenipisStaff(wadah, { outletId, outletName, products
         <button id="mnp-tutup">Tutup</button>
       </div>
       <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 10px">
-        Pemakaian dihitung dari penjualan <strong>${HARI_RIWAYAT} hari terakhir</strong> dikalikan resep.
-        Target stok cukup <strong>${lap.hariAman} hari</strong> (diatur admin per outlet).
+        Stok dibagi takaran resep = <strong>cukup berapa porsi lagi</strong>.
+        Target di outlet ini: stok harus cukup untuk <strong>${lap.minPorsi} porsi</strong> (diatur admin).
       </p>
 
       ${
@@ -98,12 +86,13 @@ export async function renderMenipisStaff(wadah, { outletId, outletName, products
                <strong style="color:var(--color-danger)">${lap.jumlahHabis} habis</strong> ·
                <strong>${lap.jumlahMenipis} menipis</strong>
              </p>
-             ${tabel(lap.perlu)}
-             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-               <button class="primary" id="mnp-wa" style="max-width:240px">💬 Kirim daftar belanja</button>
-             </div>`
+             ${tabel(lap.perlu)}`
           : `<p style="margin:0 0 10px">Tidak ada bahan yang menipis. 👍</p>`
       }
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="primary" id="mnp-wa" style="max-width:260px">💬 Kirim daftar belanja</button>
+      </div>
 
       ${
         lap.jumlahAman
@@ -115,17 +104,14 @@ export async function renderMenipisStaff(wadah, { outletId, outletName, products
       }
 
       ${
-        // KEJUJURAN YANG DIMINTA MUNCUL DI SINI.
-        //
-        // Bahan tanpa riwayat pemakaian sengaja tidak masuk daftar (itu yang
-        // diminta), tapi jumlahnya tetap disebut. Kalau dihilangkan sama
-        // sekali, bahan menu baru yang habis tidak akan terlihat di mana pun —
-        // dan tidak ada apa pun di layar yang memberi tahu bahwa ada yang
-        // tidak dihitung.
+        // Bahan yang tidak dipakai resep mana pun (gas, tisu, sedotan) tidak
+        // punya angka porsi, jadi tidak bisa dihitung. Jumlahnya tetap disebut
+        // supaya tidak hilang tanpa jejak — dan jalan keluarnya ditulis di sini
+        // juga, bukan cuma di dokumen.
         lap.tersembunyi
           ? `<p style="margin-top:12px;font-size:0.8rem;color:var(--color-text-muted)">
-               ${lap.tersembunyi} bahan belum pernah terpakai dalam ${HARI_RIWAYAT} hari terakhir, jadi belum bisa dihitung dan tidak ditampilkan.
-               Minta admin memberi <strong>batas manual</strong> kalau bahan itu tetap perlu diawasi.
+               ${lap.tersembunyi} bahan tidak dipakai resep mana pun (mis. gas, tisu, kemasan), jadi tidak bisa dihitung per porsi.
+               Minta admin memberinya <strong>batas manual</strong> kalau tetap perlu diawasi.
              </p>`
           : ''
       }
@@ -136,11 +122,17 @@ export async function renderMenipisStaff(wadah, { outletId, outletName, products
     wadah.setAttribute('hidden', '');
   });
 
-  wadah.querySelector('#mnp-wa')?.addEventListener('click', () => {
+  // TOMBOL KIRIM SELALU ADA, termasuk saat tidak ada yang menipis.
+  //
+  // Versi sebelumnya menaruhnya di dalam cabang "ada yang perlu dibeli", jadi
+  // tombolnya lenyap persis ketika daftarnya kosong. Dari sisi staff itu
+  // terbaca seperti fiturnya tidak ada — dan mengabarkan "semua aman" ke grup
+  // juga kabar yang berguna.
+  wadah.querySelector('#mnp-wa').addEventListener('click', () => {
     shareDialog({
       title: 'Kirim Daftar Belanja',
-      helper: 'Teksnya bisa diedit dulu sebelum dikirim.',
-      defaultMessage: teksBelanja(lap, { outlet: outletName, tanggal: sampai })
+      helper: 'Teksnya bisa diedit dulu sebelum dikirim lewat WhatsApp atau disalin.',
+      defaultMessage: teksBelanja(lap, { outlet: outletName, tanggal: todayWIB() })
     });
     toast('Periksa dulu isinya sebelum dikirim.', 'info');
   });

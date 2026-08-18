@@ -1,111 +1,112 @@
 /**
- * BAHAN MENIPIS — dari penjualan × resep, per outlet.
+ * BAHAN MENIPIS — stok akhir dibagi takaran resep = CUKUP BERAPA PORSI LAGI.
  *
  * Tidak ada impor di file ini, dan sebaiknya tetap begitu: angkanya dipakai
  * menyusun daftar belanja, dan angka yang tidak bisa diuji di luar browser
  * adalah angka yang tidak pernah benar-benar diperiksa.
  *
  * =====================================================================
- * MODELNYA — bagian yang paling mungkin salah dan paling tidak kelihatan
+ * KENAPA PORSI, BUKAN HARI (perubahan dari 0087 ke 0091)
  * =====================================================================
  *
- * 1. MENJUAL MENU MEMAKAI BAHAN DI SETIAP TINGKAT, bukan cuma bahan bakunya.
+ * Versi sebelumnya menghitung pemakaian/hari dari penjualan 28 hari terakhir.
+ * Itu menuntut penjualan diinput rajin setiap hari — dan outlet yang belum
+ * pernah mengisinya mendapat pemakaian nol untuk semua bahan, sehingga
+ * daftarnya selalu kosong. Layar yang selalu bilang "tidak ada yang menipis"
+ * persis sama tidak bergunanya dengan layar yang tidak ada.
  *
- *    Menjual "Nasi Ayam" memakai sambal (setengah jadi); membuat sambal itu
- *    memakai cabai (bahan baku). Dua-duanya habis, dan dua-duanya perlu
- *    diawasi — sambal karena itu yang diambil dari kulkas saat jam sibuk,
- *    cabai karena itu yang harus dibeli.
- *
- *    Jadi pemakaian dijumlahkan di SETIAP simpul, bukan hanya di daun.
- *
- * 2. YANG TIDAK DILAKUKAN: mengurangi kebutuhan bahan baku dengan stok
- *    setengah jadi yang sudah ada.
- *
- *    Kalau ada 5 kg sambal siap pakai di kulkas, sebenarnya cabainya belum
- *    perlu dibeli sekarang. Perhitungan di sini TIDAK memperhitungkan itu —
- *    yang dihitung kebutuhan KOTOR. Akibatnya daftar belanja bisa sedikit
- *    berlebih, tidak pernah kurang.
- *
- *    Arah kesalahannya dipilih dengan sadar. Berlebih artinya membeli terlalu
- *    cepat; kurang artinya kehabisan di tengah jam ramai. Yang kedua jauh
- *    lebih mahal, dan yang pertama terlihat dari raknya.
- *
- * 3. MENU "DILAYANI CK" TIDAK MEMAKAI BAHAN DI OUTLETNYA.
- *
- *    Kalau sebuah menu hanya punya resep varian "Dilayani CK", berarti Central
- *    Kitchen yang membuatnya dan outlet menerimanya jadi. Menjualnya memakai
- *    STOK MENU ITU SENDIRI, bukan bahan-bahannya.
- *
- *    Membentangkannya jadi bahan baku akan melaporkan outlet gerai kehabisan
- *    cabai — padahal cabainya tidak pernah ada di sana, dan tidak seharusnya
- *    ada. Daftar belanja yang menyuruh gerai membeli bahan yang bukan
- *    urusannya adalah daftar yang akan berhenti dibaca orang.
+ * "Cukup berapa porsi lagi" hanya butuh dua hal yang memang selalu ada: stok
+ * dan resep. Ia bekerja di hari pertama outlet dipakai.
  *
  * =====================================================================
- * BATAS "MENIPIS"
+ * SATU BAHAN, BANYAK MENU — RATA-RATA
  * =====================================================================
  *
- *   batas = batasManual  kalau ada barisnya
- *         = pemakaianHarian × hariAman  kalau tidak
+ * Ayam dipakai Nasi Ayam (0,2 kg/porsi) dan Soto (0,1 kg/porsi). Takaran yang
+ * dipakai adalah RATA-RATA dari semua menu yang memakainya: 0,15 kg/porsi.
  *
- * Manual menang karena ia menyatakan sesuatu yang tidak bisa disimpulkan dari
- * penjualan: barang langka yang harus selalu ditimbun, atau bahan yang
- * pembeliannya minimal satu dus.
+ * Ini pilihan yang diminta, dan konsekuensinya perlu ditulis terang-terangan:
+ * rata-rata bisa TERLAMBAT memperingatkan kalau menu yang paling laris
+ * kebetulan yang paling boros. Ayam 5 kg terbaca "cukup 33 porsi", padahal
+ * kalau yang terjual semuanya Nasi Ayam ia hanya cukup 25.
+ *
+ * Yang menutup celah itu adalah BATAS MANUAL per bahan — bahan yang terbukti
+ * sering meleset bisa dikunci ke angka tetap oleh admin.
+ *
+ * Rata-ratanya TIDAK ditimbang penjualan. Menimbangnya akan mengembalikan
+ * ketergantungan pada data penjualan yang justru baru saja dibuang.
+ *
+ * =====================================================================
+ * MENU "DILAYANI CK" TIDAK IKUT
+ * =====================================================================
+ *
+ * Kalau sebuah menu hanya punya resep varian "Dilayani CK", Central Kitchen
+ * yang membuatnya dan outlet menerimanya jadi. Bahan-bahannya tidak pernah ada
+ * di gerai, dan tidak seharusnya ada. Ikut menghitungnya akan menyuruh gerai
+ * membeli cabai yang bukan urusannya — dan daftar seperti itu berhenti dibaca
+ * orang.
+ *
+ * =====================================================================
+ * DUA JENIS BATAS, SATU SATUAN
+ * =====================================================================
+ *
+ *   batas (dalam satuan bahannya, mis. kg)
+ *     = batas manual            kalau ada barisnya
+ *     = takaran rata × minPorsi kalau tidak
+ *
+ * Disamakan satuannya dengan sengaja: seluruh tabel jadi satu perbandingan
+ * "stok vs batas", dan kolom porsi tinggal keterangan. Kalau dibiarkan dua
+ * satuan yang berbeda, tiap baris menuntut pembacanya ingat sedang melihat
+ * yang mana.
  *
  * `batasManual = 0` BUKAN "belum diatur" — itu pernyataan sadar "jangan
- * diawasi". Karena itu yang dibedakan adalah ADA/TIDAK ADA barisnya, bukan
- * nilainya nol atau bukan. Menyamakan keduanya berarti satu-satunya cara
- * mematikan peringatan adalah menghapus barisnya, dan niatnya jadi hilang.
+ * diawasi". Yang dibedakan ADA/TIDAK ADA barisnya, bukan nilainya nol atau
+ * bukan.
  */
 
 /** Ambang yang dianggap "nol" — melindungi dari sisa pembagian floating point. */
 const EPS = 1e-9;
 
 /**
- * Susun fungsi pembentang resep.
+ * Bentangkan resep satu produk jadi bahan per 1 satuan hasil.
  *
- * Bentuknya sengaja meniru `buildCostFn` di `hpp.js` — sama-sama menelusuri
- * resep secara rekursif dengan memo dan penjaga siklus. Yang berbeda hanya apa
- * yang dijumlahkan: di sana rupiah, di sini jumlah bahan.
+ * Sama bentuknya dengan `buildCostFn` di `hpp.js` — menelusuri resep secara
+ * rekursif dengan memo dan penjaga siklus. Yang berbeda hanya apa yang
+ * dijumlahkan: di sana rupiah, di sini jumlah bahan.
  *
- * @returns {(menuId: string) => Map<string, number>} bahan per 1 unit terjual
+ * Pemakaian dijumlahkan di SETIAP tingkat, bukan hanya di daun: menjual Nasi
+ * Ayam memakai sambal (setengah jadi), dan membuat sambal memakai cabai. Dua-
+ * duanya habis, dua-duanya perlu diawasi.
  */
 export function pembentangResep(products, recipes) {
   const productById = new Map((products ?? []).map((p) => [p.id, p]));
   const recipeByKey = new Map((recipes ?? []).map((r) => [`${r.product_id}|${r.mode}`, r]));
   const memo = new Map();
 
-  /** Resep yang berlaku untuk sebuah produk di OUTLET (bukan di CK). */
+  /** Resep yang berlaku untuk produk ini DI OUTLET (bukan di CK). */
   function resepBerlaku(p) {
     if (!p) return null;
     if (p.product_type === 'semi') return recipeByKey.get(`${p.id}|production`) ?? null;
-    if (p.product_type === 'finished') {
-      // Standalone lebih dulu: kalau outlet bisa membuatnya sendiri, itu yang
-      // memakai bahan. Kalau hanya ada varian CK, sengaja mengembalikan null —
-      // lihat catatan (3) di kepala berkas.
-      return recipeByKey.get(`${p.id}|standalone`) ?? null;
-    }
+    // Sengaja hanya 'standalone'. Kalau cuma ada varian CK, kembalikan null.
+    if (p.product_type === 'finished') return recipeByKey.get(`${p.id}|standalone`) ?? null;
     return null;
   }
 
   function bentang(pid, sedangDilalui) {
     if (memo.has(pid)) return memo.get(pid);
 
-    const p = productById.get(pid);
-    const r = resepBerlaku(p);
+    const r = resepBerlaku(productById.get(pid));
     const hasil = new Map();
 
     if (!r || !r.items?.length || !(Number(r.yield_qty) > 0)) {
-      // Bahan baku, atau menu yang dilayani CK, atau resep yang belum diisi:
-      // tidak membentang lebih jauh. Yang memakainya adalah produk itu sendiri.
       memo.set(pid, hasil);
       return hasil;
     }
 
     // SIKLUS. Resep bersiklus tidak seharusnya ada (dijaga saat menyimpan),
-    // tapi data lama bisa memuatnya. Yang penting di sini: berhenti, JANGAN
-    // melempar error. Satu resep bersiklus tidak boleh membuat seluruh daftar
-    // belanja gagal tampil — itu menukar satu baris salah dengan layar kosong.
+    // tapi data lama bisa memuatnya. Yang penting: berhenti, JANGAN melempar.
+    // Satu resep bersiklus tidak boleh membuat seluruh daftar belanja gagal
+    // tampil — itu menukar satu baris salah dengan layar kosong.
     if (sedangDilalui.has(pid)) return hasil;
     sedangDilalui.add(pid);
 
@@ -115,9 +116,7 @@ export function pembentangResep(products, recipes) {
       const per = Number(it.qty) / yieldQty;
       if (!Number.isFinite(per)) continue;
 
-      // Tingkat ini sendiri ikut dihitung — lihat catatan (1).
       hasil.set(bid, (hasil.get(bid) ?? 0) + per);
-
       for (const [cid, cper] of bentang(bid, sedangDilalui)) {
         hasil.set(cid, (hasil.get(cid) ?? 0) + per * cper);
       }
@@ -128,45 +127,42 @@ export function pembentangResep(products, recipes) {
     return hasil;
   }
 
-  return (menuId) => bentang(menuId, new Set());
+  return (id) => bentang(id, new Set());
 }
 
 /**
- * Pemakaian bahan per hari, dari penjualan.
+ * Takaran rata-rata tiap bahan per SATU PORSI menu.
  *
- * @param {object[]} sales baris `{product_id, qty}` — sudah disaring outlet & rentang
- * @param {number} hari panjang rentangnya dalam hari
- * @returns {Map<string, number>} productId → jumlah per hari
+ * @returns {Map<string, {rata: number, jumlahMenu: number, min: number, maks: number}>}
  */
-export function pemakaianHarian({ products, recipes, sales, hari }) {
-  const out = new Map();
-  // Rentang nol/negatif akan menghasilkan Infinity yang menyebar diam-diam ke
-  // seluruh kolom. Lebih baik mengembalikan peta kosong: tidak ada data lebih
-  // jujur daripada angka tak hingga yang tampil sebagai "∞ kg/hari".
-  if (!(Number(hari) > 0)) return out;
-
+export function takaranPerPorsi(products, recipes) {
   const bentang = pembentangResep(products, recipes);
-  const tambah = (pid, qty) => {
-    if (!(qty > 0)) return;
-    out.set(pid, (out.get(pid) ?? 0) + qty);
-  };
+  const kumpul = new Map(); // bahanId -> number[]
 
-  for (const s of sales ?? []) {
-    const terjual = Number(s.qty);
-    if (!Number.isFinite(terjual) || terjual === 0) continue;
-
-    const isi = bentang(s.product_id);
-    if (isi.size === 0) {
-      // Tidak punya resep yang berlaku di outlet: yang terpakai barangnya
-      // sendiri. Ini yang terjadi pada menu "Dilayani CK", dan juga pada
-      // bahan baku yang kebetulan dijual langsung (air mineral botol).
-      tambah(s.product_id, terjual);
-      continue;
+  for (const p of products ?? []) {
+    if (p.product_type !== 'finished') continue;
+    if (p.is_active === false) continue;
+    const isi = bentang(p.id);
+    // Menu tanpa resep standalone (termasuk yang hanya dilayani CK) tidak
+    // menyumbang takaran apa pun di outlet ini.
+    if (!isi.size) continue;
+    for (const [bid, per] of isi) {
+      if (!(per > 0)) continue;
+      if (!kumpul.has(bid)) kumpul.set(bid, []);
+      kumpul.get(bid).push(per);
     }
-    for (const [bid, per] of isi) tambah(bid, terjual * per);
   }
 
-  for (const [k, v] of out) out.set(k, v / Number(hari));
+  const out = new Map();
+  for (const [bid, daftar] of kumpul) {
+    const total = daftar.reduce((a, b) => a + b, 0);
+    out.set(bid, {
+      rata: total / daftar.length,
+      jumlahMenu: daftar.length,
+      min: Math.min(...daftar),
+      maks: Math.max(...daftar)
+    });
+  }
   return out;
 }
 
@@ -176,15 +172,13 @@ export function pemakaianHarian({ products, recipes, sales, hari }) {
  * @param {object}   o
  * @param {object[]} o.products
  * @param {object[]} o.recipes
- * @param {object[]} o.sales      penjualan outlet ini pada rentangnya
- * @param {number}   o.hari       panjang rentang penjualan (hari)
- * @param {Map}      o.stok       productId → jumlah stok sekarang
- * @param {number}   o.hariAman   `outlets.safety_days`
+ * @param {Map}      o.stok         productId → jumlah stok sekarang
+ * @param {number}   o.minPorsi     `outlets.min_porsi`
  * @param {Map}      [o.batasManual] productId → min_qty (ADA/TIDAK ADA berarti)
  */
-export function susunBahanMenipis({ products, recipes, sales, hari, stok, hariAman, batasManual = new Map() }) {
-  const perHari = pemakaianHarian({ products, recipes, sales, hari });
-  const aman = Number(hariAman) > 0 ? Number(hariAman) : 7;
+export function susunBahanMenipis({ products, recipes, stok, minPorsi, batasManual = new Map() }) {
+  const takaran = takaranPerPorsi(products, recipes);
+  const porsiTarget = Number(minPorsi) > 0 ? Number(minPorsi) : 30;
 
   const baris = [];
   let tersembunyi = 0;
@@ -195,32 +189,27 @@ export function susunBahanMenipis({ products, recipes, sales, hari, stok, hariAm
     if (p.product_type === 'finished') continue;
     if (p.is_active === false) continue;
 
-    const pakai = perHari.get(p.id) ?? 0;
+    const t = takaran.get(p.id) ?? null;
     const punyaManual = batasManual.has(p.id);
     const ada = Number(stok?.get(p.id) ?? 0);
 
-    // PILIHAN YANG DIMINTA: bahan tanpa riwayat pemakaian DISEMBUNYIKAN.
-    //
-    // Perlu dikatakan terus terang bahwa ini punya sisi buruk — bahan menu
-    // baru yang stoknya habis tidak akan muncul di sini sama sekali. Yang
-    // menutupinya adalah batas MANUAL: begitu admin memberi batas, bahan itu
-    // ikut diawasi walau belum pernah terjual. Jumlah yang disembunyikan tetap
-    // dilaporkan lewat `tersembunyi` supaya tidak hilang tanpa jejak.
-    if (pakai <= EPS && !punyaManual) {
+    // Bahan yang tidak dipakai resep mana pun (gas, tisu, sedotan, kemasan)
+    // tidak punya angka porsi. Ia hanya diawasi kalau admin memberinya batas
+    // manual — dan itu satu-satunya cara barang seperti itu bisa muncul di
+    // daftar mana pun. Yang tidak punya keduanya disembunyikan, tapi JUMLAHNYA
+    // tetap dilaporkan lewat `tersembunyi` supaya tidak hilang tanpa jejak.
+    if (!t && !punyaManual) {
       tersembunyi++;
       continue;
     }
 
-    const batas = punyaManual ? Number(batasManual.get(p.id)) : pakai * aman;
+    const batas = punyaManual ? Number(batasManual.get(p.id)) : t.rata * porsiTarget;
 
-    // Batas 0 = sengaja tidak diawasi. Bukan "semua aman" — memang tidak ikut.
+    // Batas 0 = sengaja tidak diawasi. Bukan "aman" — memang tidak ikut.
     if (!(batas > EPS)) continue;
 
-    // Cukup berapa hari lagi. Tanpa pemakaian, pertanyaannya tidak punya
-    // jawaban — `null`, bukan Infinity, supaya yang menggambar tidak perlu
-    // menebak arti angka raksasa.
-    const cukupHari = pakai > EPS ? ada / pakai : null;
-    const kurang = Math.max(0, batas - ada);
+    // Porsi hanya punya arti kalau bahannya dipakai resep.
+    const porsi = t ? ada / t.rata : null;
 
     baris.push({
       productId: p.id,
@@ -228,25 +217,30 @@ export function susunBahanMenipis({ products, recipes, sales, hari, stok, hariAm
       satuan: p.base_unit,
       kategori: p.category ?? null,
       stok: ada,
-      perHari: pakai,
-      hariAman: punyaManual ? null : aman,
+      takaran: t ? t.rata : null,
+      jumlahMenu: t ? t.jumlahMenu : 0,
+      // Selisih takaran antar menu — dipakai layar untuk menandai bahan yang
+      // rata-ratanya paling mungkin menyesatkan.
+      takaranMin: t ? t.min : null,
+      takaranMaks: t ? t.maks : null,
+      porsi,
+      minPorsi: punyaManual ? null : porsiTarget,
       batas,
       batasManual: punyaManual,
-      cukupHari,
-      saranBeli: kurang,
+      saranBeli: Math.max(0, batas - ada),
       status: ada <= EPS ? 'habis' : ada < batas - EPS ? 'menipis' : 'aman'
     });
   }
 
-  // Urutan: habis dulu, lalu yang paling cepat habis. Yang aman tetap ikut
-  // supaya layarnya bisa dipakai memeriksa satu bahan tertentu, tapi tidak
-  // pernah menghalangi yang mendesak.
+  // Urutan: habis dulu, lalu yang porsinya paling sedikit. Yang aman tetap
+  // ikut supaya layarnya bisa dipakai memeriksa satu bahan tertentu, tapi
+  // tidak pernah menghalangi yang mendesak.
   const pangkat = { habis: 0, menipis: 1, aman: 2 };
   baris.sort((a, b) => {
     if (pangkat[a.status] !== pangkat[b.status]) return pangkat[a.status] - pangkat[b.status];
-    const ha = a.cukupHari ?? Infinity;
-    const hb = b.cukupHari ?? Infinity;
-    if (ha !== hb) return ha - hb;
+    const pa = a.porsi ?? Infinity;
+    const pb = b.porsi ?? Infinity;
+    if (pa !== pb) return pa - pb;
     return String(a.nama).localeCompare(String(b.nama));
   });
 
@@ -258,8 +252,7 @@ export function susunBahanMenipis({ products, recipes, sales, hari, stok, hariAm
     jumlahMenipis: baris.filter((r) => r.status === 'menipis').length,
     jumlahAman: baris.filter((r) => r.status === 'aman').length,
     tersembunyi,
-    hariAman: aman,
-    hariData: Number(hari) > 0 ? Number(hari) : 0
+    minPorsi: porsiTarget
   };
 }
 
@@ -277,7 +270,7 @@ export function teksBelanja(lap, { outlet = '', tanggal = '' } = {}) {
   };
   const kepala = ['*Bahan Perlu Dibeli*', [outlet, tanggal].filter(Boolean).join(' · ')].filter(Boolean);
 
-  if (!lap.perlu.length) {
+  if (!lap.perlu?.length) {
     return [...kepala, '', 'Tidak ada bahan yang menipis. 👍'].join('\n');
   }
 
@@ -285,17 +278,11 @@ export function teksBelanja(lap, { outlet = '', tanggal = '' } = {}) {
     const sisa =
       r.status === 'habis'
         ? 'HABIS'
-        : r.cukupHari != null
-          ? `sisa ${angka(r.stok)} ${r.satuan} (± ${angka(r.cukupHari)} hari)`
+        : r.porsi != null
+          ? `sisa ${angka(r.stok)} ${r.satuan} (± ${angka(r.porsi)} porsi)`
           : `sisa ${angka(r.stok)} ${r.satuan}`;
     return `• ${r.nama} — beli ± ${angka(r.saranBeli)} ${r.satuan}\n  ${sisa}`;
   });
 
-  return [
-    ...kepala,
-    '',
-    ...garis,
-    '',
-    `${lap.perlu.length} bahan · target stok ${lap.hariAman} hari`
-  ].join('\n');
+  return [...kepala, '', ...garis, '', `${lap.perlu.length} bahan · target cukup ${lap.minPorsi} porsi`].join('\n');
 }
