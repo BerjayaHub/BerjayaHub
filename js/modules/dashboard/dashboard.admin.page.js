@@ -91,7 +91,7 @@ async function productionProvider({ before, limit }) {
     return {
       time: r.created_at,
       icon: '🏭',
-      text: `${r.user_profiles?.full_name ?? 'Staff'} produksi ${qty} ${r.products?.base_unit ?? ''} ${r.products?.name ?? ''} di ${r.outlets?.name ?? '-'}${bu}`
+      text: `${r.pencatat?.full_name ?? 'Staff'} produksi ${qty} ${r.products?.base_unit ?? ''} ${r.products?.name ?? ''} di ${r.outlets?.name ?? '-'}${bu}`
     };
   });
 }

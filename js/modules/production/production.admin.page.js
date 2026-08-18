@@ -67,7 +67,7 @@ async function loadRuns(container, businessUnitId) {
                 batal ? ' <span class="badge" style="background:#fdecea;color:#b3261e">dibatalkan</span>' : ''
               }</td>
               <td${batal ? ' style="text-decoration:line-through"' : ''}>${formatNum(r.output_qty)} ${esc(r.products?.base_unit ?? '')}</td>
-              <td>${esc(r.user_profiles?.full_name ?? '-')}</td>
+              <td>${esc(r.pencatat?.full_name ?? '-')}</td>
               <td style="font-size:0.8rem">${esc(r.notes ?? '-')}${
                 batal && r.cancel_reason ? ` · <em>batal: ${esc(r.cancel_reason)}</em>` : ''
               }</td>

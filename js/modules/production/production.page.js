@@ -99,7 +99,7 @@ export async function renderProductionPage(container, { businessUnitId, outletId
                 <td data-label="Waktu" style="font-size:0.82rem">${esc(fmtWaktu(r.created_at))}</td>
                 <td data-label="Produk">${esc(r.products?.name ?? '-')}</td>
                 <td data-label="Hasil"><strong>${formatNum(r.output_qty)}</strong> ${esc(r.products?.base_unit ?? '')}</td>
-                <td data-label="Oleh" style="font-size:0.82rem">${esc(r.user_profiles?.full_name ?? '-')}</td>
+                <td data-label="Oleh" style="font-size:0.82rem">${esc(r.pencatat?.full_name ?? '-')}</td>
                 <td data-label="Catatan" style="font-size:0.82rem">${esc(r.notes ?? '-')}</td>
                 <td data-label="Aksi" class="prod-aksi">
                   <button class="prod-ubah" data-id="${r.id}" data-qty="${esc(r.output_qty)}"

@@ -52,7 +52,12 @@ export async function listProductionRuns({ businessUnitId, outletId, dateFrom, d
   let query = supabase
     .from('production_runs')
     .select(
-      'id, output_qty, notes, created_at, product_id, created_by, cancelled_at, cancel_reason, products(name, base_unit), outlets(name), user_profiles(full_name)'
+      // `user_profiles!created_by` HARUS disebut kolomnya sejak 0092 menambahkan
+      // `cancelled_by` — begitu ada DUA foreign key ke tabel yang sama,
+      // PostgREST menolak seluruh permintaan dengan "more than one
+      // relationship was found". Kodenya tidak berubah; skemanya yang berubah.
+      'id, output_qty, notes, created_at, product_id, created_by, cancelled_at, cancel_reason, ' +
+        'products(name, base_unit), outlets!outlet_id(name), pencatat:user_profiles!created_by(full_name)'
     )
     .eq('business_unit_id', businessUnitId)
     .order('created_at', { ascending: false })
@@ -72,7 +77,10 @@ export async function listProductionRuns({ businessUnitId, outletId, dateFrom, d
 export async function listRecentProductionActivity({ limit = 25, before = null } = {}) {
   let query = supabase
     .from('production_runs')
-    .select('created_at, output_qty, products(name, base_unit), outlets(name), business_units(name), user_profiles(full_name)')
+    // Kolom FK-nya disebut — `production_runs` punya DUA FK ke `user_profiles`
+    // sejak 0092 (`created_by` & `cancelled_by`).
+    .select('created_at, output_qty, products(name, base_unit), outlets!outlet_id(name), business_units(name), pencatat:user_profiles!created_by(full_name)')
+    .is('cancelled_at', null)
     .order('created_at', { ascending: false })
     .limit(limit);
   if (before) query = query.lt('created_at', before);

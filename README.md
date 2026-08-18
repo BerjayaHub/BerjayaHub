@@ -3189,6 +3189,25 @@ Koreksi memakai **resep yang berlaku sekarang**, bukan yang berlaku saat produks
 
 Wewenangnya: **pembuatnya sendiri hari itu juga, atau Admin BU kapan saja** — bentuk yang sama dengan koreksi Daily Activities (`0073`), ditulis sekali di `boleh_ubah_produksi()` supaya `ubah` dan `hapus` tidak bisa menyimpang satu sama lain.
 
+### Bug yang saya buat sendiri, dan audit yang gagal menangkapnya
+
+Menambahkan `cancelled_by` membuat `production_runs` punya **dua** foreign key ke `user_profiles`. Embed polos `user_profiles(full_name)` — yang sudah bertahun-tahun benar — langsung ditolak PostgREST:
+
+```
+Could not embed because more than one relationship was found
+for 'production_runs' and 'user_profiles'
+```
+
+Kodenya tidak diubah satu baris pun. Skemanya yang berubah.
+
+**`audit-embed-ambigu` dibangun persis untuk menangkap ini**, dan tetap hijau. Sebabnya: ia memakai daftar PENGECUALIAN yang ditulis tangan, dan salah satu isinya berbunyi *"production_logs hanya punya satu FK ke user_profiles"*. Dua hal salah di situ — nama tabelnya keliru (`production_logs` tidak pernah ada), dan pernyataannya berhenti benar begitu `0092` menambah kolomnya.
+
+Jadi audit yang dibuat untuk menangkap **pergeseran skema** justru bersandar pada catatan manual tentang skema — catatan yang tidak ikut berubah saat skemanya berubah. Itu bukan kelalaian menulis daftarnya; bentuk auditnya yang salah.
+
+Sekarang jumlah FK per `tabel → tujuan` **dihitung langsung dari `supabase/migrations`**. Tidak ada lagi yang perlu diingat orang, dan pengecualiannya tidak bisa basi karena tidak ada pengecualian. Begitu diperbaiki, ia langsung menemukan **satu lagi** yang saya lewatkan — `listRecentProductionActivity()`, yang memasok lini masa Dashboard.
+
+Dua sabotase membuktikannya bekerja dua arah: mengembalikan embed polos → merah; membuang FK keduanya dari migration → hijau lagi, karena embed polos memang jadi sah. Auditnya membaca skema sungguhan, bukan ingatan.
+
 ### Mobile-first
 
 Kotak isian 44px. Sel **Aksi** di mode kartu diberi barisnya sendiri dengan pemisah, bukan berdesakan di kanan bersama labelnya — salah tekan di situ langsung mengubah stok. Kartu formulir memakai lebar penuh di layar sempit; `max-width` warisan `.inline-card` menyisakan ruang kosong di layar 360px.
