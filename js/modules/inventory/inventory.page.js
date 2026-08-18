@@ -131,18 +131,44 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     const q = container.querySelector('#inv-q')?.value ?? '';
     const cat = container.querySelector('#inv-cat')?.value ?? '';
     const tampil = activeProducts.filter((p) => (!cat || p.category === cat) && cocokNama(`${p.name} ${p.category ?? ''}`, q));
+
+    // STOK MINUS DITANDAI, dan jumlahnya disebut di atas.
+    //
+    // Minus BUKAN sekadar "kosong". Ia berarti catatan mengatakan barangnya
+    // terpakai lebih banyak daripada yang pernah masuk — biasanya karena
+    // produksi/penjualan tercatat sementara penerimaannya belum, atau opname
+    // awalnya belum pernah diisi.
+    //
+    // Sistem sengaja MENGIZINKAN minus supaya pekerjaan di lapangan tidak
+    // terhenti. Tapi kalau angkanya cuma tampil seperti angka biasa, tidak ada
+    // yang pernah menyadarinya — dan saat opname akhirnya dijalankan, selisih
+    // sebesar itu ikut terserap sebagai "penyesuaian" tanpa pernah
+    // ditanyakan sebabnya.
+    const jumlahMinus = tampil.filter((p) => Number(map.get(p.id) ?? 0) < 0).length;
+
     stockDiv.innerHTML = `
       <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 6px">
         ${tampil.length === activeProducts.length ? `${activeProducts.length} bahan` : `${tampil.length} dari ${activeProducts.length} bahan`}
       </p>
+      ${
+        jumlahMinus
+          ? `<p class="error-text" style="margin:0 0 8px;font-size:0.85rem">
+               ⚠ ${jumlahMinus} bahan stoknya <strong>minus</strong> — catatan bilang terpakai lebih banyak daripada yang pernah masuk.
+               Biasanya karena penerimaan belum dicatat, atau stok awal belum diisi lewat opname.
+             </p>`
+          : ''
+      }
       <div class="table-scroll"><table class="data-table table-freeze-1">
         <thead><tr><th>Produk</th><th>Stok</th><th>Satuan</th></tr></thead>
         <tbody>
           ${
             tampil
               .map((p) => {
-                const qty = map.get(p.id) ?? 0;
-                return `<tr><td>${escapeHtml(p.name)}</td><td>${formatNum(qty)}</td><td>${escapeHtml(p.base_unit)}</td></tr>`;
+                const qty = Number(map.get(p.id) ?? 0);
+                const minus = qty < 0;
+                return `<tr><td>${escapeHtml(p.name)}</td><td${
+                  minus ? ' style="color:var(--color-danger);font-weight:600"' : ''
+                }>${formatNum(qty)}${minus ? ' ⚠' : ''}</td><td>${escapeHtml(p.base_unit)}</td></tr>`;
               })
               .join('') || '<tr><td colspan="3">Tidak ada bahan pada filter ini.</td></tr>'
           }

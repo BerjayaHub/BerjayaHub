@@ -3131,6 +3131,37 @@ Perkiraannya menempel pada kotak isiannya, **bukan** di kolom terpisah. Di kolom
 
 Di mode kartu (≤560px) sel "Jumlah tersedia" diberi ruang sendiri dengan pemisah, nama menu dibesarkan jadi judul kartu, dan **bahan pembatas ditandai** di rincian — itu satu-satunya yang perlu ditambah supaya angkanya naik. Tanpa penanda, staff harus membandingkan tiap baris sendiri, dan yang paling sering terjadi adalah membeli yang salah.
 
+## Produksi saat stok masih kosong
+
+**Produksi memang tidak pernah memeriksa stok.** `record_production()` (0021) langsung menulis `production` (+hasil) dan `usage` (−bahan) tanpa satu pun syarat jumlah — jadi stok kosong bukan penyebab produksi gagal. Itu disengaja: pekerjaan di dapur tidak boleh terhenti karena administrasinya tertinggal.
+
+### Kenapa tidak ada yang bisa memastikan apa yang terjadi
+
+Layar Produksi di Staff App **tidak punya riwayat sama sekali**. Satu-satunya tanda bahwa pencatatan masuk adalah toast yang hilang beberapa detik kemudian. Kalau stoknya lalu terlihat tidak berubah, tidak ada apa pun yang bisa dipakai membedakan *"tidak tersimpan"* dari *"tersimpan tapi saya salah lihat"*.
+
+Riwayat produksi sekarang ada di bawah formulirnya, dengan catatan tegas: kalau produksi barusan tidak muncul di daftar itu, berarti belum tersimpan.
+
+Satu kemungkinan yang layak diperiksa lebih dulu: **layar Produksi hanya menampilkan outlet Central Kitchen**, sementara layar Bahan menampilkan SEMUA outlet dan terbuka di outlet pertama. Memproduksi di CK lalu memeriksa stok di layar Bahan yang sedang menunjuk Gading Serpong akan terlihat persis seperti "tidak tercatat".
+
+### Stok minus: diizinkan, tapi tidak boleh tak terlihat
+
+Stok kosong tidak menghalangi apa pun, dan opname akan memperbaikinya — `tutup_opname()` menerapkan **selisih** (`dihitung − sistem`), bukan menimpa. Sistem −50 lalu dihitung 100 menghasilkan penyesuaian +150 dan stok akhir 100. Benar.
+
+Justru di situ letak risikonya. Penyesuaian +150 itu tercatat sebagai "Opname" tanpa jejak bahwa 50 di antaranya adalah defisit yang sudah menumpuk sebelumnya. **Selisih yang seharusnya ditanyakan sebabnya ikut terserap sebagai koreksi rutin.**
+
+Karena itu stok minus sekarang ditandai:
+
+- **Staff App → Bahan**: angkanya merah + ⚠, dan di atas tabel disebut berapa bahan yang minus beserta sebab yang paling mungkin (penerimaan belum dicatat, atau stok awal belum diisi).
+- **Admin Portal → Inventory → Stok**: sama, plus peringatan bahwa nilai rupiahnya ikut **negatif** — total nilai stok jadi tampak lebih kecil daripada isi gudang sebenarnya, dan itu angka yang dipakai menilai persediaan.
+
+### Yang akan terjadi sebelum opname dijalankan
+
+- Semua bahan 0 → **Bahan Menipis** menandai hampir semuanya "habis", dan **perkiraan bisa dibuat** di modul Menu jadi 0 untuk hampir semua menu. Dua layar itu praktis tidak berguna sampai stok awal masuk — dan bahayanya bukan angkanya salah, melainkan staff belajar mengabaikannya.
+- Tiap produksi & penjualan mendorong bahan makin minus.
+- HPP **tidak** terpengaruh: ia dihitung dari harga beli, bukan dari stok.
+
+Urutan yang disarankan: **opname dulu per outlet**, baru andalkan layar-layar yang bergantung pada stok.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

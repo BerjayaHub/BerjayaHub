@@ -155,16 +155,23 @@ function gambarStok(content) {
   const tampil = barisStok.filter((r) => (!cat || r.p.category === cat) && cocokNama(`${r.p.name} ${r.p.category ?? ''}`, q));
 
   let totalValue = 0;
+  // Stok minus ditandai di sini juga, dan di layar admin ia bahkan lebih
+  // penting: nilai rupiah bahan yang minus ikut NEGATIF, jadi total nilai stok
+  // di bawah tampak lebih kecil daripada isi gudang sebenarnya — dan itu angka
+  // yang dipakai orang menilai persediaan.
+  const jumlahMinus = tampil.filter((r) => Number(r.qty) < 0).length;
+
   const bodyHtml = tampil
     .map((r) => {
       const value = r.cost != null ? r.cost * r.qty : null;
       if (value != null) totalValue += value;
+      const minus = Number(r.qty) < 0;
       return `<tr>
         <td>${escapeHtml(r.p.name)}</td>
         <td>${TYPE_LABEL[r.p.product_type] ?? r.p.product_type}</td>
-        <td>${formatNum(r.qty)}</td>
+        <td${minus ? ' style="color:var(--color-danger);font-weight:600"' : ''}>${formatNum(r.qty)}${minus ? ' ⚠' : ''}</td>
         <td>${escapeHtml(r.p.base_unit)}</td>
-        <td>${value != null ? formatRupiah(value) : '-'}</td>
+        <td${minus ? ' style="color:var(--color-danger)"' : ''}>${value != null ? formatRupiah(value) : '-'}</td>
       </tr>`;
     })
     .join('');
@@ -173,6 +180,15 @@ function gambarStok(content) {
     <p style="font-size:0.82rem;color:var(--color-text-muted);margin:10px 0 6px">
       ${tampil.length === barisStok.length ? `${barisStok.length} bahan` : `${tampil.length} dari ${barisStok.length} bahan`}
     </p>
+    ${
+      jumlahMinus
+        ? `<p class="error-text" style="margin:0 0 8px;font-size:0.85rem">
+             ⚠ ${jumlahMinus} bahan stoknya <strong>minus</strong> — nilainya ikut MENGURANGI total di bawah,
+             jadi total nilai stok tampak lebih kecil daripada isi gudang sebenarnya.
+             Periksa penerimaan yang belum tercatat, atau isi stok awal lewat Opname.
+           </p>`
+        : ''
+    }
     <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead><tr><th>Produk</th><th>Tipe</th><th>Stok</th><th>Satuan</th><th>Nilai (HPP)</th></tr></thead>
       <tbody>${bodyHtml || '<tr><td colspan="5">Tidak ada bahan pada filter ini.</td></tr>'}</tbody>

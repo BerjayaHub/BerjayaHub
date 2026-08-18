@@ -2,7 +2,7 @@ import { listMyOutlets } from '../../core/my-outlets.js';
 import { toast, renderSearchSelect, wireSearchSelect } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
-import { listManufacturable, computeNeeds, recordProduction } from './production.service.js';
+import { listManufacturable, computeNeeds, recordProduction, listProductionRuns } from './production.service.js';
 import { loadingHtml } from '../../core/loading.js';
 
 export async function renderProductionPage(container, { businessUnitId, outletId }) {
@@ -52,6 +52,13 @@ export async function renderProductionPage(container, { businessUnitId, outletId
       <button class="primary" id="prod-submit">Catat Produksi</button>
       <p class="error-text" id="prod-error"></p>
     </div>
+
+    <h2 style="font-size:1rem;margin:18px 0 6px">Produksi Terakhir</h2>
+    <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 8px">
+      Daftar ini satu-satunya cara memastikan pencatatan benar-benar masuk. Kalau produksi yang barusan
+      tidak muncul di sini, berarti belum tersimpan — periksa pesan merah di atas.
+    </p>
+    <div id="prod-riwayat"></div>
   `;
 
   const outletSel = container.querySelector('#prod-outlet');
@@ -59,6 +66,47 @@ export async function renderProductionPage(container, { businessUnitId, outletId
   const unitHelp = container.querySelector('#prod-unit-help');
   const preview = container.querySelector('#prod-preview');
   const widget = container.querySelector('.search-select[data-name="prod-product"]');
+
+  /**
+   * RIWAYAT PRODUKSI DI STAFF APP.
+   *
+   * Sebelumnya layar ini tidak punya riwayat sama sekali: satu-satunya tanda
+   * bahwa produksi tercatat adalah toast yang hilang beberapa detik kemudian.
+   * Kalau stoknya tidak ikut berubah — misalnya karena orangnya memeriksa
+   * outlet yang berbeda — tidak ada apa pun yang bisa dipakai membedakan
+   * "tidak tersimpan" dari "tersimpan tapi saya salah lihat".
+   *
+   * Itu persis pertanyaan yang muncul dari lapangan, dan tidak terjawab.
+   */
+  async function gambarRiwayat() {
+    const box = container.querySelector('#prod-riwayat');
+    if (!box) return;
+    box.innerHTML = loadingHtml('Memuat riwayat…', { baris: 2 });
+    let runs = [];
+    try {
+      runs = await listProductionRuns({ businessUnitId, outletId: state.outletId });
+    } catch (error) {
+      box.innerHTML = `<p class="error-text">${esc(error.message ?? error)}</p>`;
+      return;
+    }
+    const tampil = runs.slice(0, 15);
+    box.innerHTML = tampil.length
+      ? `<div class="table-scroll"><table class="data-table kartu-sempit">
+          <thead><tr><th>Waktu</th><th>Produk</th><th>Hasil</th><th>Oleh</th><th>Catatan</th></tr></thead>
+          <tbody>${tampil
+            .map(
+              (r) => `<tr>
+                <td data-label="Waktu" style="font-size:0.82rem">${esc(fmtWaktu(r.created_at))}</td>
+                <td data-label="Produk">${esc(r.products?.name ?? '-')}</td>
+                <td data-label="Hasil"><strong>${formatNum(r.output_qty)}</strong> ${esc(r.products?.base_unit ?? '')}</td>
+                <td data-label="Oleh" style="font-size:0.82rem">${esc(r.user_profiles?.full_name ?? '-')}</td>
+                <td data-label="Catatan" style="font-size:0.82rem">${esc(r.notes ?? '-')}</td>
+              </tr>`
+            )
+            .join('')}</tbody>
+        </table></div>`
+      : '<p style="color:var(--color-text-muted);font-size:0.88rem">Belum ada produksi tercatat di outlet ini.</p>';
+  }
 
   async function loadStock() {
     try {
@@ -79,18 +127,18 @@ export async function renderProductionPage(container, { businessUnitId, outletId
     const needs = computeNeeds(product, qty);
     preview.innerHTML = `
       <p style="font-size:0.85rem;font-weight:600;margin:4px 0">Kebutuhan bahan:</p>
-      <div class="table-scroll"><table class="data-table table-freeze-1">
-        <thead><tr><th>Bahan</th><th>Butuh</th><th>Stok</th><th></th></tr></thead>
+      <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
+        <thead><tr><th>Bahan</th><th>Butuh</th><th>Stok</th><th>Cukup?</th></tr></thead>
         <tbody>
           ${needs
             .map((n) => {
               const stok = state.stockMap.get(n.ingredient_product_id) ?? 0;
               const cukup = stok >= n.need;
               return `<tr>
-                <td>${esc(n.name)}</td>
-                <td>${formatNum(n.need)} ${esc(n.base_unit)}</td>
-                <td>${formatNum(stok)} ${esc(n.base_unit)}</td>
-                <td>${cukup ? '✅' : '<span style="color:var(--color-danger)">kurang</span>'}</td>
+                <td data-label="Bahan">${esc(n.name)}</td>
+                <td data-label="Butuh">${formatNum(n.need)} ${esc(n.base_unit)}</td>
+                <td data-label="Stok">${formatNum(stok)} ${esc(n.base_unit)}</td>
+                <td data-label="Cukup?">${cukup ? '✅' : '<span style="color:var(--color-danger)">kurang</span>'}</td>
               </tr>`;
             })
             .join('')}
@@ -108,6 +156,7 @@ export async function renderProductionPage(container, { businessUnitId, outletId
     state.outletId = outletSel.value;
     await loadStock();
     updatePreview();
+    await gambarRiwayat();
   });
   qtyInput.addEventListener('input', updatePreview);
 
@@ -132,6 +181,7 @@ export async function renderProductionPage(container, { businessUnitId, outletId
       container.querySelector('#prod-notes').value = '';
       await loadStock();
       updatePreview();
+      await gambarRiwayat();
     } catch (error) {
       errorEl.textContent = error.message ?? 'Gagal mencatat produksi.';
     } finally {
@@ -140,6 +190,12 @@ export async function renderProductionPage(container, { businessUnitId, outletId
   });
 
   await loadStock();
+  await gambarRiwayat();
+}
+
+/** Waktu singkat untuk riwayat — tanggal + jam, tanpa detik. */
+function fmtWaktu(iso) {
+  return new Date(iso).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 function round(n) {
