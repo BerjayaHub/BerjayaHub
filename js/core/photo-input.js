@@ -1,9 +1,28 @@
+// `image-compress` tidak mengimpor apa pun, jadi tidak ada lingkaran impor
+// seperti yang diwaspadai pada `escapeHtml` di bawah.
+import { compressImage } from './image-compress.js';
+
 // Escape lokal, TIDAK diimpor dari ui.js. Kalau diimpor, terbentuk lingkaran
 // (ui.js -> photo-input.js -> ui.js). ES module memang bisa menanganinya karena
 // function declaration terangkat, tapi lingkaran impor itu jenis ketergantungan
 // yang gampang pecah begitu ada yang mengubah salah satu file jadi const arrow.
 const escapeHtml = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/**
+ * Foto yang SUDAH dikecilkan di sini.
+ *
+ * WeakSet, bukan penanda pada objek File-nya: menempelkan properti ke File
+ * bekerja, tapi hilang begitu file itu disalin/dibungkus di tempat lain — dan
+ * hilangnya tidak terlihat, hasilnya cuma kompresi kedua yang menurunkan mutu
+ * bukti tanpa ada yang tahu.
+ */
+export const sudahDikecilkan = new WeakSet();
+
+/** Apakah file ini sudah melewati kompresi di pemilih foto. */
+export function perluDikecilkan(file) {
+  return !!file && !sudahDikecilkan.has(file);
+}
 
 /**
  * Pemilih foto: Kamera (diutamakan) atau Galeri.
@@ -38,6 +57,39 @@ function pasangGaya() {
 }
 
 /**
+ * ============ FOTO DIKECILKAN SAAT DIPILIH, BUKAN SAAT DIKIRIM ============
+ *
+ * GEJALA YANG DILAPORKAN: di Daily Activities, sesudah mengambil foto untuk
+ * salah satu item, halaman melompat kembali ke layar depan modul dan fotonya
+ * tidak terunggah.
+ *
+ * MEKANISMENYA. Sebelumnya file mentah dari kamera disimpan apa adanya sampai
+ * tombol Kirim ditekan. Satu foto HP hari ini 3–5 MB / 12 megapiksel. Untuk
+ * satu sesi berisi sepuluh item, itu:
+ *
+ *   - ~40 MB berkas mentah menganggur di memori, DAN
+ *   - sepuluh pratinjau `<img>` yang masing-masing MENDEKODE gambar penuh.
+ *     Kotaknya cuma 76×76 px, tapi bitmap yang didekode tetap seukuran
+ *     aslinya: 12 MP × 4 byte ≈ 48 MB PER GAMBAR.
+ *
+ * Ratusan megabyte di halaman yang sedang berada di LATAR BELAKANG, karena
+ * aplikasi kameranya — yang juga rakus memori — sedang di depan. Android
+ * membuang halaman yang di latar belakang lebih dulu. Begitu orangnya kembali,
+ * halamannya dimuat ulang dari nol: layarnya reset, dan file yang cuma ada di
+ * memori ikut hilang. Persis dua gejala yang dilaporkan.
+ *
+ * Perlu dikatakan terus terang: ini penjelasan yang paling cocok dengan
+ * gejalanya dan mekanismenya bisa dihitung, TAPI saya tidak bisa memutar ulang
+ * kejadiannya di HP-nya. Yang pasti berkurang adalah pemicunya — sekitar 25×
+ * lebih sedikit memori. Kalau gejalanya masih muncul sesudah ini, sebabnya
+ * bukan yang ini.
+ *
+ * Kompresi juga TIDAK PERNAH menggagalkan pilihan foto: `compressImage`
+ * mengembalikan file aslinya kalau gagal. Lebih baik mengunggah yang besar
+ * daripada menolak pekerjaan orang yang sedang berdiri di outlet.
+ */
+
+/**
  * Markup pemilih foto.
  * @param {{name:string, label:string, help?:string, facing?:'environment'|'user', currentUrl?:string}} opts
  */
@@ -67,7 +119,7 @@ export function photoInputHtml({ name, label, help = '', facing = 'environment',
  *
  * @returns {() => File|null} pembaca file terpilih untuk container itu
  */
-export function wirePhotoInput(root, name) {
+export function wirePhotoInput(root, name, { preset = null } = {}) {
   pasangGaya();
   const wrap = root.querySelector(`.photo-input[data-photo="${CSS.escape(name)}"]`);
   if (!wrap) return () => null;
@@ -110,15 +162,57 @@ export function wirePhotoInput(root, name) {
     tampilkan(null);
   });
 
+  /**
+   * Kecilkan lalu tampilkan.
+   *
+   * `urutan` menjaga hasil yang datang terlambat tidak menimpa pilihan yang
+   * lebih baru. Kompresi butuh ratusan milidetik; kalau orangnya memotret
+   * ulang sebelum yang pertama selesai, tanpa penjaga ini foto LAMA yang
+   * akhirnya tersimpan — dan yang terlihat di pratinjau justru yang baru.
+   * Bukti yang salah, tanpa satu pun tanda di layar.
+   */
+  let urutan = 0;
+
+  async function pilih(file) {
+    const ke = ++urutan;
+    if (!file) {
+      tampilkan(null);
+      return;
+    }
+
+    // Ditandai "menyiapkan" supaya Kirim yang ditekan cepat tidak mengambil
+    // `terpilih` yang masih kosong dan melapor "belum ada fotonya".
+    if (preset) {
+      terpilih = null;
+      teks.textContent = 'Menyiapkan foto…';
+      preview.hidden = false;
+      gambar.removeAttribute('src');
+    }
+
+    // DEFAULTNYA TIDAK MENGECILKAN, dan itu disengaja.
+    //
+    // Modul lain sudah mengecilkan sendiri di service-nya dengan preset yang
+    // sesuai isinya — nota kas 1280px supaya tulisannya terbaca, avatar 512px,
+    // selfie presensi 1280px. Mengecilkan di sini secara default berarti
+    // mengompres dua kali dengan ukuran yang salah, dan yang turun mutunya
+    // justru foto nota yang harus bisa dibaca angkanya.
+    //
+    // `leave` bahkan menerima PDF lewat jalur ini.
+    const kecil = preset ? await compressImage(file, { preset }) : file;
+    if (ke !== urutan) return; // sudah ada pilihan yang lebih baru
+    if (preset) sudahDikecilkan.add(kecil);
+    tampilkan(kecil);
+  }
+
   // Memilih dari satu sumber membatalkan pilihan sumber lain, supaya tidak
   // pernah ada dua file terpilih sekaligus dan yang terkirim jadi ambigu.
   kamera.addEventListener('change', () => {
     if (kamera.files[0]) galeri.value = '';
-    tampilkan(kamera.files[0] ?? null);
+    pilih(kamera.files[0] ?? null);
   });
   galeri.addEventListener('change', () => {
     if (galeri.files[0]) kamera.value = '';
-    tampilkan(galeri.files[0] ?? null);
+    pilih(galeri.files[0] ?? null);
   });
 
   return () => terpilih;

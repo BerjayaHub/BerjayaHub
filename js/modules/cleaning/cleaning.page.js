@@ -476,7 +476,12 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
     if (!bisaIsi) return;
 
     // Satu pembaca foto per item YANG BISA DIISI.
-    const bacaFoto = new Map(sisa.map((it) => [it.id, wirePhotoInput(body, `foto-${it.id}`)]));
+    // Preset 'aktivitas' DIMINTA DI SINI supaya fotonya dikecilkan begitu
+    // diambil, bukan ditahan mentah sampai tombol Kirim. Satu sesi bisa berisi
+    // sepuluh item, dan sepuluh foto 12 megapiksel di halaman yang sedang di
+    // latar belakang (karena aplikasi kamera di depan) adalah cara tercepat
+    // membuat Android membuang halaman ini. Alasan lengkapnya di photo-input.js.
+    const bacaFoto = new Map(sisa.map((it) => [it.id, wirePhotoInput(body, `foto-${it.id}`, { preset: 'aktivitas' })]));
 
     body.querySelectorAll('.clean-check').forEach((c) =>
       c.addEventListener('change', () => {

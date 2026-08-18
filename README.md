@@ -2960,6 +2960,47 @@ Percobaan pertama menutup celah ini dengan mendeteksi `.rpc(`/`.upsert(` di berk
 
 Substansinya sendiri ternyata aman: semua tulisannya berskala BU dan dijaga `sayaAdminBu()` di layar serta `is_bu_admin()` di RPC/policy. Yang rusak bukan izinnya, melainkan keyakinan bahwa auditnya sedang menjaga sesuatu.
 
+## Daily Activities: dua bug yang dilaporkan (migration `0088`)
+
+### 1. Super admin tidak bisa MEMULAI sesi
+
+Gejalanya terbaca sebagai *"sepertinya cuma staff yang bisa mengisi"*. Yang sebenarnya terjadi lebih sempit — dan itulah yang membuatnya membingungkan: **super_admin tidak bisa menjadi orang PERTAMA** yang mengisi sebuah sesi pada hari itu. Kalau staff sudah memulainya, super_admin bisa menambahkan item dengan normal, karena penambahan item dijaga policy lain (`0071`) yang sudah memakai `has_outlet_scope()`.
+
+Jadi berhasil-tidaknya bergantung pada siapa yang kebetulan mengisi lebih dulu.
+
+Sebabnya: `checklist_runs_insert_own` dari `0016` menulis syaratnya sendiri alih-alih memanggil helper yang sudah ada —
+
+```sql
+and exists (select 1 from membership_scopes ms
+            where ms.user_id = auth.uid()
+              and ms.business_unit_id = checklist_runs.business_unit_id)
+```
+
+Itu menuntut baris keanggotaan **di BU itu persis**. Untuk staff, bu_admin, dan outlet_admin syarat itu terpenuhi sendirinya. Untuk super_admin tidak: wewenangnya lintas BU, tapi baris `membership_scopes`-nya tetap menunjuk satu BU. `has_bu_scope()` sudah menangani ini dengan benar sejak 0001 — policy-nya saja yang tidak memakainya.
+
+Pelajarannya: policy yang **menyalin** logika keanggotaan alih-alih **memanggil** helper-nya akan selalu ketinggalan. Dari 55+ policy yang memakai tangga wewenang, yang ini salah satu dari sedikit yang menulis `exists (...)` sendiri — dan justru itu yang menyimpang.
+
+Saya sempat menulis di migration itu bahwa sisi `select` juga rusak. **Itu keliru** — `0068` sudah menanganinya dengan definisi yang persis sama. Koreksinya dibiarkan tercatat, karena penjelasan yang salah mengirim orang membetulkan hal yang tidak rusak.
+
+### 2. Halaman reset setelah mengambil foto, foto tidak terunggah
+
+Sebelumnya file mentah dari kamera ditahan apa adanya sampai tombol Kirim ditekan. Satu foto HP hari ini 3–5 MB / 12 megapiksel. Untuk sesi berisi sepuluh item itu berarti ~40 MB berkas mentah menganggur, **ditambah** sepuluh pratinjau `<img>` yang masing-masing mendekode gambar penuh — kotaknya 76×76 px, tapi bitmap yang didekode tetap 12 MP × 4 byte ≈ **48 MB per gambar**.
+
+Ratusan megabyte di halaman yang sedang di **latar belakang**, karena aplikasi kamera (yang juga rakus memori) sedang di depan. Android membuang halaman latar belakang lebih dulu; begitu orangnya kembali, halamannya dimuat ulang dari nol — layar reset, dan file yang cuma ada di memori ikut hilang. Persis dua gejala yang dilaporkan.
+
+Sekarang fotonya **dikecilkan saat dipilih**, bukan saat dikirim (~25× lebih sedikit memori). Kompresinya tidak pernah menggagalkan pilihan foto: `compressImage` mengembalikan file aslinya kalau gagal.
+
+**Yang tidak bisa saya pastikan:** saya tidak bisa memutar ulang kejadiannya di HP itu. Mekanismenya bisa dihitung dan cocok dengan gejalanya, tapi kalau gejalanya masih muncul sesudah ini, sebabnya bukan yang ini.
+
+Dua hal ikut dijaga karena perubahan ini memunculkannya:
+
+- **Kompresi tidak boleh dua kali.** `wirePhotoInput` hanya mengecilkan kalau preset diminta, dan menandai hasilnya di `WeakSet`. `cleaning.service` memeriksa penanda itu sebelum mengecilkan lagi. Defaultnya **tidak mengecilkan** — modul lain (kas, aset, presensi, avatar, cuti) sudah punya preset sendiri, dan `leave` bahkan menerima PDF lewat jalur yang sama.
+- **Foto yang dipilih terakhir harus menang.** Kompresi butuh ratusan milidetik; memotret ulang sebelum yang pertama selesai akan membuat hasil lama mendarat belakangan dan menimpa yang baru — pratinjau menampilkan foto baru, yang tersimpan foto lama.
+
+`test-pilih-foto.mjs` menguji 17 kasus. Sabotase pertama pada bagian "selagi menyiapkan" **lolos**, karena fixture-nya mulai dari kosong dan pemilih baru memang bernilai null — jadi tidak membuktikan apa pun. Diganti dengan kasus **mengganti** foto, yang menangkap bahaya sebenarnya: mengirim foto lama selagi penggantinya disiapkan. Sesudah itu merah.
+
+Perlu dicatat juga bahwa penjaga urutannya diuji lewat **tiruan**, bukan kode yang benar-benar berjalan — ia hidup di dalam `wirePhotoInput` yang menuntut DOM. Tesnya menjaga aturannya tetap benar, bukan implementasinya; keduanya harus diubah bersamaan.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

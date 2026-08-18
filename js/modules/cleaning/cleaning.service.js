@@ -1,5 +1,17 @@
 import { supabase } from '../../config/supabase-client.js';
 import { compressImage } from '../../core/image-compress.js';
+import { perluDikecilkan } from '../../core/photo-input.js';
+
+/**
+ * Kecilkan HANYA kalau belum dikecilkan di pemilih fotonya.
+ *
+ * Sejak pemilih foto mengecilkan gambar saat dipilih (supaya file mentah
+ * 12 megapiksel tidak menganggur di memori sampai tombol Kirim), mengecilkan
+ * lagi di sini berarti kompresi kedua di atas hasil kompresi pertama. Tidak
+ * ada error, ukurannya memang mengecil sedikit lagi — yang turun mutunya, dan
+ * foto ini dipakai sebagai BUKTI pekerjaan.
+ */
+const kecilkanSekali = (file) => (perluDikecilkan(file) ? compressImage(file, { preset: 'aktivitas' }) : Promise.resolve(file));
 import { listMyOutlets } from '../../core/my-outlets.js';
 
 export function todayWIB() {
@@ -535,7 +547,7 @@ export async function submitChecklistRun({ businessUnitId, outletId, sessionId, 
     for (const s of dicentang) {
       ke++;
       onProgress?.(`Mengunggah foto ${ke} dari ${dicentang.length}…`);
-      const kecil = await compressImage(s.file, { preset: 'aktivitas' });
+      const kecil = await kecilkanSekali(s.file);
       const ext = kecil.type === 'image/webp' ? 'webp' : 'jpg';
       const photoPath = `${outletId}/${run.id}/${s.item_id}.${ext}`;
       const { error: upErr } = await supabase.storage
@@ -605,7 +617,7 @@ export async function lanjutkanChecklistRun({ runId, outletId, itemStates }, onP
     for (const s of dicentang) {
       ke++;
       onProgress?.(`Mengunggah foto ${ke} dari ${dicentang.length}…`);
-      const kecil = await compressImage(s.file, { preset: 'aktivitas' });
+      const kecil = await kecilkanSekali(s.file);
       const ext = kecil.type === 'image/webp' ? 'webp' : 'jpg';
       const photoPath = `${outletId}/${runId}/${s.item_id}.${ext}`;
       const { error: upErr } = await supabase.storage
@@ -666,7 +678,7 @@ export async function ubahItemRun({ runId, itemId, outletId, note, file }) {
 
   const isi = { note: note || null, done_by: uid, done_at: new Date().toISOString() };
   if (file) {
-    const kecil = await compressImage(file, { preset: 'aktivitas' });
+    const kecil = await kecilkanSekali(file);
     const ext = kecil.type === 'image/webp' ? 'webp' : 'jpg';
     const photoPath = `${outletId}/${runId}/${itemId}.${ext}`;
     const { error: upErr } = await supabase.storage
