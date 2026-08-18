@@ -59,7 +59,8 @@ export async function renderNotaAdmin(container, { businessUnitId, outlets }) {
     hasil.innerHTML = loadingHtml('Memuat nota…', { baris: 4 });
     let daftar = [];
     try {
-      daftar = await riwayatNota(businessUnitId, state);
+      // denganPembuat: hanya di sini, karena hanya di sini kolomnya digambar.
+      daftar = await riwayatNota(businessUnitId, { ...state, denganPembuat: true });
     } catch (e) {
       hasil.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
       return;
@@ -67,7 +68,7 @@ export async function renderNotaAdmin(container, { businessUnitId, outlets }) {
     hasil.innerHTML = `
       <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 6px">${daftar.length} nota</p>
       <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
-        <thead><tr><th>Nomor</th><th>Tanggal</th><th>Outlet</th><th>Supplier</th><th>No. Supplier</th><th>Foto</th><th>Aksi</th></tr></thead>
+        <thead><tr><th>Nomor</th><th>Tanggal</th><th>Outlet</th><th>Supplier</th><th>No. Supplier</th><th>Diinput</th><th>Foto</th><th>Aksi</th></tr></thead>
         <tbody>
           ${
             daftar
@@ -78,6 +79,7 @@ export async function renderNotaAdmin(container, { businessUnitId, outlets }) {
                   <td data-label="Outlet">${esc(n.outlets?.name ?? '-')}</td>
                   <td data-label="Supplier">${esc(n.supplier ?? '-')}</td>
                   <td data-label="No. Supplier">${esc(n.invoice_no ?? '-')}</td>
+                  <td data-label="Diinput" style="font-size:0.82rem">${esc(n.pembuat?.full_name ?? '-')}</td>
                   <td data-label="Foto">${
                     n.photo_path
                       ? `<button class="nt-foto" data-path="${esc(n.photo_path)}">Lihat</button>`
@@ -86,7 +88,7 @@ export async function renderNotaAdmin(container, { businessUnitId, outlets }) {
                   <td data-label="Aksi"><button class="nt-detail" data-id="${n.id}">Rincian &amp; unduh</button></td>
                 </tr>`
               )
-              .join('') || '<tr><td colspan="7">Tidak ada nota pada rentang ini.</td></tr>'
+              .join('') || '<tr><td colspan="8">Tidak ada nota pada rentang ini.</td></tr>'
           }
         </tbody>
       </table></div>`;

@@ -27,7 +27,8 @@
 -- angkanya diragukan adalah "siapa". Tanpa kolom ini jawabannya harus dicari
 -- lewat ingatan orang.
 -- ---------------------------------------------------------
-alter table reservations add column if not exists deposit_by uuid references auth.users(id);
+-- user_profiles, BUKAN auth.users — lihat catatan di 0086.
+alter table reservations add column if not exists deposit_by uuid references user_profiles(id) on delete set null;
 
 comment on column reservations.deposit_by is
   'Siapa yang mencatat DP-nya. NULL = dicatat sebelum kolom ini ada (migration 0079).';

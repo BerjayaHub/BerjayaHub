@@ -40,7 +40,9 @@ create table if not exists goods_receipts (
   invoice_no text,
   photo_path text,
   notes text,
-  created_by uuid references auth.users(id),
+  -- user_profiles, BUKAN auth.users: PostgREST hanya bisa meng-embed
+  -- `user_profiles!created_by(full_name)` kalau FK-nya menunjuk ke sana.
+  created_by uuid references user_profiles(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

@@ -65,7 +65,7 @@ export async function renderOpnameAdmin(container, { businessUnitId, outlets }) 
       ${bolehKelola ? '' : '<br /><strong>Hanya Admin BU & Super Admin</strong> yang bisa membuka, menutup, atau membatalkan sesi.'}
     </p>
     <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
-      <thead><tr><th>Nomor</th><th>Tanggal</th><th>Outlet</th><th>Status</th><th>Dibuka</th><th>Aksi</th></tr></thead>
+      <thead><tr><th>Nomor</th><th>Tanggal</th><th>Outlet</th><th>Status</th><th>Dibuka</th><th>Ditutup</th><th>Aksi</th></tr></thead>
       <tbody>
         ${
           daftar
@@ -76,6 +76,7 @@ export async function renderOpnameAdmin(container, { businessUnitId, outlets }) 
                 <td data-label="Outlet">${esc(d.outlets?.name ?? '-')}</td>
                 <td data-label="Status">${LABEL_STATUS[d.status] ?? esc(d.status)}</td>
                 <td data-label="Dibuka" style="font-size:0.82rem">${esc(d.pembuka?.full_name ?? '-')}</td>
+                <td data-label="Ditutup" style="font-size:0.82rem">${esc(d.penutup?.full_name ?? '-')}</td>
                 <td data-label="Aksi">
                   <button class="opn-lihat" data-id="${d.id}">Lihat</button>
                   ${bolehKelola && d.status === 'open' ? `<button class="opn-tutup" data-id="${d.id}" data-code="${esc(d.code)}">Tutup</button>` : ''}
@@ -83,7 +84,7 @@ export async function renderOpnameAdmin(container, { businessUnitId, outlets }) 
                 </td>
               </tr>`
             )
-            .join('') || '<tr><td colspan="6">Belum ada sesi opname.</td></tr>'
+            .join('') || '<tr><td colspan="7">Belum ada sesi opname.</td></tr>'
         }
       </tbody>
     </table></div>

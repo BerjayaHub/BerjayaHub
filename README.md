@@ -2842,7 +2842,7 @@ Penerimaan lama menuntut **satu dialog per produk**. Untuk nota berisi belasan i
 
 **Bentuk barunya sengaja meniru Order ke CK:** satu layar, banyak barang, satu tombol simpan, satu foto nota, satu nomor. Pemilih barangnya memakai `createItemPicker` yang **sama persis** dengan Order — bukan salinan. Dua layar yang mengerjakan hal serupa dengan kode berbeda akan menyimpang, dan yang paling mungkin menyimpang justru cara membaca angka jumlahnya (koma desimal dari HP vs titik).
 
-**Nomornya dibuat server** (`GR-YYMMDD-XXXX`), bukan diketik orang. Nomor yang diketik akan bentrok begitu dua outlet menerima barang di hari yang sama.
+**Nomornya dibuat server** (`TRM-YYMMDD-XXXX`), bukan diketik orang. Nomor yang diketik akan bentrok begitu dua outlet menerima barang di hari yang sama.
 
 ### Foto nota boleh menyusul
 
@@ -2879,6 +2879,42 @@ Auditnya langsung menemukan kasus ketiga yang tidak saya ketahui: tombol PDF/xls
 
 **Sabotase pertama pada audit ini lolos**, dan itu memberi tahu sesuatu: auditnya mencari kata `onReady` di mana saja, termasuk di dalam **komentar yang menjelaskan onReady** — komentar yang justru paling mungkin ada di tempat yang pernah salah. Sekarang komentar dibuang dulu lewat pemindai karakter, dan yang dicari adalah nama properti (`onReady:`). Menyebut namanya tidak sama dengan memakainya. Tiga sabotase berikutnya merah semua.
 
+## FK kolom "siapa": `user_profiles`, bukan `auth.users` (migration `0086`)
+
+Tab **Opname** di Admin Portal mati total dengan:
+
+```
+Could not find a relationship between 'stock_counts' and 'user_profiles' in the schema cache
+```
+
+Sebabnya: `0084` dan `0085` — dua-duanya baru — mendeklarasikan kolom pelakunya `references auth.users(id)`, sementara **20+ tabel lain** di repo ini konsisten memakai `references user_profiles(id)`.
+
+Yang membuat ini pantas dicatat: **datanya tidak salah sama sekali.** `user_profiles.id` memang `auth.users.id` (0001 baris 95), jadi nilai di kolomnya benar dan terlihat wajar kalau dibuka di SQL Editor. Yang salah hanya ke mana FK-nya menunjuk — dan PostgREST menyusun embed dari FK yang benar-benar ada. `user_profiles!opened_by(full_name)` bukan sekadar tidak optimal; relasinya memang tidak ada.
+
+Penolakannya juga tidak setengah-setengah: **satu embed yang gagal membatalkan seluruh query.** Bukan kolom nama yang kosong — seluruh daftar sesi opname hilang.
+
+`0086` mengarahkan ulang FK-nya, dan diakhiri `notify pgrst, 'reload schema'`. Baris terakhir itu penting: tanpa penyegaran cache, errornya **tidak berubah sama sekali** meski constraint-nya sudah benar — gejalanya identik dengan sebelum diperbaiki, dan kesimpulan yang paling mudah diambil ("migrationnya tidak jalan") justru yang salah.
+
+`reservations.deposit_by` (dari `0079`) punya cacat yang sama tapi **belum pernah bergejala** — tidak ada layar yang meng-embed nama lewat kolom itu. Ikut diperbaiki justru karena begitu: perangkap yang diam adalah perangkap yang akan diinjak nanti, oleh orang yang wajar saja mengira polanya sudah seragam.
+
+### Kenapa audit yang ada tidak menangkapnya
+
+Ini yang paling perlu diakui. Repo ini sudah punya `audit-embed-ambigu` (memastikan embed menyebut kolom FK-nya) dan `audit-kolom-tabel` (983 pemakaian kolom diperiksa terhadap skema). **Keduanya hijau untuk kode yang rusak ini** — embed-nya memang menyebut kolomnya dengan benar, dan kolomnya memang ada.
+
+Yang tidak diperiksa siapa pun: apakah FK-nya menunjuk ke **tabel yang di-embed**. `audit-fk-pelaku.cjs` sekarang membaca seluruh migration secara berurutan (jadi perbaikan di migration belakangan ikut dihitung, persis seperti di database sungguhan), lalu mencocokkan setiap `user_profiles!kolom` di JS dengan FK yang berlaku. 33 embed diperiksa terhadap 162 FK. Sabotase yang mengembalikan bug aslinya: merah.
+
+### Kerusakannya jauh lebih luas dari perlunya
+
+Waktu bug yang sama muncul di Staff App (`goods_receipts`), saya periksa lagi dan menemukan hal yang lebih memalukan daripada FK-nya sendiri: **nama penginput yang di-embed itu tidak pernah digambar di layar mana pun.** Dua layar mati total demi satu kolom yang tidak dipakai siapa pun.
+
+Di PostgREST ini bukan sekadar mubazir. **Embed yang gagal membatalkan SELURUH query** — bukan kolomnya yang kosong, melainkan seluruh daftarnya hilang. Jadi setiap embed adalah satu cara tambahan untuk gagal, dan yang tidak digambar seharusnya tidak diminta.
+
+`audit-embed-mubazir.cjs` menangkap **empat lagi** yang sudah lama ada: `creator` di Aset, `creator` + `reviewer` di Reservasi, dan `penutup` di Opname. Yang di Aset dan Reservasi dihapus; `penutup` justru **ditampilkan** — siapa yang menutup sesi opname itu informasi yang berarti, karena penutupanlah yang menggerakkan stok. Nama penginput nota juga sekarang tampil sebagai kolom **Diinput** di Admin Portal, dan `riwayatNota()` hanya memintanya lewat `denganPembuat: true` — Staff App tidak memakainya, jadi tidak perlu memikulnya.
+
+**Audit ini menangkap sebagian, bukan semuanya, dan itu perlu dikatakan.** "Dipakai" dicari di seluruh `js/`, jadi nama alias yang sama di modul lain akan menutupi temuan — `pembuat` juga dipakai dokumen Dispatch, dan sabotase membuktikan bahwa itu memang menutupi. Versi berbasis grafik import sempat dicoba supaya lebih presisi lalu dibuang, karena modul pembantu seperti `dokumen.js` menerima datanya lewat **parameter**, bukan import, sehingga menghasilkan tiga temuan palsu pada kode yang benar. Audit yang berteriak pada kode benar akan diabaikan, dan audit yang diabaikan sama dengan tidak ada. Cara termurah menutup sisanya: jangan pakai nama alias yang sama di dua modul.
+
+Satu lagi yang layak dicatat: sabotase pertama pada audit ini **lolos**, dan penyebabnya justru perbaikan yang baru saja saya buat — begitu daftar kolomnya dipindah ke variabel (`const kolom = '…' + (…)`), embednya tidak lagi berdekatan dengan `.select(`, dan detektor berbasis kedekatan berhenti melihatnya. Sekarang embed dicari di dalam string literal, dengan syarat nama tabelnya benar-benar ada di skema.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
@@ -2901,4 +2937,4 @@ Auditnya langsung menemukan kasus ketiga yang tidak saya ketahui: tombol PDF/xls
 - [x] **Reservasi: batas pesan H- hari + jam batas** — "H-3 sebelum pukul 17.00" dihitung per tanggal kalender, hanya mengikat jalur website
 - [x] **Reservasi: jam bebas, S&K per outlet, DP + bukti transfer, koreksi/reschedule oleh admin** — jam tidak harus .00 (kuota tetap dihitung per slot), S&K ikut di pesan WhatsApp, DP dicatat beserta fotonya **dari Staff App maupun Admin Portal** (**tidak masuk modul Kas**)
 - [x] **Kantong kas (sub-kas) & outlet peruntukan** — form Kas Masuk/Keluar dibedakan, jumlah kantong per user diatur admin, pindah saldo antar kantong sendiri, Laporan Kas bisa disaring per outlet & kategori
-- [x] **Terima dari supplier per nota** — satu kali input banyak barang + foto nota (boleh menyusul), nomor `GR-YYMMDD-XXXX` dibuat sistem, edit mengoreksi stok lewat pergerakan penyeimbang; Admin Portal punya tab **Nota Terima** dengan rincian per nomor + unduh xlsx
+- [x] **Terima dari supplier per nota** — satu kali input banyak barang + foto nota (boleh menyusul), nomor `TRM-YYMMDD-XXXX` dibuat sistem, edit mengoreksi stok lewat pergerakan penyeimbang; Admin Portal punya tab **Nota Terima** dengan rincian per nomor + unduh xlsx

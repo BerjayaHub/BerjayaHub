@@ -463,7 +463,7 @@ export async function listReservations({ businessUnitId, outletId, status, dateF
   let q = supabase
     .from('reservations')
     .select(
-      'id, code, outlet_id, mode, customer_name, phone, email, reserve_date, reserve_time, pax, check_in, check_out, adults, children, room_no, room_type_id, checked_in_at, checked_out_at, notes, referral_source, source, status, review_note, reviewed_at, created_at, created_by, deposit_amount, deposit_proof_path, deposit_at, terms_accepted_at, room_types(name), reservation_areas(name), outlets!outlet_id(name), creator:user_profiles!created_by(full_name), reviewer:user_profiles!reviewed_by(full_name)'
+      'id, code, outlet_id, mode, customer_name, phone, email, reserve_date, reserve_time, pax, check_in, check_out, adults, children, room_no, room_type_id, checked_in_at, checked_out_at, notes, referral_source, source, status, review_note, reviewed_at, created_at, created_by, deposit_amount, deposit_proof_path, deposit_at, terms_accepted_at, room_types(name), reservation_areas(name), outlets!outlet_id(name)'
     )
     .eq('business_unit_id', businessUnitId)
     .order('reserve_date', { ascending: false })

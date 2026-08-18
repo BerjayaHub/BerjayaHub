@@ -14,7 +14,9 @@ export function conditionText(a) {
 export async function listAssets({ businessUnitId, outletId, condition, q, limit = 500 }) {
   let query = supabase
     .from('assets')
-    .select('*, outlets!outlet_id(name), creator:user_profiles!created_by(full_name)')
+    // Tanpa embed nama pendaftar: layar aset tidak menggambarnya, dan embed
+    // yang gagal membatalkan SELURUH query (lihat 0086).
+    .select('*, outlets!outlet_id(name)')
     .eq('business_unit_id', businessUnitId)
     .order('name')
     .limit(limit);

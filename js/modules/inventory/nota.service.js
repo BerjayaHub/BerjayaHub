@@ -55,15 +55,30 @@ export async function ubahNota(id, { receiptDate, supplier, invoiceNo, photoPath
   if (error) throw new Error(error.message ?? String(error));
 }
 
-/** Riwayat nota; rentang tanggal memakai TANGGAL NOTA, bukan waktu input. */
-export async function riwayatNota(businessUnitId, { outletId = null, dateFrom = null, dateTo = null } = {}) {
+/**
+ * Riwayat nota; rentang tanggal memakai TANGGAL NOTA, bukan waktu input.
+ *
+ * `denganPembuat` DEFAULTNYA MATI dan itu disengaja. Nama penginput cuma
+ * ditampilkan di Admin Portal; Staff App tidak memakainya sama sekali.
+ *
+ * Alasannya bukan penghematan query — melainkan bahwa **embed yang gagal
+ * membatalkan SELURUH permintaan**. Waktu FK `created_by` masih salah menunjuk
+ * `auth.users`, layar "Terima dari Supplier" di Staff App mati total sambil
+ * memuat satu kolom yang tidak pernah digambar di mana pun. Meminta sesuatu
+ * yang tidak dipakai bukan cuma mubazir; ia menambah cara untuk gagal.
+ */
+export async function riwayatNota(
+  businessUnitId,
+  { outletId = null, dateFrom = null, dateTo = null, denganPembuat = false } = {}
+) {
+  const kolom =
+    'id, code, receipt_date, supplier, invoice_no, photo_path, notes, outlet_id, created_at, outlets!outlet_id(name)' +
+    (denganPembuat ? ', pembuat:user_profiles!created_by(full_name)' : '');
+
   return ambilSemua((dari, sampai) => {
     let q = supabase
       .from('goods_receipts')
-      .select(
-        'id, code, receipt_date, supplier, invoice_no, photo_path, notes, outlet_id, created_at, outlets!outlet_id(name), pembuat:user_profiles!created_by(full_name)',
-        { count: 'exact' }
-      )
+      .select(kolom, { count: 'exact' })
       .eq('business_unit_id', businessUnitId)
       .order('receipt_date', { ascending: false })
       .order('created_at', { ascending: false });

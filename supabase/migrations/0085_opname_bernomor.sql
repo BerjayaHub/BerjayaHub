@@ -38,9 +38,10 @@ create table if not exists stock_counts (
   count_date date not null default (now() at time zone 'Asia/Jakarta')::date,
   status text not null default 'open' check (status in ('open', 'closed', 'cancelled')),
   notes text,
-  opened_by uuid references auth.users(id),
+  -- user_profiles, BUKAN auth.users — lihat catatan di 0086.
+  opened_by uuid references user_profiles(id) on delete set null,
   opened_at timestamptz not null default now(),
-  closed_by uuid references auth.users(id),
+  closed_by uuid references user_profiles(id) on delete set null,
   closed_at timestamptz
 );
 create unique index if not exists stock_counts_code_uk on stock_counts(code);
@@ -61,7 +62,7 @@ create table if not exists stock_count_items (
   -- dilaporkan harus tetap selisih yang DILIHAT penghitungnya.
   system_qty numeric not null default 0,
   counted_qty numeric not null,
-  counted_by uuid references auth.users(id),
+  counted_by uuid references user_profiles(id) on delete set null,
   counted_at timestamptz not null default now(),
   -- Hitungan yang tergantikan: [{qty, by, at}, ...]
   sebelumnya jsonb not null default '[]'::jsonb,

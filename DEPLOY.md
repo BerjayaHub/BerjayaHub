@@ -52,6 +52,19 @@ pernah dijalankan.
 | 0083 | `0083_item_berjadwal.sql` | **Item Daily Activities beberapa hari sekali**: kolom `interval_days` + fungsi `item_terakhir_dikerjakan()` (per outlet) + 2 indeks riwayat pengerjaan |
 | 0084 | `0084_nota_penerimaan.sql` | **Terima barang PER NOTA**: tabel `goods_receipts` + itemnya, nomor `TRM-YYMMDD-XXXX` otomatis, foto opsional, dan `ubah_nota_terima()` yang mengoreksi stok lewat pergerakan PENYEIMBANG (riwayat lama tidak diubah) |
 | 0085 | `0085_opname_bernomor.sql` | **Stok Opname bernomor & bersama**: `stock_counts` + itemnya, satu sesi terbuka per outlet (dijamin unique index), hitungan terakhir menang tapi yang lama disimpan di `sebelumnya`, stok baru berubah saat `tutup_opname()`. Buka/tutup/batalkan HANYA Admin BU & Super Admin (`is_bu_admin`, dipakai apa adanya — fungsinya tidak diubah) |
+| 0086 | `0086_fk_user_profiles.sql` | **WAJIB kalau 0079/0084/0085 sudah dijalankan.** Mengarahkan ulang FK kolom pelaku (`goods_receipts.created_by`, `stock_counts.opened_by/closed_by`, `stock_count_items.counted_by`, `reservations.deposit_by`) dari `auth.users` ke **`user_profiles`**. Tanpa ini tab **Opname** & **Nota Terima** di Admin Portal gagal total dengan *"Could not find a relationship between 'stock_counts' and 'user_profiles' in the schema cache"*. Aman dijalankan ulang; diakhiri `notify pgrst, 'reload schema'` |
+
+
+> ⚠️ **Gejala setelah 0085: tab Opname kosong dengan pesan *"Could not find a relationship between 'stock_counts' and 'user_profiles'"*.**
+> Itu bukan salah data — FK-nya menunjuk `auth.users`, padahal PostgREST butuh relasi
+> ke `user_profiles` untuk meng-embed nama. Jalankan **`0086`**. Kalau errornya masih
+> sama sesudah itu, cache skema PostgREST-nya belum tersegarkan: jalankan
+> `notify pgrst, 'reload schema';` di SQL Editor, atau restart project-nya dari dashboard.
+
+> ℹ️ Gejala yang sama muncul di **Staff App → Terima dari Supplier** dengan
+> `'goods_receipts' and 'user_profiles'`. Sumbernya satu dan sama; `0086` menutup
+> keduanya. Sisi Staff App juga sudah berhenti meminta nama penginput yang memang
+> tidak pernah ditampilkannya, jadi layar itu kini punya satu cara gagal lebih sedikit.
 
 > ⚠️ Kalau `0074` sudah terlanjur dijalankan sebelum 7 Agustus sore, **jalankan
 > ulang** — versi pertamanya memakai `ss.created_at`, kolom yang tidak ada di
