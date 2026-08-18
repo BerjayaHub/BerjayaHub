@@ -45,16 +45,25 @@ export async function recordProduction({ businessUnitId, outletId, productId, ou
   if (error) throw error;
 }
 
-export async function listProductionRuns({ businessUnitId, outletId, dateFrom, dateTo }) {
+/**
+ * @param {boolean} [o.denganDibatalkan] ikut menampilkan produksi yang dibatalkan
+ */
+export async function listProductionRuns({ businessUnitId, outletId, dateFrom, dateTo, denganDibatalkan = false }) {
   let query = supabase
     .from('production_runs')
-    .select('id, output_qty, notes, created_at, products(name, base_unit), outlets(name), user_profiles(full_name)')
+    .select(
+      'id, output_qty, notes, created_at, product_id, created_by, cancelled_at, cancel_reason, products(name, base_unit), outlets(name), user_profiles(full_name)'
+    )
     .eq('business_unit_id', businessUnitId)
     .order('created_at', { ascending: false })
     .limit(300);
   if (outletId) query = query.eq('outlet_id', outletId);
   if (dateFrom) query = query.gte('created_at', dateFrom);
   if (dateTo) query = query.lte('created_at', dateTo);
+  // Yang dibatalkan disembunyikan secara default: dari sisi orangnya ia memang
+  // "sudah dihapus". Barisnya tetap ada di database supaya pergerakan stok
+  // penyeimbangnya punya asal-usul yang bisa ditelusuri (0092).
+  if (!denganDibatalkan) query = query.is('cancelled_at', null);
   const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
@@ -70,4 +79,27 @@ export async function listRecentProductionActivity({ limit = 25, before = null }
   const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
+}
+
+/**
+ * Perbaiki jumlah hasil / catatan sebuah produksi.
+ *
+ * Stoknya dikoreksi lewat pergerakan PENYEIMBANG di `ubah_produksi()` (0092) —
+ * pergerakan lama tidak pernah disentuh. Produk tidak bisa diganti di sini;
+ * untuk itu batalkan lalu catat ulang, supaya riwayatnya jujur bahwa dua hal
+ * berbeda pernah terjadi.
+ */
+export async function ubahProduksi({ runId, outputQty, notes }) {
+  const { error } = await supabase.rpc('ubah_produksi', {
+    p_run: runId,
+    p_output_qty: outputQty,
+    p_notes: notes || null
+  });
+  if (error) throw new Error(error.message ?? String(error));
+}
+
+/** Batalkan produksi: seluruh stoknya dibalik, barisnya ditandai dibatalkan. */
+export async function hapusProduksi({ runId, alasan }) {
+  const { error } = await supabase.rpc('hapus_produksi', { p_run: runId, p_alasan: alasan || null });
+  if (error) throw new Error(error.message ?? String(error));
 }

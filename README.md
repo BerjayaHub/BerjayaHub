@@ -3162,6 +3162,37 @@ Karena itu stok minus sekarang ditandai:
 
 Urutan yang disarankan: **opname dulu per outlet**, baru andalkan layar-layar yang bergantung pada stok.
 
+## Produksi bisa diperbaiki & dibatalkan (migration `0092`)
+
+Salah ketik produksi adalah kejadian sehari-hari — 1.800 jadi 18.000. Sebelumnya satu-satunya jalan keluar adalah membiarkannya lalu menutupi selisihnya lewat opname, yang berarti **kesalahan ketik terserap sebagai "penyesuaian stok"** tanpa pernah tercatat sebagai apa yang sebenarnya terjadi.
+
+### Stok dikoreksi lewat pergerakan penyeimbang
+
+Pergerakan stok lama **tidak pernah** diubah atau dihapus. Yang ditulis adalah pergerakan baru sebesar selisihnya — pola yang sama dengan nota penerimaan (`0084`), dan alasannya sama:
+
+- `stock_movements` adalah buku besar. Memperbaiki masa lalu membuat angka yang pernah dilihat, dicetak, dan dipakai berdebat berubah tanpa jejak.
+- Kalau ada penerimaan atau penjualan **di antara** produksi dan koreksinya, menimpa angka lama menghasilkan urutan yang tidak pernah terjadi. Selisih yang ditambahkan sekarang selalu benar, apa pun yang terjadi di antaranya.
+
+### "Hapus" = membatalkan, bukan melenyapkan
+
+`hapus_produksi()` membalik seluruh stoknya lalu menandai `cancelled_at`. Barisnya **tidak** dihapus dari tabel — sejalan dengan `batalkan_opname()` (`0085`): yang dibatalkan adalah *akibatnya pada stok*, bukan catatan bahwa pernah ada orang mencatat produksi. Baris yang benar-benar lenyap akan meninggalkan pergerakan stok yang menunjuk produksi yang tidak ada.
+
+Dari sisi staff ia tetap terasa terhapus: daftarnya menyaring yang dibatalkan. **Laporan admin justru menampilkannya** (dicoret + lencana "dibatalkan" + alasannya), karena di situlah orang menelusuri kenapa stok berubah — dan pergerakan penyeimbangnya akan muncul tanpa asal-usul kalau produksinya disembunyikan.
+
+### Yang sengaja TIDAK bisa diubah
+
+**Produknya.** Mengganti produk berarti membatalkan pemakaian bahan resep lama lalu menerapkan resep baru — hasilnya persis sama dengan "batalkan lalu catat ulang", tapi dengan satu baris riwayat yang menyamarkan bahwa dua hal berbeda pernah terjadi.
+
+### Batas yang diketahui, dan ditulis di migration-nya
+
+Koreksi memakai **resep yang berlaku sekarang**, bukan yang berlaku saat produksinya dicatat — resepnya tidak diarsipkan per produksi. Kalau resepnya sempat diubah di antara keduanya, koreksinya memakai takaran baru dan hasilnya tidak akan cocok. Itu alasan tambahan kenapa koreksi paling baik dilakukan pada hari yang sama.
+
+Wewenangnya: **pembuatnya sendiri hari itu juga, atau Admin BU kapan saja** — bentuk yang sama dengan koreksi Daily Activities (`0073`), ditulis sekali di `boleh_ubah_produksi()` supaya `ubah` dan `hapus` tidak bisa menyimpang satu sama lain.
+
+### Mobile-first
+
+Kotak isian 44px. Sel **Aksi** di mode kartu diberi barisnya sendiri dengan pemisah, bukan berdesakan di kanan bersama labelnya — salah tekan di situ langsung mengubah stok. Kartu formulir memakai lebar penuh di layar sempit; `max-width` warisan `.inline-card` menyisakan ruang kosong di layar 360px.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

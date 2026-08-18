@@ -1,9 +1,9 @@
 import { listMyOutlets } from '../../core/my-outlets.js';
-import { toast, renderSearchSelect, wireSearchSelect } from '../../core/ui.js';
+import { toast, renderSearchSelect, wireSearchSelect, formDialog, confirmDialog } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
-import { listManufacturable, computeNeeds, recordProduction, listProductionRuns } from './production.service.js';
-import { loadingHtml } from '../../core/loading.js';
+import { listManufacturable, computeNeeds, recordProduction, listProductionRuns, ubahProduksi, hapusProduksi } from './production.service.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 export async function renderProductionPage(container, { businessUnitId, outletId }) {
   container.innerHTML = loadingHtml('Memuat produksi…');
@@ -92,7 +92,7 @@ export async function renderProductionPage(container, { businessUnitId, outletId
     const tampil = runs.slice(0, 15);
     box.innerHTML = tampil.length
       ? `<div class="table-scroll"><table class="data-table kartu-sempit">
-          <thead><tr><th>Waktu</th><th>Produk</th><th>Hasil</th><th>Oleh</th><th>Catatan</th></tr></thead>
+          <thead><tr><th>Waktu</th><th>Produk</th><th>Hasil</th><th>Oleh</th><th>Catatan</th><th>Aksi</th></tr></thead>
           <tbody>${tampil
             .map(
               (r) => `<tr>
@@ -101,11 +101,89 @@ export async function renderProductionPage(container, { businessUnitId, outletId
                 <td data-label="Hasil"><strong>${formatNum(r.output_qty)}</strong> ${esc(r.products?.base_unit ?? '')}</td>
                 <td data-label="Oleh" style="font-size:0.82rem">${esc(r.user_profiles?.full_name ?? '-')}</td>
                 <td data-label="Catatan" style="font-size:0.82rem">${esc(r.notes ?? '-')}</td>
+                <td data-label="Aksi" class="prod-aksi">
+                  <button class="prod-ubah" data-id="${r.id}" data-qty="${esc(r.output_qty)}"
+                          data-nama="${esc(r.products?.name ?? '')}" data-satuan="${esc(r.products?.base_unit ?? '')}"
+                          data-notes="${esc(r.notes ?? '')}">✏️ Ubah</button>
+                  <button class="prod-hapus" data-id="${r.id}" data-nama="${esc(r.products?.name ?? '')}"
+                          data-qty="${esc(r.output_qty)}" data-satuan="${esc(r.products?.base_unit ?? '')}">🗑 Hapus</button>
+                </td>
               </tr>`
             )
             .join('')}</tbody>
         </table></div>`
       : '<p style="color:var(--color-text-muted);font-size:0.88rem">Belum ada produksi tercatat di outlet ini.</p>';
+
+    // ---- UBAH JUMLAH HASIL ----
+    //
+    // Produknya sengaja TIDAK bisa diganti. Mengganti produk berarti
+    // membatalkan pemakaian bahan resep lama lalu menerapkan resep baru —
+    // hasilnya sama dengan "batalkan lalu catat ulang", tapi menyamarkan bahwa
+    // dua hal berbeda pernah terjadi dalam satu baris riwayat.
+    box.querySelectorAll('.prod-ubah').forEach((btn) =>
+      btn.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const v = await formDialog({
+            title: `Ubah Produksi — ${btn.dataset.nama}`,
+            description:
+              'Stok ikut dikoreksi otomatis sebesar SELISIHNYA saja: hasilnya disesuaikan, dan pemakaian bahannya ikut naik atau turun. ' +
+              'Pergerakan stok yang lama tidak diubah — yang ditulis pergerakan baru, supaya riwayatnya tetap bisa ditelusuri.',
+            fields: [
+              { name: 'qty', label: `Jumlah hasil (${btn.dataset.satuan})`, type: 'qty', required: true, value: btn.dataset.qty },
+              { name: 'notes', label: 'Catatan (opsional)', type: 'text', value: btn.dataset.notes }
+            ],
+            submitText: 'Simpan Perubahan'
+          });
+          if (!v) return;
+          if (!(Number(v.qty) > 0)) return toast('Jumlah hasil harus lebih dari 0.', 'error');
+          try {
+            await ubahProduksi({ runId: btn.dataset.id, outputQty: Number(v.qty), notes: v.notes });
+            toast('Produksi diperbarui — stok ikut dikoreksi.', 'success');
+            await loadStock();
+            updatePreview();
+            await gambarRiwayat();
+          } catch (error) {
+            toast(error.message ?? 'Gagal mengubah produksi.', 'error');
+          }
+        })
+      )
+    );
+
+    // ---- BATALKAN ----
+    box.querySelectorAll('.prod-hapus').forEach((btn) =>
+      btn.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const v = await formDialog({
+            title: `Hapus produksi ${btn.dataset.nama}?`,
+            description:
+              `Hasil ${btn.dataset.qty} ${btn.dataset.satuan} akan dikurangi dari stok, dan bahan yang terpakai DIKEMBALIKAN. ` +
+              'Barisnya hilang dari daftar ini, tapi tetap tersimpan di buku besar stok supaya koreksinya bisa ditelusuri.',
+            fields: [{ name: 'alasan', label: 'Alasan (opsional)', type: 'text', placeholder: 'mis. salah ketik jumlah' }],
+            submitText: 'Hapus & kembalikan stok',
+            cancelText: 'Batal'
+          });
+          if (!v) return;
+          const yakin = await confirmDialog({
+            title: 'Yakin?',
+            message: 'Stok akan langsung berubah dan tindakan ini tidak bisa dibatalkan lagi.',
+            confirmText: 'Ya, hapus',
+            danger: true
+          });
+          if (!yakin) return;
+          try {
+            await hapusProduksi({ runId: btn.dataset.id, alasan: v.alasan });
+            toast('Produksi dihapus — stok dikembalikan.', 'success');
+            await loadStock();
+            updatePreview();
+            await gambarRiwayat();
+          } catch (error) {
+            toast(error.message ?? 'Gagal menghapus produksi.', 'error');
+          }
+        })
+      )
+    );
   }
 
   async function loadStock() {

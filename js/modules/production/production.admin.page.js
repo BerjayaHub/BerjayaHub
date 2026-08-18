@@ -36,11 +36,18 @@ async function loadRuns(container, businessUnitId) {
   result.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let runs;
   try {
+    // ADMIN MELIHAT YANG DIBATALKAN JUGA.
+    //
+    // Di Staff App yang dibatalkan disembunyikan — bagi mereka ia memang sudah
+    // terhapus. Tapi laporan admin adalah tempat orang menelusuri kenapa stok
+    // berubah, dan pergerakan penyeimbang dari pembatalan akan muncul di
+    // riwayat stok tanpa asal-usul kalau produksinya tidak ikut terlihat.
     runs = await listProductionRuns({
       businessUnitId,
       outletId,
       dateFrom: isoFrom(from),
-      dateTo: isoTo(to)
+      dateTo: isoTo(to),
+      denganDibatalkan: true
     });
   } catch (error) {
     result.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
@@ -51,16 +58,21 @@ async function loadRuns(container, businessUnitId) {
       <thead><tr><th>Waktu</th><th>Outlet</th><th>Produk</th><th>Jumlah</th><th>Oleh</th><th>Catatan</th></tr></thead>
       <tbody>
         ${runs
-          .map(
-            (r) => `<tr>
+          .map((r) => {
+            const batal = !!r.cancelled_at;
+            return `<tr${batal ? ' style="opacity:0.65"' : ''}>
               <td style="font-size:0.8rem">${fmtDateTime(r.created_at)}</td>
               <td>${esc(r.outlets?.name ?? '-')}</td>
-              <td>${esc(r.products?.name ?? '-')}</td>
-              <td>${formatNum(r.output_qty)} ${esc(r.products?.base_unit ?? '')}</td>
+              <td>${esc(r.products?.name ?? '-')}${
+                batal ? ' <span class="badge" style="background:#fdecea;color:#b3261e">dibatalkan</span>' : ''
+              }</td>
+              <td${batal ? ' style="text-decoration:line-through"' : ''}>${formatNum(r.output_qty)} ${esc(r.products?.base_unit ?? '')}</td>
               <td>${esc(r.user_profiles?.full_name ?? '-')}</td>
-              <td style="font-size:0.8rem">${esc(r.notes ?? '-')}</td>
-            </tr>`
-          )
+              <td style="font-size:0.8rem">${esc(r.notes ?? '-')}${
+                batal && r.cancel_reason ? ` · <em>batal: ${esc(r.cancel_reason)}</em>` : ''
+              }</td>
+            </tr>`;
+          })
           .join('') || '<tr><td colspan="6">Tidak ada data.</td></tr>'}
       </tbody>
     </table>

@@ -2100,3 +2100,58 @@ select.sc-cell.is-off {
   border-bottom: 1px dotted currentColor;
   cursor: help;
 }
+
+/* =========================================================
+   MODUL PRODUKSI — mobile first
+
+   Dipakai di Central Kitchen sambil berdiri di meja kerja, sering dengan
+   tangan yang baru dilap. Yang menentukan: kotak isian cukup besar untuk
+   ditekan, dan tombol Ubah/Hapus di riwayat tidak berdempetan — salah tekan
+   di situ langsung mengubah stok.
+   ========================================================= */
+#prod-qty,
+#prod-notes,
+#prod-outlet {
+  min-height: 44px;
+  font-size: 1rem;
+}
+
+.prod-aksi {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.prod-aksi button {
+  min-height: 40px;
+  max-width: none;
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 560px) {
+  /* Kartu formulir memakai lebar penuh — `max-width` yang diwarisi dari
+     `.inline-card` menyisakan ruang kosong di kanan pada layar 360px. */
+  #module-body .inline-card {
+    max-width: 100% !important;
+  }
+
+  /* Sel Aksi di mode kartu diberi barisnya sendiri: tombol yang berdesakan di
+     kanan bersama labelnya terlalu mudah tertekan sebelah. Di sini salah tekan
+     berarti stok berubah. */
+  .data-table.kartu-sempit td.prod-aksi {
+    display: block;
+    text-align: left;
+    border-top: 1px dashed var(--color-border);
+    margin-top: 6px;
+    padding-top: 8px;
+  }
+  .data-table.kartu-sempit td.prod-aksi::before {
+    display: block;
+    flex: none;
+    margin-bottom: 6px;
+  }
+  .prod-aksi button {
+    flex: 1 1 45%;
+    min-height: 44px;
+  }
+}
