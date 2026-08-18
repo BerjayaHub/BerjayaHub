@@ -2,6 +2,8 @@ import { supabase } from '../../config/supabase-client.js';
 import { compressImage } from '../../core/image-compress.js';
 import { perluDikecilkan } from '../../core/photo-input.js';
 
+import { listMyOutlets } from '../../core/my-outlets.js';
+
 /**
  * Kecilkan HANYA kalau belum dikecilkan di pemilih fotonya.
  *
@@ -12,7 +14,7 @@ import { perluDikecilkan } from '../../core/photo-input.js';
  * foto ini dipakai sebagai BUKTI pekerjaan.
  */
 const kecilkanSekali = (file) => (perluDikecilkan(file) ? compressImage(file, { preset: 'aktivitas' }) : Promise.resolve(file));
-import { listMyOutlets } from '../../core/my-outlets.js';
+
 
 export function todayWIB() {
   const now = new Date();
@@ -484,186 +486,118 @@ export async function listSessionRuns(outletId, tanggal) {
   return data ?? [];
 }
 
-/**
- * Kirim satu sesi Daily Activities.
+/*
+ * `submitChecklistRun()` dan `lanjutkanChecklistRun()` DIHAPUS di 0089.
  *
- * `itemStates`: [{ item_id, checked, note, file }] — foto ada PER ITEM sejak
- * migration 0052. Satu foto tidak pernah bisa membuktikan sepuluh pekerjaan
- * berbeda; foto sesi yang lama praktis hanya membuktikan "seseorang hadir".
+ * Keduanya mengirim seluruh sesi sekali di akhir. Jalur itu yang membuat
+ * pekerjaan bisa hilang: rekaman layar dari lapangan menunjukkan Android
+ * membuang halaman ini sesudah aplikasi kamera dipakai, dan semua centang &
+ * foto yang menunggu di memori ikut lenyap tanpa satu pun tanda.
  *
- * @param {(pesan: string) => void} [onProgress] dipanggil saat mengunggah tiap
- *   foto. Mengunggah 10 foto butuh waktu, dan layar yang diam tanpa kabar
- *   membuat staff menekan tombolnya berkali-kali atau menutup aplikasi.
+ * Penggantinya `simpanItemAktivitas()` di bawah — satu item, disimpan begitu
+ * fotonya ada.
+ *
+ * Dihapus, bukan dibiarkan "untuk jaga-jaga": dua jalur penyimpanan untuk hal
+ * yang sama akan menyimpang, dan yang menyimpang justru yang jarang dipakai —
+ * lalu suatu saat dipanggil lagi oleh orang yang mengira ia masih benar.
  */
-export async function submitChecklistRun({ businessUnitId, outletId, sessionId, itemStates, notes }, onProgress) {
+
+
+
+/**
+ * SIMPAN SATU ITEM SEKARANG JUGA — inti perbaikan 0089.
+ *
+ * ============ KENAPA TIDAK MENUNGGU TOMBOL KIRIM ============
+ *
+ * Rekaman layar dari lapangan menunjukkan halaman ini DIBUANG Android sesudah
+ * aplikasi kamera dipakai. Semua yang baru ada di memori — centang dan foto —
+ * ikut hilang, dan tidak ada apa pun yang memberi tahu bahwa pekerjaannya
+ * batal.
+ *
+ * Mengecilkan foto lebih awal mengurangi pemicunya, tapi tidak menghapusnya.
+ * Selama pekerjaan menumpuk di memori sampai tombol Kirim, jendela kehilangan
+ * itu selalu ada. Yang menutupnya bukan hemat memori, melainkan TIDAK MENUNGGU.
+ *
+ * ============ URUTANNYA, DAN KENAPA BEGITU ============
+ *
+ * 1. `pastikan_run_aktivitas()` — ambil/buat run hari ini. Aman dari dua orang
+ *    yang menyimpan bersamaan (0089); pola "cek lalu insert" di sini pasti
+ *    kalah balapan saat dua staff memotret bersamaan di outlet yang sama.
+ * 2. Unggah fotonya.
+ * 3. Baru tulis barisnya.
+ *
+ * Foto lebih dulu supaya barisnya tidak pernah lahir tanpa bukti. Kalau
+ * langkah 3 gagal, fotonya dibuang lagi — file yatim memakan kuota tanpa
+ * membuktikan apa pun.
+ *
+ * @returns {Promise<{runId: string, photoPath: string}>}
+ */
+export async function simpanItemAktivitas({ businessUnitId, outletId, sessionId, itemId, file, note, notes }) {
   const uid = await currentUserId();
   if (!uid) throw new Error('Sesi tidak ditemukan, silakan login ulang.');
+  if (!file) throw new Error('Foto bukti wajib ada sebelum item ini bisa disimpan.');
 
-  // Aturan "dicentang wajib berfoto" ditegakkan di TIGA lapis: halaman staff
-  // (supaya salahnya ketahuan sebelum apa pun terkirim), di sini, dan CHECK
-  // constraint di database (0070). Sebelumnya hanya lapis pertama yang ada —
-  // dan aturan yang cuma dijaga tampilan bukan aturan, melainkan kebiasaan.
-  //
-  // Diperiksa SEBELUM run dibuat: kalau ditolak belakangan, run-nya sudah
-  // terlanjur lahir dan `unique (outlet_id, session_id, run_date)` akan
-  // menolak percobaan ulang hari itu.
-  const dicentang = (itemStates ?? []).filter((s) => s.checked);
-  if (!dicentang.length) throw new Error('Centang minimal satu item dulu.');
-  const tanpaFoto = dicentang.filter((s) => !s.file);
-  if (tanpaFoto.length) {
-    throw new Error(`${tanpaFoto.length} item yang dicentang belum ada fotonya. Setiap pekerjaan yang diceklis harus punya bukti.`);
-  }
+  const { data: runId, error: runErr } = await supabase.rpc('pastikan_run_aktivitas', {
+    p_outlet: outletId,
+    p_session: sessionId,
+    p_notes: notes || null
+  });
+  if (runErr) throw new Error(runErr.message ?? String(runErr));
+  if (!runId) throw new Error('Sesi hari ini tidak bisa dibuka. Coba muat ulang halamannya.');
 
-  const { data: run, error } = await supabase
-    .from('checklist_runs')
-    .insert({
-      business_unit_id: businessUnitId,
-      outlet_id: outletId,
-      session_id: sessionId,
-      run_date: todayWIB(),
-      user_id: uid,
-      notes: notes || null
-    })
-    .select()
-    .single();
-  if (error) throw error;
+  const kecil = await kecilkanSekali(file);
+  const ext = kecil.type === 'image/webp' ? 'webp' : 'jpg';
+  const photoPath = `${outletId}/${runId}/${itemId}.${ext}`;
+  const { error: upErr } = await supabase.storage
+    .from('checklist-photos')
+    .upload(photoPath, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
+  if (upErr) throw new Error(`Foto gagal diunggah: ${upErr.message}`);
 
-  // Foto diunggah SEBELUM baris item dibuat, supaya path-nya bisa langsung ikut
-  // tersimpan dalam satu insert. Kalau ada unggahan yang gagal, seluruh
-  // pengiriman dibatalkan dan run-nya dihapus — lebih baik staff mengulang
-  // daripada tersimpan sesi yang itemnya kehilangan bukti tanpa ketahuan.
-  // HANYA item yang dikerjakan yang dicatat.
-  //
-  // Versi sebelumnya juga menyimpan baris untuk item yang TIDAK dicentang.
-  // Sekilas rapi, tapi itu berarti setelah pengiriman pertama semua item sudah
-  // "punya baris" — dan sesi yang baru terisi 1 dari 15 akan terhitung tuntas,
-  // persis membatalkan kemampuan melanjutkan yang baru saja dibuat.
-  //
-  // Sekarang artinya tegas: ada baris = dikerjakan & ada buktinya; tidak ada
-  // baris = belum dikerjakan, dan masih bisa dilanjutkan hari itu.
-  const rows = [];
+  const isi = { checked: true, note: note || null, photo_path: photoPath, done_by: uid, done_at: new Date().toISOString() };
+
   try {
-    let ke = 0;
-    for (const s of dicentang) {
-      ke++;
-      onProgress?.(`Mengunggah foto ${ke} dari ${dicentang.length}…`);
-      const kecil = await kecilkanSekali(s.file);
-      const ext = kecil.type === 'image/webp' ? 'webp' : 'jpg';
-      const photoPath = `${outletId}/${run.id}/${s.item_id}.${ext}`;
-      const { error: upErr } = await supabase.storage
-        .from('checklist-photos')
-        .upload(photoPath, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
-      if (upErr) throw upErr;
-      rows.push({
-        run_id: run.id,
-        item_id: s.item_id,
-        checked: true,
-        note: s.note || null,
-        photo_path: photoPath,
-        done_by: uid
-      });
-    }
+    // Data LAMA bisa punya baris `checked = false` untuk item ini (sebelum
+    // 0072). Insert kedua akan ditolak `uq_checklist_run_item`, jadi barisnya
+    // dicoba DIPERBARUI dulu — dan hanya yang belum dikerjakan, supaya bukti
+    // orang lain tidak pernah tertimpa.
+    const { data: diperbarui, error: updErr } = await supabase
+      // baris-terbatas: satu baris (run, item).
+      .from('checklist_run_items')
+      .update(isi)
+      .eq('run_id', runId)
+      .eq('item_id', itemId)
+      .eq('checked', false)
+      .select('id');
+    if (updErr) throw updErr;
+    if (diperbarui?.length) return { runId, photoPath };
 
-    if (rows.length) {
-      const { error: itemErr } = await supabase.from('checklist_run_items').insert(rows);
-      if (itemErr) throw itemErr;
+    const { data, error } = await supabase
+      .from('checklist_run_items')
+      .insert({ run_id: runId, item_id: itemId, ...isi })
+      .select('id');
+    if (error) {
+      // Bentrok = item ini sudah dikerjakan orang lain beberapa detik lalu.
+      // Itu bukan kegagalan sistem, dan pesannya harus berbunyi begitu.
+      if (String(error.code) === '23505' || /duplicate key/i.test(error.message ?? '')) {
+        throw new Error('Item ini baru saja dikerjakan orang lain. Muat ulang halamannya untuk melihat fotonya.');
+      }
+      throw error;
     }
+    // Penolakan RLS tidak berupa error — hanya nol baris.
+    if (!data?.length) throw new Error('Item tidak tersimpan — kemungkinan akunmu tidak berhak mengisi di outlet ini.');
+
+    return { runId, photoPath };
   } catch (err) {
-    // Bersihkan run yang terlanjur dibuat. Kalau dibiarkan, `unique (outlet_id,
-    // session_id, run_date)` akan MENOLAK percobaan ulang hari itu — staff
-    // terjebak: gagal kirim, dan tidak bisa mencoba lagi sampai besok.
-    await supabase.from('checklist_runs').delete().eq('id', run.id);
+    await supabase.storage.from('checklist-photos').remove([photoPath]).catch(() => {});
     throw err;
   }
-
-  return run;
 }
 
-/**
- * Tambahkan item ke run yang SUDAH ADA — melanjutkan sesi yang belum tuntas.
- *
- * Kenapa perlu: `unique (outlet_id, session_id, run_date)` membuat satu sesi
- * hanya boleh punya satu run per hari. Sebelum 0071 itu berarti staff yang
- * mengerjakan 1 dari 15 item lalu menekan Kirim akan MENGUNCI sesi itu seharian
- * — 14 sisanya tidak bisa diisi siapa pun, dan rekapnya tetap menyatakan sesi
- * itu beres.
- *
- * Item yang sudah punya baris TIDAK bisa ditimpa: `uq_checklist_run_item`
- * menolaknya dengan error yang terlihat, bukan mengganti bukti tanpa jejak.
- *
- * @returns {Promise<number>} jumlah item yang berhasil ditambahkan
- */
-export async function lanjutkanChecklistRun({ runId, outletId, itemStates }, onProgress) {
-  const uid = await currentUserId();
-  if (!uid) throw new Error('Sesi tidak ditemukan, silakan login ulang.');
-
-  const dicentang = (itemStates ?? []).filter((s) => s.checked);
-  if (!dicentang.length) throw new Error('Centang minimal satu item dulu.');
-  const tanpaFoto = dicentang.filter((s) => !s.file);
-  if (tanpaFoto.length) {
-    throw new Error(`${tanpaFoto.length} item yang dicentang belum ada fotonya. Setiap pekerjaan yang diceklis harus punya bukti.`);
-  }
-
-  // Data LAMA menyimpan baris untuk item yang tidak dicentang juga. Untuk item
-  // seperti itu, melanjutkan berarti MEMPERBARUI barisnya — `uq_checklist_run_item`
-  // menolak insert kedua untuk pasangan (run, item) yang sama.
-  const barisAda = await getRunItemIds(runId).catch(() => new Map());
-
-  const rows = [];
-  const perbarui = [];
-  const terunggah = [];
-  try {
-    let ke = 0;
-    for (const s of dicentang) {
-      ke++;
-      onProgress?.(`Mengunggah foto ${ke} dari ${dicentang.length}…`);
-      const kecil = await kecilkanSekali(s.file);
-      const ext = kecil.type === 'image/webp' ? 'webp' : 'jpg';
-      const photoPath = `${outletId}/${runId}/${s.item_id}.${ext}`;
-      const { error: upErr } = await supabase.storage
-        .from('checklist-photos')
-        .upload(photoPath, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
-      if (upErr) throw upErr;
-      terunggah.push(photoPath);
-      const isi = { checked: true, note: s.note || null, photo_path: photoPath, done_by: uid, done_at: new Date().toISOString() };
-      if (barisAda.has(s.item_id)) perbarui.push({ item_id: s.item_id, isi });
-      else rows.push({ run_id: runId, item_id: s.item_id, ...isi });
-    }
-
-    if (rows.length) {
-      const { data, error } = await supabase.from('checklist_run_items').insert(rows).select('id');
-      if (error) throw error;
-      // Penolakan RLS tidak selalu berupa error — baris yang tersaring diam-diam
-      // menghasilkan "sukses" dengan jumlah yang lebih sedikit.
-      if ((data ?? []).length !== rows.length) {
-        throw new Error('Sebagian item tidak tersimpan. Coba muat ulang halamannya.');
-      }
-    }
-
-    for (const u of perbarui) {
-      const { data, error } = await supabase
-        // baris-terbatas: item SATU run sesi.
-    .from('checklist_run_items')
-        .update(u.isi)
-        .eq('run_id', runId)
-        .eq('item_id', u.item_id)
-        // Syarat ini juga ada di policy 0072. Ditulis lagi di sini supaya
-        // penolakannya jelas: bukti yang sudah ada tidak boleh tertimpa.
-        .eq('checked', false)
-        .select('id');
-      if (error) throw error;
-      if (!data?.length) throw new Error('Item ini sudah dikerjakan orang lain barusan. Muat ulang halamannya.');
-    }
-
-    return rows.length + perbarui.length;
-  } catch (err) {
-    // Foto yang terlanjur naik tapi barisnya gagal dibuat akan jadi file yatim
-    // yang memakan kuota tanpa membuktikan apa pun.
-    for (const path of terunggah) {
-      await supabase.storage.from('checklist-photos').remove([path]).catch(() => {});
-    }
-    throw err;
-  }
+/** Simpan catatan sesi (run-level). Aman dipanggil berkali-kali. */
+export async function simpanCatatanRun(runId, notes) {
+  if (!runId) return;
+  const { error } = await supabase.rpc('catat_catatan_run', { p_run: runId, p_notes: notes ?? '' });
+  if (error) throw new Error(error.message ?? String(error));
 }
 
 /**

@@ -3001,6 +3001,40 @@ Dua hal ikut dijaga karena perubahan ini memunculkannya:
 
 Perlu dicatat juga bahwa penjaga urutannya diuji lewat **tiruan**, bukan kode yang benar-benar berjalan — ia hidup di dalam `wirePhotoInput` yang menuntut DOM. Tesnya menjaga aturannya tetap benar, bukan implementasinya; keduanya harus diubah bersamaan.
 
+## Rekaman layar mengubah diagnosisnya (migration `0089`)
+
+Tebakan saya sebelumnya — memori habis lalu Android membuang halaman — **benar sebagiannya**, dan mengecilkan foto lebih awal memang membantu. Tapi rekamannya menunjukkan sesuatu yang tidak saya duga sama sekali, dan itu lebih berbahaya daripada kehilangan foto.
+
+**Detik 8:** outlet **Central Kitchen Tangerang**, sesi Opening, *0 dari 3 item*.
+**Detik 15:** halaman dimuat ulang.
+**Detik 16:** outlet **AB Gading Serpong**, sesi Opening, *4 dari 7 item* — sudah diisi Risma.
+
+Sub-layarnya dipulihkan dengan benar (`sesi:<id>`), **tapi outletnya kembali ke pilihan default.** Tidak ada satu pun tanda bahwa outletnya berpindah. Kalau diteruskan mengisi, pekerjaannya masuk ke outlet yang salah.
+
+Jadi memulihkan sub-layar tanpa memulihkan konteksnya bukan setengah perbaikan — **ia lebih buruk daripada tidak memulihkan sama sekali.** Pemulihan yang tidak setia mengantar orang ke kamar yang salah sambil meyakinkannya bahwa ia di kamar yang benar.
+
+### Perbaikan 1 — ingatan layar mengingat konteksnya
+
+`ingatKonteks()` / `konteksTerakhir()` menyimpan outlet & tanggal yang sedang dipilih, dan pemulihannya menghormati keduanya. Tanggal hanya dipulihkan kalau masih hari ini. Konteks dicocokkan dengan kode modulnya, jadi outlet yang diingat Inventory tidak pernah menentukan outlet Daily Activities.
+
+### Perbaikan 2 — tidak ada lagi tombol Kirim
+
+Selama pekerjaan menumpuk di memori sampai akhir, jendela kehilangan itu **selalu** ada — hemat memori hanya mengecilkan peluangnya. Yang menutupnya bukan hemat memori, melainkan **tidak menunggu**.
+
+Sekarang satu item yang dicentang dan difoto langsung tersimpan ke server. Kartu itu menampilkan "✅ Tersimpan. Aman walau aplikasi tertutup." Tombol Kirim dihapus.
+
+Yang menentukan ini bekerja di lapangan: `pastikan_run_aktivitas()` mengambil-atau-membuat run hari itu dengan `on conflict do nothing` lalu `select`. `checklist_runs` punya `unique (outlet_id, session_id, run_date)`, dan dengan penyimpanan per item run itu bisa diminta dua orang pada detik yang sama — hal yang justru wajar saat buka toko. Pola "cek dulu, lalu insert" di sisi aplikasi pasti kalah di situ, dan yang kalah mendapat *"duplicate key value violates unique constraint"* lalu kehilangan fotonya lagi.
+
+Fungsi itu sengaja **SECURITY INVOKER** (default): RLS harus tetap berlaku supaya perbaikan wewenang `0088` benar-benar yang menentukan siapa boleh memulai sesi. SECURITY DEFINER akan diam-diam membatalkan penjaga itu.
+
+`submitChecklistRun()` dan `lanjutkanChecklistRun()` **dihapus**, bukan disimpan "untuk jaga-jaga": dua jalur penyimpanan untuk hal yang sama akan menyimpang, dan yang menyimpang justru yang jarang dipakai — lalu suatu saat dipanggil lagi oleh orang yang mengira ia masih benar.
+
+### Yang perlu diakui
+
+Satu sabotase pada tes ingatan layar **lolos**: menghapus `konteks: null` dari `ingatModul()` tidak membuatnya merah. Itu bukan tes yang lemah — baris itu memang **bukan penjaganya**; `tulis()` mengganti seluruh objek, jadi konteks lama sudah hilang dengan sendirinya. Baris itu pertahanan berlapis. Yang benar-benar dijaga tesnya adalah perilakunya, dan sabotase yang tepat (mengubah `ingatModul` jadi menyalin ingatan lama) langsung merah.
+
+Dan diagnosis saya yang pertama tidak lengkap. Kompresi foto tetap dipertahankan karena mengurangi pemicunya, tapi yang benar-benar menyelesaikan masalahnya adalah tidak menunda penyimpanan — bukan penghematan memori.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

@@ -66,7 +66,7 @@ export function ingatModul(kode) {
     }
     return;
   }
-  tulis({ modul: kode, gulir: 0, layar: null });
+  tulis({ modul: kode, gulir: 0, layar: null, konteks: null });
 }
 
 /** Modul terakhir, atau null kalau tidak ada / sudah basi. */
@@ -89,6 +89,46 @@ export function layarTerakhir(kodeModul) {
   const data = baca();
   if (!data || data.modul !== kodeModul) return null;
   return data.layar ?? null;
+}
+
+/**
+ * Konteks penyaring yang sedang aktif — outlet mana, tanggal berapa.
+ *
+ * ============ KENAPA INI ADA, DAN KENAPA IA PENTING ============
+ *
+ * Sebelumnya yang diingat hanya KODE MODUL dan SUB-LAYAR. Rekaman layar dari
+ * lapangan menunjukkan akibatnya, dan akibatnya lebih buruk daripada sekadar
+ * "harus mengulang":
+ *
+ *   Staff membuka Daily Activities di **Central Kitchen Tangerang**, sesi
+ *   Opening, 0 dari 3 item. Ia memotret satu item. Android membuang halaman
+ *   itu. Halamannya dimuat ulang, sub-layarnya DIPULIHKAN dengan benar —
+ *   `sesi:<id>` — tapi outletnya kembali ke pilihan default, **AB Gading
+ *   Serpong**. Yang muncul di layar: sesi Opening milik outlet lain, 4 dari 7
+ *   item, sudah diisi orang lain.
+ *
+ * Tidak ada satu pun tanda bahwa outletnya berpindah. Kalau diteruskan
+ * mengisi, pekerjaannya masuk ke outlet yang salah.
+ *
+ * Jadi memulihkan sub-layar TANPA memulihkan konteksnya bukan setengah
+ * perbaikan — ia lebih berbahaya daripada tidak memulihkan sama sekali.
+ * Pemulihan yang tidak setia mengantar orang ke kamar yang salah sambil
+ * meyakinkannya bahwa ia di kamar yang benar.
+ *
+ * Sengaja disimpan sebagai objek bebas: tiap modul tahu sendiri apa yang
+ * membentuk "tempat"-nya. Untuk Daily Activities itu outlet + tanggal.
+ */
+export function ingatKonteks(konteks) {
+  const data = baca();
+  if (!data) return;
+  tulis({ ...data, konteks: konteks ?? null });
+}
+
+/** Konteks terakhir DI MODUL INI, atau null. */
+export function konteksTerakhir(kodeModul) {
+  const data = baca();
+  if (!data || data.modul !== kodeModul) return null;
+  return data.konteks ?? null;
 }
 
 /** Catat posisi gulir. Dipanggil sering, jadi sengaja murah. */

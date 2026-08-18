@@ -9,17 +9,17 @@ import {
   getRunItems,
   getRunItemIds,
   getItemsPerSession,
-  lanjutkanChecklistRun,
   ubahItemRun,
   hapusItemRun,
   getChecklistPhotoUrl,
   getChecklistPhotoUrls,
-  submitChecklistRun,
-  todayWIB
+  todayWIB,
+  simpanItemAktivitas,
+  simpanCatatanRun
 } from './cleaning.service.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { dorongSubHalaman } from '../../core/navigasi.js';
-import { ingatLayar } from '../../core/ingatan-layar.js';
+import { ingatLayar, ingatKonteks, konteksTerakhir } from '../../core/ingatan-layar.js';
 import { saringJatuhTempo, labelJadwal } from './jadwal-item.js';
 
 export async function renderCleaningPage(container, { userId, businessUnitId, outletId, layarAwal = null }) {
@@ -38,10 +38,27 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
     return;
   }
 
+  // KONTEKS YANG DIINGAT MENANG ATAS DEFAULT.
+  //
+  // Ini yang memperbaiki bug di rekaman layar: sesudah Android membuang
+  // halaman ini, sub-layarnya dipulihkan dengan benar (`sesi:<id>`) tapi
+  // outletnya kembali ke pilihan pertama. Yang muncul: sesi outlet LAIN, sudah
+  // diisi orang lain, tanpa satu pun tanda bahwa outletnya berpindah.
+  //
+  // Pemulihan yang tidak setia lebih berbahaya daripada tidak memulihkan sama
+  // sekali — ia mengantar orang ke kamar yang salah sambil meyakinkannya bahwa
+  // ia di kamar yang benar.
+  const ingatan = konteksTerakhir('cleaning_checklist');
+  const outletDiingat = outlets.some((o) => o.id === ingatan?.outletId) ? ingatan.outletId : null;
   const state = {
-    outletId: outlets.some((o) => o.id === outletId) ? outletId : outlets[0].id,
-    tanggal: todayWIB()
+    outletId: outletDiingat ?? (outlets.some((o) => o.id === outletId) ? outletId : outlets[0].id),
+    // Tanggal hanya dipulihkan kalau masih HARI INI. Mendarat di tanggal
+    // kemarin bukan "melanjutkan"; tanggalnya sudah berganti dan layarnya
+    // hanya bisa dilihat.
+    tanggal: ingatan?.tanggal === todayWIB() ? ingatan.tanggal : todayWIB()
   };
+  const catatKonteks = () => ingatKonteks({ outletId: state.outletId, tanggal: state.tanggal });
+  catatKonteks();
 
   // Sesi & item dimuat PER OUTLET, bukan sekali di awal: sejak migration 0054
   // tiap outlet bisa punya tambahan sendiri di atas standar BU. Kalau dimuat
@@ -90,10 +107,12 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
   const dateInput = container.querySelector('#clean-date');
   outletSelect.addEventListener('change', () => {
     state.outletId = outletSelect.value;
+    catatKonteks();
     renderSessionList();
   });
   dateInput.addEventListener('change', () => {
     state.tanggal = dateInput.value || todayWIB();
+    catatKonteks();
     renderSessionList();
   });
 
@@ -372,7 +391,7 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
             !hariIni
               ? 'Ini riwayat hari sebelumnya — hanya bisa dilihat.'
               : bisaIsi
-                ? 'Centang item yang sudah beres, lalu <strong>ambil foto bukti untuk tiap item yang dicentang</strong>. Yang belum sempat bisa dilanjutkan nanti.'
+                ? 'Centang item yang sudah beres, lalu <strong>ambil fotonya</strong>. Tiap item <strong>langsung tersimpan</strong> begitu fotonya diambil — tidak perlu menekan Kirim, dan tidak hilang kalau HP menutup aplikasi ini.'
                 : 'Semua item sesi ini sudah beres. 🎉'
           }
         </p>
@@ -395,20 +414,22 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
               </label>
               <div class="clean-photo-wrap" data-for="${escapeHtml(it.id)}" hidden style="margin-top:8px">
                 ${photoInputHtml({ name: `foto-${it.id}`, label: 'Foto bukti item ini', facing: 'environment' })}
+                <p class="clean-item-status" data-status="${escapeHtml(it.id)}" style="font-size:0.8rem;margin:6px 0 0"></p>
               </div>
             </div>`;
             })
             .join('')}
         </div>
         ${
-          bisaIsi && !runAda
+          bisaIsi
             ? `<div class="field">
-                 <label>Catatan (opsional)</label>
-                 <input type="text" id="clean-notes" placeholder="mis. kran wastafel bocor" />
+                 <label>Catatan sesi (opsional)</label>
+                 <input type="text" id="clean-notes" placeholder="mis. kran wastafel bocor"
+                        value="${escapeHtml(runAda?.notes ?? '')}" />
+                 <span class="field-help">Tersimpan sendiri saat kamu berpindah dari kotak ini.</span>
                </div>`
             : ''
         }
-        ${bisaIsi ? `<button class="primary" id="clean-submit">${runAda ? 'Tambahkan ke Sesi Ini' : 'Kirim Aktivitas'}</button>` : ''}
         <p class="error-text" id="clean-error"></p>
         <p id="clean-progress" style="font-size:0.8rem;color:var(--color-text-muted);margin:6px 0 0"></p>
       </div>
@@ -483,71 +504,123 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
     // membuat Android membuang halaman ini. Alasan lengkapnya di photo-input.js.
     const bacaFoto = new Map(sisa.map((it) => [it.id, wirePhotoInput(body, `foto-${it.id}`, { preset: 'aktivitas' })]));
 
+    const errorEl = body.querySelector('#clean-error');
+
+    /**
+     * SIMPAN SATU ITEM BEGITU FOTONYA ADA.
+     *
+     * Tidak ada lagi tombol Kirim. Rekaman layar dari lapangan menunjukkan
+     * Android membuang halaman ini sesudah aplikasi kamera dipakai — centang
+     * dan foto yang menunggu di memori ikut hilang, tanpa satu pun tanda bahwa
+     * pekerjaannya batal. Selama pekerjaan menumpuk sampai akhir, jendela
+     * kehilangan itu selalu ada.
+     *
+     * Item yang sudah tersimpan TIDAK langsung menggambar ulang seluruh layar.
+     * Menggambar ulang di tengah pengisian akan menutup pemilih foto item lain
+     * yang sedang dikerjakan, dan menggulir layarnya kembali ke atas — persis
+     * saat orangnya sedang berdiri memegang alat pel.
+     */
+    const tersimpan = new Set();
+
+    async function simpanItem(itemId) {
+      const status = body.querySelector(`.clean-item-status[data-status="${CSS.escape(itemId)}"]`);
+      const kotak = body.querySelector(`.clean-check[data-item="${CSS.escape(itemId)}"]`);
+      const file = bacaFoto.get(itemId)?.() ?? null;
+      if (!file || tersimpan.has(itemId)) return;
+
+      errorEl.textContent = '';
+      if (status) {
+        status.style.color = 'var(--color-text-muted)';
+        status.textContent = 'Menyimpan…';
+      }
+      if (kotak) kotak.disabled = true;
+
+      try {
+        await simpanItemAktivitas({
+          businessUnitId,
+          outletId: state.outletId,
+          sessionId: session.id,
+          itemId,
+          file,
+          notes: body.querySelector('#clean-notes')?.value ?? ''
+        });
+        tersimpan.add(itemId);
+        if (status) {
+          status.style.color = 'var(--color-success, #1b7f3b)';
+          status.textContent = '✅ Tersimpan. Aman walau aplikasi tertutup.';
+        }
+        // Kartunya tidak diganti sekarang; daftar akan segar sendiri saat
+        // layarnya dibuka lagi. Yang penting sudah tercapai: datanya ada di
+        // server, bukan di memori HP.
+      } catch (error) {
+        if (kotak) kotak.disabled = false;
+        if (status) {
+          status.style.color = 'var(--color-danger)';
+          status.textContent = `Gagal: ${error.message ?? error} — coba ambil fotonya lagi.`;
+        }
+        errorEl.textContent = error.message ?? 'Gagal menyimpan item.';
+      }
+    }
+
     body.querySelectorAll('.clean-check').forEach((c) =>
       c.addEventListener('change', () => {
         const wrap = body.querySelector(`.clean-photo-wrap[data-for="${CSS.escape(c.dataset.item)}"]`);
         if (wrap) wrap.hidden = !c.checked;
+        // Centang dulu, foto belakangan: kalau fotonya sudah terlanjur diambil
+        // lalu centangnya dilepas dan dipasang lagi, simpan sekarang.
+        if (c.checked) simpanItem(c.dataset.item);
       })
     );
 
-    body.querySelector('#clean-submit').addEventListener('click', async (e) => {
-      const errorEl = body.querySelector('#clean-error');
-      const progressEl = body.querySelector('#clean-progress');
-      errorEl.textContent = '';
+    // Foto masuk lewat `change` pada input file di dalam pemilih foto. Didengar
+    // lewat delegasi supaya kedua sumber (kamera & galeri) tertangkap tanpa
+    // menyentuh isi photo-input.js.
+    body.addEventListener('change', (e) => {
+      const input = e.target;
+      if (!(input instanceof HTMLInputElement) || input.type !== 'file') return;
+      const blok = input.closest('.clean-item-block');
+      const itemId = blok?.dataset.block;
+      if (!itemId) return;
+      const kotak = body.querySelector(`.clean-check[data-item="${CSS.escape(itemId)}"]`);
+      if (!kotak?.checked) return;
+      // Fotonya masih dikecilkan saat `change` menyala — pembacanya baru berisi
+      // beberapa ratus milidetik kemudian. Jadi ditunggu sampai siap, bukan
+      // dibaca sekarang dan dilaporkan "belum ada foto".
+      tungguFotoLaluSimpan(itemId);
+    });
 
-      const itemStates = [...body.querySelectorAll('.clean-check')].map((c) => ({
-        item_id: c.dataset.item,
-        checked: c.checked,
-        file: c.checked ? bacaFoto.get(c.dataset.item)?.() ?? null : null
-      }));
-
-      const dicentang = itemStates.filter((s) => s.checked);
-      if (!dicentang.length) {
-        errorEl.textContent = 'Centang minimal satu item dulu.';
-        return;
+    /**
+     * Tunggu kompresi selesai, lalu simpan.
+     *
+     * Batas 15 detik supaya tidak menunggu selamanya kalau kompresinya gagal
+     * dengan cara yang tidak terduga — lebih baik memberi tahu orangnya
+     * daripada meninggalkan tulisan "Menyimpan…" yang tidak pernah berubah.
+     */
+    async function tungguFotoLaluSimpan(itemId) {
+      const status = body.querySelector(`.clean-item-status[data-status="${CSS.escape(itemId)}"]`);
+      if (status) {
+        status.style.color = 'var(--color-text-muted)';
+        status.textContent = 'Menyiapkan foto…';
       }
-      const tanpaFoto = dicentang.filter((s) => !s.file);
-      if (tanpaFoto.length) {
-        // Sebut BERAPA yang kurang dan bawa layar ke item pertamanya — daftar
-        // panjang terlalu melelahkan untuk dicari sendiri oleh orang yang
-        // sedang berdiri sambil memegang alat pel.
-        errorEl.textContent = `${tanpaFoto.length} item yang dicentang belum ada fotonya.`;
-        body.querySelector(`.clean-item-block[data-block="${CSS.escape(tanpaFoto[0].item_id)}"]`)
-          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return;
+      for (let i = 0; i < 150; i++) {
+        if (bacaFoto.get(itemId)?.()) return simpanItem(itemId);
+        await new Promise((r) => setTimeout(r, 100));
       }
+      if (status) {
+        status.style.color = 'var(--color-danger)';
+        status.textContent = 'Fotonya tidak selesai disiapkan. Coba ambil ulang.';
+      }
+    }
 
-      e.target.disabled = true;
+    // Catatan sesi disimpan saat berpindah dari kotaknya — hanya kalau run-nya
+    // sudah ada. Kalau belum, catatannya ikut saat item pertama disimpan.
+    body.querySelector('#clean-notes')?.addEventListener('change', async (e) => {
+      const run = runAda ?? (await cariRunSesi(session.id));
+      if (!run) return;
       try {
-        if (runAda) {
-          const n = await lanjutkanChecklistRun(
-            { runId: runAda.id, outletId: state.outletId, itemStates },
-            (pesan) => (progressEl.textContent = pesan)
-          );
-          progressEl.textContent = '';
-          toast(`${n} item ditambahkan ke "${session.name}". ✅`, 'success');
-        } else {
-          await submitChecklistRun(
-            {
-              businessUnitId,
-              outletId: state.outletId,
-              sessionId: session.id,
-              itemStates,
-              notes: body.querySelector('#clean-notes')?.value ?? ''
-            },
-            (pesan) => (progressEl.textContent = pesan)
-          );
-          progressEl.textContent = '';
-          toast(`Aktivitas "${session.name}" terkirim. Terima kasih! ✅`, 'success');
-        }
-        // Tetap di layar sesi ini, bukan kembali ke daftar: setelah mengirim,
-        // yang ingin dilihat orang adalah hasilnya — dan item apa yang masih
-        // tersisa.
-        await renderRunForm(session, runAda ?? (await cariRunSesi(session.id)));
+        await simpanCatatanRun(run.id, e.target.value);
       } catch (error) {
-        progressEl.textContent = '';
-        errorEl.textContent = error.message ?? 'Gagal mengirim aktivitas.';
-        e.target.disabled = false;
+        errorEl.textContent = error.message ?? 'Catatan gagal disimpan.';
       }
     });
   }

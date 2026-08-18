@@ -122,8 +122,74 @@ cek('isi null aman', M.modulTerakhir(), null);
 simpanan.set('berjaya_ingatan_layar', '{"modul":"kas"}'); // tanpa ts
 cek('tanpa cap waktu dianggap basi, bukan abadi', M.modulTerakhir(), null);
 
+// =====================================================================
+// KONTEKS: outlet & tanggal yang sedang dipilih
+//
+// Ini bagian yang PALING BERBAHAYA kalau salah, dan bahayanya bukan
+// "kehilangan pekerjaan" melainkan MENGERJAKAN TEMPAT YANG SALAH.
+//
+// Rekaman layar dari lapangan: staff membuka Daily Activities di Central
+// Kitchen, memotret satu item, Android membuang halamannya. Sub-layarnya
+// dipulihkan dengan benar — `sesi:<id>` — tapi outletnya kembali ke pilihan
+// pertama. Yang muncul: sesi Opening milik outlet LAIN, sudah diisi orang
+// lain, tanpa satu pun tanda bahwa outletnya berpindah.
+// =====================================================================
+simpanan.clear();
+M.ingatModul('cleaning_checklist');
+cek('konteks kosong di modul baru', M.konteksTerakhir('cleaning_checklist'), null);
+
+M.ingatKonteks({ outletId: 'ck-tangerang', tanggal: '2026-08-18' });
+cek('konteks tersimpan', M.konteksTerakhir('cleaning_checklist'), { outletId: 'ck-tangerang', tanggal: '2026-08-18' });
+
+// TIDAK BOLEH BOCOR ANTAR MODUL. Outlet yang diingat modul Inventory tidak
+// boleh menentukan outlet modul Daily Activities.
+cek('konteks tidak terbaca dari modul lain', M.konteksTerakhir('inventory'), null);
+
+// Konteks & layar hidup berdampingan — memulihkan salah satunya saja
+// justru yang menghasilkan bug di atas.
+M.ingatLayar('sesi:opening');
+cek('layar tetap tercatat', M.layarTerakhir('cleaning_checklist'), 'sesi:opening');
+cek('konteks tidak hilang saat layar dicatat', M.konteksTerakhir('cleaning_checklist'), { outletId: 'ck-tangerang', tanggal: '2026-08-18' });
+
+M.ingatKonteks({ outletId: 'gading', tanggal: '2026-08-18' });
+cek('layar tidak hilang saat konteks diubah', M.layarTerakhir('cleaning_checklist'), 'sesi:opening');
+cek('konteks terbarui', M.konteksTerakhir('cleaning_checklist').outletId, 'gading');
+
+// Berpindah modul mengosongkan konteksnya — kalau tidak, outlet modul lama
+// akan diam-diam dipakai modul baru.
+//
+// PERLU DICATAT JUJUR: menyabotase `konteks: null` di dalam `ingatModul()`
+// TIDAK membuat baris ini merah. Bukan karena tesnya lemah, melainkan karena
+// baris itu memang bukan penjaganya — `tulis()` mengganti SELURUH objek, jadi
+// konteks lama sudah hilang dengan sendirinya. `konteks: null` di sana adalah
+// pertahanan berlapis, bukan penyelamatnya.
+//
+// Yang benar-benar dijaga baris tes ini adalah PERILAKUNYA: kalau suatu saat
+// `ingatModul` diubah jadi menyalin ingatan lama (`{...baca(), modul: kode}`),
+// baris ini akan langsung merah.
+M.ingatModul('inventory');
+cek('ganti modul mengosongkan konteks', M.konteksTerakhir('inventory'), null);
+
+// Ingatan basi tidak mengembalikan konteks apa pun.
+M.ingatModul('cleaning_checklist');
+M.ingatKonteks({ outletId: 'ck-tangerang', tanggal: '2026-08-18' });
+const isiKini = JSON.parse(simpanan.get('berjaya_ingatan_layar'));
+simpanan.set('berjaya_ingatan_layar', JSON.stringify({ ...isiKini, ts: Date.now() - 31 * 60 * 1000 }));
+cek('konteks basi diabaikan', M.konteksTerakhir('cleaning_checklist'), null);
+
+// Menyimpan konteks saat tidak ada ingatan sama sekali tidak boleh melempar.
+simpanan.clear();
+let aman = true;
+try {
+  M.ingatKonteks({ outletId: 'x' });
+} catch {
+  aman = false;
+}
+cek('ingatKonteks tanpa ingatan tidak melempar', aman, true);
+cek('  dan tidak membuat ingatan palsu', M.konteksTerakhir('cleaning_checklist'), null);
+
 if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Ingatan layar benar untuk 26 kasus, termasuk batas usia & penyimpanan yang diblokir. ✅');
+console.log('Ingatan layar benar untuk 38 kasus, termasuk batas usia & penyimpanan yang diblokir. ✅');
