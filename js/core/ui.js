@@ -570,7 +570,12 @@ function fieldHtml(f) {
     // membatasi nilainya sendiri.
     f.max != null ? `max="${escapeAttr(f.max)}"` : '',
     f.minlength ? `minlength="${escapeAttr(f.minlength)}"` : '',
-    f.accept ? `accept="${escapeAttr(f.accept)}"` : ''
+    f.accept ? `accept="${escapeAttr(f.accept)}"` : '',
+    // `list` menyambungkan isian ke <datalist> yang sudah ada di halaman:
+    // saran ketik tanpa mengunci pilihannya. Ditambahkan karena tanpa ini
+    // atributnya DIDIAMKAN — pemanggil menulis `list: '...'`, tidak ada error,
+    // dan sarannya tidak pernah muncul.
+    f.list ? `list="${escapeAttr(f.list)}"` : ''
   ].join(' ');
 
   return `

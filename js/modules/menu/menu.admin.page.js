@@ -1,6 +1,6 @@
-import { toast, confirmDialog } from '../../core/ui.js';
+import { toast, confirmDialog, formDialog } from '../../core/ui.js';
 import { formatRupiah, formatNum, formatThousands, parseNumber, attachThousandsInput } from '../../core/format.js';
-import { listProducts, listRecipesFull, costForMode, sebabHppKosong, pindahVarianResep, updateSalePrice, updateProductCategory, deleteRecipe } from '../product/product.service.js';
+import { createProduct, listProducts, listRecipesFull, costForMode, sebabHppKosong, pindahVarianResep, updateSalePrice, updateProductCategory, deleteRecipe } from '../product/product.service.js';
 import { openRecipeEditor, MODE_LABEL } from '../product/recipe-editor.js';
 import { downloadMenuTemplate } from '../product/product-import.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
@@ -47,25 +47,30 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
   const menus = products.filter((p) => p.product_type === 'finished');
   const namaProduk = new Map(products.map((p) => [p.id, p]));
   const categories = [...new Set(menus.map((m) => m.category).filter(Boolean))].sort();
+  const subKategori = [...new Set(menus.map((m) => m.subcategory).filter(Boolean))].sort();
   let resepPer = new Map(recipes.map((r) => [`${r.product_id}|${r.mode}`, r]));
-  const state = { category: '', q: '', terbuka: new Set() };
+  const state = { category: '', subcategory: '', q: '', terbuka: new Set() };
 
   container.innerHTML = `
     <div class="page-header">
       <h1 style="margin:0">Menu</h1>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button id="mn-tpl">Template Menu</button>
+        ${bolehUbah ? '<button class="primary" id="mn-baru" style="max-width:180px">+ Tambah Menu</button>' : ''}
       </div>
     </div>
     <p style="color:var(--color-text-muted);font-size:0.88rem;margin:0 0 12px;max-width:620px">
       Semua produk bertipe <strong>Menu</strong>. HPP dihitung otomatis dari resep + harga bahan.
-      Menu <strong>baru</strong> ditambahkan di <strong>Master Produk → Produk</strong> (tipe "Menu") atau lewat
-      Import Excel di sana — unduh <strong>Template Menu</strong> di atas, kolom Tipe-nya sudah terisi.
+      Menu baru bisa ditambahkan langsung lewat <strong>+ Tambah Menu</strong>, atau sekaligus banyak lewat
+      Import Excel di Master Produk — unduh <strong>Template Menu</strong> di atas, kolom Tipe-nya sudah terisi.
       ${bolehUbah ? 'Harga jual bisa diubah langsung di tabel.' : '<br /><strong>Harga jual & resep hanya bisa diubah Admin BU</strong> — di sini kamu bisa memeriksanya, tapi tidak menyimpannya.'}
     </p>
     <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
       <div class="field" style="margin:0;max-width:220px"><label>Kategori</label>
         <select id="mn-cat"><option value="">Semua</option>${categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
+      </div>
+      <div class="field" style="margin:0;max-width:220px"><label>Sub kategori</label>
+        <select id="mn-sub"><option value="">Semua</option>${subKategori.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
       </div>
       <div class="field" style="margin:0;max-width:260px"><label>Cari menu</label>
         <input type="search" id="mn-q" placeholder="ketik nama menu…" autocomplete="off" />
@@ -77,6 +82,14 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
     </p>
     <div id="mn-table"></div>
   `;
+
+  // Datalist kategori ditaruh DI LUAR #mn-table karena isi tabel digambar ulang
+  // setiap penyaringan — dan dialog "Tambah Menu" bisa dibuka kapan saja,
+  // termasuk saat tabelnya sedang kosong karena saringan.
+  const daftarKat = document.createElement('datalist');
+  daftarKat.id = 'mn-cat-list';
+  daftarKat.innerHTML = categories.map((c) => `<option value="${esc(c)}"></option>`).join('');
+  container.appendChild(daftarKat);
 
   const tableBox = container.querySelector('#mn-table');
   const infoEl = container.querySelector('#mn-info');
@@ -91,6 +104,10 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
    */
   const cocok = (menu) => {
     if (state.category && menu.category !== state.category) return false;
+    // Sub kategori disaring TERPISAH dari kategori, bukan menggantikannya:
+    // "Minuman → Kopi" dan "Minuman → Teh" sama-sama Minuman, dan yang dicari
+    // orangnya biasanya salah satunya, bukan keduanya.
+    if (state.subcategory && menu.subcategory !== state.subcategory) return false;
     const q = bakukanNama(state.q);
     if (!q) return true;
     return bakukanNama(`${menu.name} ${menu.category ?? ''} ${menu.subcategory ?? ''}`).includes(q);
@@ -111,9 +128,7 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
     // setiap kategori baru harus menunggu deploy — dan sementara menunggu,
     // orangnya menaruh menu di kategori yang salah karena itu satu-satunya yang
     // tersedia. `datalist` memberi kecepatan dropdown tanpa mengunci pilihannya.
-    const semuaKategori = [...new Set(menus.map((m) => m.category).filter(Boolean))].sort();
     tableBox.innerHTML = `
-      <datalist id="mn-cat-list">${semuaKategori.map((c) => `<option value="${esc(c)}"></option>`).join('')}</datalist>
       <div class="table-scroll"><table class="data-table table-freeze-1">
         <thead>
           <tr><th>Menu</th><th>Kategori</th><th>Satuan</th><th>Harga Jual</th><th>HPP Standalone</th><th>HPP Dilayani CK</th><th>Margin</th></tr>
@@ -422,7 +437,77 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
     state.q = e.target.value;
     renderTable();
   });
+  container.querySelector('#mn-sub').addEventListener('change', (e) => {
+    state.subcategory = e.target.value;
+    renderTable();
+  });
   container.querySelector('#mn-tpl').addEventListener('click', downloadMenuTemplate);
+
+  /**
+   * Tambah menu langsung dari sini, bukan lewat Master Produk.
+   *
+   * Menu ADALAH produk bertipe `finished` — jadi yang dibuat tetap produk, dan
+   * `createProduct()` yang sama dipakai. Yang berbeda cuma pintunya: sebelumnya
+   * orang harus pindah modul, memilih tipe "Menu" di antara tiga pilihan, lalu
+   * kembali ke sini untuk mengisi resepnya. Tiga langkah untuk satu niat.
+   *
+   * `product_type` TIDAK ditawarkan sebagai pilihan di sini — ia sudah pasti
+   * "Menu". Menawarkannya cuma membuka pintu membuat bahan baku dari layar
+   * bernama Menu.
+   */
+  container.querySelector('#mn-baru')?.addEventListener(
+    'click',
+    sekaliJalan(async () => {
+      const v = await formDialog({
+        title: 'Tambah Menu',
+        description: 'Menu baru dibuat sebagai produk bertipe "Menu". Resepnya diisi setelah ini, lewat baris menunya di tabel.',
+        fields: [
+          { name: 'name', label: 'Nama menu', type: 'text', required: true, placeholder: 'mis. Es Kopi Susu' },
+          {
+            name: 'base_unit',
+            label: 'Satuan jual',
+            type: 'text',
+            required: true,
+            value: 'porsi',
+            help: 'Satuan yang dipakai saat menghitung HPP & penjualan — mis. porsi, gelas, pcs.'
+          },
+          { name: 'category', label: 'Kategori', type: 'text', list: 'mn-cat-list', placeholder: 'mis. Minuman' },
+          { name: 'subcategory', label: 'Sub kategori', type: 'text', placeholder: 'mis. Kopi' },
+          { name: 'sale_price', label: 'Harga jual', type: 'money', help: 'Boleh dikosongkan dulu dan diisi belakangan di tabel.' }
+        ],
+        submitText: 'Simpan'
+      });
+      if (!v) return;
+
+      // Nama kembar diperiksa DI SINI, sebelum menyimpan, memakai pembakuan
+      // yang sama dengan impor. Tanpa ini akan lahir dua "Es Kopi Susu" yang
+      // resepnya terpisah — dan sesudah itu tidak ada cara memberi tahu mana
+      // yang dipakai kasir.
+      const kembar = products.find((p) => bakukanNama(p.name) === bakukanNama(v.name));
+      if (kembar) {
+        return toast(
+          `"${kembar.name}" sudah ada (${kembar.product_type === 'finished' ? 'Menu' : 'bukan menu'}). Pakai yang itu, atau beri nama yang berbeda.`,
+          'warning'
+        );
+      }
+
+      try {
+        await createProduct({
+          businessUnitId,
+          name: v.name.trim(),
+          product_type: 'finished',
+          category: v.category,
+          subcategory: v.subcategory,
+          base_unit: v.base_unit.trim(),
+          sale_price: v.sale_price || null
+        });
+        toast('Menu ditambahkan. Isi resepnya lewat baris menunya.', 'success');
+        await renderMenuAdminPage(container, { businessUnitId });
+      } catch (error) {
+        toast(error.message ?? 'Gagal menambah menu.', 'error');
+      }
+    })
+  );
 
   renderTable();
 }

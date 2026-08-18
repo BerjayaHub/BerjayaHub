@@ -11,7 +11,6 @@ import { renderAttendancePage } from './modules/attendance/attendance.page.js';
 import { renderLeavePage } from './modules/leave/leave.page.js';
 import { renderCleaningPage } from './modules/cleaning/cleaning.page.js';
 import { renderInventoryPage } from './modules/inventory/inventory.page.js';
-import { renderProductStaffPage } from './modules/product/product.staff.page.js';
 import { renderProductionPage } from './modules/production/production.page.js';
 import { renderDispatchPage } from './modules/dispatch/dispatch.page.js';
 import { renderMenuPage } from './modules/menu/menu.page.js';
@@ -30,7 +29,18 @@ registerModule('attendance', renderAttendancePage);
 registerModule('leave', renderLeavePage);
 registerModule('cleaning_checklist', renderCleaningPage);
 registerModule('inventory', renderInventoryPage);
-registerModule('master_product', renderProductStaffPage);
+// Master Produk SENGAJA TIDAK didaftarkan di Staff App.
+//
+// Isinya hampir seluruhnya sama dengan modul Inventory — daftar produk beserta
+// stoknya — dan dua kartu yang membuka hal yang sama membuat staff menebak
+// mana yang "benar". Yang lebih buruk: keduanya menampilkan stok, jadi kalau
+// suatu saat salah satunya basi, tidak ada cara membedakan mana yang keliru.
+//
+// `js/modules/product/product.staff.page.js` SEKARANG YATIM dan sebaiknya
+// dihapus. Saya sempat menulis bahwa Stok Opname tinggal di sana — itu keliru:
+// opname punya layarnya sendiri di dalam modul Inventory, dan berkas itu tidak
+// lagi dirujuk siapa pun. Dibiarkan begitu, 75 baris itu terlihat seperti
+// bagian aplikasi yang masih hidup bagi siapa pun yang membacanya nanti.
 registerModule('production', renderProductionPage);
 registerModule('dispatch', renderDispatchPage);
 registerModule('menu', renderMenuPage);
