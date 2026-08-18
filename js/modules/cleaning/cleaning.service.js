@@ -589,6 +589,11 @@ export async function simpanItemAktivitas({ businessUnitId, outletId, sessionId,
     return { runId, photoPath };
   } catch (err) {
     await supabase.storage.from('checklist-photos').remove([photoPath]).catch(() => {});
+    // Run-nya mungkin baru saja dibuat oleh `pastikan_run_aktivitas()` di atas.
+    // Kalau penulisan itemnya batal, yang tersisa adalah sesi tanpa isi — dan
+    // di rekap admin baris seperti itu terbaca sebagai sesi yang dijalankan.
+    // RPC-nya hanya menghapus yang BENAR-BENAR kosong (0090).
+    await supabase.rpc('hapus_run_kosong', { p_run: runId }).catch(() => {});
     throw err;
   }
 }
@@ -661,6 +666,14 @@ export async function hapusItemRun({ runId, itemId, photoPath }) {
     // hilang, dan file yatim bukan sesuatu yang bisa diperbuat staff.
     await supabase.storage.from('checklist-photos').remove([photoPath]).catch(() => {});
   }
+
+  // SESINYA IKUT TERHAPUS kalau ini item terakhirnya — dikerjakan trigger
+  // `trg_bersihkan_run_kosong` (0090), bukan di sini.
+  //
+  // Sengaja TIDAK dipanggil dari aplikasi: `checklist_runs` tidak punya policy
+  // DELETE, jadi penghapusan lewat PostgREST akan ditolak RLS — dan penolakan
+  // RLS bukan error, melainkan "sukses" dengan nol baris. Pembersih yang tidak
+  // pernah membersihkan apa pun, tanpa satu pun tanda.
 }
 
 /**

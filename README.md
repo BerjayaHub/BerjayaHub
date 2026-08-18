@@ -3069,6 +3069,27 @@ Menambah satu parameter saja tidak cukup — urutannya masih bisa salah lagi bes
 
 Tes ingatan layar sekarang menguji **kontraknya**, bukan cuma potongannya: sabotase yang menukar urutan di dalam `mulaiModul()` — persis bug aslinya — langsung merah.
 
+## Sesi hantu di rekap (migration `0090`)
+
+Menghapus satu-satunya item yang sudah dikerjakan menghilangkan fotonya dan barisnya — tapi **sesinya tetap ada** di rekap Admin Portal:
+
+```
+2026-08-18 14.21 | Central Kitchen | Opening | iko permadi (memulai sesi) | Bukti: – | Catatan: -
+```
+
+Baris itu tidak menyatakan apa pun yang benar: tidak ada pekerjaan, tidak ada bukti. Tapi bagi yang membaca rekap, *"Opening · Central Kitchen · iko permadi"* terbaca sebagai sesi yang dijalankan. Rekap yang menghitung sesi tanpa hasil lebih buruk daripada rekap kosong — yang kosong menimbulkan pertanyaan, yang begini menimbulkan kesimpulan.
+
+**Dikerjakan trigger, bukan di aplikasi**, karena dua hal:
+
+- Menghapus item datang dari beberapa jalur (staff menghapus miliknya sendiri, admin mengoreksi, dan jalur apa pun nanti). Satu jalur yang lupa memanggil pembersihnya menghasilkan baris hantu yang tidak pernah terlihat salah.
+- Lebih menentukan: **`checklist_runs` tidak punya policy DELETE.** Pembersihan lewat PostgREST akan ditolak RLS — dan penolakan RLS bukan error, melainkan "sukses" dengan nol baris. Pembersih yang tidak pernah membersihkan apa pun, tanpa satu pun tanda.
+
+`SECURITY DEFINER` dipakai sempit: fungsinya hanya bisa menghapus run yang **benar-benar sudah tidak punya item**, dan `not exists` diperiksa di dalam pernyataan hapusnya — bukan di baris terpisah, supaya tidak ada celah untuk item baru disisipkan di antara pemeriksaan dan penghapusan.
+
+Sesi hantu yang sudah terlanjur ada dibersihkan sekali di migration itu — termasuk yang lahir kalau penyimpanan per item (`0089`) gagal setelah run-nya sempat dibuat. Untuk kasus itu `simpanItemAktivitas()` sekarang memanggil `hapus_run_kosong()` di jalur gagalnya.
+
+Di Staff App, konfirmasi hapusnya menyebutkan akibatnya **sebelum** ditekan kalau itu item terakhir, dan sesudah menghapus run-nya dicari ulang alih-alih memakai id yang mungkin sudah tidak ada — memakai id basi akan memuat item dari sesi hantu, dan kelihatannya normal.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

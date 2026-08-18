@@ -482,17 +482,28 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
 
     body.querySelectorAll('.ck-hapus').forEach((btn) =>
       btn.addEventListener('click', sekaliJalan(async () => {
+        // Kalau ini item TERAKHIR, sesinya ikut hilang seluruhnya — dan itu
+        // harus dikatakan sebelum ditekan, bukan ditemukan sesudahnya.
+        const sisaSetelahIni = [...sudah.values()].filter((r) => r.checked).length - 1;
         const ok = await confirmDialog({
           title: `Hapus catatan "${btn.dataset.label}"?`,
-          message: 'Foto buktinya ikut dihapus, dan item ini kembali jadi "belum dikerjakan" sehingga bisa diulang.',
+          message:
+            'Foto buktinya ikut dihapus, dan item ini kembali jadi "belum dikerjakan" sehingga bisa diulang.' +
+            (sisaSetelahIni <= 0
+              ? ' <br /><br /><strong>Ini pekerjaan terakhir di sesi ini</strong>, jadi sesinya ikut terhapus dan tidak akan muncul lagi di rekap.'
+              : ''),
           confirmText: 'Hapus',
           danger: true
         });
         if (!ok) return;
         try {
           await hapusItemRun({ runId: runAda.id, itemId: btn.dataset.item, photoPath: btn.dataset.path || null });
-          toast('Catatan item dihapus.', 'success');
-          await renderRunForm(session, runAda);
+          toast(sisaSetelahIni <= 0 ? 'Item terakhir dihapus — sesinya ikut terhapus.' : 'Catatan item dihapus.', 'success');
+          // Run-nya bisa saja SUDAH TIDAK ADA (trigger 0090 menghapusnya kalau
+          // itemnya habis). Dicari ulang, bukan dipakai `runAda` yang basi —
+          // memakai id yang sudah tidak ada membuat layarnya memuat item dari
+          // sesi hantu, dan kelihatannya normal.
+          await renderRunForm(session, await cariRunSesi(session.id));
         } catch (error) {
           toast(error.message ?? 'Gagal menghapus.', 'error');
         }
