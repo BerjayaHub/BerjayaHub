@@ -206,17 +206,22 @@ export async function renderOpnameAdmin(container, { businessUnitId, outlets }) 
               .join('')}</tr></thead><tbody>${lap.baris
               .map((b) => `<tr>${b.map((sel, i) => `<td data-label="${esc(lap.kolom[i]?.header ?? '')}">${esc(sel)}</td>`).join('')}</tr>`)
               .join('')}</tbody></table></div>` +
-            `<div style="margin-top:10px"><button id="opn-xlsx">⬇ Unduh Excel</button></div>`
-        });
-        document.getElementById('opn-xlsx')?.addEventListener('click', async () => {
-          await exportTableXLSX({
-            filename: lap.namaBerkas,
-            sheetName: 'Opname',
-            title: lap.judul,
-            subtitle: lap.subjudul,
-            columns: lap.kolom,
-            rows: lap.baris
-          });
+            `<div style="margin-top:10px"><button id="opn-xlsx">⬇ Unduh Excel</button></div>`,
+          // DIPASANG LEWAT onReady, bukan sesudah `await`. `infoDialog` baru
+          // selesai saat dialognya ditutup, jadi versi sebelumnya memasang
+          // listener ke tombol yang sedang dibuang — tombolnya tampak normal
+          // tapi tidak pernah mengunduh apa pun.
+          onReady: (body) =>
+            body.querySelector('#opn-xlsx')?.addEventListener('click', async () => {
+              await exportTableXLSX({
+                filename: lap.namaBerkas,
+                sheetName: 'Opname',
+                title: lap.judul,
+                subtitle: lap.subjudul,
+                columns: lap.kolom,
+                rows: lap.baris
+              });
+            })
         });
       })
     )

@@ -272,8 +272,17 @@ export function formDialog({
   });
 }
 
-/** Modal info sederhana (judul + isi HTML tepercaya + tombol Tutup). */
-export function infoDialog({ title = 'Detail', bodyHtml = '' } = {}) {
+/**
+ * Modal info sederhana (judul + isi HTML tepercaya + tombol Tutup).
+ *
+ * `onReady(body, { close })` dipanggil SAAT dialognya masih hidup. Ini bukan
+ * kemewahan: `await infoDialog(...)` baru selesai ketika dialognya DITUTUP,
+ * jadi memasang listener sesudah `await` menghasilkan tombol yang tidak pernah
+ * bisa ditekan — dan tombolnya tetap tampak normal, jadi kegagalannya tidak
+ * kelihatan sampai ada yang mencoba menekannya. Tombol "Unduh Excel" di dalam
+ * dialog rincian Opname sempat mati persis karena itu.
+ */
+export function infoDialog({ title = 'Detail', bodyHtml = '', onReady } = {}) {
   return new Promise((resolve) => {
     const overlay = buildOverlay();
     overlay.innerHTML = `
@@ -299,6 +308,10 @@ export function infoDialog({ title = 'Detail', bodyHtml = '' } = {}) {
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) close();
     });
+
+    if (typeof onReady === 'function') {
+      onReady(overlay.querySelector('.modal-info-body'), { close });
+    }
   });
 }
 

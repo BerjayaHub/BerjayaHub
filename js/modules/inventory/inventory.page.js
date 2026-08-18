@@ -7,6 +7,7 @@ import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { cocokNama } from '../../core/nama.js';
 import { renderResepStaff } from './resep-staff.js';
 import { sesiTerbuka, catatHitungan } from './opname.service.js';
+import { renderNotaStaff } from './nota-staff.js';
 
 export async function renderInventoryPage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = loadingHtml('Memuat inventory…');
@@ -53,6 +54,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       <button id="inv-transfer">Transfer</button>
       <button id="inv-resep">📖 Resep</button>
     </div>
+    <div id="inv-nota-panel" hidden></div>
     <div id="inv-opname-panel"></div>
     <div id="inv-resep-panel"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
@@ -74,6 +76,21 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   const outletSelect = container.querySelector('#inv-outlet');
   outletSelect.addEventListener('change', () => {
     state.outletId = outletSelect.value;
+
+    // PANEL NOTA DITUTUP SAAT OUTLET BERGANTI.
+    //
+    // `renderNotaStaff` memegang `outletId` yang berlaku SAAT panelnya dibuka.
+    // Tanpa baris ini, mengganti outlet sementara panelnya terbuka menghasilkan
+    // nota yang masuk ke outlet SEBELUMNYA — dan tidak ada yang menandakannya:
+    // notanya tersimpan, nomornya keluar, toast-nya hijau, stok outlet yang
+    // salah bertambah. Baru ketahuan saat stok tidak cocok berhari-hari kemudian.
+    const panel = container.querySelector('#inv-nota-panel');
+    if (panel && !panel.hasAttribute('hidden')) {
+      panel.setAttribute('hidden', '');
+      panel.innerHTML = '';
+      toast('Panel terima nota ditutup karena outletnya berganti.', 'info');
+    }
+
     refresh();
   });
 
@@ -131,20 +148,22 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   container.querySelector('#inv-cat').addEventListener('change', () => gambarStok(stockMap));
   container.querySelector('#inv-q').addEventListener('input', () => gambarStok(stockMap));
 
-  container.querySelector('#inv-receive').addEventListener('click', sekaliJalan(async () => {
-    const v = await formDialog({
-      title: 'Terima dari Supplier',
-      description: 'Catat bahan yang baru datang dari supplier.',
-      fields: [
-        { name: 'product_id', label: 'Bahan', type: 'searchselect', required: true, options: productOptions },
-        { name: 'qty', label: 'Jumlah masuk', type: 'number', required: true, min: 0 },
-        { name: 'notes', label: 'Catatan (opsional)', type: 'text', placeholder: 'mis. no. nota / nama supplier' }
-      ],
-      submitText: 'Simpan'
-    });
-    if (!v) return;
-    await doMovement('receive', v.product_id, Number(v.qty), v.notes);
-  }));
+  // TERIMA DARI SUPPLIER: panel per NOTA, bukan dialog per produk.
+  //
+  // Bentuk lamanya menuntut satu dialog untuk tiap barang — untuk nota berisi
+  // belasan item itu belasan kali memilih produk dan mengetik jumlah, dan
+  // sesudahnya tidak ada nomor yang bisa dipakai mencocokkan dengan tagihan
+  // supplier.
+  const notaPanel = container.querySelector('#inv-nota-panel');
+  container.querySelector('#inv-receive').addEventListener('click', () => {
+    if (!notaPanel.hasAttribute('hidden')) {
+      notaPanel.setAttribute('hidden', '');
+      notaPanel.innerHTML = '';
+      return;
+    }
+    notaPanel.removeAttribute('hidden');
+    renderNotaStaff(notaPanel, { businessUnitId, outletId: state.outletId, products: activeProducts });
+  });
 
   const menuOptions = menuProducts.map((p) => ({ value: p.id, label: `${p.name} (${p.base_unit})` }));
 

@@ -1,0 +1,223 @@
+/**
+ * Terima barang dari supplier — PER NOTA, di Staff App.
+ *
+ * BENTUKNYA SENGAJA MENGIKUTI ORDER: satu layar, banyak barang, satu tombol
+ * simpan. Penerimaan lama menuntut satu dialog per produk — untuk nota berisi
+ * belasan item itu belasan kali membuka dialog, memilih produk, mengetik
+ * jumlah, menyimpan. Dan sesudahnya tidak ada satu pun tempat yang bisa
+ * menjawab "nota nomor berapa isinya apa saja".
+ *
+ * Pemilih barangnya memakai `createItemPicker` yang sama dengan Order ke CK —
+ * bukan salinan. Dua layar yang mengerjakan hal yang sama dengan dua kode
+ * berbeda akan menyimpang, dan yang paling mungkin menyimpang justru cara
+ * membaca angka jumlahnya.
+ */
+
+import { toast, infoDialog } from '../../core/ui.js';
+import { formatNum } from '../../core/format.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
+import { todayWIB } from '../../core/dates.js';
+import { createItemPicker } from '../dispatch/item-picker.js';
+import { simpanNota, ubahNota, riwayatNota, itemNota, unggahFotoNota, urlFotoNota } from './nota.service.js';
+
+const esc = (s) =>
+  String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+/**
+ * @param {HTMLElement} wadah
+ * @param {object} o
+ * @param {string} o.businessUnitId
+ * @param {string} o.outletId
+ * @param {object[]} o.products bahan baku & setengah jadi
+ */
+export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
+  wadah.innerHTML = `
+    <div class="inline-card fade-in" style="max-width:100%">
+      <div class="page-header" style="margin-bottom:8px">
+        <h3 style="margin:0;font-size:1rem">Terima dari Supplier</h3>
+        <button id="nota-tutup">Tutup</button>
+      </div>
+      <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 10px">
+        Satu nota bisa berisi banyak barang. Nomor terima dibuat otomatis setelah disimpan.
+        <br />Foto nota boleh dikosongkan dulu dan ditambahkan belakangan lewat riwayat di bawah.
+      </p>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="field" style="margin:0;min-width:150px;flex:1 1 150px">
+          <label>Tanggal nota</label>
+          <input type="date" id="nota-tgl" value="${todayWIB()}" max="${todayWIB()}" />
+        </div>
+        <div class="field" style="margin:0;min-width:160px;flex:1 1 160px">
+          <label>Supplier</label>
+          <input type="text" id="nota-supplier" placeholder="mis. Toko Berkah" autocomplete="off" />
+        </div>
+        <div class="field" style="margin:0;min-width:150px;flex:1 1 150px">
+          <label>No. nota supplier</label>
+          <input type="text" id="nota-invoice" placeholder="opsional" autocomplete="off" />
+        </div>
+      </div>
+
+      <div id="nota-picker" style="margin-top:8px"></div>
+
+      <div class="field" style="margin-top:10px">
+        <label>Foto nota (opsional)</label>
+        <input type="file" id="nota-foto" accept="image/*" capture="environment" />
+        <span class="field-help">Boleh dilewati kalau notanya belum ada — tambahkan nanti dari riwayat.</span>
+      </div>
+      <div class="field" style="margin-top:6px">
+        <label>Catatan (opsional)</label>
+        <input type="text" id="nota-catatan" placeholder="mis. sebagian barang menyusul" autocomplete="off" />
+      </div>
+
+      <button class="primary" id="nota-simpan" style="max-width:220px;margin-top:6px">Simpan Nota</button>
+      <p class="error-text" id="nota-error"></p>
+
+      <h4 style="font-size:0.92rem;margin:18px 0 6px">Nota terakhir</h4>
+      <div id="nota-riwayat">${loadingHtml('Memuat riwayat…', { baris: 2 })}</div>
+    </div>`;
+
+  const picker = createItemPicker(wadah.querySelector('#nota-picker'), { products, showStock: false });
+  const errorEl = wadah.querySelector('#nota-error');
+
+  wadah.querySelector('#nota-tutup').addEventListener('click', () => {
+    wadah.innerHTML = '';
+    wadah.setAttribute('hidden', '');
+  });
+
+  wadah.querySelector('#nota-simpan').addEventListener(
+    'click',
+    sekaliJalan(async () => {
+      errorEl.textContent = '';
+      const items = picker.getItems();
+      if (!items.length) {
+        errorEl.textContent = 'Tambahkan minimal satu barang dengan jumlahnya.';
+        return;
+      }
+
+      // FOTO DIUNGGAH DULU, notanya belakangan. Kalau urutannya dibalik dan
+      // unggahannya gagal, nota sudah telanjur tersimpan tanpa foto dan tanpa
+      // ada yang tahu bahwa fotonya pernah dipilih.
+      let photoPath = null;
+      const file = wadah.querySelector('#nota-foto').files?.[0] ?? null;
+      try {
+        if (file) photoPath = await unggahFotoNota(outletId, file);
+      } catch (e) {
+        errorEl.textContent = `${e.message ?? e} — notanya belum disimpan, coba lagi atau lewati fotonya.`;
+        return;
+      }
+
+      try {
+        await simpanNota({
+          outletId,
+          receiptDate: wadah.querySelector('#nota-tgl').value,
+          supplier: wadah.querySelector('#nota-supplier').value,
+          invoiceNo: wadah.querySelector('#nota-invoice').value,
+          photoPath,
+          notes: wadah.querySelector('#nota-catatan').value,
+          items
+        });
+        toast(`Nota tersimpan — stok ${items.length} barang bertambah.`, 'success');
+        renderNotaStaff(wadah, { businessUnitId, outletId, products });
+      } catch (e) {
+        errorEl.textContent = e.message ?? 'Gagal menyimpan nota.';
+      }
+    })
+  );
+
+  gambarRiwayat();
+
+  async function gambarRiwayat() {
+    const box = wadah.querySelector('#nota-riwayat');
+    if (!box) return;
+    let daftar = [];
+    try {
+      daftar = await riwayatNota(businessUnitId, { outletId });
+    } catch (e) {
+      box.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
+      return;
+    }
+    const tampil = daftar.slice(0, 15);
+    box.innerHTML = tampil.length
+      ? `<div class="table-scroll"><table class="data-table kartu-sempit">
+          <thead><tr><th>Nomor</th><th>Tanggal</th><th>Supplier</th><th>Nota</th><th>Aksi</th></tr></thead>
+          <tbody>${tampil
+            .map(
+              (n) => `<tr>
+                <td data-label="Nomor" style="font-family:ui-monospace,Menlo,monospace;font-size:0.8rem">${esc(n.code)}</td>
+                <td data-label="Tanggal">${esc(n.receipt_date)}</td>
+                <td data-label="Supplier">${esc(n.supplier ?? '-')}</td>
+                <td data-label="Nota">${
+                  n.photo_path
+                    ? `<button class="nota-foto-lihat" data-path="${esc(n.photo_path)}">Lihat</button>`
+                    : '<span style="color:var(--color-danger);font-size:0.8rem">belum ada</span>'
+                }</td>
+                <td data-label="Aksi">
+                  <button class="nota-isi" data-id="${n.id}" data-code="${esc(n.code)}">Isi</button>
+                  <button class="nota-tambah-foto" data-id="${n.id}" data-code="${esc(n.code)}">${n.photo_path ? 'Ganti foto' : '+ Foto'}</button>
+                </td>
+              </tr>`
+            )
+            .join('')}</tbody>
+        </table></div>`
+      : '<p style="color:var(--color-text-muted);font-size:0.88rem">Belum ada nota di outlet ini.</p>';
+
+    box.querySelectorAll('.nota-foto-lihat').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const url = await urlFotoNota(b.dataset.path);
+        if (!url) return toast('Foto tidak bisa dibuka.', 'error');
+        await infoDialog({ title: 'Foto Nota', bodyHtml: `<img src="${url}" alt="Foto nota" style="max-width:100%;border-radius:8px" />` });
+      })
+    );
+
+    box.querySelectorAll('.nota-isi').forEach((b) =>
+      b.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const isi = await itemNota(b.dataset.id).catch(() => []);
+          await infoDialog({
+            title: `Nota ${b.dataset.code}`,
+            bodyHtml: isi.length
+              ? `<table class="data-table kartu-sempit"><thead><tr><th>Barang</th><th>Jumlah</th></tr></thead><tbody>${isi
+                  .map(
+                    (i) =>
+                      `<tr><td data-label="Barang">${esc(i.products?.name ?? '-')}</td>` +
+                      `<td data-label="Jumlah">${formatNum(i.qty)} ${esc(i.products?.base_unit ?? '')}</td></tr>`
+                  )
+                  .join('')}</tbody></table>`
+              : '<p>Nota ini tidak berisi barang.</p>'
+          });
+        })
+      )
+    );
+
+    // MENAMBAH FOTO YANG MENYUSUL — jalur yang paling sering dipakai, dan
+    // sengaja TIDAK menyentuh barangnya sama sekali (`items: null`). Mengirim
+    // ulang daftar barang di sini akan menghasilkan pergerakan penyeimbang
+    // untuk perubahan yang tidak pernah diminta siapa pun.
+    box.querySelectorAll('.nota-tambah-foto').forEach((b) =>
+      b.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = 'image/*';
+          input.capture = 'environment';
+          input.addEventListener('change', async () => {
+            const f = input.files?.[0];
+            if (!f) return;
+            try {
+              const path = await unggahFotoNota(outletId, f);
+              await ubahNota(b.dataset.id, { photoPath: path, items: null });
+              toast(`Foto nota ${b.dataset.code} tersimpan.`, 'success');
+              gambarRiwayat();
+            } catch (e) {
+              toast(e.message ?? 'Gagal menyimpan foto.', 'error');
+            }
+          });
+          input.click();
+        })
+      )
+    );
+  }
+}
+

@@ -246,3 +246,39 @@ revoke all on function simpan_nota_terima(uuid, date, text, text, text, text, js
 grant execute on function simpan_nota_terima(uuid, date, text, text, text, text, jsonb) to authenticated;
 revoke all on function ubah_nota_terima(uuid, date, text, text, text, text, jsonb) from public;
 grant execute on function ubah_nota_terima(uuid, date, text, text, text, text, jsonb) to authenticated;
+
+-- =========================================================
+-- BUCKET FOTO NOTA
+--
+-- Path: {outlet_id}/{waktu}-{acak}.{ext} — outlet di depan supaya izinnya bisa
+-- diperiksa dari nama berkasnya sendiri, tanpa perlu menoleh ke tabel nota.
+-- Itu penting karena foto DIUNGGAH DULU, baru notanya dibuat: saat unggahannya
+-- diperiksa, barisnya memang belum ada.
+--
+-- Tidak publik. Foto nota memuat harga beli dan nama supplier — dua hal yang
+-- tidak perlu bisa dibuka siapa pun yang menebak URL-nya.
+-- =========================================================
+insert into storage.buckets (id, name, public)
+values ('receipt-photos', 'receipt-photos', false)
+on conflict (id) do nothing;
+
+create policy receipt_photo_insert on storage.objects
+  for insert to authenticated
+  with check (
+    bucket_id = 'receipt-photos'
+    and has_outlet_scope(auth.uid(), ((storage.foldername(name))[1])::uuid)
+  );
+
+create policy receipt_photo_select on storage.objects
+  for select using (
+    bucket_id = 'receipt-photos'
+    and has_outlet_scope(auth.uid(), ((storage.foldername(name))[1])::uuid)
+  );
+
+-- Menghapus foto: hanya yang berwenang di outletnya. Dipakai saat foto yang
+-- salah diganti — bukan saat notanya dihapus, karena nota tidak dihapus.
+create policy receipt_photo_delete on storage.objects
+  for delete using (
+    bucket_id = 'receipt-photos'
+    and has_outlet_scope(auth.uid(), ((storage.foldername(name))[1])::uuid)
+  );

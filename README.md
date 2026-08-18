@@ -2836,6 +2836,49 @@ Menutup tanpa menyentuh stok, alasan wajib diisi. Perlu ada karena tanpa itu, se
 
 Laporannya (`laporan-opname.js`, 28 kasus) memisahkan **nilai kurang dan lebih**, tidak menjumlahkannya jadi angka bersih: kehilangan Rp 2 juta yang tertutup kelebihan Rp 2 juta bukan "impas" — itu dua masalah, dan nol menyembunyikan keduanya. Lima sabotase merah, termasuk membalik arah selisih.
 
+## Terima dari supplier: per nota, bukan per barang (migration `0084`)
+
+Penerimaan lama menuntut **satu dialog per produk**. Untuk nota berisi belasan item itu belasan kali buka dialog → pilih produk → ketik jumlah → simpan. Dan sesudahnya tidak ada satu pun tempat yang bisa menjawab *"nota nomor berapa isinya apa saja"* — yang tersisa hanya pergerakan `receive` berserakan, tercampur transfer dan opname.
+
+**Bentuk barunya sengaja meniru Order ke CK:** satu layar, banyak barang, satu tombol simpan, satu foto nota, satu nomor. Pemilih barangnya memakai `createItemPicker` yang **sama persis** dengan Order — bukan salinan. Dua layar yang mengerjakan hal serupa dengan kode berbeda akan menyimpang, dan yang paling mungkin menyimpang justru cara membaca angka jumlahnya (koma desimal dari HP vs titik).
+
+**Nomornya dibuat server** (`GR-YYMMDD-XXXX`), bukan diketik orang. Nomor yang diketik akan bentrok begitu dua outlet menerima barang di hari yang sama.
+
+### Foto nota boleh menyusul
+
+Nota fisik sering datang beberapa jam setelah barangnya. Mewajibkan fotonya berarti stok tidak tercatat sampai kertasnya ada — dan yang terjadi di lapangan bukan "menunggu", melainkan stok tidak dicatat sama sekali. Jadi fotonya opsional, dan riwayat menampilkan **"belum ada"** berwarna merah supaya kekurangannya kelihatan, bukan terlupakan.
+
+Menambahkan foto belakangan memanggil `ubahNota(id, { photoPath, items: null })`. `items: null` berarti **jangan sentuh barangnya** — mengirim ulang daftar barang di situ akan menghasilkan pergerakan penyeimbang untuk perubahan yang tidak pernah diminta siapa pun.
+
+**Fotonya diunggah SEBELUM notanya disimpan.** Kalau urutannya dibalik dan unggahannya gagal, notanya sudah telanjur tersimpan tanpa foto — dan tidak ada yang tahu bahwa fotonya pernah dipilih. Karena itu bucket `receipt-photos` diberi policy berdasarkan **nama foldernya** (`(storage.foldername(name))[1]` = outlet id): saat fotonya naik, baris notanya memang belum ada untuk dijadikan acuan.
+
+### Sisi Admin Portal: tab "Nota Terima"
+
+Riwayat per nomor + rincian + unduh xlsx. Rentang tanggalnya memakai **tanggal nota**, bukan waktu input — itu yang dipakai mencocokkan tagihan.
+
+Yang menentukan angkanya benar: **`unit_cost` yang tercatat di nota itu didahulukan, HPP produk cuma cadangan.** `unit_cost` = harga yang benar-benar dibayar saat itu; HPP = harga yang berlaku sekarang. Nota bulan lalu yang dinilai dengan harga hari ini menghasilkan total yang tidak pernah cocok dengan tagihan mana pun — dan tidak akan tampak salah, karena angkanya tetap masuk akal.
+
+Barang tanpa harga ditulis **"-", bukan 0**, plus penanda "sebagian barang belum berharga". Nol membuat total terlihat sah padahal lebih kecil dari seharusnya.
+
+`laporan-nota.js` diuji 41 kasus; empat sabotase merah, termasuk menukar urutan harga dan mengubah `??` jadi `||` (yang membuat **harga bonus Rp 0** diam-diam jatuh ke HPP, sehingga nota barang gratis jadi bernilai).
+
+### Bug yang ditemukan audit baru: tombol unduh yang tidak mungkin ditekan
+
+`infoDialog()` mengembalikan Promise yang selesai ketika dialognya **ditutup**. Jadi pola ini terlihat benar tapi tidak pernah bekerja:
+
+```js
+await infoDialog({ bodyHtml: '<button id="unduh">Unduh</button>' });
+document.getElementById('unduh').addEventListener('click', …);   // ← mati
+```
+
+Yang membuatnya lolos: `getElementById` **masih menemukan** elemennya (overlay baru dihapus 200 ms kemudian), jadi tidak ada error, tidak ada `null`, tidak ada apa pun di console. Tombolnya tampak normal dan tidak melakukan apa-apa selamanya.
+
+Tombol **"⬇ Unduh Excel" di dialog rincian Stok Opname mati sejak dibuat** karena ini. `infoDialog` sekarang menerima `onReady(body, { close })` — satu-satunya tempat yang dijalankan selagi dialognya hidup — dan `tools/audit-tombol-dialog.cjs` menolak setiap `infoDialog` yang isinya memuat `<button>/<input>/<select>/<textarea>` tanpa `onReady`.
+
+Auditnya langsung menemukan kasus ketiga yang tidak saya ketahui: tombol PDF/xlsx dokumen kiriman (`dokumen-ui.js`) mencari `document.querySelector('.modal-overlay:last-of-type')`. Itu kebetulan bekerja — `:last-of-type` menyeleksi `<div>` terakhir di antara saudaranya, bukan `.modal-overlay` terakhir. Satu `<div>` lain yang menyusul di `<body>` sudah cukup membuatnya meleset, dan `?.` menelan hasilnya diam-diam.
+
+**Sabotase pertama pada audit ini lolos**, dan itu memberi tahu sesuatu: auditnya mencari kata `onReady` di mana saja, termasuk di dalam **komentar yang menjelaskan onReady** — komentar yang justru paling mungkin ada di tempat yang pernah salah. Sekarang komentar dibuang dulu lewat pemindai karakter, dan yang dicari adalah nama properti (`onReady:`). Menyebut namanya tidak sama dengan memakainya. Tiga sabotase berikutnya merah semua.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
@@ -2858,3 +2901,4 @@ Laporannya (`laporan-opname.js`, 28 kasus) memisahkan **nilai kurang dan lebih**
 - [x] **Reservasi: batas pesan H- hari + jam batas** — "H-3 sebelum pukul 17.00" dihitung per tanggal kalender, hanya mengikat jalur website
 - [x] **Reservasi: jam bebas, S&K per outlet, DP + bukti transfer, koreksi/reschedule oleh admin** — jam tidak harus .00 (kuota tetap dihitung per slot), S&K ikut di pesan WhatsApp, DP dicatat beserta fotonya **dari Staff App maupun Admin Portal** (**tidak masuk modul Kas**)
 - [x] **Kantong kas (sub-kas) & outlet peruntukan** — form Kas Masuk/Keluar dibedakan, jumlah kantong per user diatur admin, pindah saldo antar kantong sendiri, Laporan Kas bisa disaring per outlet & kategori
+- [x] **Terima dari supplier per nota** — satu kali input banyak barang + foto nota (boleh menyusul), nomor `GR-YYMMDD-XXXX` dibuat sistem, edit mengoreksi stok lewat pergerakan penyeimbang; Admin Portal punya tab **Nota Terima** dengan rincian per nomor + unduh xlsx

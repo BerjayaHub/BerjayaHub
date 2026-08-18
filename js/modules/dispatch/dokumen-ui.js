@@ -55,41 +55,48 @@ export async function bukaDokumen({ jenis, id, businessUnitId, denganNilai = fal
         <button id="dok-pdf">⇩ PDF</button>
         <button id="dok-xlsx">⇩ Excel (.xlsx)</button>
       </div>
-    `
-  });
+    `,
 
-  // Tombol dipasang setelah dialognya digambar. `infoDialog` menyisipkan
-  // isinya secara sinkron, jadi elemennya sudah ada begitu baris ini jalan.
-  const overlay = document.querySelector('.modal-overlay:last-of-type');
-  overlay?.querySelector('#dok-pdf')?.addEventListener('click', async () => {
-    try {
-      await exportTablePDF({
-        title: `${dok.judul} ${dok.nomor}`,
-        subtitle: dok.info.map(([k, v]) => `${k}: ${v}`).join(' · '),
-        columns: dok.kolom,
-        filename: dok.namaBerkas,
-        orientation: 'portrait',
-        // Total ditaruh sebagai BARIS TERAKHIR, bukan catatan kaki:
-        // `exportTablePDF` tidak punya catatan kaki, dan total yang menempel
-        // pada tabelnya justru lebih sulit terpisah saat halamannya difoto.
-        rows: dok.totalTeks ? [...dok.baris, barisTotal(dok)] : dok.baris
+    // Dipasang lewat `onReady`, yang menerima badan dialog ITU SENDIRI.
+    //
+    // Versi sebelumnya mencari `document.querySelector('.modal-overlay:last-of-type')`
+    // dan kebetulan bekerja. Kebetulan, karena `:last-of-type` menyeleksi <div>
+    // terakhir di antara saudaranya — bukan `.modal-overlay` terakhir. Begitu
+    // ada satu <div> lain yang menyusul di <body> (wadah toast, sheet, apa pun),
+    // seleksinya meleset, `?.` menelan hasilnya diam-diam, dan kedua tombol
+    // unduh ini berhenti bekerja tanpa satu pun pesan error.
+    onReady: (body) => {
+      body.querySelector('#dok-pdf')?.addEventListener('click', async () => {
+        try {
+          await exportTablePDF({
+            title: `${dok.judul} ${dok.nomor}`,
+            subtitle: dok.info.map(([k, v]) => `${k}: ${v}`).join(' · '),
+            columns: dok.kolom,
+            filename: dok.namaBerkas,
+            orientation: 'portrait',
+            // Total ditaruh sebagai BARIS TERAKHIR, bukan catatan kaki:
+            // `exportTablePDF` tidak punya catatan kaki, dan total yang menempel
+            // pada tabelnya justru lebih sulit terpisah saat halamannya difoto.
+            rows: dok.totalTeks ? [...dok.baris, barisTotal(dok)] : dok.baris
+          });
+        } catch (error) {
+          toast(error.message ?? 'Gagal membuat PDF.', 'error');
+        }
       });
-    } catch (error) {
-      toast(error.message ?? 'Gagal membuat PDF.', 'error');
-    }
-  });
-  overlay?.querySelector('#dok-xlsx')?.addEventListener('click', async () => {
-    try {
-      await exportTableXLSX({
-        filename: dok.namaBerkas,
-        sheetName: dok.judul,
-        title: `${dok.judul} ${dok.nomor}`,
-        subtitle: dok.info.map(([k, v]) => `${k}: ${v}`).join(' · '),
-        columns: dok.kolom,
-        rows: dok.totalTeks ? [...dok.baris, barisTotal(dok)] : dok.baris
+      body.querySelector('#dok-xlsx')?.addEventListener('click', async () => {
+        try {
+          await exportTableXLSX({
+            filename: dok.namaBerkas,
+            sheetName: dok.judul,
+            title: `${dok.judul} ${dok.nomor}`,
+            subtitle: dok.info.map(([k, v]) => `${k}: ${v}`).join(' · '),
+            columns: dok.kolom,
+            rows: dok.totalTeks ? [...dok.baris, barisTotal(dok)] : dok.baris
+          });
+        } catch (error) {
+          toast(error.message ?? 'Gagal membuat Excel.', 'error');
+        }
       });
-    } catch (error) {
-      toast(error.message ?? 'Gagal membuat Excel.', 'error');
     }
   });
 }
