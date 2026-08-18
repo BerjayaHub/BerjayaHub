@@ -582,6 +582,12 @@ function fieldHtml(f) {
     // validasinya sendiri, bukan validasi bawaan browser. Pemanggil tetap wajib
     // membatasi nilainya sendiri.
     f.max != null ? `max="${escapeAttr(f.max)}"` : '',
+    // `step` juga sempat DIDIAMKAN, sama seperti `list` dulu: pemanggil menulis
+    // `step: 'any'`, tidak ada error, dan isian angka tetap menolak desimal di
+    // keyboard HP. Untuk jumlah bahan (0,5 kg) itu berarti tidak bisa diisi
+    // sama sekali. Catatan: untuk jumlah, `type: 'qty'` biasanya lebih tepat —
+    // ia memakai pemisah ribuan dan membaca koma desimal Indonesia.
+    f.step != null ? `step="${escapeAttr(f.step)}"` : '',
     f.minlength ? `minlength="${escapeAttr(f.minlength)}"` : '',
     f.accept ? `accept="${escapeAttr(f.accept)}"` : '',
     // `list` menyambungkan isian ke <datalist> yang sudah ada di halaman:

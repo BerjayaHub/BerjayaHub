@@ -8,12 +8,14 @@ import { loadingHtml } from '../../core/loading.js';
 import { cocokNama } from '../../core/nama.js';
 import { renderOpnameAdmin } from './opname.admin.js';
 import { renderNotaAdmin } from './nota.admin.js';
+import { renderMenipisAdmin } from './menipis.admin.js';
 
 const TABS = [
   { key: 'stock', label: 'Stok' },
   { key: 'history', label: 'Riwayat' },
   { key: 'nota', label: 'Nota Terima' },
-  { key: 'opname', label: 'Opname' }
+  { key: 'opname', label: 'Opname' },
+  { key: 'menipis', label: 'Bahan Menipis' }
 ];
 
 export async function renderInventoryAdminPage(container, { businessUnitId }) {
@@ -39,6 +41,7 @@ export async function renderInventoryAdminPage(container, { businessUnitId }) {
     if (key === 'history') await renderHistoryTab(content, businessUnitId, outlets);
     if (key === 'nota') await renderNotaAdmin(content, { businessUnitId, outlets });
     if (key === 'opname') await renderOpnameAdmin(content, { businessUnitId, outlets });
+    if (key === 'menipis') await renderMenipisAdmin(content, { businessUnitId, outlets });
   }
   container.querySelectorAll('.tab-btn').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
   await showTab('stock');

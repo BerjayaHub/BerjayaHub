@@ -1,6 +1,6 @@
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
 import { getActiveModules, getModuleRenderer, registerModule, getMyAllowedModules, getModulesActiveInAnyBu } from './core/module-loader.js';
-import { getModuleIcon } from './core/module-icons.js';
+import { getModuleIcon, pakaiLabelStaff } from './core/module-icons.js';
 import { listBusinessUnitsBasic } from './modules/organization/organization.service.js';
 import { toast, confirmDialog, formDialog, escapeHtml } from './core/ui.js';
 import { mountTutorialButton, openTutorialDialog, ensureTutorialStyles } from './core/tutorial-button.js';
@@ -181,7 +181,13 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
 
   app.innerHTML = loadingHtml('Memuat modul…', { penuh: true });
   // Modul aktif BU, lalu disaring lagi oleh akses per user (kalau diatur admin).
-  const modules = await getMyAllowedModules(activeBuId, await getActiveModules(activeBuId)).catch(() => []);
+  // pakaiLabelStaff dipasang SEKALI di sini, bukan di tiap tempat yang
+  // menggambar namanya (kartu, header modul, daftar tutorial). Kalau ditempel
+  // per tempat, satu yang terlewat menghasilkan modul yang namanya berubah di
+  // kartu tapi tetap lama di header — dan itu terbaca seperti dua modul.
+  const modules = pakaiLabelStaff(
+    await getMyAllowedModules(activeBuId, await getActiveModules(activeBuId)).catch(() => [])
+  );
 
   // Kas melekat pada USER, bukan BU (migration 0040) — menunya harus tetap ada
   // walau BU yang sedang aktif tidak mengaktifkan modul Kas, asalkan salah satu

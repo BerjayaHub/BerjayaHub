@@ -2915,6 +2915,51 @@ Di PostgREST ini bukan sekadar mubazir. **Embed yang gagal membatalkan SELURUH q
 
 Satu lagi yang layak dicatat: sabotase pertama pada audit ini **lolos**, dan penyebabnya justru perbaikan yang baru saja saya buat — begitu daftar kolomnya dipindah ke variabel (`const kolom = '…' + (…)`), embednya tidak lagi berdekatan dengan `.select(`, dan detektor berbasis kedekatan berhenti melihatnya. Sekarang embed dicari di dalam string literal, dengan syarat nama tabelnya benar-benar ada di skema.
 
+## Bahan menipis: dari penjualan × resep (migration `0087`)
+
+Kartu **Inventory** di Staff App sekarang bernama **Bahan** — istilah yang dipakai orang yang berdiri di gudang, bukan yang membaca laporannya. Namanya diganti lewat `pakaiLabelStaff()` di `module-icons.js`, **bukan** dengan `update modules set name`: kolom itu juga dipakai layar admin (toggle modul, akses per user), dan mengubahnya di database berarti mengganti nama di tempat yang tidak diminta.
+
+Tabel bahan menipis menjawab satu pertanyaan: *"apa yang harus dibeli, dan berapa?"*
+
+```
+batas = batas manual              kalau ada barisnya
+      = pemakaian/hari × hari aman  kalau tidak
+```
+
+**Perhitungannya ada di `js/`, bukan di SQL.** Menghitung ini menuntut membentangkan resep secara rekursif (menu → setengah jadi → bahan baku) — logika yang sudah ada dan sudah teruji di `hpp.js`. Menulisnya ulang dalam SQL berarti dua sumber kebenaran untuk pertanyaan yang sama, dan yang menyimpang lebih dulu hampir pasti yang ini, karena lebih jarang diperiksa. Akibatnya daftar belanja yang salah tanpa ada yang tahu, karena angkanya tetap masuk akal.
+
+### Tiga keputusan model yang menentukan angkanya
+
+**Pemakaian dijumlahkan di setiap tingkat, bukan cuma di daun.** Menjual Nasi Ayam memakai sambal (setengah jadi); membuat sambal memakai cabai. Dua-duanya habis, dan dua-duanya perlu diawasi — sambal karena itu yang diambil saat jam sibuk, cabai karena itu yang dibeli.
+
+**Menu "Dilayani CK" tidak dibentang jadi bahan.** Kalau CK yang membuatnya dan outlet menerimanya jadi, menjualnya memakai stok menu itu sendiri. Membentangkannya akan melaporkan gerai kehabisan cabai — padahal cabainya tidak pernah ada di sana dan memang tidak seharusnya ada. Daftar belanja yang menyuruh gerai membeli bahan yang bukan urusannya adalah daftar yang berhenti dibaca orang.
+
+**Kebutuhan dihitung KOTOR — stok setengah jadi tidak dikurangkan.** Kalau ada 5 kg sambal di kulkas, cabainya sebenarnya belum perlu dibeli. Itu tidak diperhitungkan, jadi daftarnya bisa sedikit berlebih dan tidak pernah kurang. Arah kesalahannya dipilih sadar: berlebih terlihat dari raknya, kurang berarti kehabisan di tengah jam ramai.
+
+### Batas manual: tiga niat, tiga jalan
+
+Bentuk pertamanya satu kotak angka — kosong berarti otomatis, 0 berarti jangan diawasi. **Itu tidak bisa bekerja**: `type: 'qty'` mengubah kosong jadi 0 lewat `parseNumber`, jadi "kembali ke otomatis" akan diam-diam tersimpan sebagai "jangan diawasi". Dua niat berlawanan, hasil sama, tanpa error. Sekarang niatnya dipilih dari daftar: **Otomatis** (hapus barisnya) · **Angka tetap** · **Jangan awasi** (simpan 0).
+
+Ketahuan juga bahwa `step` termasuk atribut yang **didiamkan** `formDialog` — sama seperti `list` dulu. Sudah ditambahkan, walau untuk jumlah `type: 'qty'` tetap lebih tepat karena membaca koma desimal Indonesia.
+
+### Yang disembunyikan, dan kenapa itu perlu disebut
+
+Bahan yang belum pernah terpakai dalam 28 hari **tidak ditampilkan** — itu yang diminta, supaya daftarnya tidak penuh peringatan yang tidak berarti di awal pemakaian. Sisi buruknya nyata: bahan menu baru yang stoknya habis tidak akan muncul di mana pun.
+
+Dua hal menahannya. Jumlah yang disembunyikan **tetap disebut** di bawah tabel ("12 bahan belum bisa dihitung"), jadi tidak hilang tanpa jejak. Dan memberi **batas manual** langsung memunculkannya — jalan keluar yang disebutkan di layar itu juga, bukan hanya di dokumen ini.
+
+`bahan-menipis.js` diuji 65 kasus; enam sabotase, lima langsung merah. Yang keenam — membuang prioritas status pada pengurutan — **lolos**, karena di fixture-nya bahan yang habis kebetulan juga yang paling cepat habis. Ditambahkan kasus yang benar-benar memisahkan kedua aturan (bahan habis tanpa data pemakaian, `cukupHari = null`), dan sabotasenya jadi merah.
+
+### Audit yang lulus dengan tenang selama tiga layar
+
+`audit-outlet-tulis` dibuat untuk memastikan layar admin yang MENULIS tidak memakai daftar "outlet yang boleh dilihat". Ia hanya memindai `*.admin.page.js` — sementara tab-tab Inventory yang baru bernama `nota.admin.js`, `opname.admin.js`, `menipis.admin.js`. **Tidak satu pun pernah diperiksa**, hanya karena namanya berbeda satu kata.
+
+Lebih dalam lagi: tab-tab itu tidak memanggil `listMyOutlets` sendiri — mereka **menerimanya sebagai parameter**, jadi audit yang mencari pemanggilan langsung tidak akan pernah melihatnya. Dan catatan pengecualian untuk `inventory.admin.page.js` masih berbunyi *"hanya menampilkan"*, yang benar saat ditulis dan sudah tidak benar sejak dua tab yang menulis ditambahkan. Alasan pengecualian yang basi lebih buruk daripada tidak ada — yang membacanya akan yakin halaman itu tidak menulis.
+
+Percobaan pertama menutup celah ini dengan mendeteksi `.rpc(`/`.upsert(` di berkasnya, dan melaporkan **"0 tab diperiksa"** dengan tenang: tulisannya lewat fungsi service yang diimpor. Aturannya lalu dibalik — setiap tab admin yang menerima daftar outlet **wajib menjawab**, entah dengan menyebut penjaganya (`sayaAdminBu`) atau terdaftar sebagai hanya-baca beserta alasannya. Tidak ada jalan diam. Dua sabotase merah.
+
+Substansinya sendiri ternyata aman: semua tulisannya berskala BU dan dijaga `sayaAdminBu()` di layar serta `is_bu_admin()` di RPC/policy. Yang rusak bukan izinnya, melainkan keyakinan bahwa auditnya sedang menjaga sesuatu.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
@@ -2938,3 +2983,5 @@ Satu lagi yang layak dicatat: sabotase pertama pada audit ini **lolos**, dan pen
 - [x] **Reservasi: jam bebas, S&K per outlet, DP + bukti transfer, koreksi/reschedule oleh admin** — jam tidak harus .00 (kuota tetap dihitung per slot), S&K ikut di pesan WhatsApp, DP dicatat beserta fotonya **dari Staff App maupun Admin Portal** (**tidak masuk modul Kas**)
 - [x] **Kantong kas (sub-kas) & outlet peruntukan** — form Kas Masuk/Keluar dibedakan, jumlah kantong per user diatur admin, pindah saldo antar kantong sendiri, Laporan Kas bisa disaring per outlet & kategori
 - [x] **Terima dari supplier per nota** — satu kali input banyak barang + foto nota (boleh menyusul), nomor `TRM-YYMMDD-XXXX` dibuat sistem, edit mengoreksi stok lewat pergerakan penyeimbang; Admin Portal punya tab **Nota Terima** dengan rincian per nomor + unduh xlsx
+- [x] **Bahan menipis (dari penjualan × resep)** — pemakaian/hari dibentangkan menu → setengah jadi → bahan baku, batas = pemakaian × **hari aman** per outlet, bisa **ditimpa manual** per bahan; tabel di Staff App (kartu di HP) + tab Admin Portal, unduh xlsx & kirim daftar belanja lewat WhatsApp tanpa API
+- [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin

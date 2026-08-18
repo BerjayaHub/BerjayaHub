@@ -8,6 +8,7 @@ import { cocokNama } from '../../core/nama.js';
 import { renderResepStaff } from './resep-staff.js';
 import { sesiTerbuka, catatHitungan } from './opname.service.js';
 import { renderNotaStaff } from './nota-staff.js';
+import { renderMenipisStaff } from './menipis-staff.js';
 
 export async function renderInventoryPage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = loadingHtml('Memuat inventory…');
@@ -30,11 +31,11 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   const activeProducts = products.filter((p) => p.is_active !== false && p.product_type !== 'finished');
   const menuProducts = products.filter((p) => p.is_active !== false && p.product_type === 'finished');
   if (!outlets.length) {
-    container.innerHTML = `<h1>Inventory</h1><p>Belum ada outlet untukmu di BU ini.</p>`;
+    container.innerHTML = `<h1>Bahan</h1><p>Belum ada outlet untukmu di BU ini.</p>`;
     return;
   }
   if (!activeProducts.length) {
-    container.innerHTML = `<h1>Inventory</h1><p style="color:var(--color-text-muted)">Belum ada produk. Minta admin mengisi Master Produk dulu.</p>`;
+    container.innerHTML = `<h1>Bahan</h1><p style="color:var(--color-text-muted)">Belum ada produk. Minta admin mengisi Master Produk dulu.</p>`;
     return;
   }
   const costs = computeCosts(products, recipes);
@@ -42,7 +43,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   const state = { outletId: outlets.some((o) => o.id === outletId) ? outletId : outlets[0].id };
 
   container.innerHTML = `
-    <h1>Inventory</h1>
+    <h1>Bahan</h1>
     <div class="field" style="max-width:280px">
       <label>Outlet</label>
       <select id="inv-outlet">${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${escapeHtml(o.name)}</option>`).join('')}</select>
@@ -53,8 +54,10 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       ${allowOpname ? '<button id="inv-opname">📋 Stok Opname</button>' : ''}
       <button id="inv-transfer">Transfer</button>
       <button id="inv-resep">📖 Resep</button>
+      <button id="inv-menipis">⚠️ Bahan Menipis</button>
     </div>
     <div id="inv-nota-panel" hidden></div>
+    <div id="inv-menipis-panel" hidden></div>
     <div id="inv-opname-panel"></div>
     <div id="inv-resep-panel"></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
@@ -84,11 +87,16 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     // nota yang masuk ke outlet SEBELUMNYA — dan tidak ada yang menandakannya:
     // notanya tersimpan, nomornya keluar, toast-nya hijau, stok outlet yang
     // salah bertambah. Baru ketahuan saat stok tidak cocok berhari-hari kemudian.
-    const panel = container.querySelector('#inv-nota-panel');
-    if (panel && !panel.hasAttribute('hidden')) {
-      panel.setAttribute('hidden', '');
-      panel.innerHTML = '';
-      toast('Panel terima nota ditutup karena outletnya berganti.', 'info');
+    for (const [sel, pesan] of [
+      ['#inv-nota-panel', 'Panel terima nota ditutup karena outletnya berganti.'],
+      ['#inv-menipis-panel', 'Panel bahan menipis ditutup karena outletnya berganti.']
+    ]) {
+      const panel = container.querySelector(sel);
+      if (panel && !panel.hasAttribute('hidden')) {
+        panel.setAttribute('hidden', '');
+        panel.innerHTML = '';
+        toast(pesan, 'info');
+      }
     }
 
     refresh();
@@ -154,6 +162,33 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   // belasan item itu belasan kali memilih produk dan mengetik jumlah, dan
   // sesudahnya tidak ada nomor yang bisa dipakai mencocokkan dengan tagihan
   // supplier.
+  // BAHAN MENIPIS.
+  //
+  // `stockMap` diambil SAAT DITEKAN, bukan dipegang dari awal: panel ini
+  // menghitung "cukup berapa hari lagi", dan menghitungnya dari stok basi
+  // menghasilkan daftar belanja yang salah tanpa satu pun tanda di layar.
+  const menipisPanel = container.querySelector('#inv-menipis-panel');
+  container.querySelector('#inv-menipis').addEventListener('click', async () => {
+    if (!menipisPanel.hasAttribute('hidden')) {
+      menipisPanel.setAttribute('hidden', '');
+      menipisPanel.innerHTML = '';
+      return;
+    }
+    menipisPanel.removeAttribute('hidden');
+    stockMap = (await refresh()) ?? stockMap;
+    await renderMenipisStaff(menipisPanel, {
+      outletId: state.outletId,
+      outletName: outlets.find((o) => o.id === state.outletId)?.name ?? '',
+      // SELURUH produk, bukan `activeProducts`: membentang resep menu menuntut
+      // produk bertipe menu ikut dikenali. Menyaringnya di sini akan membuat
+      // setiap penjualan menu terbaca "tidak punya resep", dan seluruh
+      // pemakaian bahan jadi nol — daftar yang selalu bilang semuanya aman.
+      products,
+      recipes,
+      stok: stockMap ?? new Map()
+    });
+  });
+
   const notaPanel = container.querySelector('#inv-nota-panel');
   container.querySelector('#inv-receive').addEventListener('click', () => {
     if (!notaPanel.hasAttribute('hidden')) {
