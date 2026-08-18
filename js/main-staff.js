@@ -6,7 +6,7 @@ import { toast, confirmDialog, formDialog, escapeHtml } from './core/ui.js';
 import { mountTutorialButton, openTutorialDialog, ensureTutorialStyles } from './core/tutorial-button.js';
 import { listTutorialsByModule } from './modules/tutorial/tutorial.service.js';
 import { pasangNavigasi, dorongLapis, bersihkanLapis, bersihkanIsian } from './core/navigasi.js';
-import { ingatModul, modulTerakhir, gulirTerakhir, layarTerakhir, pulihkanGulir, pasangPencatatGulir } from './core/ingatan-layar.js';
+import { ingatModul, modulTerakhir, mulaiModul, pulihkanGulir, pasangPencatatGulir } from './core/ingatan-layar.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
 import { renderLeavePage } from './modules/leave/leave.page.js';
 import { renderCleaningPage } from './modules/cleaning/cleaning.page.js';
@@ -540,9 +540,10 @@ function fmtClock(iso) {
  *   kembali dari aplikasi lain harus mendarat persis di tempat yang ditinggalkan.
  */
 function openModule(code, context, modules, moduleCtx, { pulihkan = false } = {}) {
-  const gulirSimpanan = pulihkan ? gulirTerakhir(code) : 0;
-  const layarSimpanan = pulihkan ? layarTerakhir(code) : null;
-  ingatModul(code); // menyetel ulang ingatan layar dalamnya
+  // Membaca-lalu-mengosongkan dikerjakan `mulaiModul()` dalam SATU langkah.
+  // Memisahkannya jadi "baca dulu, lalu ingatModul" pernah menelan satu
+  // perbaikan utuh — alasan lengkapnya di core/ingatan-layar.js.
+  const { gulir: gulirSimpanan, layar: layarSimpanan, konteks: konteksSimpanan } = mulaiModul(code, { pulihkan });
   // Halaman baru selalu dimulai dari atas. Tanpa ini, membuka modul setelah
   // menggulir jauh akan menampilkan layar yang tampak kosong — orangnya
   // mengira modulnya belum jadi, padahal isinya ada di atas.
@@ -573,7 +574,9 @@ function openModule(code, context, modules, moduleCtx, { pulihkan = false } = {}
   if (renderer) {
     // `layarAwal` diteruskan ke modulnya. Modul yang tidak mengenalnya cukup
     // mengabaikannya — tidak ada modul yang perlu diubah supaya tetap jalan.
-    Promise.resolve(renderer(body, { ...moduleCtx, layarAwal: layarSimpanan })).finally(() => pulihkanGulir(gulirSimpanan));
+    Promise.resolve(renderer(body, { ...moduleCtx, layarAwal: layarSimpanan, konteksAwal: konteksSimpanan })).finally(() =>
+      pulihkanGulir(gulirSimpanan)
+    );
   } else {
     body.innerHTML = `<p>Modul "${code}" belum dibangun.</p>`;
   }

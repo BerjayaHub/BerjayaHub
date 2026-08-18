@@ -19,10 +19,10 @@ import {
 } from './cleaning.service.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { dorongSubHalaman } from '../../core/navigasi.js';
-import { ingatLayar, ingatKonteks, konteksTerakhir } from '../../core/ingatan-layar.js';
+import { ingatLayar, ingatKonteks } from '../../core/ingatan-layar.js';
 import { saringJatuhTempo, labelJadwal } from './jadwal-item.js';
 
-export async function renderCleaningPage(container, { userId, businessUnitId, outletId, layarAwal = null }) {
+export async function renderCleaningPage(container, { userId, businessUnitId, outletId, layarAwal = null, konteksAwal = null }) {
   container.innerHTML = loadingHtml('Memuat daily activities…');
 
   let outlets;
@@ -48,7 +48,12 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
   // Pemulihan yang tidak setia lebih berbahaya daripada tidak memulihkan sama
   // sekali — ia mengantar orang ke kamar yang salah sambil meyakinkannya bahwa
   // ia di kamar yang benar.
-  const ingatan = konteksTerakhir('cleaning_checklist');
+  //
+  // `konteksAwal` DITERIMA DARI LUAR, tidak dibaca sendiri di sini. Versi
+  // pertama memanggil `konteksTerakhir()` dari dalam fungsi ini — dan tidak
+  // pernah bekerja sedetik pun, karena `openModule()` sudah memanggil
+  // `ingatModul()` (yang mengosongkan ingatannya) sebelum halaman ini jalan.
+  const ingatan = konteksAwal;
   const outletDiingat = outlets.some((o) => o.id === ingatan?.outletId) ? ingatan.outletId : null;
   const state = {
     outletId: outletDiingat ?? (outlets.some((o) => o.id === outletId) ? outletId : outlets[0].id),

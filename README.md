@@ -3035,6 +3035,40 @@ Satu sabotase pada tes ingatan layar **lolos**: menghapus `konteks: null` dari `
 
 Dan diagnosis saya yang pertama tidak lengkap. Kompresi foto tetap dipertahankan karena mengurangi pemicunya, tapi yang benar-benar menyelesaikan masalahnya adalah tidak menunda penyimpanan — bukan penghematan memori.
 
+## Perbaikan yang tidak pernah hidup sedetik pun
+
+Bug outletnya masih terjadi setelah `0089` di-deploy. Fotonya memang masuk ke outlet yang benar — jadi penyimpanan per item bekerja — tapi layarnya tetap dilempar ke outlet lain.
+
+Sebabnya bukan logika ingatannya. Ingatan outlet itu **tidak pernah berjalan sekali pun**:
+
+```js
+// openModule()
+const layarSimpanan = pulihkan ? layarTerakhir(code) : null;
+ingatModul(code);        // ← ingatan DIKOSONGKAN di sini
+...
+renderer(body, ...)      // ← halaman baru jalan SESUDAH ini
+```
+
+Halaman Daily Activities memanggil `konteksTerakhir()` dari dalam dirinya sendiri — yang dijalankan sesudah `ingatModul()` mengosongkan ingatannya. Nilainya selalu `null`.
+
+`layarAwal` selamat hanya karena ia kebetulan dibaca **sebelum** baris itu dan diteruskan sebagai parameter. Tidak ada aturan tertulis apa pun yang menjelaskan kenapa satu harus begitu dan yang lain tidak.
+
+### Kenapa seluruh tes tetap hijau
+
+Ini bagian yang paling perlu dicatat. `ingatKonteks()` dan `konteksTerakhir()` bekerja **sempurna** kalau diuji sendiri-sendiri — dan itulah persis yang diuji: 38 kasus, semuanya lulus, sementara fiturnya mati total di aplikasi sungguhan.
+
+Yang rusak bukan potongan mana pun. Yang rusak adalah **asumsi tentang urutan pemakaiannya**, dan asumsi tidak bisa diuji dengan menguji potongan-potongannya satu per satu.
+
+### Perbaikannya: bikin kesalahannya tidak bisa ditulis
+
+Menambah satu parameter saja tidak cukup — urutannya masih bisa salah lagi besok. Jadi `mulaiModul(kode, { pulihkan })` sekarang **membaca gulir + layar + konteks lalu mengosongkan ingatannya, dalam satu langkah**, dan mengembalikan ketiganya sekaligus. Tidak ada lagi celah antara "baca" dan "kosongkan" untuk disalahurutkan.
+
+`main-staff.js` dan `main-admin.js` memakainya; Admin Portal ikut mendapat `konteksAwal` sekalian.
+
+`audit-urutan-ingatan.cjs` menolak setiap pemanggilan `gulirTerakhir`/`layarTerakhir`/`konteksTerakhir` di luar `core/ingatan-layar.js`, dan juga menolak keadaan sebaliknya — kalau `mulaiModul()` tidak dipakai siapa pun, berarti pemulihan layarnya mati total dan itu harus berbunyi keras. Dua sabotase (mengembalikan pola lama di halaman, dan di `openModule`) merah.
+
+Tes ingatan layar sekarang menguji **kontraknya**, bukan cuma potongannya: sabotase yang menukar urutan di dalam `mulaiModul()` — persis bug aslinya — langsung merah.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

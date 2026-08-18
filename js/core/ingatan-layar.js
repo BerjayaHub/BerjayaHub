@@ -131,6 +131,37 @@ export function konteksTerakhir(kodeModul) {
   return data.konteks ?? null;
 }
 
+/**
+ * BACA SEMUA YANG MAU DIPULIHKAN, LALU MULAI INGATAN BARU — dalam satu langkah.
+ *
+ * ============ KENAPA HARUS SATU FUNGSI ============
+ *
+ * `ingatModul()` menulis ingatan yang BERSIH; itu memang tugasnya. Artinya apa
+ * pun yang dibaca SESUDAHNYA pasti kosong.
+ *
+ * Aturan itu tidak tertulis di mana pun, dan sudah menelan satu perbaikan
+ * utuh. Ingatan outlet ditambahkan supaya pemulihan tidak mendarat di outlet
+ * yang salah — tapi halamannya membaca `konteksTerakhir()` dari dalam dirinya
+ * sendiri, yang jalan sesudah `ingatModul()`. Nilainya selalu null. Fiturnya
+ * TIDAK PERNAH HIDUP SEDETIK PUN, tidak ada error, dan tesnya tetap hijau
+ * karena menguji modul ingatannya secara terpisah — bukan urutan pemakaiannya.
+ *
+ * Jadi urutannya tidak lagi diserahkan pada disiplin pemanggilnya. Fungsi ini
+ * membaca dulu, menulis belakangan, dan mengembalikan semuanya sekaligus:
+ * kesalahan itu jadi tidak mungkin ditulis.
+ *
+ * @param {string} kodeModul
+ * @param {{pulihkan?: boolean}} opsi
+ * @returns {{gulir: number, layar: string|null, konteks: object|null}}
+ */
+export function mulaiModul(kodeModul, { pulihkan = false } = {}) {
+  const hasil = pulihkan
+    ? { gulir: gulirTerakhir(kodeModul), layar: layarTerakhir(kodeModul), konteks: konteksTerakhir(kodeModul) }
+    : { gulir: 0, layar: null, konteks: null };
+  ingatModul(kodeModul);
+  return hasil;
+}
+
 /** Catat posisi gulir. Dipanggil sering, jadi sengaja murah. */
 export function ingatGulir(y) {
   const data = baca();

@@ -1,6 +1,6 @@
 import { escapeHtml } from './core/ui.js';
 import { pasangNavigasi, dorongLapis, bersihkanLapis, bersihkanIsian } from './core/navigasi.js';
-import { ingatModul, ingatLayar, layarTerakhir, gulirTerakhir, pulihkanGulir, pasangPencatatGulir } from './core/ingatan-layar.js';
+import { ingatModul, ingatLayar, ingatKonteks, mulaiModul, pulihkanGulir, pasangPencatatGulir } from './core/ingatan-layar.js';
 import { mountTutorialButton, clearFloatingTutorialButton } from './core/tutorial-button.js';
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
 import { getActiveModules, getModuleRenderer, registerModule } from './core/module-loader.js';
@@ -402,7 +402,6 @@ function menuTerakhir() {
 }
 
 function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = false, allowedTabs = new Set(), { pulihkan = false } = {}) {
-  const gulirSimpanan = pulihkan ? gulirTerakhir(code) : 0;
   // Tempat di DALAM menu ikut dipulihkan, bukan cuma menunya.
   //
   // Sebelumnya Admin Portal cuma mengingat kode menu, jadi kembali dari
@@ -410,9 +409,12 @@ function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = fal
   // Stok & Riwayat, padahal orangnya baru saja mengisi resep — dan tab pertama
   // terlihat cukup mirip halaman yang benar untuk membuat orang ragu sesaat
   // apakah pekerjaannya tersimpan.
-  const layarSimpanan = pulihkan ? layarTerakhir(code) : null;
+  //
+  // Membaca-lalu-mengosongkan dikerjakan `mulaiModul()` dalam SATU langkah:
+  // memisahkannya pernah membuat sebuah pemulihan tidak pernah hidup sama
+  // sekali di Staff App. Alasannya di core/ingatan-layar.js.
   simpanMenuTerakhir(code);
-  ingatModul(code); // ingatan gulir & layar menempel pada menu ini
+  const { gulir: gulirSimpanan, layar: layarSimpanan, konteks: konteksSimpanan } = mulaiModul(code, { pulihkan });
   // Halaman baru selalu dimulai dari atas. Tanpa ini, membuka modul setelah
   // menggulir jauh akan menampilkan layar yang tampak kosong — orangnya
   // mengira modulnya belum jadi, padahal isinya ada di atas.
@@ -425,7 +427,14 @@ function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = fal
     dorongLapis(`menu:${code}`, () => openModule('dashboard', businessUnitId, activeModules, isSuperAdmin, allowedTabs), { penjaga: true });
   }
   const content = document.getElementById('module-content');
-  const ctx = { businessUnitId, isAdmin: true, layarAwal: layarSimpanan, catatLayar: ingatLayar };
+  const ctx = {
+    businessUnitId,
+    isAdmin: true,
+    layarAwal: layarSimpanan,
+    konteksAwal: konteksSimpanan,
+    catatLayar: ingatLayar,
+    catatKonteks: ingatKonteks
+  };
   content.classList.remove('fade-in');
   void content.offsetWidth; // restart animasi transisi halaman
   content.classList.add('fade-in');

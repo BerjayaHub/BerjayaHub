@@ -188,8 +188,79 @@ try {
 cek('ingatKonteks tanpa ingatan tidak melempar', aman, true);
 cek('  dan tidak membuat ingatan palsu', M.konteksTerakhir('cleaning_checklist'), null);
 
+// =====================================================================
+// mulaiModul() — URUTAN BACA-LALU-KOSONGKAN
+//
+// Bagian ini ada karena seluruh tes di atas HIJAU sementara fiturnya mati
+// total. `ingatKonteks`/`konteksTerakhir` bekerja sempurna kalau diuji
+// sendiri-sendiri; yang rusak adalah URUTAN pemakaiannya di `openModule()` —
+// `ingatModul()` sudah mengosongkan ingatannya sebelum halaman modulnya
+// sempat membaca.
+//
+// Pelajarannya: menguji potongan tidak pernah menguji asumsinya. Jadi yang
+// diuji di sini adalah kontraknya — baca dulu, kosongkan belakangan, dalam
+// satu langkah.
+// =====================================================================
+simpanan.clear();
+
+// Sesi kemarin sore: orangnya sedang di Central Kitchen, sesi Opening.
+M.ingatModul('cleaning_checklist');
+M.ingatKonteks({ outletId: 'ck-tangerang', tanggal: '2026-08-18' });
+M.ingatLayar('sesi:opening');
+M.ingatGulir(420);
+
+// Android membuang halamannya; aplikasi dimuat ulang dan membuka modul yang
+// sama dengan pulihkan = true.
+const pulih = M.mulaiModul('cleaning_checklist', { pulihkan: true });
+cek('mulaiModul mengembalikan gulir', pulih.gulir, 420);
+cek('mulaiModul mengembalikan layar', pulih.layar, 'sesi:opening');
+cek('mulaiModul mengembalikan KONTEKS', pulih.konteks, { outletId: 'ck-tangerang', tanggal: '2026-08-18' });
+
+// ...dan sesudahnya ingatannya memang sudah bersih. Ini yang membuat pola
+// lama ("baca sendiri setelah ingatModul") selalu menghasilkan null.
+cek('sesudah mulaiModul, konteksnya kosong', M.konteksTerakhir('cleaning_checklist'), null);
+cek('sesudah mulaiModul, layarnya kosong', M.layarTerakhir('cleaning_checklist'), null);
+cek('modulnya tetap tercatat', M.modulTerakhir(), 'cleaning_checklist');
+
+// Membuka modul TANPA memulihkan: tidak boleh membawa apa pun dari sebelumnya.
+simpanan.clear();
+M.ingatModul('cleaning_checklist');
+M.ingatKonteks({ outletId: 'ck-tangerang' });
+M.ingatLayar('sesi:opening');
+const segar = M.mulaiModul('cleaning_checklist', {});
+cek('tanpa pulihkan: gulir 0', segar.gulir, 0);
+cek('tanpa pulihkan: layar null', segar.layar, null);
+cek('tanpa pulihkan: konteks null', segar.konteks, null);
+
+// Modul BERBEDA: ingatan modul sebelumnya tidak boleh ikut terbawa.
+simpanan.clear();
+M.ingatModul('inventory');
+M.ingatKonteks({ outletId: 'ck-tangerang' });
+const lain = M.mulaiModul('cleaning_checklist', { pulihkan: true });
+cek('pindah modul: konteks modul lain tidak terbawa', lain.konteks, null);
+cek('pindah modul: layar modul lain tidak terbawa', lain.layar, null);
+
+// Ingatan basi tidak dipulihkan.
+simpanan.clear();
+M.ingatModul('cleaning_checklist');
+M.ingatKonteks({ outletId: 'ck-tangerang' });
+const basi = JSON.parse(simpanan.get('berjaya_ingatan_layar'));
+simpanan.set('berjaya_ingatan_layar', JSON.stringify({ ...basi, ts: Date.now() - 31 * 60 * 1000 }));
+cek('ingatan basi tidak dipulihkan', M.mulaiModul('cleaning_checklist', { pulihkan: true }).konteks, null);
+
+// Tanpa ingatan sama sekali tidak boleh melempar.
+simpanan.clear();
+let amanKosong = true;
+try {
+  const k = M.mulaiModul('cleaning_checklist', { pulihkan: true });
+  cek('tanpa ingatan: semuanya kosong', k, { gulir: 0, layar: null, konteks: null });
+} catch {
+  amanKosong = false;
+}
+cek('mulaiModul tanpa ingatan tidak melempar', amanKosong, true);
+
 if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Ingatan layar benar untuk 38 kasus, termasuk batas usia & penyimpanan yang diblokir. ✅');
+console.log('Ingatan layar benar untuk 53 kasus, termasuk batas usia & penyimpanan yang diblokir. ✅');
