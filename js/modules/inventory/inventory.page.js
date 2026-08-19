@@ -5,6 +5,7 @@ import { getOutletStockMap, recordMovement, getAllowStaffOpname, recordMenuWaste
 import { listMyOutlets } from '../../core/my-outlets.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { cocokNama } from '../../core/nama.js';
+import { urutStokTerendah } from './urutan-stok.js';
 import { renderResepStaff } from './resep-staff.js';
 import { sesiTerbuka, catatHitungan } from './opname.service.js';
 import { renderNotaStaff } from './nota-staff.js';
@@ -130,7 +131,16 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     if (!stockDiv || !map) return;
     const q = container.querySelector('#inv-q')?.value ?? '';
     const cat = container.querySelector('#inv-cat')?.value ?? '';
-    const tampil = activeProducts.filter((p) => (!cat || p.category === cat) && cocokNama(`${p.name} ${p.category ?? ''}`, q));
+    // Diurutkan dari stok TERENDAH, jadi yang minus selalu di baris atas.
+    // Peringatan "⚠ n bahan minus" di bawah ini sudah ada sejak dulu, tapi
+    // peringatan yang menyuruh orang mencari sendiri di ratusan baris adalah
+    // peringatan yang akan diabaikan. Aturannya di `urutan-stok.js` supaya
+    // Admin Portal memakai urutan yang persis sama.
+    const tampil = urutStokTerendah(
+      activeProducts.filter((p) => (!cat || p.category === cat) && cocokNama(`${p.name} ${p.category ?? ''}`, q)),
+      (p) => map.get(p.id),
+      (p) => p.name
+    );
 
     // STOK MINUS DITANDAI, dan jumlahnya disebut di atas.
     //

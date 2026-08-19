@@ -36,6 +36,7 @@ import { canAccessTab } from './core/admin-tabs.js';
 import { getMyAdminTabAccess } from './modules/master-user/master-user.service.js';
 import { loadingHtml } from './core/loading.js';
 import { pasangPenandaKoneksi } from './core/koneksi.js';
+import { pasangTabelResponsif } from './core/tabel-responsif.js';
 
 const app = document.getElementById('app');
 const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
@@ -513,4 +514,5 @@ pasangNavigasi();
 pasangPencatatGulir();
 pasangPerekamDraf();
 pasangPenandaKoneksi();
+pasangTabelResponsif();
 bootstrap();

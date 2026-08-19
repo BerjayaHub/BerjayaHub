@@ -2,6 +2,7 @@ import { toast } from '../../core/ui.js';
 import { formatNum, formatRupiah } from '../../core/format.js';
 import { listProducts, listRecipesFull, computeCosts, TYPE_LABEL } from '../product/product.service.js';
 import { listStockBalances, listMovements, MOVEMENT_LABEL, amISuperAdmin, getAllowStaffOpname, setAllowStaffOpname } from './inventory.service.js';
+import { urutStokTerendah } from './urutan-stok.js';
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
 import { loadingHtml } from '../../core/loading.js';
@@ -195,8 +196,14 @@ function gambarStok(content) {
   const q = content.querySelector('#stock-q')?.value ?? '';
   const cat = content.querySelector('#stock-cat')?.value ?? '';
   const sub = content.querySelector('#stock-sub')?.value ?? '';
-  const tampil = barisStok.filter(
-    (r) => cocokKategori(r.p, cat, sub) && cocokNama(`${r.p.name} ${r.p.category ?? ''} ${r.p.subcategory ?? ''}`, q)
+  // Urutan yang sama persis dengan Staff App: stok terendah di atas, jadi yang
+  // minus tidak perlu dicari. Di layar ini urutannya bahkan lebih berguna —
+  // nilai rupiah bahan yang minus ikut NEGATIF di total di bawah, dan penyebab
+  // total yang janggal itu sekarang ada di baris-baris pertama.
+  const tampil = urutStokTerendah(
+    barisStok.filter((r) => cocokKategori(r.p, cat, sub) && cocokNama(`${r.p.name} ${r.p.category ?? ''} ${r.p.subcategory ?? ''}`, q)),
+    (r) => r.qty,
+    (r) => r.p.name
   );
 
   let totalValue = 0;

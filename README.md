@@ -3297,37 +3297,23 @@ Pilihan sub yang sedang aktif dipertahankan kalau masih ada di daftar barunya; k
 
 Perintah pemeriksaan yang saya pakai memotong keluaran `audit-syntax` dengan `head -1`, sehingga baris ✅ dari jalanan sebelumnya terlihat seperti hasil yang baru — padahal ada `Identifier 'baris' has already been declared` di bawahnya. Auditnya bekerja dengan benar; cara saya membacanya yang salah, dan itu jenis kesalahan yang sama persis dengan yang berulang kali dicatat di berkas ini: keluaran yang terlihat hijau padahal bukan.
 
-## Halaman Owner (`owner.html`) — role baru, BEP, KPI, dan tanda tangan online
+## Halaman Owner (`owner.html`) — BEP, KPI, dan tanda tangan online
 
 Halaman keempat, sejajar dengan Staff App, Admin Portal, dan halaman reservasi publik. Isinya tiga tab: **Ringkasan (KPI)**, **BEP & Harga**, dan **Dokumen & TTD**.
 
-### Keputusan terpenting: owner BUKAN anggota `membership_scopes`
+### Siapa yang membukanya: super admin
 
-Rencana awalnya menambahkan `'owner'` ke CHECK constraint `membership_scopes.role`. Alasannya terdengar kuat: `has_bu_scope()` meloloskan role apa pun yang punya baris di BU itu, jadi hak baca datang gratis; sedangkan `is_bu_admin()` tidak meloloskan owner, jadi owner otomatis read-only.
+Rancangan pertama membuat role `owner` tersendiri — tabel `owner_scopes`, empat fungsi cakupan, dan lima belas policy SELECT tambahan. Keputusannya diubah sebelum sempat dipakai: **cukup super admin**.
 
-**Bagian kedua itu salah, dan salahnya berbahaya.** `is_bu_admin()` memang hanya menjaga master data. Yang menjaga penulisan **transaksional** justru `has_bu_scope()` — fungsi yang sama yang memberi hak baca. Kalau owner jadi anggota BU, dia ikut lolos di sebelas tempat:
+Yang hilang dengan penyederhanaan itu perlu dicatat, karena bukan nol. Rancangan lama punya satu sifat yang bagus: owner tidak bisa menulis apa pun **karena ia bukan anggota BU**, jadi `has_bu_scope()` selalu gagal untuknya — dan `has_bu_scope()` itulah yang ternyata menjaga sebelas jalur tulis transaksional (stok, produksi, penjualan, opname, nota, kiriman, order, susut, rencana menu, aktivitas harian). Ketidakmampuan menulis itu sifat bawaan; tidak ada yang bisa lupa memasangnya.
 
-| Jalur tulis | Di mana |
-|---|---|
-| `stock_movements` insert | `0018:35` |
-| `menu_plans` **for all** (termasuk DELETE) | `0023:34` |
-| `produce_batch()` | `0020:53` |
-| `transfer_stock()` | `0018:75` |
-| dispatch kirim & terima | `0022:69,111` |
-| `record_sales()` | `0025:54` |
-| `stock_orders` (3 RPC) | `0031:101,142,173` |
-| `catat_waste()` | `0032:86` |
-| `goods_receipt_items` | `0084:81` |
-| `stock_count_items` | `0085:88` |
-| `checklist_runs` insert | `0088:58` |
+Super admin bisa menulis apa pun. Jadi yang sekarang menahan halaman owner dari mengubah stok atau penjualan hanyalah halamannya memang tidak punya tombolnya. Itu penjagaan di **layar**, bukan di database — lebih lemah, dan hilang tanpa suara kalau suatu saat ada yang menambahkan satu `.update()` "supaya sekalian bisa dibetulkan dari sini".
 
-Sebelas jalur, tersebar di sebelas migration, tidak satu pun menyebut kata "owner". Menutupnya satu per satu berarti menyunting sebelas policy dan RPC yang sudah teruji — dan yang paling mungkin terjadi adalah satu terlewat, lalu perlindungannya *terlihat* lengkap padahal berlubang.
+`tools/audit-owner-baca-saja.cjs` yang menggantikan penjagaan itu: seluruh isi `js/modules/owner/` dilarang menulis, kecuali dua berkas yang terdaftar beserta alasannya — dan untuk keduanya pun tabel yang boleh disentuh dibatasi, bukan dibebaskan. Berkas **baru** di folder itu otomatis kena aturan penuh, karena yang paling mungkin terjadi setahun lagi adalah seseorang menambah satu layar dan auditnya cuma menghafal nama berkas lama.
 
-Yang dipakai: cakupan owner disimpan di tabel sendiri, **`owner_scopes`**. Akibatnya `has_bu_scope()` mengembalikan `false` untuk owner, dan kesebelas jalur itu tertutup **sekaligus, tanpa satu baris pun di dalamnya diubah**. Ketidakmampuan menulis bukan hasil sebelas penjagaan yang harus dijaga tetap benar; ia sifat bawaan dari tidak pernah menjadi anggota.
+Yang tidak ikut disederhanakan: `documents` tetap **tidak punya policy UPDATE untuk siapa pun**. Kalau dibuka lewat policy biasa, yang memegangnya otomatis juga bisa mengubah `file_path` — menukar berkas yang ditandatangani, tanpa meninggalkan jejak. Satu-satunya jalur tetap `putuskan_dokumen()`.
 
-Harganya dibayar sadar: hak baca tidak lagi gratis. Lima belas tabel disebut satu per satu di `0093`. Daftar itu panjang, tapi ia juga jawaban atas pertanyaan *"owner sebenarnya bisa lihat apa?"* — pertanyaan yang dengan cara lama hanya bisa dijawab dengan membaca seluruh skema.
-
-`tools/audit-owner-baca-saja.cjs` menjaga dua hal: `'owner'` tidak pernah muncul di CHECK role `membership_scopes`, dan fungsi cakupan owner tidak pernah dipakai policy yang menulis. Pengecualiannya satu — berkas hasil tanda tangan ke `storage.objects` — dan **ditentukan dari tabel sasaran policy-nya, bukan dari daftar nama**. Daftar nama sudah pernah basi di repo ini (`audit-embed-ambigu` hijau berbulan-bulan karena pengecualian tulisan tangan menyebut tabel yang tidak pernah ada). Tiga sabotase merah, termasuk policy tanpa `for` sama sekali — yang di PostgreSQL berarti `ALL`.
+Dan `putuskan_dokumen()` sengaja memakai `is_super_admin()`, **bukan** `is_bu_admin()`: kalau admin BU boleh memutuskan, orang yang mengunggah dokumen di BU-nya sendiri bisa sekaligus mengesahkannya — dan pengesahan yang bisa dilakukan pengunggahnya sendiri tidak mengesahkan apa pun.
 
 ### Kas: yang disepakati tidak bisa dilaksanakan seperti bunyinya
 
@@ -3396,21 +3382,6 @@ Tanda tangan tersimpan hanya bisa dibaca akun pemiliknya sendiri, **tanpa pengec
 
 Halaman ini paling sering dibuka dari tautan chat, bukan dari ikon di layar utama. Manifest sendiri akan memunculkan tawaran "install" pada tiap tautan dokumen, dan aplikasi terpasang punya `start_url` tetap yang justru **membuang parameter `?dok`** — sehingga owner mendarat di beranda, bukan di dokumen yang barusan dikirim kepadanya.
 
-### Mendaftarkan owner (SQL, sekali per orang)
-
-Belum ada layarnya di Master User; ini kekurangan yang diketahui, bukan yang terlupa. Sementara ini lewat SQL Editor:
-
-```sql
--- Orangnya harus sudah punya akun (dibuat lewat Master User seperti biasa).
-insert into owner_scopes (user_id, business_unit_id)
-select up.id, bu.id
-from user_profiles up, business_units bu
-where up.id = '<uuid-user>' and bu.name = '<nama BU>'
-on conflict do nothing;
-```
-
-Kalau orang yang sama juga staff atau admin, biarkan baris `membership_scopes`-nya apa adanya — keduanya hidup berdampingan, dan `owner.html` hanya membaca `owner_scopes`.
-
 ### Menandai biaya tetap
 
 BEP menuntut pemisahan biaya **tetap** (sewa, gaji, langganan) dari **variabel** (belanja bahan). `cash_categories.is_fixed_cost` default `false` — kategori yang sudah ada dianggap variabel sampai ditandai. Lebih baik BEP terlihat terlalu rendah dan janggal (sehingga ditanyakan) daripada terlalu tinggi karena belanja bahan ikut dihitung tetap.
@@ -3420,6 +3391,87 @@ Selama belum ditandai, `hitungBep()` mengembalikan peringatan tertulis: *"Biaya 
 ### Angka
 
 `tools/test-pricing.mjs` (54 kasus), `tools/test-bep.mjs` (62), `tools/test-kpi-owner.mjs` (54) — dihitung dari jumlah pemeriksaan yang tertulis, bukan dikira-kira. Tujuh sabotase merah: rata-rata datar menggantikan yang ditimbang, HPP kosong dianggap nol, margin minus dibiarkan menghasilkan BEP negatif, biaya tetap nol lolos tanpa peringatan, persen tanpa penyebut jadi 0, `layakDipercaya` selalu benar, dan stok minus tidak dianggap masalah.
+
+## Semua tabel & halaman menyesuaikan layar
+
+### Angka yang membuat masalahnya jelas
+
+Mode kartu (`kartu-sempit`) sudah ada sejak lama dan sudah rapi: di bawah 560px tiap baris jadi kartu, label di kiri, nilai di kanan. Tapi ia **opt-in** — tiap tabel harus menuliskan kelasnya sendiri, tiap sel menuliskan `data-label`-nya sendiri.
+
+Hasilnya bisa dihitung: dari **86 tabel**, **57 tidak pernah memakainya**. Di ponsel, kelima puluh tujuh itu jadi tabel `white-space: nowrap` yang harus digeser ke samping untuk dibaca.
+
+Dan ini bukan kelalaian yang bisa diselesaikan dengan "lain kali jangan lupa". Tabel yang lupa memakainya **tampil benar di layar lebar** — yaitu layar tempat orang menulis kodenya. Tidak ada satu pun tanda pada saat pembuatannya.
+
+### Dibalik jadi opt-out
+
+`js/core/tabel-responsif.js` dipasang sekali per halaman dan mengurus setiap tabel yang muncul, kapan pun ia muncul:
+
+1. Menambahkan `kartu-sempit` — kecuali tabelnya menolak dengan `tabel-tetap`.
+2. Mengisi `data-label` tiap sel **dari judul kolomnya**.
+3. Membungkusnya dengan `.table-scroll` kalau belum.
+
+Nomor 2 yang paling berarti. Sebelumnya label diketik tangan di ratusan sel, dan sel yang terlewat muncul sebagai angka telanjang di tengah kartu yang sel lainnya berlabel rapi — **lebih** membingungkan daripada tabel tanpa label sama sekali. Diambil dari `<th>`-nya, labelnya tidak bisa salah dan tidak bisa ketinggalan saat judul kolomnya diubah.
+
+Dipakai `MutationObserver`, bukan panggilan sesudah tiap render. Tabel di sini digambar dari puluhan tempat — modul, tab di dalam modul, panel yang dibuka, dialog. Kalau tiap tempat harus memanggil sesuatu, kita kembali ke masalah semula: satu yang lupa, tanpa tanda apa pun.
+
+**Nol berkas layar disunting untuk ini.** Tiga puluh selector CSS mode kartu juga tidak disentuh — yang dibalik logikanya, bukan aturannya, justru supaya tidak ada risiko salah ketik di aturan yang sudah terbukti bekerja.
+
+### Yang paling mudah salah: label bergeser satu kolom
+
+`data-label` yang meleset satu kolom menghasilkan kartu yang terlihat rapi sempurna dan isinya salah — *"Stok: kg"*, *"Satuan: 12"*. Tidak ada yang rusak, tidak ada error, angkanya masuk akal. Itu tidak akan pernah dilaporkan sebagai bug; ia cuma membuat orang berhenti mempercayai layarnya.
+
+Tiga sumber pergeseran dijaga dan diuji: `colspan` di header (judulnya diisi berulang), `colspan` di badan (indeksnya tetap maju walau selnya tidak dilabeli), dan **tabel di dalam tabel**. Yang ketiga paling halus: tanpa `:scope >`, tabel induk mengambil `<th>` milik anaknya dan seluruh labelnya bergeser — panel resep di dalam baris menu adalah kasus nyatanya di aplikasi ini.
+
+### Tipografi cair
+
+Semua ukuran dulu dipatok `rem` tetap lalu dikecilkan sepotong-sepotong di dalam `@media`. Dua kelemahannya hanya terlihat di perangkat sungguhan: yang tidak kebagian aturan `@media` tetap besar (judul 1.25rem di layar 360px memakan sepertiga lebar lalu membungkus dan menabrak elemen sebelahnya — persis "tulisan menumpuk" yang dikeluhkan), dan perubahannya meloncat sehingga 559px dan 561px terasa seperti dua aplikasi berbeda.
+
+Diganti `clamp()`. Hasil hitungnya:
+
+| variabel | 360px | 768px | 1280px |
+|---|---|---|---|
+| `--teks-xs` | 11,3 | 12,1 | 12,5 |
+| `--teks-sm` | 12,9 | 13,7 | 14,1 |
+| `--teks-md` (body) | 14,3 | 15,4 | 16,0 |
+| `h3` | 16,0 | 17,5 | 18,4 |
+| `--teks-lg` | 16,5 | 18,6 | 19,2 |
+| `--teks-xl` (h1) | 18,2 | 21,1 | 24,0 |
+
+Batas bawahnya sengaja tidak di bawah ~11px. Teks yang mengecil terus memang "muat", tapi muat bukan tujuannya — staff membaca ini sambil berdiri di dapur.
+
+Ikut diperbaiki: `overflow-wrap: break-word` di `body` (nama produk impor dan alamat surel yang panjang tanpa spasi bisa melebarkan seluruh halaman, dan yang terlihat bukan "kata kepanjangan" melainkan "semua kolom bergeser"); header modul & topbar boleh membungkus; dan **isian di dalam tabel dipaksa 16px di layar sentuh** — Safari memperbesar halaman saat isian ber-font di bawah 16px difokus lalu tidak mengembalikannya, dan yang terlihat bukan "zoom" melainkan tata letak yang tiba-tiba rusak. `.field input` sudah dijaga sejak lama, tapi isian di opname, jumlah menu, dan koreksi presensi tidak memakai `.field`.
+
+### Yang diakui: tidak ada tangkapan layar
+
+Klaim soal tata letak idealnya dibuktikan dengan melihatnya. Sandbox tempat saya bekerja tidak bisa memasang browser (puppeteer terpasang, Chrome-nya gagal diunduh, `apt` tanpa akses root), jadi **saya tidak pernah melihat hasilnya dirender**.
+
+Yang benar-benar diverifikasi: stylesheet-nya diurai `css-tree` tanpa satu pun galat sintaks (405 kurung buka, 405 tutup), nilai `clamp()`-nya dihitung untuk tiga lebar, dan logika pelabelan diuji 18 kasus dengan DOM sungguhan lewat `linkedom`. Yang **belum** diverifikasi: bagaimana rupanya. Tolong buka satu-dua halaman di HP dan kabari kalau ada yang masih menumpuk.
+
+### Audit lama diganti, dan satu sabotase menemukan bug di audit barunya
+
+`audit-tabel-kartu.cjs` dulu memastikan tiap sel di tabel ber-`kartu-sempit` punya `data-label`. Penjagaan itu bekerja untuk tabel yang ikut — tapi ia sama sekali tidak bisa melihat bahwa **dua pertiga tabelnya tidak pernah ikut**. Audit yang hanya memeriksa yang sudah mendaftar akan selamanya hijau, dan hijaunya justru meyakinkan.
+
+Sekarang ia memeriksa dua hal: setiap halaman ber-tabel benar-benar memanggil `pasangTabelResponsif()`, dan setiap `tabel-tetap` disertai alasan tertulis.
+
+Versi pertamanya juga menuntut label tulisan tangan lengkap satu berkas — dan langsung menemukan 19 pelanggaran di `cleaning.admin.page.js`. Setelah diperiksa, **tidak satu pun dari sembilan belas itu masalah**: pengurus otomatis mengisi yang kosong dari judul kolomnya, jadi campuran label tangan dan otomatis tetap benar seluruhnya. Aturannya dibuang, bukan dilonggarkan — audit yang menyala untuk hal yang bukan masalah akan diabaikan, dan sesudah itu ia tidak berguna justru saat menemukan yang sungguhan.
+
+Lalu sabotase menemukan bug di audit barunya sendiri: menghapus `pasangTabelResponsif()` dari `main-staff.js` **tidak membuatnya merah**. Sebabnya regexnya cocok dengan `export function pasangTabelResponsif()` di berkas yang mendefinisikannya, jadi setiap halaman yang sekadar mengimpor modulnya dinyatakan lulus. Berkas pendefinisinya sekarang dikeluarkan dari pencarian, dan ketiga halaman disabotase satu per satu — ketiganya merah.
+
+Satu sabotase lain **lolos dan tidak diperbaiki**: membuang penanda `data-siap` tidak membuat tes merah. Setelah ditelusuri, memang tidak ada yang perlu ditahan — `bungkusGulir()` sudah menolak membungkus ulang tabel yang induknya `.table-scroll`, jadi tidak ada gelung tak berujung. Penanda itu penghematan, bukan penjagaan, dan sekarang komentarnya berbunyi begitu.
+
+## Tabel stok diurut dari yang paling sedikit
+
+Daftar bahan di sini ratusan baris. Diurutkan menurut nama, bahan yang stoknya minus bisa berada di baris ke-180 — dan peringatan *"⚠ 7 bahan stoknya minus"* di atas tabel yang menyuruh orang mencari sendiri di 300 baris adalah peringatan yang akan diabaikan.
+
+Sekarang menaik: minus di atas, lalu kosong, lalu yang terisi. Berlaku di **Staff App dan Admin Portal**, dari satu berkas yang sama (`js/modules/inventory/urutan-stok.js`) — kalau masing-masing menulis `sort()` sendiri, keduanya akan menyimpang dan tidak ada yang menyadarinya karena dua layar itu jarang dilihat berdampingan.
+
+Dua hal yang diputuskan sadar:
+
+**Stok yang tidak diketahui (`null`) ditaruh paling bawah, bukan dianggap nol.** `Number(null)` adalah `0` dan lolos `isFinite` — jadi bahan yang saldonya belum pernah tercatat akan menyamar jadi "habis", duduk di antara yang benar-benar habis, dan menenggelamkan yang sungguhan minus. Itu kebalikan persis dari tujuan pengurutan ini.
+
+**Nama jadi pemecah seri.** Stok `0` akan sangat banyak. Tanpa pemecah seri, urutan di antara mereka mewarisi urutan sebelumnya — dan urutan sebelumnya berubah tiap kali saringan diubah, sehingga daftarnya seolah mengacak diri sendiri saat orang mengetik di kotak cari, padahal isinya sama.
+
+`tools/test-urutan-stok.mjs` (13 kasus). Tiga sabotase merah: `null` dianggap nol, pemecah seri dibuang, dan `sort()` di tempat yang mengubah array milik layar lain.
 
 ## Roadmap fase
 
@@ -3445,5 +3497,7 @@ Selama belum ditandai, `hitungBep()` mengembalikan peringatan tertulis: *"Biaya 
 - [x] **Kantong kas (sub-kas) & outlet peruntukan** — form Kas Masuk/Keluar dibedakan, jumlah kantong per user diatur admin, pindah saldo antar kantong sendiri, Laporan Kas bisa disaring per outlet & kategori
 - [x] **Terima dari supplier per nota** — satu kali input banyak barang + foto nota (boleh menyusul), nomor `TRM-YYMMDD-XXXX` dibuat sistem, edit mengoreksi stok lewat pergerakan penyeimbang; Admin Portal punya tab **Nota Terima** dengan rincian per nomor + unduh xlsx
 - [x] **Bahan menipis (stok ÷ takaran resep = cukup berapa porsi)** — takaran rata-rata dari semua menu yang memakai bahan itu, ambang **porsi minimum per outlet** berlaku untuk semua menu sekaligus, bisa **ditimpa manual** per bahan (satu-satunya cara mengawasi gas/tisu/kemasan); tabel di Staff App (kartu di HP) + tab Admin Portal, unduh xlsx & kirim daftar belanja lewat WhatsApp tanpa API
-- [x] **Halaman Owner (`owner.html`)** — role `owner` lewat tabel `owner_scopes` terpisah (bukan `membership_scopes`, supaya sebelas jalur tulis tertutup dengan sendirinya), KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
+- [x] **Semua tabel & halaman responsif** — mode kartu jadi opt-out (86 tabel, nol berkas layar disunting), `data-label` diisi otomatis dari judul kolom lewat `MutationObserver`, tipografi `clamp()`, isian 16px di layar sentuh
+- [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal
+- [x] **Halaman Owner (`owner.html`)** — dibuka super admin, KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin

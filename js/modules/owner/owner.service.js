@@ -23,18 +23,26 @@ import { ambilSemua } from '../../core/ambil-semua.js';
  * Satu-satunya tulisan owner ada di `dokumen.service.js`, lewat RPC.
  */
 
-/** BU yang diawasi orang yang sedang login. Kosong = dia bukan owner. */
+/**
+ * BU yang bisa dibuka di halaman Owner.
+ *
+ * Tidak ada penyaringan di sini, dan itu disengaja: `business_units_select`
+ * (0001) memakai `has_bu_scope()`, yang meloloskan super_admin untuk SEMUA BU
+ * dan hanya BU-nya sendiri untuk yang lain. Menambahkan saringan di klien
+ * berarti menduplikasi aturan yang sudah dijaga database — dan duplikat aturan
+ * akan menyimpang begitu salah satunya berubah.
+ *
+ * Kalau yang login bukan super admin, hasilnya bukan error melainkan daftar
+ * pendek atau kosong; `main-owner.js` yang memutuskan artinya.
+ */
 export async function listBuOwner() {
   const { data, error } = await supabase
-    .from('owner_scopes')
-    .select('business_unit_id, business_units(id, name, type, theme_color, logo_url, pricing_method, food_cost_percent, markup_percent, margin_percent)')
-    .order('created_at');
+    .from('business_units')
+    .select('id, name, type, theme_color, logo_url, pricing_method, food_cost_percent, markup_percent, margin_percent, is_active')
+    .eq('is_active', true)
+    .order('name');
   if (error) throw error;
-
-  return (data ?? [])
-    .map((r) => r.business_units)
-    .filter(Boolean)
-    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+  return data ?? [];
 }
 
 /**

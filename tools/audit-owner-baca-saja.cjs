@@ -1,126 +1,126 @@
 #!/usr/bin/env node
 /**
- * OWNER TIDAK BOLEH BISA MENULIS.
+ * HALAMAN OWNER TIDAK BOLEH MENULIS DATA OPERASIONAL.
  *
- * ============ KENAPA INI PERLU DIJAGA MESIN ============
+ * ============ KENAPA INI JUSTRU LEBIH PERLU SEKARANG ============
  *
- * Ketidakmampuan owner menulis TIDAK dijaga oleh satu penjagaan yang bisa
- * dibaca. Ia lahir dari sebuah keputusan struktural di 0093: owner sengaja
- * BUKAN anggota `membership_scopes`, sehingga `has_bu_scope()` selalu gagal
- * untuknya — dan `has_bu_scope()` itulah yang menjaga sebelas jalur tulis
- * transaksional (stok, produksi, penjualan, opname, nota, kiriman, order,
- * waste, rencana menu, aktivitas harian).
+ * Rancangan pertama memakai role `owner` tersendiri yang bukan anggota BU,
+ * sehingga `has_bu_scope()` selalu gagal untuknya dan seluruh jalur tulis
+ * tertutup dengan sendirinya. Ketidakmampuan menulis itu sifat bawaan — tidak
+ * ada yang bisa lupa memasangnya.
  *
- * Keputusan seperti itu rapuh justru karena tidak terlihat. Menambahkan
- * `'owner'` ke CHECK constraint `membership_scopes.role` adalah satu baris yang
- * terlihat sangat masuk akal — "supaya owner bisa dilihat di Master User" —
- * dan satu baris itu membuka sebelas jalur tulis sekaligus, tanpa satu pun
- * pesan, tanpa satu pun tes yang jatuh, dan tanpa perubahan apa pun yang
- * terlihat di layar.
+ * Keputusannya diubah: yang membuka `owner.html` adalah SUPER ADMIN. Dan super
+ * admin bisa menulis apa pun, di mana pun. Artinya penjagaan yang tadinya di
+ * database sekarang tidak ada lagi — satu-satunya yang menahan halaman owner
+ * dari mengubah stok, penjualan, atau opname adalah halamannya memang tidak
+ * punya kodenya.
  *
- * Berkas ini memeriksa dua hal:
+ * Penjagaan seperti itu hilang tanpa suara. Satu `.update()` yang ditambahkan
+ * "supaya sekalian bisa dibetulkan dari sini" akan berjalan mulus, tidak
+ * ditolak siapa pun, dan tidak meninggalkan jejak bahwa perubahannya datang
+ * dari halaman ringkasan alih-alih dari modul yang seharusnya.
  *
- *   1. `owner` TIDAK pernah muncul di CHECK role `membership_scopes`.
- *   2. Fungsi cakupan owner tidak pernah dipakai policy yang MENULIS.
+ * Berkas ini yang menggantikan penjagaan database itu.
  *
- * ============ SATU PENGECUALIAN, DAN CARANYA DITENTUKAN ============
+ * ============ CARA PENGECUALIANNYA DITENTUKAN ============
  *
- * Owner memang harus bisa menulis SATU hal: berkas hasil tanda tangan ke
- * `storage.objects`. Pengecualiannya tidak ditulis sebagai daftar nama policy —
- * daftar nama akan basi, dan pengalaman di repo ini sudah membuktikannya
- * (`audit-embed-ambigu` pernah hijau selama berbulan-bulan karena pengecualian
- * tulisan tangan menyebut nama tabel yang salah).
+ * Seluruh isi `js/modules/owner/` dilarang menulis, KECUALI dua berkas yang
+ * disebut di bawah beserta alasannya — dan untuk keduanya pun yang boleh
+ * ditulis dibatasi ke tabel tertentu, bukan dibebaskan.
  *
- * Yang dipakai: pengecualian ditentukan dari TABEL SASARAN policy-nya. Owner
- * boleh menulis ke `storage.objects`, tidak ke tabel lain mana pun. Aturan itu
- * tidak bisa basi karena ia dibaca dari policy-nya sendiri.
+ * Berkas BARU di folder itu otomatis kena aturan penuh. Itu perilaku yang
+ * diinginkan: yang paling mungkin terjadi setahun lagi adalah seseorang
+ * menambah satu layar baru di sini, dan yang paling mahal adalah layar itu
+ * diam-diam boleh menulis karena auditnya cuma menghafal nama berkas lama.
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const DIR = path.join(__dirname, '..', 'supabase', 'migrations');
-const FUNGSI_OWNER = ['owner_punya_bu', 'owner_punya_outlet', 'is_owner', 'orang_di_bu_owner'];
+const DIR = path.join(__dirname, '..', 'js', 'modules', 'owner');
+const MAIN = path.join(__dirname, '..', 'js', 'main-owner.js');
 
-/** Buang komentar SQL supaya contoh di dalam penjelasan tidak ikut terbaca. */
-function tanpaKomentar(sql) {
-  return sql
+/** Berkas yang boleh menulis, beserta tabel yang boleh disentuhnya. */
+const BOLEH_TULIS = {
+  'dokumen.service.js': {
+    alasan: 'mengunggah dokumen (dipakai Admin Portal) & menyimpan tanda tangan sendiri',
+    tabel: new Set(['documents', 'owner_signatures']),
+    rpc: new Set(['putuskan_dokumen'])
+  },
+  'dokumen.admin.page.js': {
+    alasan: 'layar Admin Portal, bukan halaman owner — menghapus dokumen yang belum diputus',
+    tabel: new Set(['documents']),
+    rpc: new Set()
+  }
+};
+
+const TULIS = ['insert', 'update', 'delete', 'upsert'];
+
+function tanpaKomentar(js) {
+  return js
     .replace(/\/\*[\s\S]*?\*\//g, ' ')
     .split('\n')
-    .map((b) => b.replace(/--.*$/, ''))
+    .map((b) => b.replace(/(^|[^:])\/\/.*$/, '$1'))
     .join('\n');
 }
 
+const masalah = [];
+let diperiksa = 0;
+
 const berkas = fs
   .readdirSync(DIR)
-  .filter((f) => f.endsWith('.sql'))
-  .sort();
+  .filter((f) => f.endsWith('.js'))
+  .sort()
+  .map((f) => ({ nama: f, jalan: path.join(DIR, f) }));
 
-const masalah = [];
+berkas.push({ nama: 'main-owner.js', jalan: MAIN });
 
-// ---------------------------------------------------------
-// (1) 'owner' tidak boleh masuk daftar role membership_scopes
-// ---------------------------------------------------------
-for (const f of berkas) {
-  const sql = tanpaKomentar(fs.readFileSync(path.join(DIR, f), 'utf8'));
+for (const { nama, jalan } of berkas) {
+  const src = tanpaKomentar(fs.readFileSync(jalan, 'utf8'));
+  const izin = BOLEH_TULIS[nama] ?? null;
+  diperiksa++;
 
-  // Semua CHECK yang menyebut daftar role, di tabel mana pun yang bernama
-  // membership_scopes — baik saat dibuat maupun saat constraint-nya diganti.
-  const pola = /role\s+text[^,]*check\s*\(\s*role\s+in\s*\(([^)]*)\)|constraint\s+\w*role\w*\s+check\s*\(\s*role\s+in\s*\(([^)]*)\)|alter\s+table\s+membership_scopes[\s\S]{0,400}?check\s*\(\s*role\s+in\s*\(([^)]*)\)/gi;
+  // --- Penulisan tabel: supabase.from('x')....insert(
+  const polaFrom = /\.from\(\s*['"`](\w+)['"`]\s*\)([\s\S]{0,600}?);/g;
   let m;
-  while ((m = pola.exec(sql))) {
-    const daftar = m[1] ?? m[2] ?? m[3] ?? '';
-    if (/'owner'/i.test(daftar)) {
+  while ((m = polaFrom.exec(src))) {
+    const [, tabel, rantai] = m;
+    for (const op of TULIS) {
+      if (!new RegExp(`\\.${op}\\s*\\(`).test(rantai)) continue;
+
+      // `.from()` juga dipakai storage (`storage.from('bucket')`), yang
+      // operasinya `upload`/`remove`/`download` — bukan salah satu di atas.
+      // Jadi kalau sampai ke sini, ini benar-benar tabel.
+      if (izin?.tabel.has(tabel)) continue;
+
       masalah.push(
-        `${f} — 'owner' ditambahkan ke daftar role membership_scopes.\n` +
-          `    Itu membuat has_bu_scope() meloloskan owner, dan sebelas jalur TULIS\n` +
-          `    transaksional terbuka sekaligus (lihat header 0093).\n` +
-          `    Cakupan owner disimpan di tabel owner_scopes, bukan di sini.`
+        izin
+          ? `${nama} — .${op}() pada tabel "${tabel}".\n` +
+            `    Berkas ini boleh menulis, tapi hanya ke: ${[...izin.tabel].join(', ')}.`
+          : `${nama} — .${op}() pada tabel "${tabel}".\n` +
+            `    Halaman owner hanya membaca. Perubahan data dikerjakan di modul yang\n` +
+            `    bersangkutan, supaya riwayatnya tercatat dari tempat yang benar.`
       );
     }
   }
-}
 
-// ---------------------------------------------------------
-// (2) Fungsi owner tidak boleh dipakai policy yang menulis
-// ---------------------------------------------------------
-let policyDiperiksa = 0;
-
-for (const f of berkas) {
-  const sql = tanpaKomentar(fs.readFileSync(path.join(DIR, f), 'utf8'));
-
-  // Satu policy = dari `create policy` sampai `;` berikutnya di akhir baris.
-  const pola = /create\s+policy\s+(\w+)\s+on\s+([\w.]+)([\s\S]*?);\s*(?:\n|$)/gi;
-  let m;
-  while ((m = pola.exec(sql))) {
-    const [, nama, tabel, tubuh] = m;
-    if (!FUNGSI_OWNER.some((fn) => new RegExp(`\\b${fn}\\s*\\(`, 'i').test(tubuh))) continue;
-
-    policyDiperiksa++;
-
-    // Perintahnya. Tanpa `for ...` PostgreSQL memakai ALL — dan itu justru
-    // yang paling berbahaya, jadi ketiadaannya diperlakukan sebagai ALL, bukan
-    // dilewati.
-    const cmd = (tubuh.match(/\bfor\s+(all|select|insert|update|delete)\b/i)?.[1] ?? 'all').toLowerCase();
-    if (cmd === 'select') continue;
-
-    // SATU-SATUNYA pengecualian: berkas hasil tanda tangan. Ditentukan dari
-    // tabel sasarannya, bukan dari daftar nama policy.
-    if (tabel.toLowerCase() === 'storage.objects') continue;
-
+  // --- RPC: satu-satunya jalur tulis yang diizinkan, dan namanya disebut.
+  const polaRpc = /\.rpc\(\s*['"`](\w+)['"`]/g;
+  while ((m = polaRpc.exec(src))) {
+    const fn = m[1];
+    if (izin?.rpc.has(fn)) continue;
     masalah.push(
-      `${f} — policy "${nama}" pada ${tabel} memberi hak ${cmd.toUpperCase()} lewat fungsi owner.\n` +
-        `    Owner dirancang tidak bisa menulis apa pun kecuali berkas tanda tangan.\n` +
-        `    Kalau memang perlu menulis, lewatkan RPC SECURITY DEFINER seperti\n` +
-        `    putuskan_dokumen() — supaya kolom yang boleh berubah dibatasi di satu tempat.`
+      `${nama} — memanggil RPC "${fn}".\n` +
+        `    RPC bisa menulis apa saja tanpa terlihat sebagai penulisan. Kalau memang\n` +
+        `    perlu, daftarkan namanya di BOLEH_TULIS beserta alasannya.`
     );
   }
 }
 
 if (masalah.length) {
-  console.error('❌ Hak tulis owner bocor:\n');
+  console.error('❌ Halaman owner menulis data:\n');
   for (const p of masalah) console.error(`  ${p}\n`);
   process.exit(1);
 }
 
-console.log(`${policyDiperiksa} policy owner diperiksa. Semuanya baca-saja, dan 'owner' tidak ada di membership_scopes. ✅`);
+console.log(`${diperiksa} berkas halaman owner diperiksa. Semuanya baca-saja kecuali dua yang terdaftar beralasan. ✅`);

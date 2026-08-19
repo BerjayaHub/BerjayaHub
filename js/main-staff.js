@@ -26,6 +26,7 @@ import { getStaffPhotoUrl } from './modules/profile/profile.service.js';
 import { getMyTodaySession } from './modules/attendance/attendance.service.js';
 import { loadingHtml, sekaliJalan } from './core/loading.js';
 import { pasangPenandaKoneksi } from './core/koneksi.js';
+import { pasangTabelResponsif } from './core/tabel-responsif.js';
 
 registerModule('attendance', renderAttendancePage);
 registerModule('leave', renderLeavePage);
@@ -614,6 +615,7 @@ function applyBuTheme(businessUnit) {
 // layar pertama sempat mendorong lapis apa pun.
 pasangNavigasi();
 pasangPenandaKoneksi();
+pasangTabelResponsif();
 pasangPencatatGulir();
 pasangPerekamDraf();
 bootstrap();

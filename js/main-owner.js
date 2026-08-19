@@ -6,6 +6,7 @@ import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, 
 import { buatPenjagaSesi } from './auth/perubahan-sesi.js';
 import { loadingHtml } from './core/loading.js';
 import { pasangPenandaKoneksi } from './core/koneksi.js';
+import { pasangTabelResponsif } from './core/tabel-responsif.js';
 import { listBuOwner } from './modules/owner/owner.service.js';
 import { renderRingkasanOwner } from './modules/owner/ringkasan.owner.js';
 import { renderBepOwner } from './modules/owner/bep.owner.js';
@@ -16,14 +17,21 @@ import { renderDokumenOwner } from './modules/owner/dokumen.owner.js';
  *
  * ============ KENAPA HALAMAN SENDIRI, BUKAN TAB DI ADMIN PORTAL ============
  *
- * Admin Portal dibangun di atas anggapan bahwa yang membukanya punya baris di
- * `membership_scopes` — dari situ ia menentukan BU aktif, modul yang menyala,
- * dan izin per tab. Owner sengaja TIDAK punya baris itu (lihat migration 0093),
- * karena keanggotaan BU-lah yang membuka sebelas jalur tulis transaksional.
+ * Yang membukanya SUPER ADMIN — orang yang sama, hak yang sama. Jadi alasannya
+ * bukan lagi soal izin, melainkan soal apa yang ada di layar.
  *
- * Menyisipkan owner ke Admin Portal berarti membuat setiap pemeriksaan izin di
- * sana punya cabang kedua. Halaman terpisah lebih jujur: yang tidak bisa
- * ditulis owner tidak pernah digambar sama sekali.
+ * Admin Portal adalah tempat MENGUBAH: tiap menu punya tombol simpan, hapus,
+ * dan koreksi. Halaman ini tempat MEMBACA — dan satu-satunya hal yang bisa
+ * ditulis dari sini adalah keputusan tanda tangan.
+ *
+ * Kalau keduanya digabung, tidak ada lagi yang menahan tombol "betulkan saja
+ * dari sini" ditambahkan ke halaman ringkasan. Perubahan yang datang dari
+ * ringkasan tidak salah secara hak, tapi ia melewati layar yang seharusnya
+ * mencatatnya, dan riwayatnya jadi menunjuk tempat yang keliru.
+ *
+ * Pemisahan itu penjagaan di LAYAR, bukan di database — super admin tetap bisa
+ * menulis apa pun lewat modul yang benar. `tools/audit-owner-baca-saja.cjs`
+ * yang menjaga agar halaman ini tidak diam-diam tumbuh tombol tulis.
  *
  * ============ TAUTAN DOKUMEN ============
  *
@@ -130,14 +138,23 @@ async function renderShell() {
     return;
   }
 
-  if (!context || daftarBu.length === 0) {
+  // HANYA SUPER ADMIN.
+  //
+  // Diperiksa dari `scopes`, bukan dari "daftar BU-nya tidak kosong". Admin BU
+  // juga punya BU — kalau yang dipakai daftar BU, dia akan masuk dan melihat
+  // seluruh KPI beserta angka kas outletnya. Kegagalan itu tidak akan
+  // menampilkan error apa pun; halamannya cuma terbuka untuk orang yang
+  // seharusnya tidak membukanya.
+  const superAdmin = (context?.scopes ?? []).some((s) => s.role === 'super_admin');
+
+  if (!context || !superAdmin || daftarBu.length === 0) {
     // Pesannya sengaja menyebut halaman lain. Orang yang punya akses admin lalu
     // salah membuka owner.html akan mengira akunnya bermasalah, padahal ia
     // hanya berada di pintu yang keliru.
     app.innerHTML = `
       <div style="padding:24px;max-width:520px">
-        <h2 style="margin-top:0">Halaman ini khusus Owner</h2>
-        <p>Akun kamu belum terdaftar sebagai owner di Business Unit mana pun. Kalau kamu admin atau staff, gunakan halaman berikut.</p>
+        <h2 style="margin-top:0">Halaman ini khusus Super Admin</h2>
+        <p>Akun kamu tidak punya akses super admin. Kalau kamu admin BU atau staff, gunakan halaman berikut.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">
           <button id="btn-ke-staff">📱 Staff App</button>
           <button id="btn-ke-admin">🛠️ Admin Portal</button>
@@ -316,4 +333,5 @@ pasangNavigasi();
 pasangPencatatGulir();
 pasangPerekamDraf();
 pasangPenandaKoneksi();
+pasangTabelResponsif();
 bootstrap();

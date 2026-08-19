@@ -19,12 +19,52 @@
 
 * { box-sizing: border-box; }
 
+/* =========================================================
+   TIPOGRAFI CAIR — ukurannya mengikuti lebar layar, bukan meloncat.
+
+   Sebelumnya semua ukuran dipatok dalam `rem` tetap, lalu dikecilkan
+   sepotong-sepotong di dalam `@media`. Cara itu punya dua kelemahan yang
+   dua-duanya hanya terlihat di perangkat sungguhan:
+
+   1. Yang tidak kebagian aturan `@media` tetap besar. Judul 1.25rem di layar
+      360px memakan sepertiga lebar, lalu membungkus ke baris kedua dan
+      menabrak elemen di sebelahnya — persis "tulisan menumpuk" yang dikeluhkan.
+   2. Perubahannya meloncat di satu titik. Layar 561px dan 559px terasa seperti
+      dua aplikasi berbeda, padahal bedanya dua piksel.
+
+   `clamp(min, cair, maks)` menghilangkan keduanya: ada batas bawah yang tetap
+   terbaca, batas atas yang tidak berlebihan di monitor lebar, dan di antaranya
+   berubah mulus mengikuti `vw`.
+
+   Batas bawahnya sengaja tidak di bawah 0.8rem. Teks yang mengecil terus
+   memang "muat", tapi muat bukan tujuannya — staff membaca ini sambil berdiri
+   di dapur.
+   ========================================================= */
+:root {
+  --teks-xs: clamp(0.7rem, 0.66rem + 0.2vw, 0.78rem);
+  --teks-sm: clamp(0.8rem, 0.76rem + 0.2vw, 0.88rem);
+  --teks-md: clamp(0.88rem, 0.84rem + 0.25vw, 1rem);
+  --teks-lg: clamp(1rem, 0.92rem + 0.5vw, 1.2rem);
+  --teks-xl: clamp(1.1rem, 0.98rem + 0.7vw, 1.5rem);
+}
+
 body {
   margin: 0;
   font-family: var(--font);
   background: var(--color-bg);
   color: var(--color-text);
+  font-size: var(--teks-md);
+  /* Melindungi dari kata panjang tanpa spasi — nama produk impor, alamat
+     surel, dan path berkas. Tanpa ini satu kata bisa melebarkan seluruh
+     halaman, dan yang terlihat bukan "kata kepanjangan" melainkan "semua
+     kolom bergeser". */
+  overflow-wrap: break-word;
 }
+
+h1 { font-size: var(--teks-xl); line-height: 1.25; }
+h2 { font-size: var(--teks-lg); line-height: 1.3; }
+h3 { font-size: clamp(1rem, 0.9rem + 0.4vw, 1.15rem); line-height: 1.35; }
+h4 { font-size: var(--teks-sm); line-height: 1.4; }
 
 .auth-page {
   min-height: 100vh;
@@ -924,9 +964,14 @@ select.sc-cell.is-off {
   z-index: 10;
 }
 
+/* Topbar boleh membungkus. Di layar 360px, nama BU yang panjang + dua tombol
+   pindah aplikasi tidak akan pernah muat satu baris; memaksanya membuat salah
+   satunya terpotong di tepi tanpa ada tanda bahwa ia ada. */
+.admin-topbar { flex-wrap: wrap; row-gap: 8px; }
+
 .admin-topbar-title {
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: var(--teks-md);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -936,7 +981,7 @@ select.sc-cell.is-off {
   .admin-topbar {
     padding: 10px 12px 10px 60px; /* ruang untuk tombol menu ☰ */
   }
-  .admin-topbar-title { font-size: 0.85rem; }
+  .admin-topbar-title { font-size: var(--teks-sm); }
   .app-switch button { padding: 7px 11px; font-size: 0.76rem; }
   /* padding-atas lama untuk menghindari tombol ☰ tidak lagi diperlukan */
   .app-body .app-content { padding-top: var(--spacing-md); }
@@ -961,7 +1006,34 @@ select.sc-cell.is-off {
 
 .module-header-title {
   font-weight: 600;
-  font-size: 1.05rem;
+  font-size: var(--teks-lg);
+  /* Judul boleh menyusut supaya tombol di sebelahnya tidak terdorong keluar
+     layar. Tanpa `min-width:0`, item flex menolak mengecil di bawah lebar
+     isinya — dan judul panjang akan mendorong tombol ❓/unduh ke luar batas
+     tanpa satu pun scrollbar yang menunjukkan ke mana perginya. */
+  min-width: 0;
+}
+
+/* Header modul membungkus di layar sempit alih-alih memaksa satu baris. */
+.module-header {
+  flex-wrap: wrap;
+}
+
+/* IOS MEMPERBESAR HALAMAN saat isian ber-font di bawah 16px difokus.
+   `.field input` sudah dijaga sejak lama, tapi banyak isian di aplikasi ini
+   berada DI DALAM TABEL dan tidak memakai `.field` — opname, jumlah menu,
+   koreksi presensi. Di sana Safari akan memperbesar halaman lalu tidak
+   mengembalikannya, dan yang terlihat bukan "zoom" melainkan tata letak yang
+   tiba-tiba rusak dan kolom yang hilang ke kanan.
+
+   16px hanya dipaksa di layar sentuh yang sempit; di desktop ukurannya
+   dibiarkan mengikuti tabelnya supaya barisnya tidak jadi terlalu tinggi. */
+@media (max-width: 768px) {
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
 /* ---- Activity feed (Admin dashboard) ---- */
@@ -1348,8 +1420,8 @@ select.sc-cell.is-off {
 }
 
 .staff-greeting { display: flex; align-items: center; gap: 12px; margin: 4px 0 0; }
-.staff-greeting h1 { font-size: 1.25rem; margin: 0 0 2px; }
-.staff-greeting p { margin: 0; color: var(--color-text-muted); font-size: 0.9rem; }
+.staff-greeting h1 { font-size: var(--teks-xl); margin: 0 0 2px; }
+.staff-greeting p { margin: 0; color: var(--color-text-muted); font-size: var(--teks-sm); }
 
 .hero-avatar {
   width: 54px;

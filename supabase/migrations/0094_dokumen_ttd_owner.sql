@@ -10,21 +10,23 @@
 --   5. Hasil: PDF bertandatangan + Lembar Pengesahan terpisah
 --
 -- =========================================================
--- SATU-SATUNYA HAL YANG BOLEH DITULIS OWNER
+-- SIAPA YANG MENANDATANGANI: SUPER ADMIN
 -- =========================================================
 --
--- 0093 membuat owner tidak bisa menulis apa pun, dan itu sifat bawaan: dia
--- bukan anggota BU, jadi `has_bu_scope()` selalu gagal untuknya.
+-- Versi pertama berkas ini memakai role `owner` tersendiri. Keputusannya
+-- diubah (lihat header 0093): yang membuka `owner.html` cukup super admin.
 --
--- Menandatangani jelas MENULIS. Kalau lubangnya dibuka dengan policy UPDATE
--- biasa di `documents`, owner otomatis juga bisa mengubah `file_path` — yaitu
--- menukar berkas yang ditandatangani dengan berkas lain. Dan karena barisnya
--- tetap satu dan statusnya tetap 'ditandatangani', pertukaran itu tidak akan
--- meninggalkan jejak apa pun.
+-- Yang TIDAK ikut disederhanakan: `documents` tetap tidak punya policy UPDATE
+-- untuk siapa pun. Kalau perubahan status dibuka lewat policy UPDATE biasa,
+-- yang memegangnya otomatis juga bisa mengubah `file_path` — yaitu menukar
+-- berkas yang ditandatangani dengan berkas lain. Barisnya tetap satu, statusnya
+-- tetap 'ditandatangani', dan pertukaran itu tidak meninggalkan jejak apa pun.
 --
--- Maka tidak ada policy UPDATE untuk owner sama sekali. Satu-satunya jalannya
--- `putuskan_dokumen()` di bagian (5): SECURITY DEFINER, hanya menyentuh kolom
--- keputusan, dan menolak dokumen yang sudah pernah diputus.
+-- Jadi satu-satunya jalur tulis tetap `putuskan_dokumen()` di bagian (5):
+-- SECURITY DEFINER, hanya menyentuh kolom keputusan, dan menolak dokumen yang
+-- sudah pernah diputus. Super admin memang bisa menulis ke mana-mana; yang
+-- dijaga di sini bukan haknya, melainkan supaya SATU-SATUNYA cara mengubah
+-- status dokumen adalah cara yang mencatat siapa, kapan, dan atas berkas apa.
 --
 -- =========================================================
 -- SEJAUH MANA TANDA TANGAN INI BISA DIPERCAYA — DIKATAKAN DI SINI
@@ -101,21 +103,52 @@ create table if not exists documents (
   decided_by uuid references user_profiles(id) on delete set null,
   decided_at timestamptz,
   reject_reason text,
-
   signed_path text,       -- PDF yang sudah ditempeli TTD
-  sheet_path text,        -- Lembar Pengesahan terpisah
+  sheet_path text         -- Lembar Pengesahan terpisah
+);
 
-  constraint documents_judul_isi check (length(btrim(title)) > 0),
+-- ---------------------------------------------------------
+-- KOLOM & CONSTRAINT DIPASANG DI LUAR `create table`.
+--
+-- `create table if not exists` MELEWATI tabel yang sudah ada — seluruhnya,
+-- termasuk kolom dan constraint yang ditambahkan belakangan. Jadi apa pun yang
+-- ditulis di dalam kurung itu tidak akan pernah terpasang pada database yang
+-- sudah menjalankan versi sebelumnya, dan migration-nya "sukses" tanpa
+-- mengubah apa-apa.
+--
+-- Ini ditemukan saat menguji berkas ini di Postgres sungguhan terhadap
+-- database yang sudah berisi versi lamanya: baris `comment on constraint`
+-- gagal dengan "constraint documents_keputusan_utuh does not exist", karena
+-- tabelnya memang sudah ada dan constraint-nya tidak pernah dibuat.
+--
+-- Bentuk di bawah benar untuk kedua keadaan: tabel baru maupun tabel lama.
+-- ---------------------------------------------------------
+alter table documents add column if not exists outlet_id uuid references outlets(id) on delete set null;
+alter table documents add column if not exists notes text;
+alter table documents add column if not exists file_size bigint;
+alter table documents add column if not exists decided_by uuid references user_profiles(id) on delete set null;
+alter table documents add column if not exists decided_at timestamptz;
+alter table documents add column if not exists reject_reason text;
+alter table documents add column if not exists signed_path text;
+alter table documents add column if not exists sheet_path text;
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'documents_judul_isi') then
+    alter table documents add constraint documents_judul_isi check (length(btrim(title)) > 0);
+  end if;
 
   -- Status dan bukti keputusannya harus jalan bersama. Tanpa ini, baris
   -- 'ditandatangani' tanpa signed_path bisa ada — dan halaman akan menampilkan
   -- "sudah disahkan" untuk dokumen yang tidak punya berkas hasilnya.
-  constraint documents_keputusan_utuh check (
-    (status = 'menunggu' and decided_by is null and decided_at is null)
-    or (status = 'ditandatangani' and decided_by is not null and decided_at is not null and signed_path is not null)
-    or (status = 'ditolak' and decided_by is not null and decided_at is not null and length(btrim(coalesce(reject_reason, ''))) > 0)
-  )
-);
+  if not exists (select 1 from pg_constraint where conname = 'documents_keputusan_utuh') then
+    alter table documents add constraint documents_keputusan_utuh check (
+      (status = 'menunggu' and decided_by is null and decided_at is null)
+      or (status = 'ditandatangani' and decided_by is not null and decided_at is not null and signed_path is not null)
+      or (status = 'ditolak' and decided_by is not null and decided_at is not null and length(btrim(coalesce(reject_reason, ''))) > 0)
+    );
+  end if;
+end $$;
 
 create index if not exists idx_documents_bu_status on documents(business_unit_id, status);
 create index if not exists idx_documents_created on documents(created_at desc);
@@ -131,8 +164,9 @@ create policy documents_select on documents
   for select to authenticated
   using (
     uploaded_by = auth.uid()
+    -- `is_bu_admin()` sudah meloloskan super_admin lewat cabangnya sendiri
+    -- (0001), jadi penandatangannya ikut terbaca tanpa cabang tambahan.
     or is_bu_admin(auth.uid(), business_unit_id)
-    or owner_punya_bu(auth.uid(), business_unit_id)
   );
 
 -- Unggah: anggota BU, atas namanya sendiri, dan SELALU mulai dari 'menunggu'.
@@ -211,22 +245,22 @@ create policy dokumen_select on storage.objects
   for select to authenticated
   using (
     bucket_id = 'documents'
-    and (
-      has_bu_scope(auth.uid(), ((storage.foldername(name))[1])::uuid)
-      or owner_punya_bu(auth.uid(), ((storage.foldername(name))[1])::uuid)
-    )
+    and has_bu_scope(auth.uid(), ((storage.foldername(name))[1])::uuid)
   );
 
--- Owner harus bisa MENULIS hasil tanda tangan ke bucket ini — itu satu-satunya
--- penulisan storage yang dia lakukan. Dibatasi ke folder BU yang diawasinya.
+-- Berkas HASIL tanda tangan tidak butuh policy tersendiri: `dokumen_insert` di
+-- atas sudah memakai `has_bu_scope()`, dan itu meloloskan super_admin.
+--
+-- Sisa versi pertama dibuang di sini JUGA, bukan hanya di 0093. Berkas ini
+-- sudah pernah dijalankan di produksi dalam bentuk lamanya, dan policy lama itu
+-- memanggil `owner_punya_bu()` — fungsi yang 0093 hapus. Kalau 0093 dilewatkan
+-- atau dijalankan setelah berkas ini, yang tertinggal adalah policy yang
+-- memanggil fungsi tak ada lagi, dan setiap unggahan ke bucket `documents`
+-- gagal dengan pesan yang tidak menyebut-nyebut owner sama sekali.
+--
+-- Pengulangan dua baris ini murah; ketergantungan urutan yang tak terlihat
+-- tidak.
 drop policy if exists dokumen_insert_owner on storage.objects;
-create policy dokumen_insert_owner on storage.objects
-  for insert to authenticated
-  with check (
-    bucket_id = 'documents'
-    and owner_punya_bu(auth.uid(), ((storage.foldername(name))[1])::uuid)
-  );
-
 -- Menghapus berkas: hanya BU-nya sendiri, dipakai saat unggahan gagal di
 -- tengah jalan sehingga menyisakan berkas tanpa baris.
 drop policy if exists dokumen_delete on storage.objects;
@@ -283,8 +317,12 @@ begin
     raise exception 'Dokumen tidak ditemukan';
   end if;
 
-  if not owner_punya_bu(v_uid, v_doc.business_unit_id) then
-    raise exception 'Hanya owner BU ini yang boleh memutuskan dokumen ini';
+  -- Hanya super admin. Sengaja BUKAN `is_bu_admin()`: kalau admin BU boleh
+  -- memutuskan, maka orang yang mengunggah dokumen di BU-nya sendiri bisa
+  -- sekaligus mengesahkannya — dan pengesahan yang bisa dilakukan pengunggahnya
+  -- sendiri tidak mengesahkan apa pun.
+  if not is_super_admin(v_uid) then
+    raise exception 'Hanya super admin yang boleh mengesahkan dokumen';
   end if;
 
   -- Sudah pernah diputus -> berhenti. Pesannya menyebut keputusan yang sudah
@@ -331,6 +369,6 @@ revoke all on function putuskan_dokumen(uuid, text, text, text, text, text) from
 grant execute on function putuskan_dokumen(uuid, text, text, text, text, text) to authenticated;
 
 comment on function putuskan_dokumen(uuid, text, text, text, text, text) is
-  'Satu-satunya jalur tulis owner ke documents. Menolak dokumen yang sudah diputus, dan membatalkan penandatanganan bila hash berkasnya tidak lagi cocok.';
+  'Satu-satunya jalur tulis ke kolom keputusan documents. Menolak dokumen yang sudah diputus, dan membatalkan penandatanganan bila hash berkasnya tidak lagi cocok.';
 
 notify pgrst, 'reload schema';
