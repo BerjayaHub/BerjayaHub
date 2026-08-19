@@ -541,7 +541,7 @@ async function renderRecipesTab(content, businessUnitId) {
           )
           .join('');
         const isi = r
-          ? `<div class="table-scroll"><table class="data-table" style="margin:6px 0;min-width:520px">
+          ? `<div class="table-scroll"><table class="data-table" style="margin:6px 0">
                <thead><tr><th>Bahan</th><th style="text-align:right">Jumlah</th><th style="text-align:right">HPP/satuan</th><th style="text-align:right">Biaya</th></tr></thead>
                <tbody>${baris || `<tr><td colspan="4" style="background:var(--color-warning-bg,#fff8e1)">
                  <strong>Resep ini kosong — bahannya tidak pernah tersimpan.</strong>

@@ -3459,6 +3459,26 @@ Lalu sabotase menemukan bug di audit barunya sendiri: menghapus `pasangTabelResp
 
 Satu sabotase lain **lolos dan tidak diperbaiki**: membuang penanda `data-siap` tidak membuat tes merah. Setelah ditelusuri, memang tidak ada yang perlu ditahan — `bungkusGulir()` sudah menolak membungkus ulang tabel yang induknya `.table-scroll`, jadi tidak ada gelung tak berujung. Penanda itu penghematan, bukan penjagaan, dan sekarang komentarnya berbunyi begitu.
 
+### Putaran kedua: yang ketahuan dari satu tangkapan layar
+
+Perubahan di atas membuat semua tabel jadi kartu di layar sempit — dan justru itu yang memunculkan tiga masalah yang selama ini tersembunyi di balik gulir-menyamping. Ketiganya dilaporkan dari satu tangkapan layar editor resep di HP.
+
+**1. `min-width: 520px` di atribut `style` mengalahkan mode kartu.** Gaya inline menang atas stylesheet, jadi tabel resep tetap dipaksa 520px di layar 360px: label kartunya terlihat di kiri, nilainya terdorong keluar layar. Yang terlihat pengguna bukan "tabel kelebaran" melainkan **"datanya hilang"**. Lebarnya dibuang dari markup, dan aturan mode kartu diberi `!important` — satu-satunya di berkas ini, karena di bawah 560px lebar tetap selalu salah.
+
+**2. Baris bahan editor resep terjepit jadi ~76px.** Aritmetikanya: layar 360px, dialog memakai padding 24px×2, tersisa ~296px; kolom tetapnya 96 (jumlah) + 56 (satuan) + 44 (tombol) + 3 celah×8 = **220px**. Sisanya untuk pemilih bahan — yang isinya nama sepanjang 20 karakter.
+
+Yang menyakitkan: `.picker-row` sudah punya aturan menumpuk sejak lama, dan `.line-row` yang bentuknya nyaris identik **tidak pernah kebagian**. Yang satu diperbaiki karena ada yang mengeluh; yang satu lagi menunggu keluhan berikutnya. Itu yang membuat `tools/audit-lebar-baris.cjs` layak ada: ia menjumlahkan lebar tetap tiap baris flex terhadap anggaran 160px dan menuntut aturan menumpuk kalau lewat. Sabotase yang membuang aturan `.line-row` menghasilkan pesan yang persis menyebutkan angkanya — 220px terpakai, ~60px tersisa.
+
+**3. `overflow-wrap: break-word` di `body` memperburuknya.** Di kotak yang kebetulan sempit, teks pecah jadi satu-dua huruf per baris — daftar pilihan bahan jadi tak terbaca justru saat orang sedang memilih. Sekarang hanya dipasang di elemen yang memang menampung teks panjang (`p`, `li`, `td`, `th`, catatan), bukan di seluruh halaman. Dan daftar `.search-select` diberi `min-width: 260px` sendiri, jadi lebarnya tidak lagi ikut kotak masukannya.
+
+Batas audit barunya ditulis di dalamnya: **baris flex yang dibangun lewat `style="display:flex"` di JS tidak diperiksa.** Ada 24 di aplikasi ini dan hampir semuanya tidak berbahaya — kolom, pasangan tombol, dua item ber-`space-between`. Menuntut `flex-wrap` pada semuanya akan menyalakan audit untuk hal yang bukan masalah, dan audit yang sering salah tuduh akan berhenti dipercaya.
+
+### Masuk ke halaman Owner
+
+Halaman owner sempat dibangun **tanpa pintu masuk sama sekali** — tidak ada tautan dari mana pun. Sekarang tombol **📊 Owner** ada di pemilih aplikasi Admin Portal dan Staff App, hanya untuk super admin (tombol yang tampak lalu menolak saat ditekan membuat orang mengira akunnya bermasalah), dan halaman owner punya pemilih tiga arah untuk kembali.
+
+Pemilih BU-nya juga salah dua kali. Pertama, `listBuOwner()` menyaring `.eq('is_active', true)` sementara Admin Portal tidak menyaring apa pun — BU nonaktif hilang tanpa penjelasan, padahal BU yang baru ditutup justru yang paling perlu dilihat owner. Kedua, ia memakai kelas `topbar-bu-select` yang dibuat untuk topbar **berwarna** milik Staff App: teksnya putih, dan di topbar owner yang terang hasilnya nyaris tak terbaca. Elemennya ada, bisa diklik, tapi terlihat seperti judul halaman — dan orang tidak mencoba menekan judul. Sekarang punya gaya sendiri dengan label "BU" yang terlihat.
+
 ## Tabel stok diurut dari yang paling sedikit
 
 Daftar bahan di sini ratusan baris. Diurutkan menurut nama, bahan yang stoknya minus bisa berada di baris ke-180 — dan peringatan *"⚠ 7 bahan stoknya minus"* di atas tabel yang menyuruh orang mencari sendiri di 300 baris adalah peringatan yang akan diabaikan.
@@ -3497,7 +3517,7 @@ Dua hal yang diputuskan sadar:
 - [x] **Kantong kas (sub-kas) & outlet peruntukan** — form Kas Masuk/Keluar dibedakan, jumlah kantong per user diatur admin, pindah saldo antar kantong sendiri, Laporan Kas bisa disaring per outlet & kategori
 - [x] **Terima dari supplier per nota** — satu kali input banyak barang + foto nota (boleh menyusul), nomor `TRM-YYMMDD-XXXX` dibuat sistem, edit mengoreksi stok lewat pergerakan penyeimbang; Admin Portal punya tab **Nota Terima** dengan rincian per nomor + unduh xlsx
 - [x] **Bahan menipis (stok ÷ takaran resep = cukup berapa porsi)** — takaran rata-rata dari semua menu yang memakai bahan itu, ambang **porsi minimum per outlet** berlaku untuk semua menu sekaligus, bisa **ditimpa manual** per bahan (satu-satunya cara mengawasi gas/tisu/kemasan); tabel di Staff App (kartu di HP) + tab Admin Portal, unduh xlsx & kirim daftar belanja lewat WhatsApp tanpa API
-- [x] **Semua tabel & halaman responsif** — mode kartu jadi opt-out (86 tabel, nol berkas layar disunting), `data-label` diisi otomatis dari judul kolom lewat `MutationObserver`, tipografi `clamp()`, isian 16px di layar sentuh
+- [x] **Semua tabel & halaman responsif** — mode kartu jadi opt-out (86 tabel), `data-label` diisi otomatis dari judul kolom lewat `MutationObserver`, tipografi `clamp()`, isian 16px di layar sentuh, dan `audit-lebar-baris.cjs` yang menjumlahkan lebar tetap tiap baris flex terhadap anggaran layar 360px
 - [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal
 - [x] **Halaman Owner (`owner.html`)** — dibuka super admin, KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin

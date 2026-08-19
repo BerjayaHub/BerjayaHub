@@ -54,10 +54,23 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   font-size: var(--teks-md);
-  /* Melindungi dari kata panjang tanpa spasi — nama produk impor, alamat
-     surel, dan path berkas. Tanpa ini satu kata bisa melebarkan seluruh
-     halaman, dan yang terlihat bukan "kata kepanjangan" melainkan "semua
-     kolom bergeser". */
+}
+
+/* Kata panjang tanpa spasi — nama produk impor, alamat surel, path berkas —
+   bisa melebarkan seluruh halaman, dan yang terlihat bukan "kata kepanjangan"
+   melainkan "semua kolom bergeser".
+   
+   TAPI TIDAK DIPASANG DI `body`. Versi pertama memasangnya di sana, dan
+   akibatnya teks di dalam kotak yang kebetulan sempit pecah menjadi satu-dua
+   huruf per baris — yang membuat tata letak yang sudah sesak terlihat rusak
+   total. Jadi hanya dipasang di tempat yang memang menampung teks panjang. */
+p,
+li,
+td,
+th,
+.report-note,
+.modal-text,
+.field-help {
   overflow-wrap: break-word;
 }
 
@@ -1258,6 +1271,27 @@ select.sc-cell.is-off {
 .line-row .ln-unit { width: 56px; flex-shrink: 0; font-size: 0.82rem; color: var(--color-text-muted); }
 .line-row .ln-remove { flex-shrink: 0; }
 
+/* BARIS BAHAN MENUMPUK DI LAYAR SEMPIT.
+   Aturan yang sama sudah dipunyai `.picker-row` di atas sejak lama; `.line-row`
+   — yang dipakai EDITOR RESEP — tidak pernah kebagian, dan itu terlihat di
+   lapangan sebagai kotak pilih bahan selebar dua huruf.
+
+   Aritmetikanya: layar 360px, dialog memakai padding 24px x2 dan bingkainya,
+   jadi tersisa ~296px. Kolom tetapnya 96 (jumlah) + 56 (satuan) + 44 (tombol
+   hapus) + 3 celah x 8 = 220px. Pemilih bahan kebagian sisanya, ~76px — dan
+   nama bahan di sini rata-rata 20 karakter.
+
+   Yang membuatnya sulit disadari saat menulis kode: di layar lebar tidak ada
+   yang salah sama sekali. Kolom tetapnya baru menelan seluruh baris ketika
+   layarnya sempit, yaitu di perangkat yang justru dipakai staff. */
+@media (max-width: 560px) {
+  .line-row { flex-wrap: wrap; }
+  .line-row .search-select { flex-basis: 100%; }
+  /* Jumlah mengambil sisa baris kedua supaya angkanya tidak terjepit di kotak
+     96px sementara ada ruang kosong di sebelahnya. */
+  .line-row .ln-qty { flex: 1; width: auto; min-width: 0; }
+}
+
 .search-select { position: relative; }
 .search-select .ss-input {
   width: 100%;
@@ -1270,7 +1304,14 @@ select.sc-cell.is-off {
   position: absolute;
   z-index: 5;
   left: 0;
-  right: 0;
+  /* LEBARNYA TIDAK IKUT KOTAKNYA.
+     Sebelumnya `right: 0` membuat daftar pilihan selebar kotak masukannya. Di
+     baris yang sempit, hasilnya daftar selebar ~70px — dan nama seperti
+     "Air Mineral Pristine (Bahan Baku)" pecah jadi satu-dua huruf per baris.
+     Daftarnya jadi tak terbaca justru pada saat orang sedang memilih.
+     `max-width` menjaganya tetap di dalam layar pada perangkat sempit. */
+  min-width: 260px;
+  max-width: min(92vw, 420px);
   margin: 4px 0 0;
   padding: 4px;
   list-style: none;
@@ -1947,10 +1988,46 @@ select.sc-cell.is-off {
   .table-scroll .data-table.kartu-sempit {
     display: block;
     width: 100%;
-    min-width: 0;
+    /* `!important` DIPAKAI SADAR, dan hanya di sini.
+
+       Sebuah tabel bisa membawa `style="min-width:520px"` inline — dipasang
+       supaya kolomnya tetap lapang saat digulir menyamping di layar lebar.
+       Gaya inline mengalahkan stylesheet, jadi di layar 360px tabelnya tetap
+       dipaksa 520px: label kartunya terlihat di kiri, nilainya terdorong 520px
+       ke kanan, keluar layar. Yang tampak persis seperti "datanya hilang".
+
+       Di bawah 560px, lebar tetap SELALU salah. Jadi aturan ini memang harus
+       menang atas apa pun yang ditulis di atribut style. */
+    min-width: 0 !important;
     white-space: normal;
     border: none;
     box-shadow: none;
+  }
+
+  /* Baris TOTAL di <tfoot> ikut jadi baris label-nilai, bukan dua kotak
+     berdampingan. Tanpa ini "Total bahan per 1 porsi" dan angkanya tampil
+     sebagai dua chip abu-abu yang tidak jelas hubungannya. */
+  .data-table.kartu-sempit tfoot,
+  .data-table.kartu-sempit tfoot tr,
+  .data-table.kartu-sempit tfoot th {
+    display: block;
+    width: auto;
+    text-align: left;
+  }
+  .data-table.kartu-sempit tfoot tr {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-bg);
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    justify-content: space-between;
+  }
+  .data-table.kartu-sempit tfoot th {
+    padding: 0;
+    border: none;
   }
 
   .data-table.kartu-sempit thead {
