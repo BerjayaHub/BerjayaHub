@@ -41,7 +41,12 @@ export const ADMIN_TAB_CATALOG = [
   { code: 'dispatch', label: 'Pengiriman', group: 'Modul lain' },
   { code: 'shift', label: 'Shift (jadwal kerja)', group: 'Modul lain' },
   { code: 'fleet', label: 'Armada (kendaraan)', group: 'Modul lain' },
-  { code: 'asset', label: 'Inventaris Aset', group: 'Modul lain' }
+  { code: 'asset', label: 'Inventaris Aset', group: 'Modul lain' },
+
+  // Mengunggah dokumen untuk dimintakan tanda tangan owner. SENGAJA bisa
+  // diberikan ke admin BU/outlet, bukan super-admin-only: yang menyiapkan
+  // dokumen sehari-hari adalah admin outlet, dan owner tetap yang memutuskan.
+  { code: 'dokumen_ttd', label: 'Dokumen untuk Owner', group: 'Modul lain' }
 ];
 
 export const SUPER_ADMIN_ONLY_TABS = new Set(ADMIN_TAB_CATALOG.filter((t) => t.superAdminOnly).map((t) => t.code));

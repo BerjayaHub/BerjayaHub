@@ -19,6 +19,7 @@ const ICONS = {
   reservation: '📅',
   asset: '🪑',
   shift: '🗓️',
+  dokumen_ttd: '✍️',
   grp_org: '🏢',
   grp_user: '👤',
   grp_inventory: '📦'

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Berjaya Hub — Owner</title>
+  <link rel="icon" href="images/logo.svg" />
+  <link rel="icon" type="image/png" sizes="192x192" href="images/icon-192.png" />
+  <meta name="theme-color" content="#f5f5f5" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Berjaya Owner" />
+  <link rel="apple-touch-icon" sizes="180x180" href="images/icon-180.png" />
+  <!-- SENGAJA TANPA <link rel="manifest">.
+
+       Halaman ini paling sering dibuka dari tautan yang dikirim lewat chat
+       (owner.html?dok=<id>), bukan dari ikon di layar utama. Manifest sendiri
+       akan memunculkan tawaran "install" pada tiap tautan dokumen yang dibuka,
+       dan aplikasi terpasang punya start_url tetap yang justru MEMBUANG
+       parameter ?dok — sehingga owner mendarat di beranda, bukan di dokumen
+       yang barusan dikirim kepadanya. -->
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app">Memuat...</div>
+
+  <script type="module" src="js/main-owner.js"></script>
+</body>
+</html>

@@ -29,6 +29,7 @@ import { renderTelegramAdminPage } from './modules/notifications/telegram.admin.
 import { renderTutorialAdminPage } from './modules/tutorial/tutorial.admin.page.js';
 import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
 import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
+import { renderDokumenAdminPage } from './modules/owner/dokumen.admin.page.js';
 import { listBusinessUnitsBasic } from './modules/organization/organization.service.js';
 import { renderGroupPage } from './core/group-page.js';
 import { canAccessTab } from './core/admin-tabs.js';
@@ -61,6 +62,7 @@ registerModule('shift', renderShiftAdminPage);
 registerModule('fleet', renderFleetAdminPage);
 registerModule('reservation', renderReservationAdminPage);
 registerModule('asset', renderAssetAdminPage);
+registerModule('dokumen_ttd', renderDokumenAdminPage);
 // ---- Pengelompokan menu: beberapa modul digabung jadi satu menu bertab ----
 // Modul di dalam grup tidak tampil sebagai menu terpisah.
 const GROUPS = {
@@ -105,7 +107,11 @@ const CORE_ADMIN_MENU = [
   { code: 'dashboard', name: 'Dashboard' },
   { code: 'report', name: 'Laporan' },
   { code: 'telegram', name: 'Notifikasi Telegram' },
-  { code: 'tutorial', name: 'Video Tutorial' }
+  { code: 'tutorial', name: 'Video Tutorial' },
+  // `core: true` lewat daftar ini — pengesahan dokumen bukan modul operasional
+  // yang di-toggle per BU, dan BU yang tidak memakainya cukup tidak
+  // mengunggah apa-apa. Aksesnya tetap bisa dibatasi lewat Izin Admin.
+  { code: 'dokumen_ttd', name: 'Dokumen untuk Owner' }
 ];
 
 /** Tab dalam sebuah grup yang boleh dilihat user ini di BU aktif. */

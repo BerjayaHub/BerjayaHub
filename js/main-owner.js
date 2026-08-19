@@ -1,0 +1,319 @@
+import { escapeHtml } from './core/ui.js';
+import { pasangNavigasi, bersihkanLapis, bersihkanIsian } from './core/navigasi.js';
+import { ingatLayar, ingatKonteks, mulaiModul, pulihkanGulir, pasangPencatatGulir } from './core/ingatan-layar.js';
+import { pasangPerekamDraf, tawarkanDraf } from './core/pasang-draf.js';
+import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
+import { buatPenjagaSesi } from './auth/perubahan-sesi.js';
+import { loadingHtml } from './core/loading.js';
+import { pasangPenandaKoneksi } from './core/koneksi.js';
+import { listBuOwner } from './modules/owner/owner.service.js';
+import { renderRingkasanOwner } from './modules/owner/ringkasan.owner.js';
+import { renderBepOwner } from './modules/owner/bep.owner.js';
+import { renderDokumenOwner } from './modules/owner/dokumen.owner.js';
+
+/**
+ * Halaman Owner.
+ *
+ * ============ KENAPA HALAMAN SENDIRI, BUKAN TAB DI ADMIN PORTAL ============
+ *
+ * Admin Portal dibangun di atas anggapan bahwa yang membukanya punya baris di
+ * `membership_scopes` — dari situ ia menentukan BU aktif, modul yang menyala,
+ * dan izin per tab. Owner sengaja TIDAK punya baris itu (lihat migration 0093),
+ * karena keanggotaan BU-lah yang membuka sebelas jalur tulis transaksional.
+ *
+ * Menyisipkan owner ke Admin Portal berarti membuat setiap pemeriksaan izin di
+ * sana punya cabang kedua. Halaman terpisah lebih jujur: yang tidak bisa
+ * ditulis owner tidak pernah digambar sama sekali.
+ *
+ * ============ TAUTAN DOKUMEN ============
+ *
+ * `owner.html?dok=<id>` dibuka dari chat. Parameternya DISIMPAN dulu sebelum
+ * layar masuk digambar, lalu dipakai lagi sesudah login berhasil. Tanpa itu,
+ * owner yang belum login akan kehilangan tujuannya begitu ia mengetik sandi,
+ * dan mendarat di Ringkasan — lalu harus meminta tautannya dikirim ulang.
+ */
+
+const app = document.getElementById('app');
+
+const TAB = [
+  { kode: 'ringkasan', label: 'Ringkasan', ikon: '📊', render: renderRingkasanOwner },
+  { kode: 'bep', label: 'BEP & Harga', ikon: '⚖️', render: renderBepOwner },
+  { kode: 'dokumen', label: 'Dokumen & TTD', ikon: '✍️', render: renderDokumenOwner }
+];
+
+/** Id dokumen dari URL, kalau ada. Dibaca sekali dan disimpan. */
+const dokAwal = new URLSearchParams(window.location.search).get('dok');
+
+const KUNCI_BU = 'owner_bu_aktif';
+const KUNCI_TAB = 'owner_tab_terakhir';
+
+function simpan(kunci, nilai) {
+  try {
+    sessionStorage.setItem(kunci, nilai);
+  } catch {
+    // sessionStorage bisa diblokir di mode privat -> fitur ingat-tab sekadar mati
+  }
+}
+function baca(kunci) {
+  try {
+    return sessionStorage.getItem(kunci);
+  } catch {
+    return null;
+  }
+}
+
+async function bootstrap() {
+  const session = await getSession();
+  if (session?.user) await renderShell();
+  else renderLogin();
+
+  // Sama dengan Admin Portal & Staff App: JANGAN gambar ulang hanya karena
+  // token diperbarui. `onAuthStateChange` juga menyala untuk INITIAL_SESSION
+  // dan TOKEN_REFRESHED — dan yang kedua terjadi persis saat tab kembali aktif.
+  // Alasannya di `auth/perubahan-sesi.js`.
+  const penjagaSesi = buatPenjagaSesi(session?.user?.id ?? null);
+  onAuthStateChange((_event, sesiBaru) => {
+    const putusan = penjagaSesi(sesiBaru);
+    if (putusan === 'shell') renderShell();
+    else if (putusan === 'login') renderLogin();
+  });
+}
+
+function renderLogin(pesanError = '') {
+  // Kalau datang dari tautan dokumen, katakan tujuannya di layar masuk. Layar
+  // login yang polos membuat orang mengira tautannya salah.
+  const dariTautan = dokAwal
+    ? `<p class="report-note" style="margin-bottom:12px">Kamu membuka tautan dokumen. Masuk dulu, lalu dokumennya akan langsung terbuka.</p>`
+    : '';
+
+  app.innerHTML = `
+    <section class="auth-page">
+      <form class="auth-card" id="login-form">
+        <img src="images/logo.svg" alt="Berjaya Hub" class="auth-logo" onerror="this.style.display='none'" />
+        <h1>Berjaya Hub — Owner</h1>
+        ${dariTautan}
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" type="email" required autocomplete="username" />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" type="password" required autocomplete="current-password" />
+        </div>
+        <button class="primary" type="submit">Masuk</button>
+        ${pesanError ? `<p class="error-text">${escapeHtml(pesanError)}</p>` : ''}
+      </form>
+    </section>
+  `;
+
+  document.getElementById('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('email').value.trim();
+    const sandi = document.getElementById('password').value;
+    try {
+      await signIn(email, sandi);
+    } catch (error) {
+      renderLogin(error.message ?? 'Gagal masuk. Periksa email/password.');
+    }
+  });
+}
+
+async function renderShell() {
+  app.innerHTML = loadingHtml('Memuat data owner…', { penuh: true });
+
+  let context;
+  let daftarBu;
+  try {
+    [context, daftarBu] = await Promise.all([getCurrentUserContext(), listBuOwner()]);
+  } catch (error) {
+    app.innerHTML = `<p style="padding:24px" class="error-text">Gagal memuat data: ${escapeHtml(error.message ?? String(error))}</p>`;
+    return;
+  }
+
+  if (!context || daftarBu.length === 0) {
+    // Pesannya sengaja menyebut halaman lain. Orang yang punya akses admin lalu
+    // salah membuka owner.html akan mengira akunnya bermasalah, padahal ia
+    // hanya berada di pintu yang keliru.
+    app.innerHTML = `
+      <div style="padding:24px;max-width:520px">
+        <h2 style="margin-top:0">Halaman ini khusus Owner</h2>
+        <p>Akun kamu belum terdaftar sebagai owner di Business Unit mana pun. Kalau kamu admin atau staff, gunakan halaman berikut.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">
+          <button id="btn-ke-staff">📱 Staff App</button>
+          <button id="btn-ke-admin">🛠️ Admin Portal</button>
+          <button class="primary" id="btn-logout">Keluar</button>
+        </div>
+      </div>
+    `;
+    document.getElementById('btn-ke-staff').addEventListener('click', () => (window.location.href = './index.html'));
+    document.getElementById('btn-ke-admin').addEventListener('click', () => (window.location.href = './admin.html'));
+    document.getElementById('btn-logout').addEventListener('click', signOut);
+    return;
+  }
+
+  let buAktif = baca(KUNCI_BU);
+  if (!daftarBu.some((b) => b.id === buAktif)) buAktif = daftarBu[0].id;
+
+  gambarKerangka(context, daftarBu, buAktif);
+}
+
+function gambarKerangka(context, daftarBu, buAktifId) {
+  const bu = daftarBu.find((b) => b.id === buAktifId) ?? daftarBu[0];
+  terapkanTema(bu);
+
+  const pilihBu =
+    daftarBu.length > 1
+      ? `<select id="owner-bu" class="topbar-bu-select" aria-label="Business Unit">
+           ${daftarBu.map((b) => `<option value="${b.id}"${b.id === bu.id ? ' selected' : ''}>${escapeHtml(b.name)}</option>`).join('')}
+         </select>`
+      : `<span class="admin-topbar-title">${escapeHtml(bu.name)}</span>`;
+
+  app.innerHTML = `
+    <div class="app-shell">
+      <div class="app-body">
+        <header class="admin-topbar">
+          <div style="display:flex;align-items:center;gap:10px;min-width:0">
+            <img src="${bu.logo_url || 'images/logo.svg'}" alt="" class="nav-logo" onerror="this.style.display='none'" />
+            ${pilihBu}
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:0.8rem;color:var(--color-text-muted)" class="sembunyi-sempit">${escapeHtml(context.profile.full_name)}</span>
+            <button id="btn-akun" aria-label="Akun" style="min-height:38px">⋯</button>
+          </div>
+        </header>
+
+        <div id="panel-akun"></div>
+
+        <nav class="tab-bar" id="owner-tabs" role="tablist">
+          ${TAB.map((t) => `<button class="tab-btn" role="tab" data-tab="${t.kode}">${t.ikon} ${t.label}</button>`).join('')}
+        </nav>
+
+        <main class="app-content" id="module-content">${loadingHtml('Memuat…')}</main>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('owner-bu')?.addEventListener('change', (e) => {
+    simpan(KUNCI_BU, e.target.value);
+    gambarKerangka(context, daftarBu, e.target.value);
+  });
+
+  document.getElementById('btn-akun').addEventListener('click', () => bukaPanelAkun());
+
+  document.querySelectorAll('[data-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => bukaTab(btn.dataset.tab, context, bu));
+  });
+
+  // Tautan dokumen menang atas tab terakhir — kalau owner baru saja diminta
+  // menandatangani sesuatu, itulah yang dia cari.
+  const terakhir = baca(KUNCI_TAB);
+  const awal = dokAwal ? 'dokumen' : TAB.some((t) => t.kode === terakhir) ? terakhir : 'ringkasan';
+  bukaTab(awal, context, bu, { pulihkan: true });
+}
+
+function bukaPanelAkun() {
+  const panel = document.getElementById('panel-akun');
+  if (panel.innerHTML) {
+    panel.innerHTML = '';
+    return;
+  }
+  panel.innerHTML = `
+    <div style="padding:12px 16px;border-bottom:1px solid var(--color-border);display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
+      <form id="form-sandi" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex:1;min-width:240px">
+        <input type="password" name="sandi" placeholder="Password baru (min 6)" minlength="6" required style="flex:1;min-width:180px" />
+        <button class="primary" type="submit" style="min-height:38px">Simpan</button>
+      </form>
+      <button id="btn-keluar" style="min-height:38px">Keluar</button>
+    </div>
+    <p id="pesan-sandi" style="margin:6px 16px;font-size:0.82rem"></p>
+  `;
+  document.getElementById('btn-keluar').addEventListener('click', signOut);
+  document.getElementById('form-sandi').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const pesan = document.getElementById('pesan-sandi');
+    try {
+      await changeOwnPassword(e.target.sandi.value);
+      pesan.className = '';
+      pesan.style.color = 'var(--color-primary)';
+      pesan.textContent = 'Password berhasil diubah.';
+      e.target.reset();
+    } catch (error) {
+      pesan.className = 'error-text';
+      pesan.textContent = error.message ?? 'Gagal mengubah password.';
+    }
+  });
+}
+
+function bukaTab(kode, context, bu, { pulihkan = false } = {}) {
+  simpan(KUNCI_TAB, kode);
+  document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('active', b.dataset.tab === kode));
+
+  // `mulaiModul` membaca-lalu-mengosongkan ingatan dalam SATU langkah. Memisah
+  // keduanya pernah membuat pemulihan konteks tidak pernah hidup sama sekali di
+  // Staff App, karena `ingatModul()` menghapus ingatannya sebelum halaman
+  // sempat membacanya. Alasannya di core/ingatan-layar.js.
+  const { gulir, layar, konteks } = mulaiModul(`owner_${kode}`, { pulihkan });
+  window.scrollTo({ top: 0, behavior: 'auto' });
+  bersihkanIsian();
+  bersihkanLapis();
+
+  const isi = document.getElementById('module-content');
+  isi.classList.remove('fade-in');
+  void isi.offsetWidth;
+  isi.classList.add('fade-in');
+  isi.innerHTML = loadingHtml('Memuat…');
+
+  const tab = TAB.find((t) => t.kode === kode) ?? TAB[0];
+  const ctx = {
+    businessUnitId: bu.id,
+    bu,
+    profile: context.profile,
+    // Hanya dipakai sekali. Tanpa dikosongkan, berpindah tab lalu kembali ke
+    // Dokumen akan membuka ulang dokumen lama seolah baru dikirim.
+    dokumenAwal: kode === 'dokumen' ? ambilDokAwal() : null,
+    layarAwal: layar,
+    konteksAwal: konteks,
+    catatLayar: ingatLayar,
+    catatKonteks: ingatKonteks
+  };
+
+  Promise.resolve(tab.render(isi, ctx))
+    .catch((error) => {
+      isi.innerHTML = `<p class="error-text">Gagal memuat halaman: ${escapeHtml(error?.message ?? String(error))}</p>`;
+    })
+    .finally(() => {
+      pulihkanGulir(gulir);
+      tawarkanDraf(`owner_${kode}|${layar ?? ''}`);
+    });
+}
+
+let dokTerpakai = false;
+function ambilDokAwal() {
+  if (dokTerpakai) return null;
+  dokTerpakai = true;
+  // Parameternya dibuang dari alamat setelah dipakai, supaya menyegarkan
+  // halaman tidak membuka ulang dokumen yang sudah selesai diputus.
+  if (dokAwal) {
+    try {
+      window.history.replaceState({}, '', window.location.pathname);
+    } catch {
+      // beberapa peramban menolak replaceState pada file:// -> abaikan
+    }
+  }
+  return dokAwal;
+}
+
+function terapkanTema(bu) {
+  const warna = bu?.theme_color;
+  if (warna) {
+    document.documentElement.style.setProperty('--color-primary', warna);
+    document.documentElement.style.setProperty('--color-primary-hover', warna);
+  }
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', warna || '#f5f5f5');
+}
+
+pasangNavigasi();
+pasangPencatatGulir();
+pasangPerekamDraf();
+pasangPenandaKoneksi();
+bootstrap();

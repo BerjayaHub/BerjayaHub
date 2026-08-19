@@ -3297,6 +3297,130 @@ Pilihan sub yang sedang aktif dipertahankan kalau masih ada di daftar barunya; k
 
 Perintah pemeriksaan yang saya pakai memotong keluaran `audit-syntax` dengan `head -1`, sehingga baris ✅ dari jalanan sebelumnya terlihat seperti hasil yang baru — padahal ada `Identifier 'baris' has already been declared` di bawahnya. Auditnya bekerja dengan benar; cara saya membacanya yang salah, dan itu jenis kesalahan yang sama persis dengan yang berulang kali dicatat di berkas ini: keluaran yang terlihat hijau padahal bukan.
 
+## Halaman Owner (`owner.html`) — role baru, BEP, KPI, dan tanda tangan online
+
+Halaman keempat, sejajar dengan Staff App, Admin Portal, dan halaman reservasi publik. Isinya tiga tab: **Ringkasan (KPI)**, **BEP & Harga**, dan **Dokumen & TTD**.
+
+### Keputusan terpenting: owner BUKAN anggota `membership_scopes`
+
+Rencana awalnya menambahkan `'owner'` ke CHECK constraint `membership_scopes.role`. Alasannya terdengar kuat: `has_bu_scope()` meloloskan role apa pun yang punya baris di BU itu, jadi hak baca datang gratis; sedangkan `is_bu_admin()` tidak meloloskan owner, jadi owner otomatis read-only.
+
+**Bagian kedua itu salah, dan salahnya berbahaya.** `is_bu_admin()` memang hanya menjaga master data. Yang menjaga penulisan **transaksional** justru `has_bu_scope()` — fungsi yang sama yang memberi hak baca. Kalau owner jadi anggota BU, dia ikut lolos di sebelas tempat:
+
+| Jalur tulis | Di mana |
+|---|---|
+| `stock_movements` insert | `0018:35` |
+| `menu_plans` **for all** (termasuk DELETE) | `0023:34` |
+| `produce_batch()` | `0020:53` |
+| `transfer_stock()` | `0018:75` |
+| dispatch kirim & terima | `0022:69,111` |
+| `record_sales()` | `0025:54` |
+| `stock_orders` (3 RPC) | `0031:101,142,173` |
+| `catat_waste()` | `0032:86` |
+| `goods_receipt_items` | `0084:81` |
+| `stock_count_items` | `0085:88` |
+| `checklist_runs` insert | `0088:58` |
+
+Sebelas jalur, tersebar di sebelas migration, tidak satu pun menyebut kata "owner". Menutupnya satu per satu berarti menyunting sebelas policy dan RPC yang sudah teruji — dan yang paling mungkin terjadi adalah satu terlewat, lalu perlindungannya *terlihat* lengkap padahal berlubang.
+
+Yang dipakai: cakupan owner disimpan di tabel sendiri, **`owner_scopes`**. Akibatnya `has_bu_scope()` mengembalikan `false` untuk owner, dan kesebelas jalur itu tertutup **sekaligus, tanpa satu baris pun di dalamnya diubah**. Ketidakmampuan menulis bukan hasil sebelas penjagaan yang harus dijaga tetap benar; ia sifat bawaan dari tidak pernah menjadi anggota.
+
+Harganya dibayar sadar: hak baca tidak lagi gratis. Lima belas tabel disebut satu per satu di `0093`. Daftar itu panjang, tapi ia juga jawaban atas pertanyaan *"owner sebenarnya bisa lihat apa?"* — pertanyaan yang dengan cara lama hanya bisa dijawab dengan membaca seluruh skema.
+
+`tools/audit-owner-baca-saja.cjs` menjaga dua hal: `'owner'` tidak pernah muncul di CHECK role `membership_scopes`, dan fungsi cakupan owner tidak pernah dipakai policy yang menulis. Pengecualiannya satu — berkas hasil tanda tangan ke `storage.objects` — dan **ditentukan dari tabel sasaran policy-nya, bukan dari daftar nama**. Daftar nama sudah pernah basi di repo ini (`audit-embed-ambigu` hijau berbulan-bulan karena pengecualian tulisan tangan menyebut tabel yang tidak pernah ada). Tiga sabotase merah, termasuk policy tanpa `for` sama sekali — yang di PostgreSQL berarti `ALL`.
+
+### Kas: yang disepakati tidak bisa dilaksanakan seperti bunyinya
+
+Kesepakatannya "owner boleh baca kas se-BU". Ternyata **"kas BU" secara harfiah sudah tidak ada di dalam data**: sejak `0040` kas mengikuti ORANG, dan `cash_entries.business_unit_id` ditandai deprecated dengan baris baru membiarkannya `NULL`.
+
+Tapi sejak `0063` ada `cash_entries_outlet_wajib_saat_keluar`: setiap entri `out` wajib menyebut **outlet peruntukan**. Jadi cakupannya dibaca dari situ, dan hasilnya justru lebih tepat daripada yang diminta:
+
+- **Terlihat** — uang KELUAR untuk outlet-outlet BU yang diawasi. Itu persis yang dibutuhkan BEP, dan satu-satunya bagian kas yang memang urusan owner.
+- **Tidak terlihat** — saldo pribadi pemegang kas, uang masuk, transfer antar orang, mutasi antar kantong. Semuanya tidak punya outlet, jadi tidak pernah lolos. **Owner tidak melihat isi kantong siapa pun.**
+
+Ini lebih sempit dari yang disepakati. Kalau nanti saldo pemegang kas memang ingin ikut terlihat, itu keputusan terpisah dan harus jadi migration tersendiri — bukan diam-diam ikut di sini.
+
+### BEP: bedanya dengan Project Hub
+
+Project Hub meminta owner **mengetik** "HPP rata-rata" dan "harga jual rata-rata", lalu menghitung BEP dari keduanya. Rata-ratanya **datar**: kopi yang terjual 400 gelas dan nasi goreng yang terjual 3 piring dihitung sama-sama satu menu.
+
+Akibatnya bukan meleset sedikit. Dengan fixture di `tools/test-bep.mjs` — kopi 400 porsi bermargin 7.000, steak 3 porsi bermargin 70.000 — rata-rata datar memberi margin **38.500**, sementara yang ditimbang memberi **7.469**. Lima kali lipat. Dengan biaya tetap 30 juta, BEP-nya 779 porsi versus 4.016 porsi. Kesalahan ini **selalu berpihak ke arah yang menyenangkan**, jadi tidak ada yang curiga.
+
+Berjaya Hub sudah menyimpan `sales` per produk per hari, jadi rata-ratanya ditimbang jumlah yang benar-benar terjual.
+
+**Yang sengaja TIDAK dihitung:** `fee_online_percent` dan `promo_percent` tidak dipakai di halaman BEP walau kolomnya ada. `sales.unit_price` adalah harga yang benar-benar ditagihkan, jadi potongan yang sudah terjadi sudah tercermin di dalamnya; menguranginya sekali lagi berarti memotong dua kali. Keduanya hanya dipakai `pricing.js`, yang memang menghitung harga *seandainya*.
+
+### Yang tidak bisa dihitung DIKELUARKAN, bukan dianggap nol
+
+Ini kesalahan paling mahal yang mungkin terjadi di seluruh fitur ini. HPP kosong yang dianggap `0` menghasilkan margin 100%, BEP anjlok, dan semuanya tetap terlihat masuk akal.
+
+Menu yang HPP-nya belum bisa dihitung atau penjualannya tidak mencatat harga dikeluarkan dari rata-rata, **dan absennya dilaporkan** — lengkap dengan jumlah porsi dan sebabnya, di tabel "Tidak ikut dihitung". Kalau lebih dari 10% penjualan terlewat, bilah peringatan muncul di paling atas Ringkasan, **sebelum angka mana pun**.
+
+Bug yang tertangkap tes sendiri: helper `angka()` versi pertama berbunyi `Number.isFinite(Number(v)) ? Number(v) : null` — dan `Number(null)` adalah `0`, yang lolos `isFinite`. Jadi HPP kosong berubah diam-diam menjadi nol, persis kegagalan yang modul itu ditulis untuk mencegah. Sekarang jenisnya diperiksa lebih dulu, bukan hasil konversinya.
+
+### `layakDipercaya` tinggal di lapisan hitung, bukan di layar
+
+Keputusan "angka ini boleh dibaca apa adanya atau tidak" adalah bagian dari perhitungannya. Kalau ia tinggal di layar, layar berikutnya yang memakai data yang sama akan lupa memasangnya.
+
+`ringkasanOwner()` versi pertama mengembalikan `layakDipercaya: true` untuk rentang yang **sama sekali tidak punya penjualan** — karena tidak ada satu pun ambang yang terlampaui. Omzet 0 lalu tampil di kartu teratas tanpa satu pun tanda, dan **nol yang tenang jauh lebih dipercaya daripada nol yang bertanda tanya**. Sekarang tidak-ada-data dihitung sebagai alasan tersendiri, dan `bep.sebab` (kegagalan total) ikut naik ke ringkasan — sebelumnya hanya `bep.peringatan` yang dibaca, sehingga masalah kecil tertangkap sementara kegagalan total lolos.
+
+### Persen tanpa penyebut tidak pernah jadi angka
+
+"Kepatuhan aktivitas 100%" dari satu item selesai dari satu item yang pernah dibuat adalah angka yang benar secara aritmetika dan menyesatkan secara total. Setiap KPI berbentuk persen membawa serta pembilang dan penyebutnya, dan mengembalikan `null` — bukan 0, bukan 100 — saat penyebutnya nol.
+
+Batas penyebutnya juga **ikut sampai ke layar**, bukan berhenti di komentar kode: penyebut kepatuhan adalah item yang *tercatat*, bukan yang *seharusnya dikerjakan*. Outlet yang sama sekali tidak mengisi aktivitas tidak muncul sebagai 0% — ia tidak muncul sama sekali.
+
+### Tanda tangan online: apa yang sebenarnya dijamin
+
+Alurnya: admin mengunggah PDF → tautan `owner.html?dok=<id>` dikirim lewat chat → owner **harus masuk dulu**, lalu mendarat langsung di dokumennya → tanda tangan tersimpan ditempel → hasilnya **dua berkas**, PDF bertandatangan + **Lembar Pengesahan** terpisah.
+
+Yang dikatakan apa adanya, di layar dan di dalam Lembar Pengesahannya sendiri: **gambar tanda tangan bukan bukti kriptografis.** Siapa pun yang punya berkas hasilnya bisa memotong gambarnya dan menempelkannya ke dokumen lain. Yang memberi bobot ada tiga, dan ketiganya di database:
+
+- `file_hash` — sidik jari isi berkas **saat ditandatangani**, dibandingkan lagi di `putuskan_dokumen()`. Kalau berkas di storage ditukar setelah owner membuka tautannya, penandatanganan **dibatalkan**.
+- `decided_by` — siapa, dari sesi login yang mana.
+- `decided_at` — kapan menurut **jam server**, bukan jam perangkat penanda tangan.
+
+Batasnya juga ditulis: hash dihitung di peramban pengunggah, jadi ini melindungi dari berkas yang berubah *sesudah* diunggah, bukan dari pengunggah yang jahat sejak awal. Menutupnya butuh perhitungan di sisi server.
+
+**Tombol "Tolak" ada sejak awal, dan penolakan wajib beralasan** — dijaga sampai ke constraint `documents_keputusan_utuh`. Alur pengesahan yang hanya punya tombol setuju bukan alur pengesahan; ia formalitas yang menekan orang menyetujui, karena satu-satunya cara menyelesaikan layarnya adalah menandatangani.
+
+**Owner tetap tidak punya policy UPDATE.** Satu-satunya jalur tulisnya `putuskan_dokumen()` — SECURITY DEFINER, hanya menyentuh kolom keputusan, menolak dokumen yang sudah pernah diputus (`for update` mengunci barisnya, jadi dua klik hampir bersamaan tidak bisa dua-duanya lolos). Kalau lubangnya dibuka dengan policy UPDATE biasa, owner otomatis juga bisa mengubah `file_path` — yaitu menukar berkas yang ditandatangani — dan pertukaran itu tidak akan meninggalkan jejak apa pun.
+
+Tanda tangan tersimpan hanya bisa dibaca akun pemiliknya sendiri, **tanpa pengecualian super admin**. Tanda tangan yang bisa diambil orang lain dari sistem bukan lagi tanda tangan.
+
+### `pdf-lib`, bukan jsPDF
+
+`js/core/pdf.js` memuat jsPDF, dan jsPDF hanya bisa **membuat** PDF baru — tidak bisa membuka PDF yang sudah ada lalu menambahkan sesuatu. Menempel tanda tangan ke dokumen orang lain menuntut yang kedua. `pdf-lib` dimuat **hanya saat layar tanda tangan dibuka**, supaya owner yang cuma melihat KPI tidak ikut menunggu unduhan pustaka yang tidak dipakainya.
+
+### `owner.html` sengaja tanpa manifest
+
+Halaman ini paling sering dibuka dari tautan chat, bukan dari ikon di layar utama. Manifest sendiri akan memunculkan tawaran "install" pada tiap tautan dokumen, dan aplikasi terpasang punya `start_url` tetap yang justru **membuang parameter `?dok`** — sehingga owner mendarat di beranda, bukan di dokumen yang barusan dikirim kepadanya.
+
+### Mendaftarkan owner (SQL, sekali per orang)
+
+Belum ada layarnya di Master User; ini kekurangan yang diketahui, bukan yang terlupa. Sementara ini lewat SQL Editor:
+
+```sql
+-- Orangnya harus sudah punya akun (dibuat lewat Master User seperti biasa).
+insert into owner_scopes (user_id, business_unit_id)
+select up.id, bu.id
+from user_profiles up, business_units bu
+where up.id = '<uuid-user>' and bu.name = '<nama BU>'
+on conflict do nothing;
+```
+
+Kalau orang yang sama juga staff atau admin, biarkan baris `membership_scopes`-nya apa adanya — keduanya hidup berdampingan, dan `owner.html` hanya membaca `owner_scopes`.
+
+### Menandai biaya tetap
+
+BEP menuntut pemisahan biaya **tetap** (sewa, gaji, langganan) dari **variabel** (belanja bahan). `cash_categories.is_fixed_cost` default `false` — kategori yang sudah ada dianggap variabel sampai ditandai. Lebih baik BEP terlihat terlalu rendah dan janggal (sehingga ditanyakan) daripada terlalu tinggi karena belanja bahan ikut dihitung tetap.
+
+Selama belum ditandai, `hitungBep()` mengembalikan peringatan tertulis: *"Biaya tetap terbaca nol — kemungkinan besar kategori kas belum ditandai sebagai biaya tetap, bukan karena benar-benar tidak ada biaya."*
+
+### Angka
+
+`tools/test-pricing.mjs` (54 kasus), `tools/test-bep.mjs` (62), `tools/test-kpi-owner.mjs` (54) — dihitung dari jumlah pemeriksaan yang tertulis, bukan dikira-kira. Tujuh sabotase merah: rata-rata datar menggantikan yang ditimbang, HPP kosong dianggap nol, margin minus dibiarkan menghasilkan BEP negatif, biaya tetap nol lolos tanpa peringatan, persen tanpa penyebut jadi 0, `layakDipercaya` selalu benar, dan stok minus tidak dianggap masalah.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal
@@ -3321,4 +3445,5 @@ Perintah pemeriksaan yang saya pakai memotong keluaran `audit-syntax` dengan `he
 - [x] **Kantong kas (sub-kas) & outlet peruntukan** — form Kas Masuk/Keluar dibedakan, jumlah kantong per user diatur admin, pindah saldo antar kantong sendiri, Laporan Kas bisa disaring per outlet & kategori
 - [x] **Terima dari supplier per nota** — satu kali input banyak barang + foto nota (boleh menyusul), nomor `TRM-YYMMDD-XXXX` dibuat sistem, edit mengoreksi stok lewat pergerakan penyeimbang; Admin Portal punya tab **Nota Terima** dengan rincian per nomor + unduh xlsx
 - [x] **Bahan menipis (stok ÷ takaran resep = cukup berapa porsi)** — takaran rata-rata dari semua menu yang memakai bahan itu, ambang **porsi minimum per outlet** berlaku untuk semua menu sekaligus, bisa **ditimpa manual** per bahan (satu-satunya cara mengawasi gas/tisu/kemasan); tabel di Staff App (kartu di HP) + tab Admin Portal, unduh xlsx & kirim daftar belanja lewat WhatsApp tanpa API
+- [x] **Halaman Owner (`owner.html`)** — role `owner` lewat tabel `owner_scopes` terpisah (bukan `membership_scopes`, supaya sebelas jalur tulis tertutup dengan sendirinya), KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin
