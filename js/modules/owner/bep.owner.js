@@ -1,10 +1,18 @@
-import { escapeHtml } from '../../core/ui.js';
+import { escapeHtml, toast, formDialog, confirmDialog } from '../../core/ui.js';
 import { formatRupiah, formatNum, attachThousandsInput, parseNumber } from '../../core/format.js';
 import { monthRangeWIB } from '../../core/dates.js';
-import { loadingHtml } from '../../core/loading.js';
-import { muatDataOwner } from './muat-data.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
+import { muatDataOwner, lupakanData } from './muat-data.js';
 import { gambarSaringan } from './ringkasan.owner.js';
-import { hitungBep, posisiTerhadapBep } from './bep.js';
+import { hitungBep, posisiTerhadapBep, hitungTarget, ringkasBiayaOutlet } from './bep.js';
+import {
+  tambahBiaya,
+  ubahBiaya,
+  nonaktifkanBiaya,
+  LABEL_JENIS,
+  LABEL_SATUAN,
+  satuanUntuk
+} from './biaya.service.js';
 import { ringkasHarga, METODE, LABEL_METODE } from './pricing.js';
 
 /**
@@ -44,6 +52,8 @@ export async function renderBepOwner(root, ctx) {
     hariKerja: awal.hariKerja ?? 30,
     targetLaba: awal.targetLaba ?? 0,
     biayaTetapManual: awal.biayaTetapManual ?? null,
+    targetJenis: awal.targetJenis ?? 'laba',
+    targetNilai: awal.targetNilai ?? 0,
     // Simulasi harga: dimulai dari setelan BU, boleh diubah tanpa disimpan.
     metode: awal.metode ?? ctx.bu?.pricing_method ?? 'food_cost',
     persen: awal.persen ?? persenBawaan(ctx.bu, awal.metode ?? ctx.bu?.pricing_method ?? 'food_cost')
@@ -99,7 +109,7 @@ function gambarIsi(root, ctx, state, d) {
   const { bauran, biayaTetap } = d;
 
   const adaPenjualan = bauran.totalQty > 0;
-  const tetapDipakai = state.biayaTetapManual ?? biayaTetap.total;
+  const tetapDipakai = state.biayaTetapManual ?? d.tetapDipakai;
 
   // Kalau biaya tetapnya ditimpa manual, BEP-nya dihitung ulang di sini —
   // bukan memakai `d.bep`, yang dihitung dari kas. Menampilkan angka lama
@@ -113,7 +123,9 @@ function gambarIsi(root, ctx, state, d) {
           hargaRata: bauran.hargaTertimbang,
           biayaTetap: tetapDipakai,
           targetLaba: state.targetLaba,
-          hariKerja: state.hariKerja
+          hariKerja: state.hariKerja,
+          variabelPerPorsi: d.daftarBiaya.variabelPerPorsi,
+          variabelPersen: d.daftarBiaya.variabelPersen
         });
 
   const posisi = state.biayaTetapManual == null ? d.posisi : posisiTerhadapBep({ totalQty: bauran.totalQty, bepPorsi: bep.porsi });
@@ -127,19 +139,25 @@ function gambarIsi(root, ctx, state, d) {
     </div>
 
     <div class="report-kpis">
-      ${kartu('Harga jual rata-rata', rp(bauran.hargaTertimbang))}
-      ${kartu('HPP rata-rata', rp(bauran.hppTertimbang))}
-      ${kartu('Margin per porsi', rp(bauran.marginTertimbang))}
+      ${kartu('Harga jual rata-rata', rp(bauran.hargaTertimbang), sebabKosong(bauran))}
+      ${kartu('HPP rata-rata', rp(bauran.hppTertimbang), sebabKosong(bauran))}
+      ${kartu('Margin per porsi (kotor)', rp(bauran.marginTertimbang), sebabKosong(bauran))}
+      ${kartu('Margin setelah biaya variabel', rp(bep.marginEfektif ?? bauran.marginTertimbang), rincianVariabel(d.daftarBiaya))}
       ${kartu('Porsi terjual', num(bauran.totalQty))}
     </div>
+    ${bauran.terlewat.length ? tabelTerlewatBep(bauran.terlewat) : ''}
 
     <h3 style="margin:22px 0 8px">Angka yang bisa diubah</h3>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">
       <div class="field" style="margin:0;flex:1;min-width:160px">
         <label style="font-size:0.72rem">Biaya tetap per periode</label>
         <input type="text" inputmode="numeric" id="i-tetap" value="${formatNum(tetapDipakai, 0)}" />
-        <span class="field-help">Dari kas: ${rp(biayaTetap.total)}${
-          biayaTetap.tanpaKategori > 0 ? ` · ${rp(biayaTetap.tanpaKategori)} belum berkategori` : ''
+        <span class="field-help">${
+          d.sumberBiayaTetap === 'daftar'
+            ? `Dari daftar biaya di bawah: ${rp(d.daftarBiaya.tetapPerBulan)}`
+            : `Dari buku kas: ${rp(biayaTetap.total)}${
+                biayaTetap.tanpaKategori > 0 ? ` · ${rp(biayaTetap.tanpaKategori)} belum berkategori` : ''
+              }`
         }</span>
       </div>
       <div class="field" style="margin:0;flex:1;min-width:140px">
@@ -155,7 +173,7 @@ function gambarIsi(root, ctx, state, d) {
     </div>
     ${
       state.biayaTetapManual != null
-        ? '<p class="report-note" style="margin-bottom:14px">Biaya tetap sedang <strong>ditimpa manual</strong> — bukan angka dari buku kas.</p>'
+        ? '<p class="report-note" style="margin-bottom:14px">Biaya tetap sedang <strong>ditimpa manual</strong> — bukan angka dari daftar biaya maupun buku kas.</p>'
         : ''
     }
 
@@ -172,6 +190,10 @@ function gambarIsi(root, ctx, state, d) {
            <p style="margin:10px 0 0;font-size:0.9rem">${teksPosisi(posisi)}</p>`
     }
     ${bep.peringatan.map((p) => `<p class="report-note" style="margin-top:8px">${escapeHtml(p)}</p>`).join('')}
+
+    ${panelTarget(state, bep, bauran, tetapDipakai)}
+
+    ${panelBiaya(d, state)}
 
     <h3 style="margin:26px 0 8px">Simulasi harga jual</h3>
     <p class="report-note" style="margin-bottom:10px">
@@ -200,7 +222,7 @@ function gambarIsi(root, ctx, state, d) {
 
   isi.querySelector('#btn-hitung').addEventListener('click', () => {
     const tetap = parseNumber(isi.querySelector('#i-tetap').value);
-    state.biayaTetapManual = tetap === biayaTetap.total ? null : tetap;
+    state.biayaTetapManual = tetap === d.tetapDipakai ? null : tetap;
     state.targetLaba = parseNumber(isi.querySelector('#i-target').value) || 0;
     state.hariKerja = Number(isi.querySelector('#i-hari').value) || 0;
     ctx.catatKonteks?.({ ...state });
@@ -225,6 +247,251 @@ function gambarIsi(root, ctx, state, d) {
     state.persen = Number(isi.querySelector('#i-persen').value);
     gambarIsi(root, ctx, state, d);
   });
+
+  // ---- Target ----
+  attachThousandsInput(isi.querySelector('#t-nilai'));
+  isi.querySelector('#t-jenis')?.addEventListener('change', (e) => {
+    // Nilainya DIKOSONGKAN saat jenisnya berganti. Angka 20.000.000 yang tadi
+    // berarti "laba" akan terbaca sebagai "porsi" begitu jenisnya berubah —
+    // hasilnya tetap berupa angka yang wajar, dan tidak ada yang menyadari
+    // bahwa pertanyaannya sudah berubah.
+    state.targetJenis = e.target.value;
+    state.targetNilai = 0;
+    gambarIsi(root, ctx, state, d);
+  });
+  isi.querySelector('#btn-target')?.addEventListener('click', () => {
+    state.targetNilai = parseNumber(isi.querySelector('#t-nilai').value) || 0;
+    ctx.catatKonteks?.({ ...state });
+    gambarIsi(root, ctx, state, d);
+  });
+
+  // ---- Biaya ----
+  isi.querySelector('#btn-tambah-biaya')?.addEventListener('click', () => bukaFormBiaya(root, ctx, state, d, null));
+  isi.querySelectorAll('[data-ubah-biaya]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const baris = d.biayaOutlet.find((x) => x.id === b.dataset.ubahBiaya);
+      if (baris) bukaFormBiaya(root, ctx, state, d, baris);
+    })
+  );
+  isi.querySelectorAll('[data-hapus-biaya]').forEach((b) =>
+    b.addEventListener(
+      'click',
+      sekaliJalan(async () => {
+        const yakin = await confirmDialog({
+          title: 'Nonaktifkan biaya ini?',
+          message:
+            'Biayanya tidak dihapus, hanya berhenti dihitung. Yang sudah dihapus membuat BEP bulan-bulan lalu tidak bisa dijelaskan lagi.',
+          confirmText: 'Nonaktifkan',
+          danger: true
+        });
+        if (!yakin) return;
+        try {
+          await nonaktifkanBiaya(b.dataset.hapusBiaya);
+          toast('Biaya dinonaktifkan.', 'success');
+          lupakanData();
+          await muatDanGambar(root, ctx, state);
+        } catch (error) {
+          toast(error.message ?? 'Gagal menonaktifkan.', 'error');
+        }
+      })
+    )
+  );
+}
+
+// =====================================================================
+// TARGET — tiga arah
+// =====================================================================
+
+const JENIS_TARGET = {
+  laba: { label: 'Target laba (Rp)', tanya: 'Kalau mau untung sekian, harus jual berapa?' },
+  omzet: { label: 'Target omzet (Rp)', tanya: 'Kalau omzetnya sekian, untungnya berapa?' },
+  porsi: { label: 'Target porsi', tanya: 'Kalau terjual sekian porsi, cukup tidak?' }
+};
+
+function panelTarget(state, bep, bauran, tetapDipakai) {
+  const t = hitungTarget({
+    target: { jenis: state.targetJenis, nilai: state.targetNilai },
+    marginEfektif: bep.marginEfektif ?? bauran.marginTertimbang,
+    hargaRata: bauran.hargaTertimbang,
+    biayaTetap: tetapDipakai,
+    hariKerja: state.hariKerja
+  });
+
+  const pilihan = Object.entries(JENIS_TARGET)
+    .map(([k, v]) => `<option value="${escapeHtml(k)}"${k === state.targetJenis ? ' selected' : ''}>${escapeHtml(v.label)}</option>`)
+    .join('');
+
+  return `
+    <h3 style="margin:26px 0 8px">Target</h3>
+    <p class="report-note" style="margin-bottom:10px">${escapeHtml(JENIS_TARGET[state.targetJenis]?.tanya ?? '')}</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+      <div class="field" style="margin:0;flex:1;min-width:170px">
+        <label style="font-size:0.72rem">Jenis target</label>
+        <select id="t-jenis">${pilihan}</select>
+      </div>
+      <div class="field" style="margin:0;flex:1;min-width:150px">
+        <label style="font-size:0.72rem">${escapeHtml(JENIS_TARGET[state.targetJenis]?.label ?? 'Nilai')}</label>
+        <input type="text" inputmode="numeric" id="t-nilai" value="${formatNum(state.targetNilai, 0)}" />
+      </div>
+      <button class="primary" id="btn-target" style="min-height:44px">Hitung target</button>
+    </div>
+    ${
+      t.sebab
+        ? `<p class="report-note">${escapeHtml(t.sebab)}</p>`
+        : `<div class="report-kpis">
+             ${kartu('Harus terjual', num(t.porsi) + ' porsi')}
+             ${kartu('Omzet yang dicapai', rp(t.omzet))}
+             ${kartu('Laba sebelum pajak', rp(t.laba))}
+             ${kartu('Per hari (porsi)', num(t.porsiHarian))}
+             ${kartu('Per hari (omzet)', rp(t.omzetHarian))}
+           </div>
+           <p class="report-note" style="margin-top:8px">
+             <strong>Laba</strong> di sini laba sebelum pajak, penyusutan, dan biaya yang tidak pernah lewat sini.
+             Bukan laba bersih.
+           </p>`
+    }`;
+}
+
+// =====================================================================
+// BIAYA TETAP & VARIABEL PER OUTLET
+// =====================================================================
+
+function panelBiaya(d, state) {
+  const daftar = d.biayaOutlet ?? [];
+  const namaOutlet = new Map((d.outlets ?? []).map((o) => [o.id, o.name]));
+
+  const baris = daftar
+    .map(
+      (b) => `<tr>
+        <td>${escapeHtml(b.name)}</td>
+        <td>${escapeHtml(namaOutlet.get(b.outlet_id) ?? b.outlets?.name ?? '-')}</td>
+        <td>${LABEL_JENIS[b.jenis] ?? b.jenis}</td>
+        <td>${b.satuan === 'persen_omzet' ? `${formatNum(b.amount, 1)}%` : rp(b.amount)}<br />
+            <span style="font-size:0.72rem;color:var(--color-text-muted)">${LABEL_SATUAN[b.satuan] ?? b.satuan}</span></td>
+        <td>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button data-ubah-biaya="${b.id}" style="min-height:38px">Ubah</button>
+            <button class="btn-danger" data-hapus-biaya="${b.id}" style="min-height:38px">Nonaktifkan</button>
+          </div>
+        </td>
+      </tr>`
+    )
+    .join('');
+
+  const rb = ringkasBiayaOutlet(daftar);
+
+  return `
+    <h3 style="margin:26px 0 8px">Biaya tetap &amp; variabel</h3>
+    <p class="report-note" style="margin-bottom:10px">
+      Daftar biaya yang <strong>direncanakan</strong>, menempel di outlet. Ini yang dipakai sebagai penyebut BEP —
+      berbeda dari buku kas, yang hanya berisi yang <em>sudah dibayar</em>.
+      Sewa yang jatuh tempo tanggal 28 belum ada di kas pada tanggal 5, jadi BEP dari kas akan terlihat rendah di awal
+      bulan lalu melonjak di akhir tanpa ada yang berubah di dunia nyata.
+      <br /><br />
+      <strong>Biaya variabel tidak bisa bersatuan bulanan.</strong> Dalam rumus BEP ia mengurangi margin per porsi,
+      bukan menambah biaya tetap. Kalau sebuah biaya memang bulanan, ia biaya tetap.
+    </p>
+    <button class="primary" id="btn-tambah-biaya" style="min-height:44px;margin-bottom:12px">＋ Tambah biaya</button>
+    ${
+      daftar.length
+        ? `<div class="table-scroll">
+             <table class="data-table">
+               <thead><tr><th>Nama</th><th>Outlet</th><th>Jenis</th><th>Jumlah</th><th>Aksi</th></tr></thead>
+               <tbody>${baris}</tbody>
+               <tfoot>
+                 <tr><th colspan="3">Total biaya tetap per bulan</th><th>${rp(rb.tetapPerBulan)}</th></tr>
+                 ${rb.variabelPerPorsi ? `<tr><th colspan="3">Variabel per porsi</th><th>${rp(rb.variabelPerPorsi)}</th></tr>` : ''}
+                 ${rb.variabelPersen ? `<tr><th colspan="3">Variabel dari harga jual</th><th>${formatNum(rb.variabelPersen, 1)}%</th></tr>` : ''}
+               </tfoot>
+             </table>
+           </div>`
+        : '<p class="report-note">Belum ada biaya terdaftar. Selama kosong, BEP memakai angka dari buku kas.</p>'
+    }`;
+}
+
+async function bukaFormBiaya(root, ctx, state, d, baris) {
+  const outlets = d.outlets ?? [];
+  if (!outlets.length) {
+    toast('BU ini belum punya outlet, jadi biayanya belum bisa ditempelkan ke mana pun.', 'warning');
+    return;
+  }
+
+  const jenisAwal = baris?.jenis ?? 'tetap';
+  const opsiSatuan = (jenis) => satuanUntuk(jenis).map((x) => ({ value: x, label: LABEL_SATUAN[x] }));
+  const satuanOpsi = opsiSatuan(jenisAwal);
+
+  const nilai = await formDialog({
+    title: baris ? 'Ubah biaya' : 'Tambah biaya',
+    description:
+      'Biaya tetap selalu per bulan. Biaya variabel per porsi atau persen dari harga jual — sebab dalam rumus BEP ia mengurangi margin, bukan menambah beban tetap.',
+    submitText: 'Simpan',
+    fields: [
+      { name: 'name', label: 'Nama biaya', type: 'text', required: true, value: baris?.name ?? '', placeholder: 'mis. Sewa, Gaji, Listrik' },
+      {
+        name: 'outlet_id',
+        label: 'Outlet',
+        type: 'select',
+        required: true,
+        value: baris?.outlet_id ?? outlets[0].id,
+        options: outlets.map((o) => ({ value: o.id, label: o.name }))
+      },
+      {
+        name: 'jenis',
+        label: 'Jenis',
+        type: 'select',
+        value: jenisAwal,
+        options: Object.entries(LABEL_JENIS).map(([v, l]) => ({ value: v, label: l })),
+        onChange: null
+      },
+      { name: 'satuan', label: 'Satuan', type: 'select', value: baris?.satuan ?? satuanOpsi[0].value, options: satuanOpsi },
+      { name: 'amount', label: 'Jumlah', type: 'money', required: true, value: baris?.amount ?? '' },
+      { name: 'notes', label: 'Catatan', type: 'text', value: baris?.notes ?? '' }
+    ],
+    onReady: (form) => {
+      // Pilihan satuan mengikuti jenisnya. Tanpa ini, "variabel + per bulan"
+      // bisa dipilih di layar lalu ditolak database dengan pesan constraint —
+      // penolakan yang benar, tapi datang terlambat dan sulit dimengerti.
+      const selJenis = form.elements.jenis;
+      const selSatuan = form.elements.satuan;
+      const sesuaikan = () => {
+        const opsi = opsiSatuan(selJenis.value);
+        selSatuan.innerHTML = opsi.map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('');
+      };
+      selJenis.addEventListener('change', sesuaikan);
+      if (!baris) sesuaikan();
+    }
+  });
+  if (!nilai) return;
+
+  try {
+    if (baris) {
+      await ubahBiaya(baris.id, {
+        name: nilai.name,
+        jenis: nilai.jenis,
+        satuan: nilai.satuan,
+        amount: nilai.amount,
+        notes: nilai.notes
+      });
+    } else {
+      await tambahBiaya({
+        businessUnitId: ctx.businessUnitId,
+        outletId: nilai.outlet_id,
+        name: nilai.name,
+        jenis: nilai.jenis,
+        satuan: nilai.satuan,
+        amount: nilai.amount,
+        notes: nilai.notes
+      });
+    }
+    toast('Biaya tersimpan.', 'success');
+    // Cache dikosongkan supaya BEP-nya ikut berubah SEKARANG. Tanpa ini
+    // angkanya baru menyesuaikan setelah halaman dimuat ulang, dan orang akan
+    // mengira penyimpanannya gagal.
+    lupakanData();
+    await muatDanGambar(root, ctx, state);
+  } catch (error) {
+    toast(error.message ?? 'Gagal menyimpan biaya.', 'error');
+  }
 }
 
 function panelTanpaPenjualan() {
@@ -247,8 +514,67 @@ function teksPosisi(p) {
     : `<span style="color:#b45309">Belum sampai titik impas — baru ${pct(p.persen)}, kurang ${num(Math.abs(p.selisih))} porsi.</span>`;
 }
 
-function kartu(label, nilai) {
-  return `<div class="report-kpi"><span class="report-kpi-label">${label}</span><strong class="report-kpi-value">${nilai}</strong></div>`;
+function kartu(label, nilai, keterangan = '') {
+  // Keterangan hanya ditampilkan kalau nilainya kosong ATAU keterangannya
+  // memang menjelaskan angkanya. Kartu yang selalu berkomentar akan berhenti
+  // dibaca, dan komentarnya justru dibutuhkan pada kartu yang kosong.
+  const perlu = keterangan && (nilai === '—' || !keterangan.startsWith('Belum'));
+  return `<div class="report-kpi">
+    <span class="report-kpi-label">${label}</span>
+    <strong class="report-kpi-value">${nilai}</strong>
+    ${perlu ? `<span style="font-size:0.7rem;color:var(--color-text-muted)">${keterangan}</span>` : ''}
+  </div>`;
+}
+
+/**
+ * KENAPA RATA-RATANYA KOSONG.
+ *
+ * Ini pertanyaan yang benar-benar datang dari lapangan: "HPP rata-rata masih
+ * kosong, padahal beberapa menu sudah saya isi HPP-nya."
+ *
+ * Jawabannya: rata-rata di sini DITIMBANG MENURUT YANG TERJUAL. Penyebutnya
+ * penjualan, bukan jumlah menu. Mengisi HPP seratus menu tidak menghasilkan
+ * satu pun angka di sini selama belum ada satu porsi pun yang tercatat terjual.
+ *
+ * Itu keputusan yang disengaja — rata-rata datar antar menu adalah cara Project
+ * Hub, dan ia menyesatkan (lihat header `bep.js`). Tapi keputusan yang
+ * disengaja pun harus dikatakan di tempat akibatnya terlihat, bukan hanya di
+ * komentar kode.
+ */
+function sebabKosong(bauran) {
+  if (bauran.totalQty > 0) return '';
+  if (bauran.terlewat.length) {
+    return `Belum ada — ${bauran.terlewat.length} menu terjual tapi tidak bisa dihitung, lihat tabel di bawah`;
+  }
+  return 'Belum ada — dihitung dari penjualan yang tercatat, bukan dari jumlah menu ber-HPP';
+}
+
+function rincianVariabel(daftar) {
+  const p = daftar?.variabelPerPorsi ?? 0;
+  const s = daftar?.variabelPersen ?? 0;
+  if (!p && !s) return 'Belum ada biaya variabel terdaftar';
+  const bagian = [];
+  if (p) bagian.push(`${formatRupiah(p)}/porsi`);
+  if (s) bagian.push(`${formatNum(s, 1)}% dari harga`);
+  return `Dikurangi ${bagian.join(' + ')}`;
+}
+
+function tabelTerlewatBep(baris) {
+  return `
+    <div class="report-note" style="margin-top:10px">
+      <strong>${baris.length} menu terjual tapi tidak ikut dihitung.</strong>
+      Sengaja dikeluarkan, bukan dianggap nol — HPP kosong yang dihitung nol membuat margin terlihat 100%.
+      <div class="table-scroll" style="margin-top:8px">
+        <table class="data-table">
+          <thead><tr><th>Menu</th><th>Porsi</th><th>Sebab</th></tr></thead>
+          <tbody>
+            ${baris
+              .map((t) => `<tr><td>${escapeHtml(t.nama)}</td><td>${num(t.qty)}</td><td>${escapeHtml(t.sebab)}</td></tr>`)
+              .join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
 }
 
 /**

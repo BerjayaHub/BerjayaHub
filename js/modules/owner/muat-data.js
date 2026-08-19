@@ -13,7 +13,8 @@ import {
   listAttendance,
   hariAdaPenjualan
 } from './owner.service.js';
-import { bauranPenjualan, biayaTetapDariKas, hitungBep, posisiTerhadapBep } from './bep.js';
+import { bauranPenjualan, biayaTetapDariKas, hitungBep, posisiTerhadapBep, ringkasBiayaOutlet } from './bep.js';
+import { listBiayaOutlet } from './biaya.service.js';
 import { kpiPenjualan, kpiOperasional, kpiKepatuhan, kpiKeuangan, ringkasanOwner } from './kpi.js';
 
 /**
@@ -67,7 +68,7 @@ async function ambilMentah({ businessUnitId, dari, sampai, outletIds }) {
   // penyaringan outlet, dipakai seluruh outlet BU ini.
   const outletKas = outletIds?.length ? outletIds : outlets.map((o) => o.id);
 
-  const [products, recipes, sales, gerakan, saldo, produksi, entriKas, kategoriKas, checklist, presensi] = await Promise.all([
+  const [products, recipes, sales, gerakan, saldo, produksi, entriKas, kategoriKas, checklist, presensi, biayaOutlet] = await Promise.all([
     listProductsOwner(businessUnitId),
     listRecipesFull(businessUnitId),
     listSales({ businessUnitId, dari, sampai, outletIds }),
@@ -77,10 +78,13 @@ async function ambilMentah({ businessUnitId, dari, sampai, outletIds }) {
     listCashEntries({ outletIds: outletKas, dari, sampai }),
     listCashCategories(),
     listChecklist({ businessUnitId, dari, sampai, outletIds }),
-    listAttendance({ businessUnitId, dari, sampai, outletIds })
+    listAttendance({ businessUnitId, dari, sampai, outletIds }),
+    // Biaya yang DIDAFTARKAN, bukan yang sudah dibayar. Dicakup ke outlet yang
+    // sedang disaring; kalau tidak ada saringan, seluruh outlet BU ini.
+    listBiayaOutlet({ businessUnitId, outletIds })
   ]);
 
-  return { outlets, products, recipes, sales, gerakan, saldo, produksi, entriKas, kategoriKas, checklist, presensi };
+  return { outlets, products, recipes, sales, gerakan, saldo, produksi, entriKas, kategoriKas, checklist, presensi, biayaOutlet };
 }
 
 function hitung({
@@ -95,6 +99,7 @@ function hitung({
   kategoriKas,
   checklist,
   presensi,
+  biayaOutlet,
   hariKerja,
   targetLaba
 }) {
@@ -108,12 +113,31 @@ function hitung({
   const biayaTetap = biayaTetapDariKas(entriKas, kategoriKas);
   const keuangan = kpiKeuangan({ biayaTetap, entri: entriKas, omzet: penjualan.omzet });
 
+  // DUA SUMBER BIAYA TETAP, DAN MANA YANG DIPAKAI HARUS TERLIHAT.
+  //
+  // `daftarBiaya` = yang direncanakan (tabel outlet_costs).
+  // `biayaTetap`  = yang sudah dibayar, dari buku kas.
+  //
+  // BEP memakai yang DIRENCANAKAN kalau ada, karena itu yang menjawab "berapa
+  // yang harus ditutup bulan ini". Buku kas hanya berisi yang sudah dibayar,
+  // jadi BEP yang dihitung darinya akan terlihat sangat rendah di awal bulan
+  // lalu melonjak di akhir — tanpa ada yang berubah di dunia nyata.
+  //
+  // Kalau daftarnya belum diisi, dipakai buku kas sebagai cadangan. Sumber
+  // yang sedang dipakai dibawa keluar (`sumberBiayaTetap`) supaya layarnya
+  // menyebutkan yang mana, bukan menampilkan satu angka tanpa asal-usul.
+  const daftarBiaya = ringkasBiayaOutlet(biayaOutlet);
+  const pakaiDaftar = daftarBiaya.tetapPerBulan > 0;
+  const tetapDipakai = pakaiDaftar ? daftarBiaya.tetapPerBulan : biayaTetap.total;
+
   const bep = hitungBep({
     marginSatuan: bauran.marginTertimbang,
     hargaRata: bauran.hargaTertimbang,
-    biayaTetap: biayaTetap.total,
+    biayaTetap: tetapDipakai,
     targetLaba,
-    hariKerja
+    hariKerja,
+    variabelPerPorsi: daftarBiaya.variabelPerPorsi,
+    variabelPersen: daftarBiaya.variabelPersen
   });
 
   const posisi = posisiTerhadapBep({ totalQty: bauran.totalQty, bepPorsi: bep.porsi });
@@ -130,6 +154,10 @@ function hitung({
     kepatuhan,
     keuangan,
     biayaTetap,
+    biayaOutlet,
+    daftarBiaya,
+    tetapDipakai,
+    sumberBiayaTetap: pakaiDaftar ? 'daftar' : 'kas',
     bep,
     posisi,
     ringkasan

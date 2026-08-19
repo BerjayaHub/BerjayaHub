@@ -10,7 +10,8 @@
  * Fixture di bawah sengaja dibuat ekstrem supaya bedanya tidak bisa lolos:
  * satu menu murah yang laku 400, satu menu mahal yang laku 3.
  */
-const { biayaTetapDariKas, bauranPenjualan, hitungBep, posisiTerhadapBep } = await import('../js/modules/owner/bep.js');
+const { biayaTetapDariKas, bauranPenjualan, hitungBep, posisiTerhadapBep, ringkasBiayaOutlet, marginSetelahVariabel, hitungTarget } =
+  await import('../js/modules/owner/bep.js');
 
 let gagal = 0;
 const cek = (nama, dapat, harap) => {
@@ -263,6 +264,141 @@ cek('persis di BEP dihitung lewat', posisiTerhadapBep({ totalQty: 3000, bepPorsi
 dekat('persen pencapaian', posisiTerhadapBep({ totalQty: 1500, bepPorsi: 3000 }).persen, 50);
 cek('BEP null: tidak menyimpulkan apa pun', posisiTerhadapBep({ totalQty: 3500, bepPorsi: null }).lewat, null);
 cek('BEP nol: tidak dibagi', posisiTerhadapBep({ totalQty: 3500, bepPorsi: 0 }).persen, null);
+
+
+// =====================================================================
+// BIAYA YANG DIDAFTARKAN PER OUTLET (0095)
+//
+// Yang paling ditekankan: BIAYA VARIABEL TIDAK BOLEH MASUK KE BIAYA TETAP.
+//
+// Kalau tertukar, BEP-nya tetap berupa angka yang wajar — cuma salah. Dan
+// arah salahnya beda: biaya variabel membuat tiap porsi menutup lebih sedikit,
+// sedangkan biaya tetap membuat bebannya lebih berat di awal. Menukarnya
+// menghasilkan angka yang tidak bisa dibantah dari layar.
+// =====================================================================
+const daftarBiaya = [
+  { name: 'Sewa', jenis: 'tetap', satuan: 'per_bulan', amount: 12000000 },
+  { name: 'Gaji', jenis: 'tetap', satuan: 'per_bulan', amount: 18000000 },
+  { name: 'Kemasan bawa pulang', jenis: 'variabel', satuan: 'per_porsi', amount: 500 },
+  { name: 'Fee aplikasi', jenis: 'variabel', satuan: 'persen_omzet', amount: 20 },
+  { name: 'Sewa lama', jenis: 'tetap', satuan: 'per_bulan', amount: 9000000, is_active: false }
+];
+
+const rb = ringkasBiayaOutlet(daftarBiaya);
+cek('biaya tetap dijumlah', rb.tetapPerBulan, 30000000);
+cek('yang nonaktif TIDAK ikut', rb.rincian.tetap.length, 2);
+cek('variabel per porsi terpisah', rb.variabelPerPorsi, 500);
+cek('variabel persen terpisah', rb.variabelPersen, 20);
+cek('rincian tetap diurut menurun', rb.rincian.tetap.map((x) => x.nama), ['Gaji', 'Sewa']);
+
+// Variabel TIDAK boleh nyasar ke tetap.
+if (rb.tetapPerBulan !== 30000000) {
+  gagal++;
+  console.error('❌ biaya variabel ikut terjumlah ke biaya tetap');
+}
+
+// Baris dengan satuan yang tidak cocok jenisnya DIABAIKAN, bukan ditebak.
+// Baris begitu hanya bisa lahir dari data yang menembus constraint database.
+const rusak = ringkasBiayaOutlet([{ name: 'Listrik', jenis: 'variabel', satuan: 'per_bulan', amount: 3000000 }]);
+cek('variabel bersatuan bulanan diabaikan', rusak.tetapPerBulan, 0);
+cek('  dan tidak masuk variabel juga', rusak.variabelPerPorsi, 0);
+
+cek('daftar kosong aman', ringkasBiayaOutlet([]).tetapPerBulan, 0);
+cek('null aman', ringkasBiayaOutlet(null).variabelPersen, 0);
+cek('jumlah negatif diabaikan', ringkasBiayaOutlet([{ name: 'X', jenis: 'tetap', satuan: 'per_bulan', amount: -5 }]).tetapPerBulan, 0);
+
+// =====================================================================
+// MARGIN SESUDAH BIAYA VARIABEL
+// =====================================================================
+dekat('per porsi mengurangi langsung', marginSetelahVariabel({ marginKotor: 7000, hargaRata: 10000, variabelPerPorsi: 500 }), 6500);
+dekat('persen dihitung dari HARGA, bukan dari margin', marginSetelahVariabel({ marginKotor: 7000, hargaRata: 10000, variabelPersen: 20 }), 5000);
+dekat(
+  'keduanya sekaligus',
+  marginSetelahVariabel({ marginKotor: 7000, hargaRata: 10000, variabelPerPorsi: 500, variabelPersen: 20 }),
+  4500
+);
+dekat('tanpa biaya variabel: margin utuh', marginSetelahVariabel({ marginKotor: 7000, hargaRata: 10000 }), 7000);
+cek('margin kotor null: null', marginSetelahVariabel({ marginKotor: null, hargaRata: 10000, variabelPersen: 20 }), null);
+
+// Persen dihitung dari harga — kalau salah dihitung dari MARGIN, hasilnya
+// 7000 - 1400 = 5600, bukan 5000. Angka itu tetap masuk akal.
+if (marginSetelahVariabel({ marginKotor: 7000, hargaRata: 10000, variabelPersen: 20 }) === 5600) {
+  gagal++;
+  console.error('❌ persen biaya variabel dihitung dari margin, seharusnya dari harga jual');
+}
+
+// =====================================================================
+// BEP DENGAN BIAYA VARIABEL
+// =====================================================================
+const bepVar = hitungBep({
+  marginSatuan: 7000,
+  hargaRata: 10000,
+  biayaTetap: 21000000,
+  hariKerja: 30,
+  variabelPerPorsi: 500,
+  variabelPersen: 20
+});
+dekat('margin efektif dibawa keluar', bepVar.marginEfektif, 4500);
+dekat('BEP memakai margin efektif', bepVar.porsi, 21000000 / 4500);
+
+// Tanpa biaya variabel BEP-nya 3000. Dengan biaya variabel harus LEBIH BANYAK.
+if (!(bepVar.porsi > 3000)) {
+  gagal++;
+  console.error(`❌ biaya variabel tidak menaikkan BEP (${bepVar.porsi})`);
+}
+
+// MARGIN HABIS KARENA BIAYA VARIABEL -> sebabnya harus mengarahkan ke tempat
+// yang benar. Pesan "harga di bawah HPP" akan mengirim orang membongkar resep
+// yang sebenarnya sudah benar.
+const habis = hitungBep({ marginSatuan: 1000, hargaRata: 10000, biayaTetap: 1000000, variabelPersen: 30 });
+cek('margin habis oleh variabel: tidak ada BEP', habis.porsi, null);
+if (!habis.sebab?.includes('biaya variabel')) {
+  gagal++;
+  console.error(`❌ sebabnya tidak menyebut biaya variabel — "${habis.sebab}"`);
+}
+
+// =====================================================================
+// TARGET — TIGA ARAH
+// =====================================================================
+const dasar = { marginEfektif: 7000, hargaRata: 10000, biayaTetap: 21000000, hariKerja: 30 };
+
+const tLaba = hitungTarget({ ...dasar, target: { jenis: 'laba', nilai: 7000000 } });
+dekat('target laba -> porsi', tLaba.porsi, 4000);
+dekat('  -> omzet', tLaba.omzet, 40000000);
+dekat('  -> laba kembali sama', tLaba.laba, 7000000);
+dekat('  -> per hari', tLaba.porsiHarian, 4000 / 30);
+
+const tOmzet = hitungTarget({ ...dasar, target: { jenis: 'omzet', nilai: 40000000 } });
+dekat('target omzet -> porsi', tOmzet.porsi, 4000);
+dekat('  -> laba', tOmzet.laba, 7000000);
+
+const tPorsi = hitungTarget({ ...dasar, target: { jenis: 'porsi', nilai: 4000 } });
+dekat('target porsi -> omzet', tPorsi.omzet, 40000000);
+dekat('  -> laba', tPorsi.laba, 7000000);
+
+// Ketiga arah harus SALING KONSISTEN. Kalau salah satunya dihitung dengan
+// rumus yang sedikit berbeda, tiga kartu di layar akan menampilkan tiga angka
+// yang mirip tapi tidak sama — dan tidak ada yang tahu mana yang benar.
+dekat('laba->porsi == omzet->porsi', tLaba.porsi, tOmzet.porsi, 1e-9);
+dekat('laba->porsi == porsi->porsi', tLaba.porsi, tPorsi.porsi, 1e-9);
+
+// Target nol laba = titik impas persis.
+const tImpas = hitungTarget({ ...dasar, target: { jenis: 'laba', nilai: 0 } });
+dekat('target laba 0 == BEP', tImpas.porsi, 3000);
+dekat('  labanya nol', tImpas.laba, 0);
+
+// Masukan yang tidak masuk akal.
+cek('margin null: tidak ada target', hitungTarget({ ...dasar, marginEfektif: null, target: { jenis: 'laba', nilai: 1 } }).porsi, null);
+cek(
+  'margin minus: tidak ada target',
+  hitungTarget({ ...dasar, marginEfektif: -100, target: { jenis: 'laba', nilai: 1 } }).porsi,
+  null
+);
+cek('nilai kosong: tidak ada target', hitungTarget({ ...dasar, target: { jenis: 'laba', nilai: null } }).porsi, null);
+cek('jenis tak dikenal: tidak ada target', hitungTarget({ ...dasar, target: { jenis: 'entah', nilai: 1 } }).porsi, null);
+
+const targetTanpaHarga = hitungTarget({ ...dasar, hargaRata: 0, target: { jenis: 'omzet', nilai: 100 } });
+cek('harga nol: omzet tidak bisa jadi porsi', targetTanpaHarga.porsi, null);
 
 console.log(gagal === 0 ? '✅ bep: semua lulus' : `❌ bep: ${gagal} gagal`);
 process.exit(gagal === 0 ? 0 : 1);

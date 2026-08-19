@@ -47,6 +47,12 @@ const BOLEH_TULIS = {
     tabel: new Set(['documents', 'owner_signatures']),
     rpc: new Set(['putuskan_dokumen'])
   },
+  'biaya.service.js': {
+    alasan:
+      'daftar biaya tetap/variabel per outlet — satu-satunya masukan BEP yang tidak bisa datang dari kejadian operasional, jadi harus bisa diketik di tempat ia dibaca',
+    tabel: new Set(['outlet_costs']),
+    rpc: new Set()
+  },
   'dokumen.admin.page.js': {
     alasan: 'layar Admin Portal, bukan halaman owner — menghapus dokumen yang belum diputus',
     tabel: new Set(['documents']),
@@ -123,4 +129,7 @@ if (masalah.length) {
   process.exit(1);
 }
 
-console.log(`${diperiksa} berkas halaman owner diperiksa. Semuanya baca-saja kecuali dua yang terdaftar beralasan. ✅`);
+const jumlahPengecualian = Object.keys(BOLEH_TULIS).length;
+console.log(
+  `${diperiksa} berkas halaman owner diperiksa. Semuanya baca-saja kecuali ${jumlahPengecualian} yang terdaftar beralasan. ✅`
+);

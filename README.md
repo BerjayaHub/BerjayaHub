@@ -3459,6 +3459,45 @@ Lalu sabotase menemukan bug di audit barunya sendiri: menghapus `pasangTabelResp
 
 Satu sabotase lain **lolos dan tidak diperbaiki**: membuang penanda `data-siap` tidak membuat tes merah. Setelah ditelusuri, memang tidak ada yang perlu ditahan — `bungkusGulir()` sudah menolak membungkus ulang tabel yang induknya `.table-scroll`, jadi tidak ada gelung tak berujung. Penanda itu penghematan, bukan penjagaan, dan sekarang komentarnya berbunyi begitu.
 
+### Kenapa "HPP rata-rata" kosong padahal HPP menu sudah diisi
+
+Pertanyaan ini datang dari lapangan, dan jawabannya adalah keputusan yang disengaja — tapi keputusan yang disengaja pun harus dikatakan **di tempat akibatnya terlihat**, bukan hanya di komentar kode.
+
+Rata-rata di halaman BEP **ditimbang menurut yang terjual**. Penyebutnya penjualan, bukan jumlah menu. Mengisi HPP seratus menu tidak menghasilkan satu pun angka selama belum ada satu porsi pun yang tercatat terjual.
+
+Itu memang inti pembedanya dari Project Hub (rata-rata datar antar menu menyesatkan — lihat di atas), tapi akibatnya adalah kartu kosong tanpa penjelasan. Sekarang tiap kartu yang kosong membawa sebabnya: *"Belum ada — dihitung dari penjualan yang tercatat, bukan dari jumlah menu ber-HPP"*, atau kalau ada menu yang terjual tapi tidak bisa dihitung, tabel "tidak ikut dihitung" ikut muncul di tab BEP (sebelumnya hanya di Ringkasan).
+
+### Biaya tetap & variabel yang didaftarkan per outlet
+
+Tabel baru `outlet_costs` (`0095`). Bukan pengganti buku kas — **dua pertanyaan yang berbeda**:
+
+- Buku kas menjawab *"bulan lalu keluar berapa"*. Isinya hanya yang **sudah dibayar**.
+- Daftar ini menjawab *"berapa yang harus ditutup tiap bulan"*.
+
+Bedanya bukan akademis. Sewa yang jatuh tempo tanggal 28 belum ada di kas pada tanggal 5, jadi BEP yang dihitung dari kas akan terlihat sangat rendah di awal bulan lalu melonjak di akhir — **tanpa ada yang berubah di dunia nyata**. BEP memakai daftar ini kalau sudah diisi, dan jatuh kembali ke buku kas kalau belum. Sumber yang sedang dipakai disebutkan di layar, bukan disembunyikan.
+
+**Biaya variabel tidak boleh bersatuan bulanan.** Ini yang paling mudah salah dan salahnya tidak akan terlihat: dalam rumus BEP, biaya variabel mengurangi **margin per porsi**, bukan menambah biaya tetap. "Listrik 3 juta/bulan" yang didaftarkan sebagai variabel akan menggeser titik impas ke arah yang menyenangkan tanpa satu pun tanda. Constraint `outlet_costs_satuan_cocok` menolaknya di database, dan dropdown satuannya mengikuti jenisnya supaya penolakannya tidak datang terlambat.
+
+Satu penjaga lagi: trigger menolak baris yang menyebut BU A tapi outlet milik BU B. Tanpa itu, biayanya terhitung di BEP yang salah sementara policy-nya tetap lolos — policy hanya melihat kolom BU.
+
+Ini juga **satu-satunya pelonggaran** `audit-owner-baca-saja.cjs`: `biaya.service.js` boleh menulis, tapi hanya ke `outlet_costs`. Alasannya tertulis di auditnya — sewa dan gaji adalah satu-satunya masukan BEP yang tidak bisa datang dari kejadian operasional, jadi harus bisa diketik di tempat ia dibaca. Angka yang diubah di halaman lain hampir selalu berakhir tidak diperbarui.
+
+### Target: tiga arah, bukan satu
+
+Project Hub hanya menyediakan satu arah — ketik target laba, lihat porsinya. Di sini ketiganya bisa jadi masukan, karena pertanyaannya di lapangan datang dari arah mana saja:
+
+| Ditanya | Jenis |
+|---|---|
+| "kalau mau untung 20 juta, harus jual berapa?" | `laba` |
+| "kalau omzetnya 100 juta, untungnya berapa?" | `omzet` |
+| "kalau jual 3.000 porsi, cukup tidak?" | `porsi` |
+
+Ketiganya wajib **saling konsisten**, dan tesnya memeriksa itu langsung: `laba→porsi` harus sama persis dengan `omzet→porsi` dan `porsi→porsi`. Kalau salah satu arah dihitung dengan rumus yang sedikit berbeda, tiga kartu di layar akan menampilkan tiga angka yang mirip tapi tidak sama — dan tidak ada yang tahu mana yang benar. Sabotase yang membuat arah `omzet` memakai rumus `laba` langsung merah.
+
+Nilai targetnya **dikosongkan saat jenisnya berganti**. Angka 20.000.000 yang tadi berarti "laba" akan terbaca sebagai "porsi" begitu jenisnya berubah — hasilnya tetap berupa angka yang wajar, dan tidak ada yang menyadari pertanyaannya sudah berubah.
+
+`test-bep.mjs` naik jadi 101 pemeriksaan. Empat sabotase merah: biaya variabel masuk ke biaya tetap, persen dihitung dari margin alih-alih dari harga, target `omzet` memakai rumus laba, dan baris bersatuan salah ditebak jadi tetap. Migration-nya dijalankan di Postgres sungguhan (PGlite) — tujuh constraint diuji satu per satu, kelima yang harus ditolak memang ditolak.
+
 ### Putaran kedua: yang ketahuan dari satu tangkapan layar
 
 Perubahan di atas membuat semua tabel jadi kartu di layar sempit — dan justru itu yang memunculkan tiga masalah yang selama ini tersembunyi di balik gulir-menyamping. Ketiganya dilaporkan dari satu tangkapan layar editor resep di HP.
