@@ -17,10 +17,15 @@ import { ambilSemua } from '../../core/ambil-semua.js';
  *
  * ============ TIDAK ADA SATU PUN FUNGSI TULIS DI BERKAS INI ============
  *
- * Disengaja. Owner memang tidak punya hak tulis di database (lihat 0093), jadi
- * fungsi tulis di sini hanya akan gagal saat dijalankan — dan gagalnya pada RLS
- * berupa "sukses dengan 0 baris", yaitu kegagalan yang paling sulit disadari.
- * Satu-satunya tulisan owner ada di `dokumen.service.js`, lewat RPC.
+ * Disengaja, dan sekarang justru lebih penting daripada waktu berkas ini
+ * ditulis. Dulu halaman owner dipakai role `owner` yang memang tidak bisa
+ * menulis apa pun di database. Sejak keputusannya diubah (0093), yang
+ * membukanya SUPER ADMIN — yang bisa menulis ke mana saja.
+ *
+ * Jadi tidak ada lagi penolakan dari database yang menahan kalau suatu saat ada
+ * `.update()` yang diselipkan ke sini. Yang menahan tinggal kebiasaan, dan
+ * `tools/audit-owner-baca-saja.cjs` yang memaksanya. Satu-satunya tulisan
+ * halaman ini ada di `dokumen.service.js`, lewat RPC.
  */
 
 /**
@@ -34,12 +39,29 @@ import { ambilSemua } from '../../core/ambil-semua.js';
  *
  * Kalau yang login bukan super admin, hasilnya bukan error melainkan daftar
  * pendek atau kosong; `main-owner.js` yang memutuskan artinya.
+ *
+ * ============ BU NONAKTIF TETAP IKUT ============
+ *
+ * Versi pertama menyaring `.eq('is_active', true)`, dan itu SALAH — dilaporkan
+ * dari lapangan sebagai "di halaman owner cuma satu BU yang muncul".
+ *
+ * Dua sebab kenapa penyaringan itu keliru di sini:
+ *
+ *   - Admin Portal TIDAK menyaringnya (`listBusinessUnitsBasic`). Dua halaman
+ *     yang menampilkan daftar berbeda dari tabel yang sama akan selalu
+ *     terbaca sebagai kerusakan, bukan sebagai kebijakan.
+ *   - BU yang baru dinonaktifkan justru yang paling perlu dilihat owner —
+ *     angka terakhirnya, sisa stoknya, biaya yang masih jalan. Menyembunyikan
+ *     riwayat sebuah usaha tepat ketika usaha itu ditutup adalah kebalikan
+ *     dari gunanya halaman ini.
+ *
+ * Yang nonaktif ditandai di dropdown-nya, bukan dihilangkan. Kolom `is_active`
+ * tetap diambil supaya layarnya bisa menandai.
  */
 export async function listBuOwner() {
   const { data, error } = await supabase
     .from('business_units')
     .select('id, name, type, theme_color, logo_url, pricing_method, food_cost_percent, markup_percent, margin_percent, is_active')
-    .eq('is_active', true)
     .order('name');
   if (error) throw error;
   return data ?? [];

@@ -1376,6 +1376,36 @@ select.sc-cell.is-off {
 }
 .topbar-bu-select option { color: #1c1c1f; }
 
+/* PEMILIH BU DI TOPBAR TERANG (Admin Portal & halaman Owner).
+   `.topbar-bu-select` di atas dibuat untuk topbar Staff App yang BERWARNA —
+   teksnya putih di atas lapisan putih transparan. Dipakai di topbar terang,
+   hasilnya teks putih di atas latar terang: elemennya ada, bisa diklik, tapi
+   nama BU-nya nyaris tidak terbaca. Tidak ada yang rusak, jadi yang melihatnya
+   akan menyimpulkan pemilihnya memang tidak ada. */
+.bu-pilih {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.bu-pilih > label {
+  font-size: var(--teks-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.bu-pilih > select {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-size: var(--teks-sm);
+  font-weight: 600;
+  padding: 6px 10px;
+  min-height: 38px;
+  max-width: 220px;
+  cursor: pointer;
+}
+
 .staff-topbar .topbar-btn {
   border: none;
   background: rgba(255, 255, 255, 0.18);

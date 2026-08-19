@@ -311,6 +311,12 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
           <div class="app-switch" role="tablist" aria-label="Mode aplikasi">
             <button id="btn-to-staff"><span>📱</span> Staff App</button>
             <button class="active" aria-current="page"><span>🛠️</span> Admin Portal</button>
+            ${
+              // Halaman Owner hanya untuk super admin, dan tombolnya pun hanya
+              // muncul untuknya. Tombol yang tampak lalu menolak saat ditekan
+              // membuat orang mengira ada yang rusak dengan akunnya.
+              isSuperAdmin ? '<button id="btn-to-owner"><span>📊</span> Owner</button>' : ''
+            }
           </div>
         </header>
         <main class="app-content" id="module-content">
@@ -328,6 +334,10 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
 
   document.getElementById('btn-to-staff').addEventListener('click', () => {
     window.location.href = './index.html';
+  });
+
+  document.getElementById('btn-to-owner')?.addEventListener('click', () => {
+    window.location.href = './owner.html';
   });
 
   document.getElementById('bu-switcher')?.addEventListener('change', (e) => {

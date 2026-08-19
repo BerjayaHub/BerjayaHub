@@ -232,6 +232,10 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
   // Pintasan mode (Staff App ↔ Admin Portal) hanya untuk akun ber-peran admin.
   const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
   const isAdmin = (context.scopes ?? []).some((s) => ADMIN_ROLES.includes(s.role));
+  // Dipisah dari `isAdmin`: halaman Owner bukan sekadar "lebih tinggi dari
+  // staff", ia khusus super admin. Memakai `isAdmin` akan memunculkan tombol
+  // untuk admin outlet, yang lalu ditolak halaman tujuannya.
+  const isSuperAdmin = (context.scopes ?? []).some((s) => s.role === 'super_admin');
 
   // Tampilan tanpa menu samping: header atas + konten kartu.
   app.innerHTML = `
@@ -252,12 +256,17 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
           ? `<div class="app-switch app-switch-on-primary" role="tablist" aria-label="Mode aplikasi">
               <button class="active" aria-current="page"><span>📱</span> Staff App</button>
               <button id="btn-to-admin"><span>🛠️</span> Admin Portal</button>
+              ${isSuperAdmin ? '<button id="btn-to-owner"><span>📊</span> Owner</button>' : ''}
             </div>`
           : ''
       }
     </header>
     <main class="staff-main" id="module-content"></main>
   `;
+
+  document.getElementById('btn-to-owner')?.addEventListener('click', () => {
+    window.location.href = './owner.html';
+  });
 
   document.getElementById('btn-to-admin')?.addEventListener('click', () => {
     window.location.href = './admin.html';

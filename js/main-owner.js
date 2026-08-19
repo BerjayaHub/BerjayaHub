@@ -178,12 +178,23 @@ function gambarKerangka(context, daftarBu, buAktifId) {
   const bu = daftarBu.find((b) => b.id === buAktifId) ?? daftarBu[0];
   terapkanTema(bu);
 
+  // Nama BU nonaktif diberi keterangan, BUKAN disembunyikan dari daftar.
+  // Menyembunyikannya terbaca sebagai "BU saya hilang", dan itu persis yang
+  // dilaporkan saat daftarnya sempat disaring `is_active`.
+  const namaBu = (b) => `${b.name}${b.is_active === false ? ' (nonaktif)' : ''}`;
+
+  // Diberi LABEL yang terlihat, bukan hanya `aria-label`. Tanpa label, sebuah
+  // `<select>` bernama "Admin Divisi" di pojok kiri atas terbaca sebagai judul
+  // halaman — dan orang tidak mencoba menekan judul.
   const pilihBu =
     daftarBu.length > 1
-      ? `<select id="owner-bu" class="topbar-bu-select" aria-label="Business Unit">
-           ${daftarBu.map((b) => `<option value="${b.id}"${b.id === bu.id ? ' selected' : ''}>${escapeHtml(b.name)}</option>`).join('')}
-         </select>`
-      : `<span class="admin-topbar-title">${escapeHtml(bu.name)}</span>`;
+      ? `<span class="bu-pilih">
+           <label for="owner-bu">BU</label>
+           <select id="owner-bu" aria-label="Business Unit">
+             ${daftarBu.map((b) => `<option value="${b.id}"${b.id === bu.id ? ' selected' : ''}>${escapeHtml(namaBu(b))}</option>`).join('')}
+           </select>
+         </span>`
+      : `<span class="admin-topbar-title">${escapeHtml(namaBu(bu))}</span>`;
 
   app.innerHTML = `
     <div class="app-shell">
@@ -193,9 +204,13 @@ function gambarKerangka(context, daftarBu, buAktifId) {
             <img src="${bu.logo_url || 'images/logo.svg'}" alt="" class="nav-logo" onerror="this.style.display='none'" />
             ${pilihBu}
           </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:0.8rem;color:var(--color-text-muted)" class="sembunyi-sempit">${escapeHtml(context.profile.full_name)}</span>
-            <button id="btn-akun" aria-label="Akun" style="min-height:38px">⋯</button>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <div class="app-switch" role="tablist" aria-label="Mode aplikasi">
+              <button id="btn-ke-staff"><span>📱</span> Staff App</button>
+              <button id="btn-ke-admin"><span>🛠️</span> Admin Portal</button>
+              <button class="active" aria-current="page"><span>📊</span> Owner</button>
+            </div>
+            <button id="btn-akun" aria-label="Akun" title="${escapeHtml(context.profile.full_name)}" style="min-height:38px">⋯</button>
           </div>
         </header>
 
@@ -215,6 +230,8 @@ function gambarKerangka(context, daftarBu, buAktifId) {
     gambarKerangka(context, daftarBu, e.target.value);
   });
 
+  document.getElementById('btn-ke-staff').addEventListener('click', () => (window.location.href = './index.html'));
+  document.getElementById('btn-ke-admin').addEventListener('click', () => (window.location.href = './admin.html'));
   document.getElementById('btn-akun').addEventListener('click', () => bukaPanelAkun());
 
   document.querySelectorAll('[data-tab]').forEach((btn) => {
