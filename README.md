@@ -3212,6 +3212,67 @@ Dua sabotase membuktikannya bekerja dua arah: mengembalikan embed polos → mera
 
 Kotak isian 44px. Sel **Aksi** di mode kartu diberi barisnya sendiri dengan pemisah, bukan berdesakan di kanan bersama labelnya — salah tekan di situ langsung mengubah stok. Kartu formulir memakai lebar penuh di layar sempit; `max-width` warisan `.inline-card` menyisakan ruang kosong di layar 360px.
 
+## "Halaman selalu refresh" — sebabnya aplikasi ini sendiri
+
+Keluhannya: berpindah aplikasi/tab lalu kembali, isian formulir hilang. Saya menduga Android membuang halaman yang di latar belakang, membangun penyelamatan draf untuk itu, dan **diagnosisnya salah**.
+
+Yang menutup kasusnya adalah satu kalimat dari lapangan: *"di browser desktop juga sama."* Desktop tidak membuang tab yang aktif. Berarti ada kode sendiri yang menggambar ulang — dan memang ada:
+
+```js
+onAuthStateChange((_event, newSession) => {
+  if (newSession?.user) renderShell();   // ← membangun ulang SELURUH aplikasi
+  else renderLogin();
+});
+```
+
+`onAuthStateChange` **tidak hanya menyala saat masuk & keluar.** Supabase juga memanggilnya untuk `INITIAL_SESSION` (sekali, tepat setelah pendengarnya dipasang), `USER_UPDATED`, dan — yang menentukan — **`TOKEN_REFRESHED`, yang terjadi persis saat tab kembali aktif setelah ditinggal.**
+
+Ketiganya membawa `newSession.user` yang terisi, jadi ketiganya memanggil `renderShell()`. Orangnya berpindah tab, kembali, dan seluruh isian lenyap.
+
+Kegagalannya tidak pernah tampak sebagai error: layarnya digambar ulang dengan benar, cepat, dan rapi. Yang hilang cuma yang belum sempat disimpan — persis kelas kegagalan yang paling sering menggigit modul ini.
+
+### Aturan barunya
+
+Yang menentukan bukan **jenis** peristiwanya, melainkan apakah **siapa yang login** benar-benar berubah. Token boleh diperbarui seratus kali; selama orangnya sama, tidak ada alasan membuang apa pun dari layar.
+
+Sengaja **tidak** memakai daftar nama peristiwa (`event !== 'TOKEN_REFRESHED'`). Daftar seperti itu akan ketinggalan begitu pustakanya menambah jenis baru — dan yang ketinggalan akan diam-diam kembali menggambar ulang.
+
+`perubahan-sesi.js` diuji 17 kasus; tiga sabotase merah, termasuk mengembalikan perilaku lama.
+
+### Yang perlu diakui soal urutan kerjanya
+
+Penyelamatan draf di bawah dibangun **sebelum** akar masalahnya ketemu. Ia tetap berguna — di HP, eviction sungguhan memang terjadi — tapi ia mengobati gejala, dan selama dua putaran saya yakin sudah menyelesaikan masalahnya. Yang membongkarnya bukan pembacaan kode yang lebih teliti, melainkan satu keterangan tambahan dari lapangan yang tidak cocok dengan teori saya: *desktop juga*.
+
+## Isian yang belum tersimpan tidak ikut hilang
+
+**Halaman yang dimuat ulang itu tidak bisa dicegah.** Android membuang halaman web yang di latar belakang saat RAM sempit — tidak ada kode yang bisa menahannya. Yang bisa diperbaiki hanya seberapa banyak yang hilang.
+
+`ingatan-layar.js` sudah mengembalikan modul, layar, dan konteksnya. Yang masih hilang adalah yang paling menyakitkan: **apa yang sedang diketik.** Mengisi resep berisi belasan bahan lalu kehilangan semuanya karena menerima satu telepon adalah cara tercepat membuat orang berhenti memakai aplikasinya.
+
+### Direkam terus, ditawarkan hanya kalau perlu
+
+Isian direkam ke `sessionStorage` sambil diketik (ditunda 500 ms), **dan sekali lagi saat halaman disembunyikan** — `visibilitychange` adalah isyarat terakhir yang pasti dijalankan sebelum halaman dibuang; `beforeunload` tidak dipanggil pada kasus itu.
+
+Tapi yang **ditawarkan** hanya draf yang penulisan terakhirnya terjadi saat disembunyikan. Kalau halamannya ternyata selamat — orangnya cuma melirik WhatsApp lalu kembali — penandanya diturunkan sendiri saat halaman terlihat lagi. Tanpa itu, bilah "ada isian belum tersimpan" muncul setiap kali orang berpindah aplikasi, dan bilah yang muncul terus-menerus akan ditutup tanpa dibaca — lalu tidak berguna justru saat isinya penting.
+
+### Tidak pernah dipulihkan diam-diam
+
+Yang muncul adalah tawaran: **Pulihkan / Buang**. Layar yang sama bisa dibuka untuk maksud yang berbeda; mengisi ulang formulir dengan angka dari setengah jam lalu tanpa diminta akan membuat orang menyimpan sesuatu yang tidak pernah dia maksud — dan angkanya terlihat wajar, jadi tidak ada yang memeriksa.
+
+### Penjaga yang paling menentukan: jumlah baris
+
+Baris dinamis (bahan resep, jumlah menu) tidak punya `id` — satu-satunya cara mengenalinya adalah **urutan**. Kalau jumlah barisnya berubah antara draf disimpan dan dipulihkan, urutan tidak lagi menunjuk baris yang sama, dan **jumlah bahan A mendarat di bahan B**. Angkanya masuk akal, formulirnya normal, resepnya salah.
+
+Jadi kunci berurutan hanya dipakai kalau jumlah baris berkelas itu **persis sama**. Kalau berbeda, seluruh kelas itu dilewati — dan jumlah yang dilewati **disebutkan**: *"3 tidak bisa dipulihkan karena isian di layar sudah berubah — periksa lagi sebelum menyimpan."* Draf yang dipulihkan sebagian tanpa diberitahu jauh lebih berbahaya daripada tidak dipulihkan sama sekali.
+
+### Yang tetap tidak bisa diselamatkan — dan itu harus dikatakan
+
+- **Foto.** Objek `File` tidak bisa disimpan ke `sessionStorage`. (Di Daily Activities ini sudah tidak jadi masalah sejak `0089`: fotonya langsung tersimpan begitu diambil.)
+- **Isian di dalam dialog.** Dialog dibuang bersama halamannya dan tidak punya alamat yang bisa dipulihkan.
+- **Sandi & OTP.** Sengaja tidak pernah disimpan.
+
+`ingatan-isian.js` diuji 44 kasus. Tujuh sabotase, dan **satu di antaranya lolos**: membuat `lupakanSembunyi()` menghapus seluruh draf tidak membuat tes merah, karena fixture-nya menyimpan ulang tepat sesudahnya. Diganti dengan pemeriksaan langsung ke penyimpanannya, tanpa menyimpan ulang — dan sabotasenya jadi merah.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

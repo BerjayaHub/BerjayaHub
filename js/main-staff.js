@@ -1,4 +1,5 @@
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
+import { buatPenjagaSesi } from './auth/perubahan-sesi.js';
 import { getActiveModules, getModuleRenderer, registerModule, getMyAllowedModules, getModulesActiveInAnyBu } from './core/module-loader.js';
 import { getModuleIcon, pakaiLabelStaff } from './core/module-icons.js';
 import { listBusinessUnitsBasic } from './modules/organization/organization.service.js';
@@ -7,6 +8,7 @@ import { mountTutorialButton, openTutorialDialog, ensureTutorialStyles } from '.
 import { listTutorialsByModule } from './modules/tutorial/tutorial.service.js';
 import { pasangNavigasi, dorongLapis, bersihkanLapis, bersihkanIsian } from './core/navigasi.js';
 import { ingatModul, modulTerakhir, mulaiModul, pulihkanGulir, pasangPencatatGulir } from './core/ingatan-layar.js';
+import { pasangPerekamDraf, setLayarDraf, tawarkanDraf } from './core/pasang-draf.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
 import { renderLeavePage } from './modules/leave/leave.page.js';
 import { renderCleaningPage } from './modules/cleaning/cleaning.page.js';
@@ -66,12 +68,23 @@ async function bootstrap() {
     renderLogin();
   }
 
+  // JANGAN GAMBAR ULANG HANYA KARENA TOKEN DIPERBARUI.
+  //
+  // `onAuthStateChange` menyala jauh lebih sering daripada masuk & keluar:
+  // `INITIAL_SESSION`, `TOKEN_REFRESHED` (terjadi persis saat tab kembali
+  // aktif), dan `USER_UPDATED` semuanya membawa `user` yang terisi. Versi
+  // sebelumnya memanggil `renderShell()` untuk semuanya — jadi berpindah tab
+  // lalu kembali membangun ulang seluruh aplikasi dan membuang isian yang
+  // sedang diketik. Itulah "halaman selalu refresh" yang dikeluhkan dari
+  // lapangan, dan sebabnya bukan sistem operasi melainkan baris ini.
+  //
+  // Aturannya sekarang: gambar ulang HANYA kalau siapa yang login berubah.
+  // Alasannya di `auth/perubahan-sesi.js`.
+  const penjagaSesi = buatPenjagaSesi(session?.user?.id ?? null);
   onAuthStateChange((_event, newSession) => {
-    if (newSession?.user) {
-      renderShell();
-    } else {
-      renderLogin();
-    }
+    const putusan = penjagaSesi(newSession);
+    if (putusan === 'shell') renderShell();
+    else if (putusan === 'login') renderLogin();
   });
 }
 
@@ -332,6 +345,7 @@ async function renderHome(context, modules, moduleCtx) {
   // Kembali ke Beranda secara sengaja -> lupakan modul terakhir, supaya
   // refresh berikutnya tetap di Beranda seperti yang orangnya harapkan.
   ingatModul(null);
+  setLayarDraf(null);
   // Tumpukan Back dikosongkan: dari Beranda, Back berikutnya memang seharusnya
   // keluar aplikasi seperti yang diharapkan pengguna Android.
   bersihkanLapis();
@@ -574,9 +588,12 @@ function openModule(code, context, modules, moduleCtx, { pulihkan = false } = {}
   if (renderer) {
     // `layarAwal` diteruskan ke modulnya. Modul yang tidak mengenalnya cukup
     // mengabaikannya — tidak ada modul yang perlu diubah supaya tetap jalan.
-    Promise.resolve(renderer(body, { ...moduleCtx, layarAwal: layarSimpanan, konteksAwal: konteksSimpanan })).finally(() =>
-      pulihkanGulir(gulirSimpanan)
-    );
+    Promise.resolve(renderer(body, { ...moduleCtx, layarAwal: layarSimpanan, konteksAwal: konteksSimpanan })).finally(() => {
+      pulihkanGulir(gulirSimpanan);
+      // Ditawarkan SESUDAH modulnya selesai menggambar — sebelum itu, isian
+      // yang mau diisi belum ada di layar dan tidak ada yang bisa dicocokkan.
+      tawarkanDraf(`${code}|${layarSimpanan ?? ''}`);
+    });
   } else {
     body.innerHTML = `<p>Modul "${code}" belum dibangun.</p>`;
   }
@@ -598,4 +615,5 @@ function applyBuTheme(businessUnit) {
 pasangNavigasi();
 pasangPenandaKoneksi();
 pasangPencatatGulir();
+pasangPerekamDraf();
 bootstrap();

@@ -2155,3 +2155,60 @@ select.sc-cell.is-off {
     min-height: 44px;
   }
 }
+
+/* =========================================================
+   BILAH DRAF — "ada isian yang belum tersimpan"
+
+   Muncul di paling atas isi modul, hanya kalau halamannya benar-benar
+   dibuang OS saat sedang mengisi. Sengaja MENUNGGU DITEKAN: mengisi ulang
+   formulir dengan angka dari setengah jam lalu tanpa diminta akan membuat
+   orang menyimpan sesuatu yang tidak pernah dia maksud, dan angkanya
+   terlihat wajar sehingga tidak ada yang memeriksa.
+   ========================================================= */
+.draf-bar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff8e1;
+  border: 1px solid #f0c36d;
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+/* Pemulihan SEBAGIAN diberi warna berbeda: kalau sebagian isian tidak bisa
+   dikembalikan, orangnya harus memeriksa lagi sebelum menyimpan — dan itu
+   pesan yang berbeda sifatnya dari "berhasil". */
+.draf-bar-sebagian {
+  background: #fdecea;
+  border-color: #e5a29b;
+}
+
+.draf-aksi {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.draf-aksi button {
+  max-width: none;
+  min-height: 40px;
+  font-size: 0.84rem;
+}
+
+@media (max-width: 560px) {
+  .draf-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .draf-aksi {
+    width: 100%;
+  }
+  .draf-aksi button {
+    flex: 1 1 0;
+    min-height: 44px;
+  }
+}

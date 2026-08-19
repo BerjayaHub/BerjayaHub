@@ -1,8 +1,10 @@
 import { escapeHtml } from './core/ui.js';
 import { pasangNavigasi, dorongLapis, bersihkanLapis, bersihkanIsian } from './core/navigasi.js';
 import { ingatModul, ingatLayar, ingatKonteks, mulaiModul, pulihkanGulir, pasangPencatatGulir } from './core/ingatan-layar.js';
+import { pasangPerekamDraf, tawarkanDraf } from './core/pasang-draf.js';
 import { mountTutorialButton, clearFloatingTutorialButton } from './core/tutorial-button.js';
 import { signIn, signOut, getSession, onAuthStateChange, getCurrentUserContext, changeOwnPassword } from './auth/auth.js';
+import { buatPenjagaSesi } from './auth/perubahan-sesi.js';
 import { getActiveModules, getModuleRenderer, registerModule } from './core/module-loader.js';
 import { getModuleIcon } from './core/module-icons.js';
 import { renderMasterUserPage } from './modules/master-user/master-user.page.js';
@@ -132,12 +134,23 @@ async function bootstrap() {
     renderLogin();
   }
 
+  // JANGAN GAMBAR ULANG HANYA KARENA TOKEN DIPERBARUI.
+  //
+  // `onAuthStateChange` menyala jauh lebih sering daripada masuk & keluar:
+  // `INITIAL_SESSION`, `TOKEN_REFRESHED` (terjadi persis saat tab kembali
+  // aktif), dan `USER_UPDATED` semuanya membawa `user` yang terisi. Versi
+  // sebelumnya memanggil `renderShell()` untuk semuanya — jadi berpindah tab
+  // lalu kembali membangun ulang seluruh aplikasi dan membuang isian yang
+  // sedang diketik. Itulah "halaman selalu refresh" yang dikeluhkan dari
+  // lapangan, dan sebabnya bukan sistem operasi melainkan baris ini.
+  //
+  // Aturannya sekarang: gambar ulang HANYA kalau siapa yang login berubah.
+  // Alasannya di `auth/perubahan-sesi.js`.
+  const penjagaSesi = buatPenjagaSesi(session?.user?.id ?? null);
   onAuthStateChange((_event, newSession) => {
-    if (newSession?.user) {
-      renderShell();
-    } else {
-      renderLogin();
-    }
+    const putusan = penjagaSesi(newSession);
+    if (putusan === 'shell') renderShell();
+    else if (putusan === 'login') renderLogin();
   });
 }
 
@@ -449,7 +462,10 @@ function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = fal
   if (group) {
     const activeCodes = new Set(activeModules.map((m) => m.code));
     const tabs = visibleTabsOf(group, activeCodes, isSuperAdmin, allowedTabs);
-    Promise.resolve(renderGroupPage(content, ctx, group.name, tabs)).finally(() => pulihkanGulir(gulirSimpanan));
+    Promise.resolve(renderGroupPage(content, ctx, group.name, tabs)).finally(() => {
+      pulihkanGulir(gulirSimpanan);
+      tawarkanDraf(`${code}|${layarSimpanan ?? ''}`);
+    });
     return;
   }
 
@@ -460,7 +476,11 @@ function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = fal
 
   const renderer = getModuleRenderer(code);
   if (renderer) {
-    Promise.resolve(renderer(content, ctx)).finally(() => pulihkanGulir(gulirSimpanan));
+    Promise.resolve(renderer(content, ctx)).finally(() => {
+      pulihkanGulir(gulirSimpanan);
+      // Ditawarkan sesudah modulnya menggambar — sebelum itu isiannya belum ada.
+      tawarkanDraf(`${code}|${layarSimpanan ?? ''}`);
+    });
   } else {
     content.innerHTML = `<p>Modul admin "${code}" belum dibangun.</p>`;
   }
@@ -485,5 +505,6 @@ function applyBuTheme(businessUnit) {
 // layar pertama sempat mendorong lapis apa pun.
 pasangNavigasi();
 pasangPencatatGulir();
+pasangPerekamDraf();
 pasangPenandaKoneksi();
 bootstrap();
