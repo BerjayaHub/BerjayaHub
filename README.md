@@ -3273,6 +3273,30 @@ Jadi kunci berurutan hanya dipakai kalau jumlah baris berkelas itu **persis sama
 
 `ingatan-isian.js` diuji 44 kasus. Tujuh sabotase, dan **satu di antaranya lolos**: membuat `lupakanSembunyi()` menghapus seluruh draf tidak membuat tes merah, karena fixture-nya menyimpan ulang tepat sesudahnya. Diganti dengan pemeriksaan langsung ke penyimpanannya, tanpa menyimpan ulang — dan sabotasenya jadi merah.
 
+## Saringan Sub Kategori di seluruh Inventory
+
+Ditambahkan ke **Master Produk → Produk & Resep**, dan ke **Inventory → Stok, Riwayat, Bahan Menipis**.
+
+### Daftarnya mengikuti kategori yang dipilih
+
+Kalau seluruh sub kategori ditawarkan apa pun kategorinya, orang bisa memilih pasangan yang mustahil — "Beverage" + "Unggas" — dan mendapat tabel kosong. **Tabel kosong terbaca sebagai data yang hilang, bukan sebagai saringan yang salah**, dan yang berikutnya terjadi adalah produk dibuat ulang dengan nama yang sedikit berbeda. Sesudah itu ada dua "Gula" di master produk dan HPP-nya tidak pernah bisa dijelaskan lagi.
+
+Pilihan sub yang sedang aktif dipertahankan kalau masih ada di daftar barunya; kalau tidak, dikosongkan. Membiarkan pilihan yang sudah tidak berlaku akan menyembunyikan seluruh tabel tanpa ada kotak yang terlihat salah.
+
+`(tanpa sub kategori)` hanya ditawarkan kalau ada sub yang terisi juga — kalau seluruh produk di kategori itu memang belum bersub, saringan itu tidak menyaring apa pun dan cuma menambah satu kotak untuk ditebak artinya.
+
+### Dua hal yang bisa salah diam-diam, dan cara menghindarinya
+
+**Bahan Menipis disaring SESUDAH dihitung, bukan sebelumnya.** Kalau produknya disaring lebih dulu, takaran rata-rata tiap bahan ikut berubah — bahan yang dipakai menu di kategori lain kehilangan sebagian penyebutnya, dan angkanya jadi lain hanya karena saringan tampilan. Saringan tidak boleh mengubah hasil hitungan.
+
+**Riwayat mencocokkan pergerakan dengan produk lewat ID, bukan nama.** Kategori tidak ikut di baris `stock_movements` — ia milik produknya. Versi pertama saya mencocokkan lewat nama; itu bekerja sampai ada dua produk bernama sama, dan repo ini sudah punya sejarahnya. `product_id` ditambahkan ke query-nya.
+
+`saringan.js` diuji 66 kasus (19 baru); empat sabotase merah, termasuk membuat daftar sub tidak mengikuti kategori.
+
+### Satu kesalahan verifikasi saya sendiri
+
+Perintah pemeriksaan yang saya pakai memotong keluaran `audit-syntax` dengan `head -1`, sehingga baris ✅ dari jalanan sebelumnya terlihat seperti hasil yang baru — padahal ada `Identifier 'baris' has already been declared` di bawahnya. Auditnya bekerja dengan benar; cara saya membacanya yang salah, dan itu jenis kesalahan yang sama persis dengan yang berulang kali dicatat di berkas ini: keluaran yang terlihat hijau padahal bukan.
+
 ## Roadmap fase
 
 - [x] **Fase 0** — Fondasi: struktur Organization/BU/Outlet, toggle modul per BU, auth, RLS dasar, shell Staff App & Admin Portal

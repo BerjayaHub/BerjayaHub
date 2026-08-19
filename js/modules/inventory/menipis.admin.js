@@ -20,6 +20,7 @@ import { sayaAdminBu } from '../../core/base-scope.js';
 import { listProducts, listRecipesFull } from '../product/product.service.js';
 import { listStockBalances } from './inventory.service.js';
 import { susunBahanMenipis, teksBelanja } from './bahan-menipis.js';
+import { daftarKategori, daftarSubKategori, TANPA_KATEGORI, TANPA_SUB } from '../product/saringan.js';
 import { batasManual, porsiMinimumOutlet, setPorsiMinimum, simpanBatasManual } from './batas-bahan.service.js';
 
 const esc = (s) =>
@@ -71,6 +72,12 @@ export async function renderMenipisAdmin(container, { businessUnitId, outlets })
       <div class="field" style="margin:0;min-width:190px"><label>Outlet</label>
         <select id="mn-outlet">${outlets.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}</select>
       </div>
+      <div class="field" style="margin:0;min-width:170px"><label>Kategori</label>
+        <select id="mn-cat"><option value="">Semua</option></select>
+      </div>
+      <div class="field" style="margin:0;min-width:180px"><label>Sub kategori</label>
+        <select id="mn-sub"><option value="">Semua</option></select>
+      </div>
       <div id="mn-atur"></div>
     </div>
     <div id="mn-hasil"></div>
@@ -91,10 +98,35 @@ export async function renderMenipisAdmin(container, { businessUnitId, outlets })
     return;
   }
 
+  // Kategori & sub diambil dari MASTER PRODUK — milik BU, jadi tidak berubah
+  // saat outletnya berganti dan tidak perlu diisi ulang tiap kali.
+  const bahan = products.filter((p) => p.product_type !== 'finished');
+  const catSel = container.querySelector('#mn-cat');
+  const subSel = container.querySelector('#mn-sub');
+  catSel.innerHTML =
+    '<option value="">Semua</option>' +
+    daftarKategori(bahan).map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+
+  const segarkanSub = () => {
+    const dulu = subSel.value;
+    const daftar = daftarSubKategori(bahan, catSel.value);
+    subSel.innerHTML =
+      '<option value="">Semua</option>' + daftar.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+    // Pilihan yang sudah tidak berlaku dikosongkan — kalau dibiarkan, tabelnya
+    // kosong tanpa ada kotak yang terlihat salah.
+    subSel.value = daftar.includes(dulu) ? dulu : '';
+  };
+  segarkanSub();
+
   container.querySelector('#mn-outlet').addEventListener('change', (e) => {
     state.outletId = e.target.value;
     muat();
   });
+  catSel.addEventListener('change', () => {
+    segarkanSub();
+    muat();
+  });
+  subSel.addEventListener('change', () => muat());
 
   await muat();
 
@@ -117,7 +149,36 @@ export async function renderMenipisAdmin(container, { businessUnitId, outlets })
     const stok = new Map();
     for (const b of saldo ?? []) stok.set(b.product_id, (stok.get(b.product_id) ?? 0) + Number(b.qty));
 
-    const lap = susunBahanMenipis({ products, recipes, stok, minPorsi, batasManual: manual });
+    const lapPenuh = susunBahanMenipis({ products, recipes, stok, minPorsi, batasManual: manual });
+
+    // DISARING SESUDAH dihitung, bukan sebelumnya.
+    //
+    // Kalau produknya disaring lebih dulu, takaran rata-rata tiap bahan ikut
+    // berubah — bahan yang dipakai menu di kategori lain akan kehilangan
+    // sebagian penyebutnya, dan angkanya jadi lain hanya karena saringan
+    // tampilan. Saringan tidak boleh mengubah hasil hitungan.
+    const kat = catSel.value;
+    const sub = subSel.value;
+    const cocok = (r) => {
+      if (kat) {
+        const punya = String(r.kategori ?? '').trim();
+        if (kat === TANPA_KATEGORI ? punya !== '' : punya !== kat) return false;
+      }
+      if (sub) {
+        const punya = String(products.find((p) => p.id === r.productId)?.subcategory ?? '').trim();
+        if (sub === TANPA_SUB ? punya !== '' : punya !== sub) return false;
+      }
+      return true;
+    };
+    const barisTampil = lapPenuh.baris.filter(cocok);
+    const lap = {
+      ...lapPenuh,
+      baris: barisTampil,
+      perlu: barisTampil.filter((r) => r.status !== 'aman'),
+      jumlahHabis: barisTampil.filter((r) => r.status === 'habis').length,
+      jumlahMenipis: barisTampil.filter((r) => r.status === 'menipis').length,
+      jumlahAman: barisTampil.filter((r) => r.status === 'aman').length
+    };
     const namaOutlet = outlets.find((o) => o.id === state.outletId)?.name ?? '';
 
     container.querySelector('#mn-atur').innerHTML = bolehKelola

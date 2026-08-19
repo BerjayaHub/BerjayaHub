@@ -116,7 +116,10 @@ export async function recordMenuWaste({ businessUnitId, outletId, productId, qty
 export async function listMovements({ businessUnitId, outletId, movementType, dateFrom, dateTo }) {
   let query = supabase
     .from('stock_movements')
-    .select('id, movement_type, qty_delta, unit_cost, notes, created_at, products(name, base_unit), outlets!outlet_id(name), ref:outlets!ref_outlet_id(name), user_profiles!created_by(full_name)')
+    // `product_id` (skalar) ikut diambil supaya baris ini bisa dicocokkan dengan
+    // master produk lewat ID. Mencocokkan lewat NAMA terlihat bekerja sampai ada
+    // dua produk bernama sama — dan repo ini sudah punya sejarahnya.
+    .select('id, product_id, movement_type, qty_delta, unit_cost, notes, created_at, products(name, base_unit), outlets!outlet_id(name), ref:outlets!ref_outlet_id(name), user_profiles!created_by(full_name)')
     .eq('business_unit_id', businessUnitId)
     .order('created_at', { ascending: false })
     .limit(300);

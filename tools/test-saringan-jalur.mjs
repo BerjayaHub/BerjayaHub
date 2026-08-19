@@ -7,7 +7,7 @@
  * yang sedikit berbeda. Setelah itu ada dua "Gula" di master produk dan HPP-nya
  * tidak pernah bisa dijelaskan lagi.
  */
-import { cocokSaringan, saringBaris, daftarKategori, TANPA_KATEGORI } from '../js/modules/product/saringan.js';
+import { cocokSaringan, saringBaris, daftarKategori, daftarSubKategori, TANPA_KATEGORI, TANPA_SUB } from '../js/modules/product/saringan.js';
 import { kepala, ekor, gabung } from '../js/core/jalur-layar.js';
 import { susunBukuResep } from '../js/modules/product/buku-resep.js';
 
@@ -64,6 +64,69 @@ cek('yang kosong jadi pilihan terakhir', daftarKategori([{ category: 'Minuman' }
 cek('tidak ada yang kosong -> tidak ada pilihan itu', daftarKategori([{ category: 'Minuman' }]), ['Minuman']);
 cek('daftar kosong aman', daftarKategori([]), []);
 cek('daftar null aman', daftarKategori(null), []);
+
+// =====================================================================
+// SUB KATEGORI
+// =====================================================================
+const produk = [
+  { name: 'Kopi', category: 'Beverage', subcategory: 'Panas' },
+  { name: 'Es Teh', category: 'Beverage', subcategory: 'Dingin' },
+  { name: 'Air Mineral', category: 'Beverage', subcategory: '' },
+  { name: 'Ayam', category: 'Protein', subcategory: 'Unggas' },
+  { name: 'Garam', category: '', subcategory: 'Bumbu' }
+];
+
+// ---- Menyaring ----
+const barisSub = produk.map((p) => ({ nama: p.name.toLowerCase(), kategori: p.category, subKategori: p.subcategory }));
+cek('sub kategori menyaring', saringBaris(barisSub, { subKategori: 'Panas' }).map((b) => b.nama), ['kopi']);
+cek('sub kosong = semua', saringBaris(barisSub, { subKategori: '' }).length, 5);
+cek(
+  'tanpa sub punya kelompok sendiri',
+  saringBaris(barisSub, { subKategori: TANPA_SUB }).map((b) => b.nama),
+  ['air mineral']
+);
+// DIGABUNG DENGAN "DAN", sama seperti saringan lain.
+cek(
+  'kategori + sub digabung dengan DAN',
+  saringBaris(barisSub, { kategori: 'Beverage', subKategori: 'Dingin' }).map((b) => b.nama),
+  ['es teh']
+);
+cek(
+  'pasangan yang mustahil menghasilkan kosong, bukan salah baris',
+  saringBaris(barisSub, { kategori: 'Protein', subKategori: 'Panas' }).length,
+  0
+);
+cek(
+  'sub + nama digabung juga',
+  saringBaris(barisSub, { subKategori: 'Panas', nama: 'kop' }).map((b) => b.nama),
+  ['kopi']
+);
+cek('baris tanpa field subKategori tidak melempar', cocokSaringan({ nama: 'x' }, { subKategori: 'Panas' }), false);
+cek('  dan tetap lolos kalau saringannya kosong', cocokSaringan({ nama: 'x' }, {}), true);
+
+// ---- Daftar pilihan ----
+cek('sub kategori terurut & unik', daftarSubKategori(produk), ['Bumbu', 'Dingin', 'Panas', 'Unggas', TANPA_SUB]);
+
+// MENGIKUTI KATEGORI YANG DIPILIH.
+//
+// Kalau seluruh sub kategori ditawarkan apa pun kategorinya, orang bisa memilih
+// pasangan mustahil (Beverage + Unggas) dan mendapat tabel kosong — yang
+// terbaca sebagai data hilang, bukan saringan yang salah.
+cek('dibatasi kategori terpilih', daftarSubKategori(produk, 'Beverage'), ['Dingin', 'Panas', TANPA_SUB]);
+cek('  kategori lain punya daftarnya sendiri', daftarSubKategori(produk, 'Protein'), ['Unggas']);
+cek('  produk tanpa kategori juga', daftarSubKategori(produk, TANPA_KATEGORI), ['Bumbu']);
+cek('kategori yang tidak ada -> daftar kosong', daftarSubKategori(produk, 'Entah'), []);
+
+// "(tanpa sub)" hanya ditawarkan kalau ada sub yang terisi juga — kalau semua
+// produknya belum bersub, saringan itu tidak menyaring apa pun.
+cek(
+  'semua tanpa sub -> tidak ada pilihan sama sekali',
+  daftarSubKategori([{ category: 'X', subcategory: '' }, { category: 'X' }], 'X'),
+  []
+);
+cek('daftar kosong aman', daftarSubKategori([]), []);
+cek('daftar null aman', daftarSubKategori(null), []);
+cek('kategori null dianggap semua', daftarSubKategori(produk, null).length, 5);
 
 // ================= Jalur layar =================
 
@@ -145,4 +208,4 @@ if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Saringan, jalur layar & buku resep benar untuk 47 kasus. ✅');
+console.log('Saringan, jalur layar & buku resep benar untuk 66 kasus. ✅');

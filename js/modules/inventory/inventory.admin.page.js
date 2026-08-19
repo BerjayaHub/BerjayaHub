@@ -6,6 +6,7 @@ import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
 import { loadingHtml } from '../../core/loading.js';
 import { cocokNama } from '../../core/nama.js';
+import { daftarKategori, daftarSubKategori, TANPA_KATEGORI, TANPA_SUB } from '../product/saringan.js';
 import { renderOpnameAdmin } from './opname.admin.js';
 import { renderNotaAdmin } from './nota.admin.js';
 import { renderMenipisAdmin } from './menipis.admin.js';
@@ -86,6 +87,10 @@ async function renderStockTab(content, businessUnitId, outlets) {
         <label>Kategori</label>
         <select id="stock-cat"><option value="">Semua</option></select>
       </div>
+      <div class="field" style="margin:0;max-width:220px">
+        <label>Sub kategori</label>
+        <select id="stock-sub"><option value="">Semua</option></select>
+      </div>
       <div class="field" style="margin:0;max-width:240px">
         <label>Cari nama</label>
         <input type="search" id="stock-q" placeholder="ketik nama bahan…" autocomplete="off" />
@@ -99,7 +104,11 @@ async function renderStockTab(content, businessUnitId, outlets) {
   // angkanya. Menunggu jaringan untuk tiap huruf membuat pencarian terasa berat
   // justru saat dipakai menelusuri daftar bahan yang panjang.
   sel.addEventListener('change', () => loadStock(content, businessUnitId, sel.value));
-  content.querySelector('#stock-cat').addEventListener('change', () => gambarStok(content));
+  content.querySelector('#stock-cat').addEventListener('change', () => {
+    segarkanSubStok(content);
+    gambarStok(content);
+  });
+  content.querySelector('#stock-sub').addEventListener('change', () => gambarStok(content));
   content.querySelector('#stock-q').addEventListener('input', () => gambarStok(content));
   await loadStock(content, businessUnitId, '');
 }
@@ -139,12 +148,45 @@ async function loadStock(content, businessUnitId, outletId) {
   // seluruh master produk: kategori yang tidak pernah muncul di daftar hanya
   // menghasilkan filter yang selalu kosong.
   const catSel = content.querySelector('#stock-cat');
-  const kategori = [...new Set(barisStok.map((r) => r.p.category).filter(Boolean))].sort();
+  const kategori = daftarKategori(barisStok.map((r) => r.p));
   const terpilih = catSel.value;
   catSel.innerHTML = `<option value="">Semua</option>${kategori.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}`;
   catSel.value = kategori.includes(terpilih) ? terpilih : '';
 
+  segarkanSubStok(content);
   gambarStok(content);
+}
+
+/**
+ * Isi ulang pilihan sub kategori mengikuti kategori yang sedang dipilih.
+ *
+ * Menawarkan seluruh sub apa pun kategorinya memungkinkan pasangan yang
+ * mustahil — "Beverage" + "Unggas" — dan hasilnya tabel kosong yang terbaca
+ * sebagai stok yang hilang, bukan saringan yang salah.
+ */
+function segarkanSubStok(content) {
+  const subSel = content.querySelector('#stock-sub');
+  if (!subSel) return;
+  const cat = content.querySelector('#stock-cat')?.value ?? '';
+  const dulu = subSel.value;
+  const daftar = daftarSubKategori(barisStok.map((r) => r.p), cat);
+  subSel.innerHTML = `<option value="">Semua</option>${daftar.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}`;
+  // Pilihan yang sudah tidak berlaku dikosongkan. Membiarkannya akan
+  // menyembunyikan seluruh tabel tanpa ada kotak yang terlihat salah.
+  subSel.value = daftar.includes(dulu) ? dulu : '';
+}
+
+/** Cocok tidaknya satu produk dengan kategori/sub yang dipilih. */
+function cocokKategori(p, cat, sub) {
+  if (cat) {
+    const punya = String(p?.category ?? '').trim();
+    if (cat === TANPA_KATEGORI ? punya !== '' : punya !== cat) return false;
+  }
+  if (sub) {
+    const punya = String(p?.subcategory ?? '').trim();
+    if (sub === TANPA_SUB ? punya !== '' : punya !== sub) return false;
+  }
+  return true;
 }
 
 function gambarStok(content) {
@@ -152,7 +194,10 @@ function gambarStok(content) {
   if (!result) return;
   const q = content.querySelector('#stock-q')?.value ?? '';
   const cat = content.querySelector('#stock-cat')?.value ?? '';
-  const tampil = barisStok.filter((r) => (!cat || r.p.category === cat) && cocokNama(`${r.p.name} ${r.p.category ?? ''}`, q));
+  const sub = content.querySelector('#stock-sub')?.value ?? '';
+  const tampil = barisStok.filter(
+    (r) => cocokKategori(r.p, cat, sub) && cocokNama(`${r.p.name} ${r.p.category ?? ''} ${r.p.subcategory ?? ''}`, q)
+  );
 
   let totalValue = 0;
   // Stok minus ditandai di sini juga, dan di layar admin ia bahkan lebih
@@ -211,15 +256,42 @@ async function renderHistoryTab(content, businessUnitId, outlets) {
       <div class="field" style="margin:0"><label>Jenis</label>
         <select id="hist-type"><option value="">Semua</option>${Object.entries(MOVEMENT_LABEL).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
       </div>
+      <div class="field" style="margin:0"><label>Kategori</label>
+        <select id="hist-cat"><option value="">Semua</option></select>
+      </div>
+      <div class="field" style="margin:0"><label>Sub kategori</label>
+        <select id="hist-sub"><option value="">Semua</option></select>
+      </div>
       <div class="field" style="margin:0"><label>Dari</label><input type="date" id="hist-from" value="${range.from}" /></div>
       <div class="field" style="margin:0"><label>Sampai</label><input type="date" id="hist-to" value="${range.to}" /></div>
       <button class="primary" id="hist-go" style="max-width:120px">Tampilkan</button>
     </div>
     <div id="hist-result"></div>
   `;
+  // Kategori & sub kategori TIDAK memuat ulang dari jaringan — pergerakannya
+  // sudah ada di memori, dan menunggu jaringan untuk tiap pilihan membuat
+  // penelusuran terasa berat justru saat dipakai mencari satu bahan.
   const go = () => loadHistory(content, businessUnitId);
   content.querySelector('#hist-go').addEventListener('click', go);
+  content.querySelector('#hist-cat').addEventListener('change', () => {
+    segarkanSubRiwayat(content);
+    gambarRiwayat(content);
+  });
+  content.querySelector('#hist-sub').addEventListener('change', () => gambarRiwayat(content));
   await go();
+}
+
+/** Baris riwayat terakhir yang dimuat, sudah dilengkapi kategori produknya. */
+let barisRiwayat = [];
+
+function segarkanSubRiwayat(content) {
+  const subSel = content.querySelector('#hist-sub');
+  if (!subSel) return;
+  const cat = content.querySelector('#hist-cat')?.value ?? '';
+  const dulu = subSel.value;
+  const daftar = daftarSubKategori(barisRiwayat.map((r) => r.produk).filter(Boolean), cat);
+  subSel.innerHTML = `<option value="">Semua</option>${daftar.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}`;
+  subSel.value = daftar.includes(dulu) ? dulu : '';
 }
 
 async function loadHistory(content, businessUnitId) {
@@ -229,19 +301,43 @@ async function loadHistory(content, businessUnitId) {
   const to = content.querySelector('#hist-to').value;
   const result = content.querySelector('#hist-result');
   result.innerHTML = loadingHtml('Memuat…', { baris: 5 });
-  let rows;
+  let rows, products;
   try {
-    rows = await listMovements({
-      businessUnitId,
-      outletId,
-      movementType,
-      dateFrom: isoFrom(from),
-      dateTo: isoTo(to)
-    });
+    // Kategori tidak ikut di baris pergerakan — ia milik produknya. Diambil
+    // sekali di sini lalu ditempelkan, supaya penyaringannya bisa dikerjakan
+    // di sisi tampilan tanpa menyentuh jaringan lagi.
+    [rows, products] = await Promise.all([
+      listMovements({ businessUnitId, outletId, movementType, dateFrom: isoFrom(from), dateTo: isoTo(to) }),
+      listProducts(businessUnitId)
+    ]);
   } catch (error) {
     result.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
     return;
   }
+
+  const perId = new Map((products ?? []).map((p) => [p.id, p]));
+  barisRiwayat = (rows ?? []).map((r) => ({ ...r, produk: perId.get(r.product_id) ?? null }));
+
+  const catSel = content.querySelector('#hist-cat');
+  const kategori = daftarKategori(barisRiwayat.map((r) => r.produk).filter(Boolean));
+  const terpilih = catSel.value;
+  catSel.innerHTML = `<option value="">Semua</option>${kategori.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}`;
+  catSel.value = kategori.includes(terpilih) ? terpilih : '';
+
+  segarkanSubRiwayat(content);
+  gambarRiwayat(content);
+}
+
+function gambarRiwayat(content) {
+  const result = content.querySelector('#hist-result');
+  if (!result) return;
+  const cat = content.querySelector('#hist-cat')?.value ?? '';
+  const sub = content.querySelector('#hist-sub')?.value ?? '';
+  // Pergerakan produk yang sudah TIDAK ADA di master (terhapus) tetap
+  // ditampilkan selama tidak ada saringan kategori — buku besar tidak boleh
+  // menyembunyikan barisnya hanya karena produknya sudah dihapus.
+  const rows = barisRiwayat.filter((r) => (!cat && !sub) || cocokKategori(r.produk, cat, sub));
+
   result.innerHTML = `
     <table class="data-table" style="margin-top:16px">
       <thead><tr><th>Waktu</th><th>Outlet</th><th>Produk</th><th>Jenis</th><th>Qty</th><th>Oleh</th><th>Catatan</th></tr></thead>
@@ -260,9 +356,12 @@ async function loadHistory(content, businessUnitId) {
               <td style="font-size:0.8rem">${escapeHtml(r.notes ?? '-')}</td>
             </tr>`;
           })
-          .join('') || '<tr><td colspan="7">Tidak ada data.</td></tr>'}
+          .join('') || '<tr><td colspan="7">Tidak ada data pada saringan ini.</td></tr>'}
       </tbody>
     </table>
+    <p style="font-size:0.82rem;color:var(--color-text-muted);margin:8px 0 0">
+      ${rows.length === barisRiwayat.length ? `${barisRiwayat.length} pergerakan` : `${rows.length} dari ${barisRiwayat.length} pergerakan`}
+    </p>
   `;
 }
 

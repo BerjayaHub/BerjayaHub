@@ -5,7 +5,7 @@ import { bakukanNama } from '../../core/nama.js';
 import { pemakaiResep } from './recipe-graph.js';
 import { periksaPindah, pasanganVarian } from './varian-pindah.js';
 import { curigaHargaTertukar } from './harga-curiga.js';
-import { cocokSaringan, daftarKategori } from './saringan.js';
+import { cocokSaringan, daftarKategori, daftarSubKategori } from './saringan.js';
 import { susunBukuResep } from './buku-resep.js';
 import { susunPanelBahan } from './panel-bahan.js';
 import { exportTablePDF } from '../../core/pdf.js';
@@ -97,7 +97,8 @@ async function renderProductsTab(content, businessUnitId) {
       id: 'produk',
       placeholder: 'Cari nama produk…',
       tipeOpsi: PRODUCT_TYPES.map((t) => TYPE_LABEL[t.value] ?? t.value),
-      kategoriOpsi: daftarKategori(products)
+      kategoriOpsi: daftarKategori(products),
+      subOpsi: daftarSubKategori(products)
     })}
     <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead><tr><th>Nama</th><th>Tipe</th><th>Kategori</th><th>Satuan</th><th>Harga Beli</th><th>HPP / Satuan</th><th>Harga Jual</th><th>Margin</th><th>Aksi</th></tr></thead>
@@ -115,6 +116,8 @@ async function renderProductsTab(content, businessUnitId) {
     input: content.querySelector('#cari-produk'),
     tipeSel: content.querySelector('#tipe-produk'),
     katSel: content.querySelector('#kat-produk'),
+    subSel: content.querySelector('#sub-produk'),
+    produk: products,
     info: content.querySelector('#cari-produk-info'),
     baris: () => content.querySelectorAll('#baris-produk tr[data-nama]'),
     satuan: 'produk'
@@ -153,20 +156,47 @@ async function renderProductsTab(content, businessUnitId) {
  * Baris yang tersembunyi tetap ADA di DOM, jadi tombol yang sudah tersambung
  * tidak perlu dipasang ulang setiap kali orangnya mengetik satu huruf.
  */
-function pasangPenyaring({ input, tipeSel, katSel, info, baris, satuan, sesudah }) {
-  if (!input && !tipeSel && !katSel) return;
+function pasangPenyaring({ input, tipeSel, katSel, subSel, produk, info, baris, satuan, sesudah }) {
+  if (!input && !tipeSel && !katSel && !subSel) return;
+
+  /**
+   * Daftar sub kategori MENGIKUTI kategori yang sedang dipilih.
+   *
+   * Kalau seluruh sub ditawarkan apa pun kategorinya, orang bisa memilih
+   * pasangan yang mustahil — "Beverage" + "Unggas" — dan mendapat tabel
+   * kosong. Tabel kosong terbaca sebagai data yang hilang, bukan sebagai
+   * saringan yang salah.
+   *
+   * Pilihan yang sedang aktif dipertahankan kalau masih ada di daftar barunya;
+   * kalau tidak, dikosongkan. Membiarkan pilihan yang sudah tidak berlaku akan
+   * menyembunyikan seluruh tabel tanpa ada kotak yang terlihat salah.
+   */
+  const segarkanSub = () => {
+    if (!subSel || !produk) return;
+    const dulu = subSel.value;
+    const daftar = daftarSubKategori(produk, katSel?.value ?? '');
+    subSel.innerHTML =
+      '<option value="">Semua sub kategori</option>' +
+      daftar.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+    subSel.value = daftar.includes(dulu) ? dulu : '';
+  };
+
   const saring = () => {
     const nilai = {
       nama: bakukanNama(input?.value ?? ''),
       tipe: tipeSel?.value ?? '',
-      kategori: katSel?.value ?? ''
+      kategori: katSel?.value ?? '',
+      subKategori: subSel?.value ?? ''
     };
-    const adaSaringan = Boolean(nilai.nama || nilai.tipe || nilai.kategori);
+    const adaSaringan = Boolean(nilai.nama || nilai.tipe || nilai.kategori || nilai.subKategori);
     let tampil = 0;
     let total = 0;
     for (const tr of baris()) {
       total++;
-      const cocok = cocokSaringan({ nama: tr.dataset.nama, tipe: tr.dataset.tipe, kategori: tr.dataset.kategori }, nilai);
+      const cocok = cocokSaringan(
+        { nama: tr.dataset.nama, tipe: tr.dataset.tipe, kategori: tr.dataset.kategori, subKategori: tr.dataset.sub },
+        nilai
+      );
       tr.hidden = !cocok;
       if (cocok) tampil++;
     }
@@ -186,12 +216,17 @@ function pasangPenyaring({ input, tipeSel, katSel, info, baris, satuan, sesudah 
   };
   input?.addEventListener('input', saring);
   tipeSel?.addEventListener('change', saring);
-  katSel?.addEventListener('change', saring);
+  katSel?.addEventListener('change', () => {
+    segarkanSub();
+    saring();
+  });
+  subSel?.addEventListener('change', saring);
+  segarkanSub();
   saring();
 }
 
 /** Kotak saringan yang sama bentuknya di tab Produk & tab Resep. */
-function saringanHtml({ id, tipeOpsi, kategoriOpsi, placeholder }) {
+function saringanHtml({ id, tipeOpsi, kategoriOpsi, subOpsi = [], placeholder }) {
   const opsi = (daftar) => daftar.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
   return `
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin:0 0 10px">
@@ -203,6 +238,9 @@ function saringanHtml({ id, tipeOpsi, kategoriOpsi, placeholder }) {
       </div>
       <div class="field" style="margin:0;min-width:150px">
         <select id="kat-${id}"><option value="">Semua kategori</option>${opsi(kategoriOpsi)}</select>
+      </div>
+      <div class="field" style="margin:0;min-width:160px">
+        <select id="sub-${id}"><option value="">Semua sub kategori</option>${opsi(subOpsi)}</select>
       </div>
     </div>
     <span class="field-help" id="cari-${id}-info" style="display:block;margin:-6px 0 10px"></span>
@@ -257,7 +295,7 @@ function productRowHtml(p, cost) {
     margin = `${formatRupiah(m)} <span style="color:var(--color-text-muted)">(${pct}%)</span>`;
   }
   return `
-    <tr data-nama="${escapeHtml(bakukanNama(p.name))}" data-tipe="${escapeHtml(TYPE_LABEL[p.product_type] ?? p.product_type)}" data-kategori="${escapeHtml(p.category ?? '')}">
+    <tr data-nama="${escapeHtml(bakukanNama(p.name))}" data-tipe="${escapeHtml(TYPE_LABEL[p.product_type] ?? p.product_type)}" data-kategori="${escapeHtml(p.category ?? '')}" data-sub="${escapeHtml(p.subcategory ?? '')}">
       <td>${escapeHtml(p.name)}${p.is_active === false ? ' <span style="font-size:0.7rem;color:var(--color-danger)">(nonaktif)</span>' : ''}</td>
       <td>${TYPE_LABEL[p.product_type] ?? p.product_type}</td>
       <td style="font-size:0.85rem">${escapeHtml(p.category ?? '-')}${p.subcategory ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${escapeHtml(p.subcategory)}</div>` : ''}</td>
@@ -412,7 +450,8 @@ async function renderRecipesTab(content, businessUnitId) {
       // adalah pilihan yang pasti mengosongkan tabel, dan pilihan semacam itu
       // membuat orang mengira saringannya rusak.
       tipeOpsi: ['semi', 'finished'].map((t) => TYPE_LABEL[t] ?? t),
-      kategoriOpsi: daftarKategori(manufactured)
+      kategoriOpsi: daftarKategori(manufactured),
+      subOpsi: daftarSubKategori(manufactured)
     })}
     <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
       Ketuk baris produk untuk melihat bahan-bahannya${bolehUbah ? ' dan mengubahnya' : ''}.
@@ -446,7 +485,7 @@ async function renderRecipesTab(content, businessUnitId) {
                   return `<div style="margin:2px 0"><strong>${MODE_LABEL[m]}:</strong> ${val}</div>`;
                 })
                 .join('');
-              return `<tr class="rcp-row" data-id="${p.id}" data-nama="${escapeHtml(bakukanNama(p.name))}" data-tipe="${escapeHtml(TYPE_LABEL[p.product_type] ?? p.product_type)}" data-kategori="${escapeHtml(p.category ?? '')}" style="cursor:pointer">
+              return `<tr class="rcp-row" data-id="${p.id}" data-nama="${escapeHtml(bakukanNama(p.name))}" data-tipe="${escapeHtml(TYPE_LABEL[p.product_type] ?? p.product_type)}" data-kategori="${escapeHtml(p.category ?? '')}" data-sub="${escapeHtml(p.subcategory ?? '')}" style="cursor:pointer">
                   <td><span class="rcp-arrow" data-id="${p.id}" style="display:inline-block;width:1em">▸</span> ${escapeHtml(p.name)}</td>
                   <td>${TYPE_LABEL[p.product_type]}</td>
                   <td style="font-size:0.85rem">${variants}</td>
@@ -645,6 +684,8 @@ async function renderRecipesTab(content, businessUnitId) {
     input: content.querySelector('#cari-resep'),
     tipeSel: content.querySelector('#tipe-resep'),
     katSel: content.querySelector('#kat-resep'),
+    subSel: content.querySelector('#sub-resep'),
+    produk: manufactured,
     info: content.querySelector('#cari-resep-info'),
     baris: () => content.querySelectorAll('.rcp-row'),
     satuan: 'produk',
