@@ -81,7 +81,11 @@ export async function listProductsOwner(businessUnitId) {
     supabase
       .from('products')
       .select(
-        'id, name, product_type, category, subcategory, base_unit, purchase_unit, purchase_qty, purchase_price, sale_price, is_active, packaging_cost, fee_online_percent, promo_percent'
+        // `sale_price` SENGAJA TIDAK diambil. Sejak 0096 ia harga acuan BU, dan
+        // profitabilitas tidak boleh menyentuhnya — harga yang benar ada di
+        // `outlet_menu_prices`. Tidak mengunduhnya sekalian menghilangkan
+        // godaan untuk memakainya "karena sudah ada di objeknya".
+        'id, name, product_type, category, subcategory, base_unit, purchase_unit, purchase_qty, purchase_price, is_active, packaging_cost, fee_online_percent, promo_percent'
       )
       .eq('business_unit_id', businessUnitId)
       .order('product_type')

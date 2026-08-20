@@ -1,7 +1,8 @@
 import { toast, shareDialog } from '../../core/ui.js';
 import { formatNum, formatRupiah } from '../../core/format.js';
 import { listProducts } from '../product/product.service.js';
-import { recordSales, getSalesSummary, todayWIB } from './sales.service.js';
+import { recordSales, getSalesSummary, todayWIB, buatRefKiriman } from './sales.service.js';
+import { listHargaAktif } from '../menu/harga-outlet.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
 import { loadingHtml } from '../../core/loading.js';
 
@@ -31,7 +32,16 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
     return;
   }
   const categories = [...new Set(menus.map((m) => m.category).filter(Boolean))].sort();
-  const state = { outletId: myOutlets.some((o) => o.id === outletId) ? outletId : myOutlets[0].id, category: '', summary: new Map() };
+  const state = {
+    outletId: myOutlets.some((o) => o.id === outletId) ? outletId : myOutlets[0].id,
+    category: '',
+    summary: new Map(),
+    harga: new Map(),
+    // Penanda kiriman. Dibuat SEKALI saat Simpan ditekan, dan DIPERTAHANKAN
+    // selama percobaannya belum berhasil — supaya retry memakai penanda yang
+    // sama dan tidak menghasilkan penjualan ganda. Alasan lengkapnya di 0098.
+    ref: null
+  };
 
   container.innerHTML = `
     <h1>Penjualan</h1>
@@ -62,11 +72,35 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
       .map(
         (m) => `<tr>
           <td>${esc(m.name)}</td>
-          <td>${m.sale_price != null ? formatRupiah(m.sale_price) : '-'}</td>
+          <td>${
+            // HARGA OUTLET, bukan `products.sale_price`.
+            //
+            // Sejak 0099 harga transaksi diambil dari daftar harga outlet, dan
+            // menu tanpa harga outlet DITOLAK seluruh transaksinya. Kalau layar
+            // ini tetap menampilkan harga acuan BU, staff akan melihat angka
+            // yang wajar lalu ditolak saat menyimpan — tanpa tahu kenapa.
+            state.harga.has(m.id)
+              ? formatRupiah(state.harga.get(m.id))
+              : '<span class="error-text" style="font-size:0.78rem">belum ada harga</span>'
+          }</td>
           <td><input type="number" class="sl-qty" data-id="${m.id}" min="0" placeholder="0" style="max-width:90px" /></td>
         </tr>`
       )
       .join('') || '<tr><td colspan="3">Tidak ada menu di kategori ini.</td></tr>';
+  }
+
+  /** Harga aktif outlet ini hari ini: Map<productId, harga>. */
+  async function loadHarga() {
+    try {
+      const semua = await listHargaAktif(businessUnitId, { tanggal: date });
+      state.harga = new Map(semua.filter((h) => h.outlet_id === state.outletId).map((h) => [h.product_id, h.selling_price]));
+    } catch {
+      // Gagal memuat harga TIDAK dibiarkan diam. Tanpa harga di layar, staff
+      // tetap bisa mengetik jumlah lalu ditolak saat menyimpan — dan
+      // penolakannya akan terlihat seperti kerusakan aplikasi.
+      state.harga = new Map();
+      toast('Daftar harga outlet gagal dimuat. Angka harga di bawah mungkin tidak lengkap.', 'warning');
+    }
   }
 
   async function loadSummary() {
@@ -124,9 +158,13 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
     });
   }
 
-  outletSel.addEventListener('change', () => {
+  outletSel.addEventListener('change', async () => {
     state.outletId = outletSel.value;
-    loadSummary();
+    // Harga menempel pada OUTLET, jadi berganti outlet berarti seluruh kolom
+    // harga berubah. Tanpa ini, layarnya menampilkan harga outlet sebelumnya.
+    await loadHarga();
+    renderRows();
+    await loadSummary();
   });
   catSel.addEventListener('change', () => {
     state.category = catSel.value;
@@ -141,19 +179,51 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
       toast('Isi jumlah terjual dulu.', 'warning');
       return;
     }
+
+    // PENANDA DIBUAT SEKALI, DIPAKAI ULANG SAMPAI BERHASIL.
+    //
+    // Tombol yang dinonaktifkan tidak cukup: yang mau dicegah bukan klik ganda
+    // melainkan KIRIMAN yang sampai dua kali — jaringan yang putus lalu
+    // permintaannya ternyata sudah diterima server, atau staff yang menekan
+    // ulang sesudah layarnya terlihat tidak merespons.
+    if (!state.ref) state.ref = buatRefKiriman();
+
     e.target.disabled = true;
     try {
-      await recordSales({ businessUnitId, outletId: state.outletId, date, items });
-      toast('Penjualan tersimpan. Stok & omzet diperbarui.', 'success');
+      const hasil = await recordSales({ businessUnitId, outletId: state.outletId, date, items, ref: state.ref });
+
+      // Berhasil -> penanda dibuang, siap untuk kiriman berikutnya (shift kedua).
+      state.ref = null;
       container.querySelectorAll('.sl-qty').forEach((inp) => (inp.value = ''));
+
+      toast(
+        hasil?.diproses === false
+          ? 'Kiriman ini sudah tersimpan sebelumnya — tidak dicatat dua kali.'
+          : 'Penjualan tersimpan. Stok & omzet diperbarui.',
+        'success'
+      );
       await loadSummary();
     } catch (error) {
-      toast(error.message ?? 'Gagal menyimpan penjualan.', 'error');
+      const pesan = error.message ?? 'Gagal menyimpan penjualan.';
+
+      // DUA JENIS KEGAGALAN, DUA PERLAKUAN BERBEDA.
+      //
+      // Ditolak karena isinya (harga belum disetting) -> penanda DIBUANG.
+      // Isinya akan diperbaiki, jadi kiriman berikutnya adalah kiriman yang
+      // BERBEDA; mempertahankan penanda akan membuat kiriman yang sudah benar
+      // ditolak sebagai duplikat.
+      //
+      // Gagal karena jaringan -> penanda DIPERTAHANKAN, supaya percobaan ulang
+      // dikenali sebagai kiriman yang sama.
+      if (/harga jual belum disetting/i.test(pesan)) state.ref = null;
+
+      toast(pesan, 'error');
     } finally {
       e.target.disabled = false;
     }
   });
 
+  await loadHarga();
   renderRows();
   await loadSummary();
 }

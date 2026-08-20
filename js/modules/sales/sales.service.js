@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { ambilSemua } from '../../core/ambil-semua.js';
 
 export function todayWIB() {
   const now = new Date();
@@ -7,14 +8,42 @@ export function todayWIB() {
   return `${wib.getUTCFullYear()}-${pad(wib.getUTCMonth() + 1)}-${pad(wib.getUTCDate())}`;
 }
 
-export async function recordSales({ businessUnitId, outletId, date, items }) {
-  const { error } = await supabase.rpc('record_sales', {
+/**
+ * Catat penjualan.
+ *
+ * ============ `ref` WAJIB, DAN HARUS SAMA PADA SETIAP PERCOBAAN ULANG ============
+ *
+ * `record_sales()` memakai `p_ref` untuk mengenali kiriman yang sama (0098).
+ * Yang membuat nilainya KLIEN — sengaja — karena hanya klien yang tahu bedanya
+ * "kirim ulang karena jaringan putus" dan "shift kedua yang memang menjual lagi".
+ * Dari sisi server keduanya terlihat persis sama.
+ *
+ * Karena itu `ref` diminta sebagai parameter, bukan dibuat di dalam fungsi ini:
+ * dibuat di sini berarti setiap percobaan ulang mendapat nilai baru, dan
+ * perlindungannya hilang tanpa satu pun tanda.
+ *
+ * Aturan pemakaiannya ada di `sales.page.js`.
+ */
+export async function recordSales({ businessUnitId, outletId, date, items, ref }) {
+  if (!ref) throw new Error('Penanda kiriman tidak ada. Muat ulang aplikasi, lalu coba lagi.');
+
+  const { data, error } = await supabase.rpc('record_sales', {
     p_bu: businessUnitId,
     p_outlet: outletId,
     p_date: date,
-    p_items: items.map((i) => ({ product_id: i.product_id, qty: i.qty }))
+    p_items: items.map((i) => ({ product_id: i.product_id, qty: i.qty })),
+    p_ref: ref
   });
   if (error) throw error;
+  // `{ diproses: false }` berarti kiriman ini sudah pernah tersimpan — bukan
+  // kegagalan. Dikembalikan supaya layar bisa mengatakannya apa adanya
+  // daripada menampilkan "tersimpan" untuk kedua kalinya.
+  return data ?? { diproses: true };
+}
+
+/** Penanda kiriman baru. Dipanggil SEKALI per tindakan simpan, bukan per percobaan. */
+export function buatRefKiriman() {
+  return crypto.randomUUID();
 }
 
 /** Rekap penjualan hari ini untuk sebuah outlet -> Map productId -> {qty, revenue}. */
@@ -36,19 +65,27 @@ export async function getSalesSummary(outletId, date) {
 }
 
 /** Laporan penjualan admin: agregat per produk (qty & omzet) dalam rentang. */
+/**
+ * Laporan penjualan admin.
+ *
+ * Dulu memakai `.limit(2000)`. Batas yang ditulis tangan lebih berbahaya
+ * daripada batas bawaan PostgREST justru karena ia TERLIHAT DISENGAJA — orang
+ * yang membacanya akan mengira 2.000 memang cukup, dan laporan BU yang ramai
+ * diam-diam kehilangan baris tertua tanpa satu pun tanda.
+ */
 export async function listSalesReport({ businessUnitId, outletId, dateFrom, dateTo }) {
-  let query = supabase
-    .from('sales')
-    .select('product_id, qty, revenue, sale_date, products(name, category), outlets(name)')
-    .eq('business_unit_id', businessUnitId)
-    .order('sale_date', { ascending: false })
-    .limit(2000);
-  if (outletId) query = query.eq('outlet_id', outletId);
-  if (dateFrom) query = query.gte('sale_date', dateFrom);
-  if (dateTo) query = query.lte('sale_date', dateTo);
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  return ambilSemua((dari, sampai) => {
+    let query = supabase
+      .from('sales')
+      .select('product_id, outlet_id, qty, unit_price, revenue, sale_date, products(name, category), outlets(name)')
+      .eq('business_unit_id', businessUnitId)
+      .order('sale_date', { ascending: false })
+      .range(dari, sampai);
+    if (outletId) query = query.eq('outlet_id', outletId);
+    if (dateFrom) query = query.gte('sale_date', dateFrom);
+    if (dateTo) query = query.lte('sale_date', dateTo);
+    return query;
+  });
 }
 
 export async function listRecentSalesActivity({ limit = 25, before = null } = {}) {

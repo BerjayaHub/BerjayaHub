@@ -15,6 +15,7 @@ import {
 } from './owner.service.js';
 import { bauranPenjualan, biayaTetapDariKas, hitungBep, posisiTerhadapBep, ringkasBiayaOutlet } from './bep.js';
 import { listBiayaOutlet } from './biaya.service.js';
+import { listHargaAktif } from '../menu/harga-outlet.service.js';
 import { kpiPenjualan, kpiOperasional, kpiKepatuhan, kpiKeuangan, ringkasanOwner } from './kpi.js';
 
 /**
@@ -68,7 +69,7 @@ async function ambilMentah({ businessUnitId, dari, sampai, outletIds }) {
   // penyaringan outlet, dipakai seluruh outlet BU ini.
   const outletKas = outletIds?.length ? outletIds : outlets.map((o) => o.id);
 
-  const [products, recipes, sales, gerakan, saldo, produksi, entriKas, kategoriKas, checklist, presensi, biayaOutlet] = await Promise.all([
+  const [products, recipes, sales, gerakan, saldo, produksi, entriKas, kategoriKas, checklist, presensi, biayaOutlet, hargaOutlet] = await Promise.all([
     listProductsOwner(businessUnitId),
     listRecipesFull(businessUnitId),
     listSales({ businessUnitId, dari, sampai, outletIds }),
@@ -81,10 +82,14 @@ async function ambilMentah({ businessUnitId, dari, sampai, outletIds }) {
     listAttendance({ businessUnitId, dari, sampai, outletIds }),
     // Biaya yang DIDAFTARKAN, bukan yang sudah dibayar. Dicakup ke outlet yang
     // sedang disaring; kalau tidak ada saringan, seluruh outlet BU ini.
-    listBiayaOutlet({ businessUnitId, outletIds })
+    listBiayaOutlet({ businessUnitId, outletIds }),
+    // Harga jual yang BERLAKU HARI INI per outlet. Dipakai tabel simulasi harga.
+    // Harga historis TIDAK diambil dari sini — omzet & margin aktual dibaca dari
+    // `sales.unit_price` yang sudah dibekukan saat transaksi dicatat.
+    listHargaAktif(businessUnitId)
   ]);
 
-  return { outlets, products, recipes, sales, gerakan, saldo, produksi, entriKas, kategoriKas, checklist, presensi, biayaOutlet };
+  return { outlets, products, recipes, sales, gerakan, saldo, produksi, entriKas, kategoriKas, checklist, presensi, biayaOutlet, hargaOutlet };
 }
 
 function hitung({
@@ -100,6 +105,7 @@ function hitung({
   checklist,
   presensi,
   biayaOutlet,
+  hargaOutlet,
   hariKerja,
   targetLaba
 }) {
@@ -155,6 +161,7 @@ function hitung({
     keuangan,
     biayaTetap,
     biayaOutlet,
+    hargaOutlet,
     daftarBiaya,
     tetapDipakai,
     sumberBiayaTetap: pakaiDaftar ? 'daftar' : 'kas',

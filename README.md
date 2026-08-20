@@ -3392,6 +3392,72 @@ Selama belum ditandai, `hitungBep()` mengembalikan peringatan tertulis: *"Biaya 
 
 `tools/test-pricing.mjs` (54 kasus), `tools/test-bep.mjs` (62), `tools/test-kpi-owner.mjs` (54) — dihitung dari jumlah pemeriksaan yang tertulis, bukan dikira-kira. Tujuh sabotase merah: rata-rata datar menggantikan yang ditimbang, HPP kosong dianggap nol, margin minus dibiarkan menghasilkan BEP negatif, biaya tetap nol lolos tanpa peringatan, persen tanpa penyebut jadi 0, `layakDipercaya` selalu benar, dan stok minus tidak dianggap masalah.
 
+## Harga jual pindah ke OUTLET, dan integritas penjualan
+
+Migration `0096`–`0099`. Audit lengkapnya di `docs/audit-bep-outlet-pricing.md`, rencananya di `docs/rencana-outlet-pricing.md`.
+
+### Yang sudah benar sejak awal, dan yang salah
+
+`sales.unit_price` dan `sales.revenue` **memang sudah dibekukan** saat transaksi dicatat — tidak pernah dibaca ulang dari master. Jejak harga historis aman sejak dulu.
+
+Yang salah: `record_sales()` mengambil angkanya dari `products.sale_price`, kolom milik **BU**. Dua outlet yang menjual menu sama selalu tercatat berharga sama, dan tidak ada jalan membedakannya. Satu baris SQL, tapi ia yang membuat "profitabilitas per outlet" mustahil.
+
+Sekarang harga ada di `outlet_menu_prices` — outlet + produk + rentang tanggal. Menaikkan harga membuat **baris baru**; trigger menutup baris lama sehari sebelumnya. Harga lama tidak pernah ditimpa, jadi riwayatnya bertambah, bukan tergantikan.
+
+### Dua bug integritas yang tidak diminta tapi lebih mendesak
+
+**`coalesce(v_price, 0)`.** Menu yang belum diisi harganya tercatat sebagai penjualan **beromzet Rp 0** — bukan error, baris yang terlihat normal. Dan `bauranPenjualan()` membacanya sebagai harga nol, jadi marginnya negatif sebesar HPP dan menarik margin tertimbang ke bawah. Stoknya tetap terpotong, jadi tidak ketahuan dari opname. Sekarang **seluruh transaksi ditolak**, dengan pesan yang menyebut nama semua menu yang belum berharga sekaligus — bukan satu per satu lewat penolakan berulang.
+
+**Tidak ada penjaga penjualan ganda.** `sales` tidak punya unique constraint apa pun dan tidak punya policy UPDATE/DELETE, jadi kelebihannya tidak bisa diperbaiki dari aplikasi.
+
+### Kenapa BUKAN `unique (outlet, produk, tanggal)`
+
+Itu jawaban yang paling wajar, dan membaca `sales.page.js` membatalkannya: sesudah tersimpan, kotak isian **dikosongkan** dan rekap menampilkan **akumulasi** hari itu. Jadi mengirim dua kali dalam sehari adalah alur yang **sah** — shift pagi lalu shift malam. Kunci unik akan menolak shift kedua, atau menimpa angka shift pertama.
+
+Yang perlu dibedakan bukan "dua penjualan di hari sama" melainkan "satu tindakan yang terkirim dua kali" — dan yang tahu bedanya hanya klien. Maka `sales_submissions.id` **sengaja tanpa `default gen_random_uuid()`**: nilainya wajib datang dari klien dan diulang pada setiap retry. Kalau server yang membuatnya, percobaan kedua dapat kunci baru dan lolos.
+
+Di `sales.page.js`, penanda dibuang setelah **berhasil** atau setelah **ditolak karena harga kosong** (isinya akan diubah, jadi kiriman berikutnya berbeda), tapi **dipertahankan** kalau gagal karena jaringan. Membedakan keduanya penting: mempertahankan penanda sesudah validasi gagal akan membuat kiriman yang sudah diperbaiki ditolak sebagai duplikat.
+
+### Tanpa fallback — disengaja
+
+Rancangan awal saya menyertakan cadangan ke `products.sale_price`. Dibatalkan atas permintaan, dan permintaannya benar: cadangan itu membuat outlet yang harganya belum disetel tetap berjualan dengan harga BU. Transaksinya berhasil, angkanya masuk akal, dan tidak ada tanda bahwa harga outlet tidak pernah diisi.
+
+### Apa yang benar-benar diuji
+
+Migration dijalankan di **Postgres sungguhan** (PGlite), bukan dibaca mata. Selain idempotensi dan constraint, yang diuji adalah **perilakunya**:
+
+| Diuji | Hasil |
+|---|---|
+| Dua outlet, harga beda → `unit_price` berbeda | ✅ |
+| Menu belum berharga → seluruh transaksi ditolak | ✅ |
+| Saat ditolak: `sales` kosong, `stock_movements` kosong | ✅ |
+| Penanda kiriman ikut dibatalkan (bisa dikirim ulang setelah diperbaiki) | ✅ |
+| `products.sale_price` terisi pun tetap ditolak (tanpa fallback) | ✅ |
+| Kirim ulang ref sama → baris & stok **tidak** bertambah | ✅ |
+| Ref berbeda isi sama → tetap tercatat (shift kedua yang sah) | ✅ |
+| Harga naik → transaksi lama tetap memakai harga lamanya | ✅ |
+| Regresi: pemotongan stok, `allow_sales=false`, signature lama sudah tiada | ✅ |
+
+Satu temuan dari pengujian itu: `effective_to < effective_from` memang ditolak, tapi oleh pembangunan `daterange` di dalam trigger — dengan pesan internal Postgres yang tidak bisa ditindaklanjuti dari layar. Rentangnya sekarang diperiksa lebih dulu dengan pesan yang menyebut kedua tanggalnya.
+
+### Dua kesalahan di audit baru saya
+
+`audit-harga-outlet.cjs` pada jalan pertamanya menuduh `sales.service.js` memanggil `record_sales` tanpa `p_ref` — padahal ada. Regexnya `[\s\S]{0,400}?\)` berhenti di kurung tutup pertama, dan kurung pertama yang ditemuinya ada di dalam `items.map((i) => ({...}))`. Jendelanya menutup sebelum `p_ref` terbaca. Sekarang dipotong di `;`.
+
+`audit-outlet-tulis.cjs` menolak layar harga baru karena tidak menyebut penjaga wewenang — dan itu benar. RLS `omp_modify` hanya meloloskan admin BU, jadi tombol yang tampil untuk yang lain akan ditolak **diam-diam** (PostgREST mengembalikan sukses dengan nol baris). Sekarang layarnya memanggil `sayaAdminBu()` dan tombolnya memang tidak digambar.
+
+### Yang belum dikerjakan, dan kenapa dipisah
+
+Langkah 8–10 dari urutan Anda — profitabilitas outlet-aware, pemisahan Actual/Projection/Simulation, dan report/KPI yang masih memakai harga BU — **belum**.
+
+1–7 adalah perubahan **integritas data**: begitu terpasang, setiap transaksi baru sudah benar. 8–10 adalah perubahan **cara membaca**, dan tidak mengubah kebenaran data satu pun. Berhenti di sini menghasilkan keadaan yang utuh: harga sudah per outlet, tidak ada Rp 0, tidak ada baris ganda, dan halaman profitabilitas tetap bekerja memakai `sales.unit_price` yang memang sudah benar.
+
+Menggabungkan semuanya dalam satu putaran berarti mengubah data **dan** cara membacanya sekaligus — kalau angkanya lalu terlihat janggal, tidak akan ketahuan mana penyebabnya.
+
+### Satu hal yang tidak bisa dijanjikan
+
+Backfill memberi setiap outlet harga yang **sama**. Sampai seseorang menyesuaikannya, profitabilitas per outlet akan menampilkan margin identik di semua outlet — bukan karena sistemnya salah, tapi karena harganya memang belum dibedakan. Layar Harga per Outlet menampilkan berapa banyak yang masih hasil backfill, supaya keadaan itu terlihat dan tidak disalahartikan sebagai kesimpulan.
+
 ## Semua tabel & halaman menyesuaikan layar
 
 ### Angka yang membuat masalahnya jelas
@@ -3578,6 +3644,7 @@ Dua hal yang diputuskan sadar:
 - [x] **Kantong kas (sub-kas) & outlet peruntukan** — form Kas Masuk/Keluar dibedakan, jumlah kantong per user diatur admin, pindah saldo antar kantong sendiri, Laporan Kas bisa disaring per outlet & kategori
 - [x] **Terima dari supplier per nota** — satu kali input banyak barang + foto nota (boleh menyusul), nomor `TRM-YYMMDD-XXXX` dibuat sistem, edit mengoreksi stok lewat pergerakan penyeimbang; Admin Portal punya tab **Nota Terima** dengan rincian per nomor + unduh xlsx
 - [x] **Bahan menipis (stok ÷ takaran resep = cukup berapa porsi)** — takaran rata-rata dari semua menu yang memakai bahan itu, ambang **porsi minimum per outlet** berlaku untuk semua menu sekaligus, bisa **ditimpa manual** per bahan (satu-satunya cara mengawasi gas/tisu/kemasan); tabel di Staff App (kartu di HP) + tab Admin Portal, unduh xlsx & kirim daftar belanja lewat WhatsApp tanpa API
+- [x] **Harga jual per OUTLET** (`0096`–`0099`) — `outlet_menu_prices` ber-effective-dating, `record_sales()` tanpa fallback ke harga BU, transaksi ditolak (bukan beromzet Rp 0) bila harga belum disetel, dan penanda kiriman dari klien yang mencegah penjualan & pemakaian stok ganda
 - [x] **Semua tabel & halaman responsif** — mode kartu jadi opt-out (86 tabel), `data-label` diisi otomatis dari judul kolom lewat `MutationObserver`, tipografi `clamp()`, isian 16px di layar sentuh, dan `audit-lebar-baris.cjs` yang menjumlahkan lebar tetap tiap baris flex terhadap anggaran layar 360px
 - [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal
 - [x] **Halaman Owner (`owner.html`)** — dibuka super admin, KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan

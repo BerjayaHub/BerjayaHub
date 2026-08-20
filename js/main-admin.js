@@ -18,6 +18,7 @@ import { renderDispatchAdminPage } from './modules/dispatch/dispatch.admin.page.
 import { renderSalesAdminPage } from './modules/sales/sales.admin.page.js';
 import { renderCashAdminPage } from './modules/cash/cash.admin.page.js';
 import { renderMenuAdminPage } from './modules/menu/menu.admin.page.js';
+import { renderHargaOutletTab } from './modules/menu/harga-outlet.admin.js';
 import { renderStaffDataPage } from './modules/profile/staff-data.admin.page.js';
 import { renderShiftAdminPage } from './modules/shift/shift.admin.page.js';
 import { renderFleetAdminPage } from './modules/fleet/fleet.admin.page.js';
@@ -93,6 +94,9 @@ const GROUPS = {
       { code: 'inventory', label: 'Stok & Riwayat', render: renderInventoryAdminPage },
       { code: 'master_product', label: 'Master Produk', render: renderMasterProductPage },
       { code: 'menu', label: 'Menu', render: renderMenuAdminPage },
+      // Harga jual menempel pada OUTLET (0096), jadi ia layar tersendiri —
+      // bukan kolom di tabel Menu, yang isinya master milik BU.
+      { code: 'harga_outlet', label: 'Harga per Outlet', render: renderHargaOutletTab },
       { code: 'production', label: 'Produksi', render: renderProductionAdminPage },
       { code: 'sales', label: 'Penjualan', render: renderSalesAdminPage }
     ]

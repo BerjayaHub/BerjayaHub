@@ -588,19 +588,42 @@ function tabelHarga(d, state) {
   const menu = (d.products ?? []).filter((p) => p.product_type === 'finished' && p.is_active !== false);
   if (!menu.length) return '<p class="report-note">Belum ada menu jadi di BU ini.</p>';
 
+  // HARGA OUTLET, BUKAN HARGA ACUAN BU.
+  //
+  // Saat satu outlet dipilih, dipakai harga outlet itu. Saat "Semua Outlet",
+  // harga per menu bisa BERBEDA antar outlet — dan menampilkan satu angka
+  // rata-rata di situ adalah persis yang dilarang: ia terlihat seperti harga
+  // yang berlaku, padahal tidak berlaku di outlet mana pun.
+  //
+  // Maka yang berbeda ditandai "beragam", dan barisnya tidak menghitung
+  // selisih terhadap saran. Untuk melihat angkanya, pilih satu outlet.
+  const outletDipilih = state.outletIds?.length === 1 ? state.outletIds[0] : null;
+  const hargaPer = new Map();
+  for (const h of d.hargaOutlet ?? []) {
+    if (outletDipilih && h.outlet_id !== outletDipilih) continue;
+    const kini = hargaPer.get(h.product_id);
+    if (kini === undefined) hargaPer.set(h.product_id, Number(h.selling_price));
+    else if (kini !== null && kini !== Number(h.selling_price)) hargaPer.set(h.product_id, null); // beragam
+  }
+
   const baris = menu
-    .map((p) => ({
+    .map((p) => {
+      const hargaBerlaku = hargaPer.has(p.id) ? hargaPer.get(p.id) : null;
+      return {
       p,
+      beragam: hargaPer.get(p.id) === null,
+      belumAda: !hargaPer.has(p.id),
       r: ringkasHarga({
         hpp: d.biaya.get(p.id),
         kemasan: Number(p.packaging_cost ?? 0),
         metode: state.metode,
         persen: state.persen,
-        hargaSekarang: p.sale_price,
+        hargaSekarang: hargaBerlaku,
         feePersen: Number(p.fee_online_percent ?? 0),
         promoPersen: Number(p.promo_percent ?? 0)
       })
-    }))
+      };
+    })
     // Yang harganya paling jauh DI BAWAH saran naik ke atas — itu yang menggerus
     // margin, dan itu yang perlu dilihat lebih dulu. Baris tanpa selisih
     // (HPP belum ada) ditaruh di belakang, bukan dibuang.
@@ -614,12 +637,17 @@ function tabelHarga(d, state) {
         </thead>
         <tbody>
           ${baris
-            .map(({ p, r }) => {
+            .map(({ p, r, beragam, belumAda }) => {
               const warna = r.selisih == null ? '' : r.selisih < 0 ? 'style="color:#b91c1c"' : '';
+              const kolomHarga = belumAda
+                ? '<span class="error-text" style="font-size:0.78rem">belum ada harga outlet</span>'
+                : beragam
+                  ? '<span style="color:var(--color-text-muted)">beragam per outlet</span>'
+                  : rp(r.hargaSekarang);
               return `<tr>
                 <td data-label="Menu">${escapeHtml(p.name)}${r.sebab ? ` <span style="font-size:0.7rem;color:var(--color-text-muted)">(${escapeHtml(r.sebab)})</span>` : ''}</td>
                 <td data-label="HPP+kemasan">${rp(r.hppTotal)}</td>
-                <td data-label="Harga kini">${rp(r.hargaSekarang)}</td>
+                <td data-label="Harga kini">${kolomHarga}</td>
                 <td data-label="Food cost">${pct(r.foodCostSekarang)}</td>
                 <td data-label="Saran">${rp(r.hargaSaran)}</td>
                 <td data-label="Selisih" ${warna}>${r.selisih == null ? '—' : rp(r.selisih)}</td>

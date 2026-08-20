@@ -31,6 +31,10 @@ export const ADMIN_TAB_CATALOG = [
   { code: 'inventory', label: 'Stok & Riwayat', group: 'Inventory' },
   { code: 'master_product', label: 'Master Produk', group: 'Inventory' },
   { code: 'menu', label: 'Menu', group: 'Inventory' },
+  // Harga jual adalah keputusan usaha, dan sejak 0099 ia menentukan apakah
+  // penjualan bisa dicatat sama sekali. Tetap bisa diberikan ke admin BU/outlet,
+  // tapi sengaja terdaftar terpisah supaya izinnya bisa dicabut sendiri.
+  { code: 'harga_outlet', label: 'Harga per Outlet', group: 'Inventory' },
   { code: 'production', label: 'Produksi', group: 'Inventory' },
   { code: 'sales', label: 'Penjualan', group: 'Inventory' },
 

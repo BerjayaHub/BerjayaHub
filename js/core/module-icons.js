@@ -20,6 +20,7 @@ const ICONS = {
   asset: '🪑',
   shift: '🗓️',
   dokumen_ttd: '✍️',
+  harga_outlet: '🏷️',
   grp_org: '🏢',
   grp_user: '👤',
   grp_inventory: '📦'
