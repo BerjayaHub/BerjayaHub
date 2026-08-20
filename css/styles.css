@@ -1635,6 +1635,22 @@ select.sc-cell.is-off {
   font-size: 1.05rem;
   line-height: 1.25;
 }
+/* Penanda konteks angka: ACTUAL / PROJECTED / SIMULATED.
+   Angka profitabilitas tanpa konteks adalah angka yang akan disalahartikan —
+   "profit" hasil simulasi dan "profit" dari transaksi terlihat sama persis. */
+.tanda-konteks {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  vertical-align: middle;
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
+  color: var(--color-primary);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+
 .report-note {
   font-size: 0.78rem;
   color: var(--color-text-muted);

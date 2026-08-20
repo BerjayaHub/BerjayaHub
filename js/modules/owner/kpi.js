@@ -177,6 +177,13 @@ export function kpiKeuangan({ biayaTetap, entri = [], omzet = 0 }) {
     // layak dipercaya.
     persenTanpaKategori: persen(tanpaKategori, semuaKeluar),
     rasioBiayaTetap: persen(tetap, angka(omzet) ?? 0),
+    // Rasio KAS KELUAR terhadap omzet — bukan rasio biaya tetap.
+    //
+    // Dibedakan karena keduanya menjawab pertanyaan berbeda: yang satu "berapa
+    // uang yang keluar", yang satu "berapa beban tetap yang harus ditutup".
+    // Layar Ringkasan memakai yang ini supaya tidak ada dua angka bernama
+    // "biaya tetap" yang datang dari dua rute berbeda.
+    rasioKasKeluar: persen(semuaKeluar, angka(omzet) ?? 0),
     perKategori: biayaTetap?.perKategori ?? []
   };
 }

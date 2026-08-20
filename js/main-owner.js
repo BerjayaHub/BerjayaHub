@@ -8,6 +8,7 @@ import { loadingHtml } from './core/loading.js';
 import { pasangPenandaKoneksi } from './core/koneksi.js';
 import { pasangTabelResponsif } from './core/tabel-responsif.js';
 import { listBuOwner } from './modules/owner/owner.service.js';
+import { renderActualOwner } from './modules/owner/actual.owner.js';
 import { renderRingkasanOwner } from './modules/owner/ringkasan.owner.js';
 import { renderBepOwner } from './modules/owner/bep.owner.js';
 import { renderDokumenOwner } from './modules/owner/dokumen.owner.js';
@@ -44,6 +45,10 @@ import { renderDokumenOwner } from './modules/owner/dokumen.owner.js';
 const app = document.getElementById('app');
 
 const TAB = [
+  // Profitabilitas aktual dijadikan tab PERTAMA — ia yang menjawab pertanyaan
+  // paling sering ditanyakan owner, dan ia satu-satunya tab yang seluruh
+  // angkanya aktual tanpa asumsi apa pun.
+  { kode: 'actual', label: 'Profitabilitas', ikon: '📒', render: renderActualOwner },
   { kode: 'ringkasan', label: 'Ringkasan', ikon: '📊', render: renderRingkasanOwner },
   { kode: 'bep', label: 'BEP & Harga', ikon: '⚖️', render: renderBepOwner },
   { kode: 'dokumen', label: 'Dokumen & TTD', ikon: '✍️', render: renderDokumenOwner }
@@ -241,7 +246,7 @@ function gambarKerangka(context, daftarBu, buAktifId) {
   // Tautan dokumen menang atas tab terakhir — kalau owner baru saja diminta
   // menandatangani sesuatu, itulah yang dia cari.
   const terakhir = baca(KUNCI_TAB);
-  const awal = dokAwal ? 'dokumen' : TAB.some((t) => t.kode === terakhir) ? terakhir : 'ringkasan';
+  const awal = dokAwal ? 'dokumen' : TAB.some((t) => t.kode === terakhir) ? terakhir : 'actual';
   bukaTab(awal, context, bu, { pulihkan: true });
 }
 

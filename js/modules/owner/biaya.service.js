@@ -20,16 +20,40 @@ import { supabase } from '../../config/supabase-client.js';
  * penjualan, produksi, atau opname.
  */
 
-const KOLOM = 'id, business_unit_id, outlet_id, name, jenis, satuan, amount, notes, is_active, updated_at';
+const KOLOM =
+  'id, business_unit_id, outlet_id, name, jenis, satuan, amount, notes, is_active, updated_at, ' +
+  'allocation_scope, cost_behavior';
 
+/**
+ * Seluruh biaya sebuah BU — termasuk yang TIDAK menempel pada outlet.
+ *
+ * ============ TIDAK MENYARING `outlet_id` DI QUERY ============
+ *
+ * Versi pertama memakai `.in('outlet_id', outletIds)`. Sejak `0100`, biaya
+ * `shared_bu` dan `corporate` punya `outlet_id` NULL — dan `.in()` tidak pernah
+ * meloloskan NULL.
+ *
+ * Akibatnya: seluruh biaya bersama BU HILANG dari halaman, ringkasan BU
+ * menampilkan "Shared BU Cost: Rp 0", dan laba BU terlihat lebih besar daripada
+ * kenyataan. Tidak ada error — barisnya memang tidak diminta.
+ *
+ * Jadi penyaringan outlet dipindah ke mesin hitung (`profit-outlet.js`), yang
+ * memang tahu bedanya cakupan langsung dan cakupan luas.
+ */
 export async function listBiayaOutlet({ businessUnitId, outletIds = null, denganNonaktif = false }) {
   let q = supabase.from('outlet_costs').select(`${KOLOM}, outlets!outlet_id(name)`).eq('business_unit_id', businessUnitId);
-  if (outletIds?.length) q = q.in('outlet_id', outletIds);
   if (!denganNonaktif) q = q.eq('is_active', true);
 
   const { data, error } = await q.order('jenis').order('amount', { ascending: false });
   if (error) throw error;
-  return data ?? [];
+
+  // Penyaringan outlet dikerjakan DI SINI, sesudah semuanya terbaca — dan
+  // hanya untuk yang bercakupan langsung. Yang `shared_bu`/`corporate` selalu
+  // ikut, apa pun outlet yang sedang dipilih.
+  if (!outletIds?.length) return data ?? [];
+  return (data ?? []).filter(
+    (b) => (b.allocation_scope ?? 'direct_outlet') !== 'direct_outlet' || outletIds.includes(b.outlet_id)
+  );
 }
 
 export async function tambahBiaya({ businessUnitId, outletId, name, jenis, satuan, amount, notes = null }) {

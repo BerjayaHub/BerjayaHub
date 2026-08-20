@@ -16,6 +16,7 @@ import {
 import { bauranPenjualan, biayaTetapDariKas, hitungBep, posisiTerhadapBep, ringkasBiayaOutlet } from './bep.js';
 import { listBiayaOutlet } from './biaya.service.js';
 import { listHargaAktif } from '../menu/harga-outlet.service.js';
+import { hitungActualOutlet, konsolidasiOutlet, ringkasBu } from './profit-outlet.js';
 import { kpiPenjualan, kpiOperasional, kpiKepatuhan, kpiKeuangan, ringkasanOwner } from './kpi.js';
 
 /**
@@ -60,7 +61,7 @@ export async function muatDataOwner({ businessUnitId, dari, sampai, outletIds = 
     throw error;
   }
 
-  return hitung({ ...mentah, hariKerja, targetLaba });
+  return hitung({ ...mentah, hariKerja, targetLaba, outletIdsAktif: outletIds });
 }
 
 async function ambilMentah({ businessUnitId, dari, sampai, outletIds }) {
@@ -107,7 +108,8 @@ function hitung({
   biayaOutlet,
   hargaOutlet,
   hariKerja,
-  targetLaba
+  targetLaba,
+  outletIdsAktif
 }) {
   const biaya = computeCosts(products, recipes);
   const bauran = bauranPenjualan({ sales, products, biaya });
@@ -146,10 +148,44 @@ function hitung({
     variabelPersen: daftarBiaya.variabelPersen
   });
 
+  // =====================================================================
+  // ACTUAL — OUTLET-AWARE (Phase 8A/8B)
+  //
+  // Tiap outlet dihitung SENDIRI, lalu dijumlahkan. Inilah satu-satunya sumber
+  // angka uang untuk layar Actual dan untuk kartu uang di Ringkasan.
+  //
+  // Mesin lama di bawah (`bauran`, `bep`, `posisi`) TIDAK dibuang, tapi ia
+  // sekarang hanya melayani tab BEP & Simulasi. Kalau keduanya dipakai
+  // bersamaan untuk angka yang sama, layar akan menampilkan dua laba yang
+  // berbeda-tipis dan tidak ada yang tahu mana yang benar.
+  // =====================================================================
+  const outletDihitung = outletIdsAktif?.length ? outlets.filter((o) => outletIdsAktif.includes(o.id)) : outlets;
+
+  const hasilOutlet = outletDihitung.map((o) =>
+    hitungActualOutlet({
+      outlet: o,
+      sales,
+      products,
+      hpp: biaya,
+      hargaOutlet,
+      biaya: biayaOutlet
+    })
+  );
+
+  const actual = {
+    konteks: 'actual',
+    outlets: hasilOutlet,
+    konsolidasi: konsolidasiOutlet(hasilOutlet),
+    bu: ringkasBu({ konsolidasi: konsolidasiOutlet(hasilOutlet), biaya: biayaOutlet })
+  };
+
   const posisi = posisiTerhadapBep({ totalQty: bauran.totalQty, bepPorsi: bep.porsi });
   const ringkasan = ringkasanOwner({ penjualan, operasional, keuangan, bep });
 
   return {
+    // SATU-SATUNYA sumber angka uang aktual.
+    actual,
+
     outlets,
     products,
     recipes,

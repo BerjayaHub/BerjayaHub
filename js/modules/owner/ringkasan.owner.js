@@ -122,18 +122,30 @@ async function muatDanGambar(root, ctx, state) {
 
   const { ringkasan, penjualan, operasional, kepatuhan, keuangan, bep, posisi, bauran } = d;
 
+  // ANGKA UANG DIAMBIL DARI SATU SUMBER: `d.actual` (profit-outlet.js).
+  //
+  // Sebelumnya kartu di sini memakai `kpiPenjualan()` yang menghitung kemasan
+  // dari `products.packaging_cost` (BU), sementara tab Profitabilitas memakai
+  // kemasan per outlet. Dua laba yang berbeda tipis di dua tab, sama-sama masuk
+  // akal, dan tidak ada yang bisa memutuskan mana yang benar.
+  //
+  // Yang TIDAK dipindah: KPI operasional & kepatuhan. Keduanya tidak menghitung
+  // uang, jadi tidak ada dua sumber yang bisa bertengkar.
+  const A = d.actual.konsolidasi;
+  const BU = d.actual.bu;
+
   isi.innerHTML = `
     ${bilahPeringatan(ringkasan)}
 
-    ${kartuUtama(ringkasan, posisi)}
+    ${kartuUtama(A, BU, d.actual.outlets)}
 
     <h3 style="margin:22px 0 8px">Penjualan &amp; Margin</h3>
     <div class="report-kpis">
-      ${kpi('Omzet', rp(penjualan.omzet))}
-      ${kpi('Porsi terjual', num(penjualan.porsi))}
-      ${kpi('Laba kotor', rp(penjualan.labaKotor))}
-      ${kpi('Margin', pct(penjualan.marginPersen))}
-      ${kpi('Omzet / hari jualan', rp(penjualan.omzetPerHari))}
+      ${kpi('Omzet', rp(A.revenue))}
+      ${kpi('Porsi terjual', num(A.units))}
+      ${kpi('Contribution Margin', rp(A.cm))}
+      ${kpi('CM %', pct(A.cmPersen))}
+      ${kpi('Omzet / hari jualan', rp(penjualan.omzetPerHari), 'penyebutnya hari yang ada penjualannya')}
     </div>
     ${tabelMenu('Penyumbang laba terbesar', penjualan.terbaik)}
     ${tabelMenu('Penyumbang laba terkecil', penjualan.terlemah)}
@@ -157,13 +169,20 @@ async function muatDanGambar(root, ctx, state) {
     </div>
     <p class="report-note">${escapeHtml(kepatuhan.catatan)}</p>
 
-    <h3 style="margin:22px 0 8px">Keuangan</h3>
+    <h3 style="margin:22px 0 8px">Arus Kas Keluar</h3>
+    <p class="report-note" style="margin-bottom:10px">
+      Bagian ini menjawab pertanyaan yang <strong>berbeda</strong> dari profitabilitas di atas:
+      berapa uang yang benar-benar <em>keluar dari kas</em> pada rentang ini.
+      <br /><br />
+      Angkanya tidak akan sama dengan biaya tetap di kartu profitabilitas, dan itu wajar —
+      sewa yang jatuh tempo tanggal 28 belum ada di kas pada tanggal 5, sedangkan profitabilitas
+      memakai biaya yang <em>direncanakan</em> per bulan. Yang dipakai menghitung laba adalah yang
+      direncanakan; yang di bawah ini catatan pembayaran.
+    </p>
     <div class="report-kpis">
       ${kpi('Kas keluar', rp(keuangan.kasKeluar))}
-      ${kpi('Biaya tetap', rp(keuangan.biayaTetap))}
-      ${kpi('Biaya variabel', rp(keuangan.biayaVariabel))}
       ${kpi('Belum berkategori', rp(keuangan.tanpaKategori), pct(keuangan.persenTanpaKategori))}
-      ${kpi('Biaya tetap / omzet', pct(keuangan.rasioBiayaTetap))}
+      ${kpi('Kas keluar / omzet', pct(keuangan.rasioKasKeluar))}
     </div>
     ${tabelKategori(keuangan.perKategori)}
 
@@ -187,20 +206,34 @@ function bilahPeringatan(r) {
     </div>`;
 }
 
-function kartuUtama(r, posisi) {
+/**
+ * Kartu paling atas — seluruhnya dari `d.actual`, dan berlabel ACTUAL.
+ *
+ * Posisi terhadap BEP diringkas per outlet, bukan sebagai satu angka gabungan.
+ * BEP gabungan menyembunyikan outlet yang rugi di balik yang untung; yang perlu
+ * dilihat owner justru berapa outlet yang masih di bawah.
+ */
+function kartuUtama(A, BU, outlets) {
+  const rb = A.ringkasBep;
   const capai =
-    posisi.persen == null
-      ? '<span style="color:var(--color-text-muted)">Titik impas belum bisa dihitung</span>'
-      : posisi.lewat
-        ? `<span style="color:var(--color-primary)">✅ Sudah lewat titik impas (${pct(posisi.persen)})</span>`
-        : `<span style="color:#b45309">Belum sampai titik impas — baru ${pct(posisi.persen)}</span>`;
+    outlets.length === 0
+      ? '<span style="color:var(--color-text-muted)">Belum ada outlet pada saringan ini</span>'
+      : rb.diBawah > 0
+        ? `<span style="color:#b45309">${rb.diBawah} outlet masih di bawah titik impas</span>`
+        : rb.diAtas > 0
+          ? `<span style="color:var(--color-primary)">✅ Semua outlet yang bisa dihitung sudah lewat titik impas</span>`
+          : '<span style="color:var(--color-text-muted)">Titik impas belum bisa dihitung</span>';
 
   return `
+    <p style="margin:0 0 8px;font-size:0.78rem;color:var(--color-text-muted)">
+      Angka di bawah <strong class="tanda-konteks">ACTUAL</strong> — dari transaksi & biaya yang tercatat.
+    </p>
     <div class="report-kpis">
-      ${kpi('Omzet', rp(r.omzet))}
-      ${kpi('Laba kotor', rp(r.labaKotor))}
-      ${kpi('Biaya tetap', rp(r.biayaTetap))}
-      ${kpi('Sisa setelah biaya tetap', rp(r.sisaSetelahBiayaTetap), 'Belum dikurangi pajak &amp; penyusutan')}
+      ${kpi('Omzet', rp(A.revenue))}
+      ${kpi('Contribution Margin', rp(A.cm))}
+      ${kpi('Biaya tetap langsung outlet', rp(A.fixedLangsung))}
+      ${kpi('Operating Profit outlet', rp(A.operatingProfit))}
+      ${kpi('BU Profit setelah biaya bersama', rp(BU.buProfitSetelahShared), 'sesudah dikurangi biaya bersama BU')}
     </div>
     <p style="margin:10px 0 0;font-size:0.9rem">${capai}</p>
   `;
