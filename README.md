@@ -3459,6 +3459,28 @@ Lalu sabotase menemukan bug di audit barunya sendiri: menghapus `pasangTabelResp
 
 Satu sabotase lain **lolos dan tidak diperbaiki**: membuang penanda `data-siap` tidak membuat tes merah. Setelah ditelusuri, memang tidak ada yang perlu ditahan — `bungkusGulir()` sudah menolak membungkus ulang tabel yang induknya `.table-scroll`, jadi tidak ada gelung tak berujung. Penanda itu penghematan, bukan penjagaan, dan sekarang komentarnya berbunyi begitu.
 
+### Modul Shift dikembalikan jadi tabel
+
+Mode kartu opt-out ternyata salah untuk **jadwal shift**, dan dilaporkan dari lapangan. Jadwal shift adalah **matriks**: baris orang, kolom hari. Yang dibaca bukan satu baris melainkan hubungan antar sel — siapa libur di hari yang sama, siapa masuk pagi berturut-turut, apakah ada hari yang kosong sama sekali. Semuanya dibaca dengan **membandingkan kolom**.
+
+Mode kartu memecah tiap orang jadi kartu berisi tujuh baris *"Senin: Pagi, Selasa: Libur, …"*. Isinya lengkap, tapi perbandingannya hilang: untuk tahu siapa saja yang libur Rabu, orang harus membuka dan mengingat setiap kartu. Tabel yang digeser menyamping dengan **kolom nama yang beku** justru lebih mudah dibaca di HP daripada dua puluh kartu yang harus diingat bersamaan.
+
+Dikembalikan lewat `tabel-tetap` — kelas opt-out yang memang dibuat untuk ini. `table-freeze-1` dan `.table-scroll` tidak pernah berubah, jadi kolom bekunya langsung bekerja lagi. Tabel pengaturan shift di Admin Portal ikut dikembalikan supaya seluruh modulnya berperilaku sama; berpindah antara kartu di satu tabel lalu tabel di sebelahnya, dalam satu halaman yang sama, lebih membingungkan daripada dua-duanya konsisten.
+
+### Dua kesalahan saya di audit yang menjaganya
+
+Auditnya menyala terhadap kode yang **sudah benar**, dua kali berturut-turut — dan kedua kali yang keliru definisinya, bukan kodenya.
+
+**Pertama:** ia hanya mengenali komentar JS (`//`, `/* */`) sebagai "alasan tertulis". Markup di repo ini disusun di dalam template literal, jadi tidak ada tempat untuk komentar JS di antara baris-barisnya; `<!-- … -->` justru satu-satunya cara menaruh alasan **bersebelahan** dengan tag yang dijelaskannya.
+
+**Kedua, dan lebih buruk:** jendela pencariannya 400 karakter, diukur dari **awal** komentar. Alasan yang ditulis panjang otomatis jatuh di luar jendela — jadi **semakin lengkap penjelasannya, semakin pasti auditnya menyalahkannya.** Itu kebalikan persis dari yang mau didorong. Sekarang yang dicari **penutup** komentarnya (`-->`, `*/`, atau baris diawali `//`) dalam 300 karakter tepat sebelum kelasnya, jadi panjang komentarnya tidak berpengaruh sama sekali. `//` hanya dihitung kalau mengawali baris — `https://` di dalam URL tidak boleh lolos sebagai alasan, dan sabotasenya memastikan itu.
+
+### Dan satu kesalahan yang petunjuk auditnya sendiri sudah menyebutkan
+
+Komentar yang saya tulis memuat nama kelas di dalam backtick — ```table-freeze-1``` — dan backtick itu **menutup template literal**-nya. Dua berkas gagal di-parse.
+
+`audit-syntax` menangkapnya, dan petunjuk yang ia cetak berbunyi persis: *"cari backtick atau `${ }` liar di dalam template literal, termasuk di komentar HTML."* Kalimat itu ditulis di sana justru karena hal ini pernah terjadi sebelumnya. Nama kelas di komentar HTML sekarang memakai tanda kutip biasa.
+
 ### Kenapa "HPP rata-rata" kosong padahal HPP menu sudah diisi
 
 Pertanyaan ini datang dari lapangan, dan jawabannya adalah keputusan yang disengaja — tapi keputusan yang disengaja pun harus dikatakan **di tempat akibatnya terlihat**, bukan hanya di komentar kode.

@@ -137,9 +137,29 @@ for (const berkas of berkasJs(DIR_JS)) {
 
   for (const m of src.matchAll(/tabel-tetap/g)) {
     if (rel.endsWith('core/tabel-responsif.js')) continue; // definisinya sendiri
-    const mulai = src.lastIndexOf('\n', Math.max(0, m.index - 400));
-    const sekitar = src.slice(Math.max(0, mulai), m.index);
-    if (/\/\/|\/\*/.test(sekitar)) continue;
+    // YANG DICARI: AKHIR KOMENTAR YANG BERSEBELAHAN — bukan awalnya.
+    //
+    // Dua kesalahan berturut-turut di pemeriksaan ini, dan keduanya salah
+    // tuduh terhadap kode yang sudah benar:
+    //
+    //   1. Hanya mengenali komentar JS (`//`, `/* */`). Markup di repo ini
+    //      disusun di dalam template literal, jadi tidak ada tempat untuk
+    //      komentar JS di antara baris-barisnya — `<!-- ... -->` justru
+    //      satu-satunya cara menaruh alasan bersebelahan dengan tagnya.
+    //
+    //   2. Jendelanya 400 karakter dan diukur dari AWAL komentar. Alasan yang
+    //      ditulis panjang otomatis jatuh di luar jendela, jadi SEMAKIN LENGKAP
+    //      penjelasannya, semakin pasti auditnya menyalahkannya. Itu kebalikan
+    //      persis dari yang mau didorong.
+    //
+    // Sekarang yang diperiksa 300 karakter tepat sebelum kelasnya, dan yang
+    // dicari PENUTUP komentar (`-->`, `*/`, atau baris yang diawali `//`).
+    // Panjang komentarnya jadi tidak berpengaruh sama sekali.
+    //
+    // `//` hanya dihitung kalau ia mengawali baris — `https://` di dalam URL
+    // tidak boleh lolos sebagai "alasan".
+    const sekitar = src.slice(Math.max(0, m.index - 300), m.index);
+    if (/-->|\*\/|(?:^|\n)\s*\/\//.test(sekitar)) continue;
 
     const baris = src.slice(0, m.index).split('\n').length;
     masalah.push(

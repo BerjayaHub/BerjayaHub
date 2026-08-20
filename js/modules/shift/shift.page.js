@@ -141,8 +141,24 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
       <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
         Periode <strong>${fmtDate(wk.from)} – ${fmtDate(wk.to)}</strong>
       </p>
+      <!-- TABEL, BUKAN KARTU — sengaja menolak mode kartu.
+
+           Jadwal shift adalah MATRIKS: baris orang, kolom hari. Yang dibaca
+           bukan satu baris melainkan hubungan antar sel — siapa libur di hari
+           yang sama, siapa masuk pagi berturut-turut, apakah ada hari yang
+           kosong sama sekali. Semua itu dibaca dengan MEMBANDINGKAN kolom.
+
+           Mode kartu memecah tiap orang jadi kartu sendiri berisi tujuh baris
+           "Senin: Pagi, Selasa: Libur, ...". Isinya lengkap, tapi
+           perbandingannya hilang: untuk tahu siapa saja yang libur Rabu, orang
+           harus membuka dan mengingat setiap kartu. Tabel yang digeser
+           menyamping dengan kolom nama yang beku justru lebih mudah dibaca di
+           HP daripada dua puluh kartu yang harus diingat bersamaan.
+
+           "table-freeze-1" yang membekukan kolom nama; wadah ".table-scroll"
+           yang menggulir, bukan halamannya. -->
       <div class="table-scroll">
-        <table class="data-table shift-grid table-freeze-1">
+        <table class="data-table shift-grid table-freeze-1 tabel-tetap">
           <thead>
             <tr><th style="min-width:140px">Staff</th>${wk.days
               .map(

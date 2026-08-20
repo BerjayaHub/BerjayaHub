@@ -190,8 +190,24 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
       <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
         Periode <strong>${fmtDate(wk.from)} – ${fmtDate(wk.to)}</strong>. Pilih shift langsung di tabel; tersimpan otomatis.
       </p>
+      <!-- TABEL, BUKAN KARTU — sengaja menolak mode kartu.
+
+           Jadwal shift adalah MATRIKS: baris orang, kolom hari. Yang dibaca
+           bukan satu baris melainkan hubungan antar sel — siapa libur di hari
+           yang sama, siapa masuk pagi berturut-turut, apakah ada hari yang
+           kosong sama sekali. Semua itu dibaca dengan MEMBANDINGKAN kolom.
+
+           Mode kartu memecah tiap orang jadi kartu sendiri berisi tujuh baris
+           "Senin: Pagi, Selasa: Libur, ...". Isinya lengkap, tapi
+           perbandingannya hilang: untuk tahu siapa saja yang libur Rabu, orang
+           harus membuka dan mengingat setiap kartu. Tabel yang digeser
+           menyamping dengan kolom nama yang beku justru lebih mudah dibaca di
+           HP daripada dua puluh kartu yang harus diingat bersamaan.
+
+           "table-freeze-1" yang membekukan kolom nama; wadah ".table-scroll"
+           yang menggulir, bukan halamannya. -->
       <div class="table-scroll">
-        <table class="data-table shift-grid table-freeze-1">
+        <table class="data-table shift-grid table-freeze-1 tabel-tetap">
           <thead>
             <tr><th style="min-width:150px">Staff</th>${wk.days
               .map((d) => `<th style="text-align:center">${dayLabel(d)}<div style="font-weight:400;font-size:0.72rem;color:var(--color-text-muted)">${fmtShort(d)}</div></th>`)
@@ -309,7 +325,12 @@ async function renderHoursTab(content, businessUnitId, outlets) {
     const slots = Array.from({ length: settings.shift_count }, (_, i) => i + 1);
 
     list.innerHTML = `
-      <table class="data-table" style="max-width:640px">
+      <!-- Ikut menolak mode kartu supaya seluruh modul Shift berperilaku sama.
+           Enam kolomnya pendek-pendek (nomor, jam, status), jadi tabel yang
+           digeser menyamping masih terbaca — dan berpindah antara kartu di satu
+           tabel lalu tabel di sebelahnya, dalam satu halaman yang sama, lebih
+           membingungkan daripada dua-duanya konsisten. -->
+      <table class="data-table tabel-tetap" style="max-width:640px">
         <thead><tr><th>Shift</th><th>Nama</th><th>Mulai</th><th>Selesai</th><th>Status</th><th>Aksi</th></tr></thead>
         <tbody>
           ${slots
