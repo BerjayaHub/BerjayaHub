@@ -3564,14 +3564,56 @@ Target Omzet   = (biaya tetap langsung + target laba) ÷ CM%
 
 ### Dari mana tiap angkanya
 
-| Besaran | Sumber | Catatan |
+| Besaran | Sumber utama | Kalau belum ada |
 |---|---|---|
-| Biaya tetap | `outlet_costs` yang `direct_outlet` untuk outlet itu | **sebulan penuh**, tidak diprorata |
-| Rasio biaya variabel | CM% aktual outlet itu | sudah memuat HPP, kemasan, per porsi, % omzet |
-| ASP | `Σ omzet ÷ Σ porsi` dari transaksi | **bukan** `products.sale_price` |
+| Biaya tetap | `outlet_costs` yang `direct_outlet` untuk outlet itu | **FIXED COST BELUM TERSEDIA** — bukan Rp 0 |
+| Rasio biaya variabel | CM% aktual outlet itu | isi **Planning Variable Cost %** |
+| ASP | `Σ omzet ÷ Σ porsi` dari transaksi | isi **Planning ASP** (opsional — target omzet tetap jalan) |
 | Hari operasional | diisi pengguna, baku 30 | outlet yang tutup sehari seminggu jangan diisi 30 |
 
+Biaya tetap selalu **sebulan penuh**, tidak diprorata. ASP tidak pernah datang dari `products.sale_price`.
+
 Ketiganya membawa `sumber: 'actual' | 'planning'` di dalam hasilnya, dan layar menampilkan lencana **PLANNING ASSUMPTION** pada yang diketik. Angka Rp 50.000 dari transaksi nyata dan Rp 50.000 yang ditebak seseorang terlihat persis sama — sedangkan bobot keputusan di atas keduanya sangat berbeda.
+
+### Outlet yang belum punya transaksi tetap bisa ditargetkan
+
+Perencanaan justru **paling dibutuhkan sebelum outlet buka**. Versi pertama saya menolak menghitung apa pun tanpa transaksi — yang membuat modulnya berguna hanya untuk outlet yang sudah tidak lagi membutuhkannya.
+
+Tiap outlet punya empat isian sendiri: **Target laba / bulan**, **Hari operasional**, **Variable Cost %**, **ASP perencanaan**. Kalau sudah ada transaksi, dua yang terakhir terisi sendiri dari transaksi itu; kalau belum, diisi manual dan target langsung muncul.
+
+Contoh dari uji wajib — AB Sentul: biaya tetap Rp 40 juta terdaftar, nol transaksi, VC 40%, ASP Rp 45.000, target laba Rp 30 juta, 30 hari:
+
+```
+BEP     Rp  66.666.667 / bulan  ·  Rp 2.222.222 / hari  ·  1.481,48 porsi  ·  49,38 / hari
+TARGET  Rp 116.666.667 / bulan  ·  Rp 3.888.889 / hari  ·  2.592,59 porsi  ·  86,42 / hari
+```
+
+### "Belum bisa dihitung" harus menyebut YANG MANA
+
+Pesan buntu adalah kegagalan tersendiri: pengguna melihat deretan kotak isian dan tidak tahu mana yang menahan. Hasilnya sekarang membawa `status`:
+
+| Status | Artinya | Yang dilakukan layar |
+|---|---|---|
+| `TARGET BISA DIHITUNG` | ekonominya lengkap | tampilkan semuanya |
+| `LENGKAPI VARIABLE COST %` | belum ada transaksi & belum ada asumsi | kotak isian **dibuka sendiri**, dengan contoh angkanya |
+| `FIXED COST BELUM TERSEDIA` | tidak ada satu pun baris `outlet_costs` | arahkan ke Admin Portal → Biaya Outlet |
+| `NOT_CALCULABLE` | CM ≤ 0 | sebabnya, tanpa angka palsu |
+
+**ASP kosong bukan penghalang.** Target omzet per bulan dan per hari tetap tampil; hanya kolom porsi yang berbunyi `—` dengan keterangan "ASP belum tersedia". Mengosongkan seluruh kartu hanya karena harga rata-rata belum diketahui akan membuang tiga angka yang sudah benar.
+
+### Belum ada biaya ≠ biayanya nol
+
+Outlet tanpa satu pun baris `outlet_costs` menghasilkan `fixedLangsung: 0` di mesin Actual — angka yang sah secara aritmetika dan menyesatkan secara total. BEP Rp 0 berarti *"sudah impas sebelum menjual apa pun"*: kesimpulan terbaik yang bisa dibayangkan, diberikan justru kepada outlet yang datanya paling kosong.
+
+Dibedakan lewat **ada-tidaknya baris**, bukan lewat nilainya. Biaya tetap yang memang benar-benar nol dinyatakan dengan mengisi asumsi perencanaan `0` — pernyataan yang disengaja, bukan kekosongan yang ditafsirkan.
+
+Hal yang sama berlaku di kotak isian: kotak yang **dikosongkan** kembali ke angka aktual, bukan jadi nol. `Number('')` adalah `0`, dan Variable Cost 0% berarti CM 100% — target jauh lebih ringan daripada yang sebenarnya, lahir dari kotak yang tidak diisi siapa pun. Auditnya memeriksa pola ini persis pada baris yang menyimpan isian per outlet.
+
+### Kotak isian yang tidak pernah dibuat — dan kenapa tes tidak bisa menangkapnya
+
+Gap yang memicu revisi ini bukan salah hitung. Mesin sudah menerima `asumsi.variabelPersen` sejak Phase 10A dan **tesnya lulus** — tapi layar tidak pernah menyediakan kotaknya. Mesinnya benar; yang tidak ada justru pintunya.
+
+Tes memanggil mesin langsung, jadi ia mustahil melihat kekurangan itu. Hanya audit yang bisa. `audit-target.cjs` sekarang menuntut keempat `data-kunci` ada di layar, menuntut nilainya benar-benar diteruskan sebagai `asumsi.variabelPersen`, dan menuntut kotak kosong jadi `null`. Sabotase menghapus kotaknya tertangkap audit sementara seluruh 47 berkas tes tetap hijau — yang justru membuktikan kenapa aturan itu harus ada di lapisan audit.
 
 ### Biaya tetap dipakai sebulan penuh — dan itu berbeda dari layar Actual
 
@@ -3642,6 +3684,8 @@ Porsi disimpan sebagai **desimal** di perhitungan dan dibulatkan **ke atas** han
 ### Sabotase, dan satu yang lolos
 
 Sepuluh sabotase diuji pada mesinnya — biaya tetap ikut run-rate, target laba 0 ≠ BEP, CM negatif tetap dihitung, hari 0 dibagi diam-diam, selalu dibagi 30, ASP 0 dipakai membagi, outlet tak terhitung dinolkan, biaya bersama hilang, biaya bersama bocor ke outlet, override diabaikan. Semua tertangkap; satu perubahan kontrol yang memang tak berakibat tetap lulus.
+
+Revisi menambah enam sabotase lagi: kotak Variable Cost % dihapus, kotak ada tapi tidak diteruskan ke mesin, kotak kosong jadi 0, biaya tetap yang belum ada dianggap nol, status tidak menunjuk yang kurang, `STATUS_HITUNG.BISA` hilang. Dua di antaranya **lolos pada percobaan pertama** dan aturannya diperketat: "kotak kosong jadi 0" lolos karena polanya dicari di mana saja dalam berkas dan baris asumsi umum masih memakai pola yang sama — sekarang dicari persis pada baris yang menyimpan isian per outlet.
 
 Sebelas sabotase diuji pada auditnya. **Satu lolos:** mengganti nama `pencapaianTarget` jadi `pencapaianTarget2` tidak terdeteksi, karena `indexOf('export function pencapaianTarget')` juga cocok dengan namanya yang lebih panjang. Fungsi yang diganti nama terlihat masih ada, dan seluruh pemeriksaan di bawahnya memeriksa fungsi yang salah tanpa satu pun tanda.
 

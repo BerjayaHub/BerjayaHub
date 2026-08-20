@@ -15,7 +15,7 @@
  *            rata-rata menghasilkan target yang selalu lebih ringan, dan
  *            selisihnya persis sebesar yang disembunyikan outlet bermargin tipis.
  */
-const { hitungTarget, konsolidasiTarget, ringkasBuTarget, pencapaianTarget, ekonomiTarget, STATUS_TARGET } =
+const { hitungTarget, konsolidasiTarget, ringkasBuTarget, pencapaianTarget, ekonomiTarget, STATUS_TARGET, STATUS_HITUNG } =
   await import('../js/modules/owner/target.js');
 const { hitungActualOutlet } = await import('../js/modules/owner/profit-outlet.js');
 const { hitungHari, proyeksiOutlet } = await import('../js/modules/owner/proyeksi.js');
@@ -62,7 +62,10 @@ function ekonomi({ nama = 'O', revenue = 100000000, rasioVariabel = 0.4, fixed =
     cm,
     cmPersen: revenue > 0 ? (cm / revenue) * 100 : null,
     fixedLangsung: fixed,
-    rincianFixed: [{ nama: 'Sewa', jumlah: fixed, sifat: 'fixed' }],
+    // Tanpa biaya -> tanpa baris. Baris "Sewa Rp 0" adalah fixture yang tidak
+    // pernah lahir dari data sungguhan, dan ia menyamarkan justru perbedaan yang
+    // sedang diuji: belum ada biaya vs biayanya nol.
+    rincianFixed: fixed === 0 ? [] : [{ nama: 'Sewa', jumlah: fixed, sifat: 'fixed' }],
     operatingProfit: cm - fixed
   };
 }
@@ -160,7 +163,10 @@ const kosong = hitungActualOutlet({
 const t7a = hitungTarget({ actual: kosong, hariOperasional: 30 });
 cek('7a. belum bisa dihitung tanpa asumsi', t7a.bisaDihitung, false);
 cek('7a. BEP omzet null', t7a.bep.revenueBulanan, null);
-benar('7a. sebabnya dikatakan', /belum ada transaksi/i.test(t7a.sebab ?? ''));
+// Sebabnya menyebut YANG MANA yang kurang, bukan "belum bisa dihitung" saja.
+cek('7a. status menunjuk Variable Cost %', t7a.status, STATUS_HITUNG.LENGKAPI_VARIABEL);
+benar('7a. sebabnya menyebut Variable Cost %', /VARIABLE COST %/i.test(t7a.sebab ?? ''));
+benar('7a. dan menyebut apa yang harus dilakukan', /Isi Variable Cost % perencanaan/i.test(t7a.sebab ?? ''));
 
 // Dengan asumsi biaya variabel: omzet target ADA, porsi belum (ASP belum ada).
 const t7b = hitungTarget({ actual: kosong, hariOperasional: 30, asumsi: { variabelPersen: 40 } });
@@ -331,11 +337,21 @@ const tNol = hitungTarget({ actual: cmNol, hariOperasional: 30 });
 cek('12. CM nol: tidak bisa dihitung', tNol.bisaDihitung, false);
 cek('12.   tidak menghasilkan Infinity', tNol.bep.revenueBulanan, null);
 
-// Biaya tetap nol -> BEP nol (sah, bukan null)
-const tanpaFixed = hitungTarget({ actual: ekonomi({ fixed: 0 }), hariOperasional: 30 });
-cek('12. fixed 0 -> BEP omzet 0', tanpaFixed.bep.revenueBulanan, 0);
+// Biaya tetap NOL YANG DINYATAKAN -> BEP nol (sah, bukan null).
+const tanpaFixed = hitungTarget({ actual: ekonomi({ fixed: 0 }), hariOperasional: 30, asumsi: { fixedBulanan: 0 } });
+cek('12. fixed 0 dinyatakan -> BEP omzet 0', tanpaFixed.bep.revenueBulanan, 0);
 cek('12.   BEP porsi 0', tanpaFixed.bep.unitBulanan, 0);
 cek('12.   bisa dihitung', tanpaFixed.bisaDihitung, true);
+
+// Biaya tetap TIDAK ADA DATANYA -> BUKAN nol. Ini beda, dan bedanya menentukan:
+// BEP Rp 0 berarti "sudah impas sebelum menjual apa pun" — kesimpulan terbaik
+// yang bisa dibayangkan, diberikan justru ke outlet yang datanya paling kosong.
+const fixedHilang = hitungTarget({ actual: ekonomi({ fixed: 0 }), hariOperasional: 30 });
+cek('12. fixed tanpa data -> tidak bisa dihitung', fixedHilang.bisaDihitung, false);
+cek('12.   BEP null, BUKAN 0', fixedHilang.bep.revenueBulanan, null);
+cek('12.   statusnya menunjuk fixed cost', fixedHilang.status, STATUS_HITUNG.LENGKAPI_FIXED);
+benar('12.   sebabnya dikatakan', /FIXED COST BELUM TERSEDIA/.test(fixedHilang.sebab ?? ''));
+benar('12.   dan ditegaskan nol ≠ kosong', /BUKAN berarti biayanya nol/i.test(fixedHilang.sebab ?? ''));
 
 // Hari operasional 0 -> harian null, bulanan tetap ada
 const tHariNol = hitungTarget({ actual: ekonomi({}), hariOperasional: 0 });
@@ -429,6 +445,167 @@ dekat('integrasi: BEP target = BEP actual', tInt.bep.revenueBulanan, aktualInteg
 
 const ek = ekonomiTarget({ actual: aktualIntegrasi });
 cek('integrasi: semua sumber aktual', [ek.asp.sumber, ek.fixedBulanan.sumber, ek.cmPersen.sumber], ['actual', 'actual', 'actual']);
+
+// =====================================================================
+// REVISI 10A — OUTLET TANPA TRANSAKSI HARUS TETAP BISA DITARGETKAN
+//
+// Inilah gap yang ditemukan di lapangan: AB Sentul, biaya tetap sudah terdaftar,
+// tapi belum ada satu pun transaksi. Layar menolak menghitung target dan tidak
+// memberi satu pun petunjuk bahwa Variable Cost % yang menahan.
+//
+// Perencanaan justru PALING dibutuhkan sebelum outlet buka. Menolak menghitung
+// tepat pada saat itu membuat modulnya berguna hanya untuk outlet yang sudah
+// tidak lagi membutuhkannya.
+// =====================================================================
+
+/** Outlet baru: biaya tetap terdaftar, transaksi belum ada sama sekali. */
+const belumJualan = (fixed = 40000000) =>
+  hitungActualOutlet({
+    outlet: { id: 'o-sentul', name: 'AB Sentul' },
+    sales: [],
+    products: [],
+    hpp: new Map(),
+    hargaOutlet: [],
+    biaya: [{ name: 'Sewa', jenis: 'tetap', satuan: 'per_bulan', amount: fixed, outlet_id: 'o-sentul', allocation_scope: 'direct_outlet' }]
+  });
+
+// --- UJI A: tanpa transaksi + Planning Variable Cost + Planning ASP
+const A = hitungTarget({
+  actual: belumJualan(),
+  targetLabaBulanan: 30000000,
+  hariOperasional: 30,
+  asumsi: { variabelPersen: 40, asp: 45000 }
+});
+
+cek('A. bisa dihitung tanpa satu pun transaksi', A.bisaDihitung, true);
+cek('A. status: bisa dihitung', A.status, STATUS_HITUNG.BISA);
+dekat('A. CM% = 60', A.rincian.cmPersen, 60, 1e-9);
+
+// Angka wajib §6 — BEP
+dekat('A. BEP omzet/bulan = 66.666.667', A.bep.revenueBulanan, 66666666.67, 0.5);
+dekat('A. BEP omzet/hari = 2.222.222', A.bep.revenueHarian, 2222222.22, 0.5);
+dekat('A. BEP porsi/bulan ≈ 1.481,48', A.bep.unitBulanan, 1481.4815, 0.001);
+dekat('A. BEP porsi/hari ≈ 49,38', A.bep.unitHarian, 49.3827, 0.001);
+
+// Angka wajib §6 — target laba Rp 30 juta
+dekat('A. target omzet/bulan = 116.666.667', A.target.revenueBulanan, 116666666.67, 0.5);
+dekat('A. target omzet/hari = 3.888.889', A.target.revenueHarian, 3888888.89, 0.5);
+dekat('A. target porsi/bulan ≈ 2.592,59', A.target.unitBulanan, 2592.5926, 0.001);
+dekat('A. target porsi/hari ≈ 86,42', A.target.unitHarian, 86.4198, 0.001);
+
+// Keduanya ASUMSI, dan itu dinyatakan — bukan disamarkan jadi angka aktual.
+cek('A. sumber variabel = planning', A.masukan.ekonomi.cmPersen.sumber, 'planning');
+cek('A. sumber ASP = planning', A.masukan.ekonomi.asp.sumber, 'planning');
+cek('A. sumber fixed = actual (dari outlet_costs)', A.masukan.ekonomi.fixedBulanan.sumber, 'actual');
+benar('A. peringatan asumsi muncul', A.peringatan.some((p) => /ASUMSI PERENCANAAN/i.test(p)));
+
+// --- UJI B: tanpa transaksi + Variable Cost ada + ASP kosong
+const B = hitungTarget({
+  actual: belumJualan(),
+  targetLabaBulanan: 30000000,
+  hariOperasional: 30,
+  asumsi: { variabelPersen: 40 }
+});
+
+cek('B. tetap bisa dihitung', B.bisaDihitung, true);
+dekat('B. BEP omzet tetap ada', B.bep.revenueBulanan, 66666666.67, 0.5);
+dekat('B. target omzet tetap ada', B.target.revenueBulanan, 116666666.67, 0.5);
+dekat('B. omzet harian tetap ada', B.target.revenueHarian, 3888888.89, 0.5);
+cek('B. BEP porsi null', B.bep.unitBulanan, null);
+cek('B. target porsi null', B.target.unitBulanan, null);
+cek('B. target porsi/hari null', B.target.unitHarian, null);
+cek('B. bisaPorsi false', B.bisaPorsi, false);
+benar('B. sebab porsinya kosong dikatakan', B.peringatan.some((p) => /target PORSI belum bisa dihitung/i.test(p)));
+
+// --- UJI C: tanpa transaksi + ASP ada + Variable Cost kosong
+const C = hitungTarget({
+  actual: belumJualan(),
+  targetLabaBulanan: 30000000,
+  hariOperasional: 30,
+  asumsi: { asp: 45000 }
+});
+
+cek('C. tidak bisa dihitung', C.bisaDihitung, false);
+cek('C. status menunjuk Variable Cost %', C.status, STATUS_HITUNG.LENGKAPI_VARIABEL);
+cek('C. BEP omzet null', C.bep.revenueBulanan, null);
+cek('C. target omzet null', C.target.revenueBulanan, null);
+benar('C. sebabnya menunjuk yang kurang', /LENGKAPI VARIABLE COST %/.test(C.sebab ?? ''));
+
+// ASP saja tidak cukup, dan itu masuk akal: tanpa margin, harga tidak
+// memberitahu apa pun tentang berapa yang harus terjual.
+benar('C. tidak mengarang CM dari ASP', C.rincian.cmPersen == null);
+
+// --- UJI D: ada transaksi -> ekonomi aktual jadi baku
+const sudahJualan = hitungActualOutlet({
+  outlet: { id: 'o-d', name: 'Sudah Jualan' },
+  sales: [{ outlet_id: 'o-d', product_id: 'p1', qty: 2000, revenue: 95000000 }],
+  products: [{ id: 'p1', name: 'Menu' }],
+  hpp: new Map([['p1', 18050]]), // 38% dari ASP 47.500
+  hargaOutlet: [{ outlet_id: 'o-d', product_id: 'p1', packaging_cost: 0 }],
+  biaya: [{ name: 'Sewa', jenis: 'tetap', satuan: 'per_bulan', amount: 40000000, outlet_id: 'o-d', allocation_scope: 'direct_outlet' }]
+});
+const D = hitungTarget({ actual: sudahJualan, targetLabaBulanan: 30000000, hariOperasional: 30 });
+
+dekat('D. variabel% baku = 38 (aktual)', D.rincian.variabelPersen, 38, 1e-9);
+dekat('D. ASP baku = 47.500 (aktual)', D.rincian.asp, 47500, 1e-9);
+cek('D. sumber variabel = actual', D.masukan.ekonomi.cmPersen.sumber, 'actual');
+cek('D. sumber ASP = actual', D.masukan.ekonomi.asp.sumber, 'actual');
+cek('D. tidak ada asumsi aktif', D.masukan.ekonomi.adaAsumsi, false);
+dekat('D. BEP = 40jt / 62%', D.bep.revenueBulanan, 40000000 / 0.62, 0.5);
+
+// --- UJI E: ada transaksi TAPI di-override -> target berubah, yang lain tidak
+const salinanD = JSON.stringify(sudahJualan);
+const hariE = hitungHari({ dari: '2026-08-01', sampai: '2026-08-31', hariIni: '2026-08-20' });
+const proyE1 = proyeksiOutlet({ actual: sudahJualan, hari: hariE });
+
+const E = hitungTarget({
+  actual: sudahJualan,
+  targetLabaBulanan: 30000000,
+  hariOperasional: 30,
+  asumsi: { variabelPersen: 40, asp: 50000 }
+});
+
+const proyE2 = proyeksiOutlet({ actual: sudahJualan, hari: hariE });
+
+benar('E. target berubah', E.target.revenueBulanan !== D.target.revenueBulanan);
+dekat('E. pakai CM 60%, bukan 62%', E.target.revenueBulanan, 70000000 / 0.6, 0.5);
+dekat('E. pakai ASP 50.000', E.target.unitBulanan, 70000000 / 0.6 / 50000, 1e-6);
+cek('E. sumber keduanya planning', [E.masukan.ekonomi.cmPersen.sumber, E.masukan.ekonomi.asp.sumber], ['planning', 'planning']);
+
+// Nilai aktualnya tetap dibawa serta supaya layar bisa menampilkan keduanya.
+dekat('E. CM aktual tetap terbaca 62%', E.masukan.ekonomi.cmPersen.nilaiAktual, 62, 1e-9);
+dekat('E. ASP aktual tetap terbaca 47.500', E.masukan.ekonomi.asp.nilaiAktual, 47500, 1e-9);
+
+cek('E. ACTUAL tidak berubah', JSON.stringify(sudahJualan), salinanD);
+dekat('E.   omzet aktual tetap', sudahJualan.revenue, 95000000, 1e-9);
+dekat('E.   CM% aktual tetap 62', sudahJualan.cmPersen, 62, 1e-9);
+cek('E. PROJECTION tidak berubah', JSON.stringify(proyE2), JSON.stringify(proyE1));
+
+// --- UJI F: asumsi dihapus -> kembali ke ekonomi aktual
+const F = hitungTarget({
+  actual: sudahJualan,
+  targetLabaBulanan: 30000000,
+  hariOperasional: 30,
+  // Persis yang dikirim layar saat kotaknya dikosongkan.
+  asumsi: { variabelPersen: null, asp: null, fixedBulanan: null }
+});
+
+cek('F. kembali ke ekonomi aktual', JSON.stringify(F.rincian), JSON.stringify(D.rincian));
+cek('F. target identik dengan D', JSON.stringify(F.target), JSON.stringify(D.target));
+cek('F. tidak ada asumsi aktif', F.masukan.ekonomi.adaAsumsi, false);
+cek('F. sumber kembali actual', [F.masukan.ekonomi.cmPersen.sumber, F.masukan.ekonomi.asp.sumber], ['actual', 'actual']);
+
+// Kotak kosong TIDAK boleh diperlakukan sebagai nol. Variable Cost % nol berarti
+// CM 100% — target yang jauh lebih ringan, dari kotak yang tidak diisi siapa pun.
+benar('F. kotak kosong ≠ variabel 0%', F.rincian.variabelPersen !== 0);
+benar('F. kotak kosong ≠ ASP 0', F.rincian.asp !== 0);
+
+// Tapi nol yang DIKETIK memang berlaku — pernyataan, bukan kekosongan.
+const nolDiketik = hitungTarget({ actual: sudahJualan, hariOperasional: 30, asumsi: { variabelPersen: 0 } });
+dekat('F. variabel 0% diketik -> CM 100%', nolDiketik.rincian.cmPersen, 100, 1e-9);
+dekat('F.   BEP = biaya tetap itu sendiri', nolDiketik.bep.revenueBulanan, 40000000, 0.5);
+
+for (const [nama, o] of Object.entries({ A, B, C, D, E, F, nolDiketik, fixedHilang })) periksaAngka(nama, o);
 
 console.log(gagal === 0 ? '✅ target: semua lulus' : `❌ target: ${gagal} gagal`);
 process.exit(gagal === 0 ? 0 : 1);

@@ -69,6 +69,20 @@ export const SUMBER = {
   ASUMSI: 'planning'
 };
 
+/**
+ * Kenapa target belum bisa dihitung — dan APA yang harus diisi.
+ *
+ * "Belum bisa dihitung" tanpa menyebut yang mana adalah jalan buntu: pengguna
+ * melihat deretan kotak isian dan tidak tahu mana yang menahan. Layar memakai
+ * status ini untuk membuka kotak yang tepat dan menyorotnya.
+ */
+export const STATUS_HITUNG = {
+  BISA: 'TARGET BISA DIHITUNG',
+  LENGKAPI_VARIABEL: 'LENGKAPI VARIABLE COST %',
+  LENGKAPI_FIXED: 'FIXED COST BELUM TERSEDIA',
+  TIDAK_BISA: 'NOT_CALCULABLE'
+};
+
 export const STATUS_TARGET = {
   TERCAPAI: 'MENCAPAI TARGET',
   MENDEKATI: 'MENDEKATI TARGET',
@@ -104,6 +118,20 @@ export function ekonomiTarget({ actual, asumsi = {} }) {
   const fixedAktual = angka(actual?.fixedLangsung) ?? 0;
   const fixedAsumsi = angka(asumsi.fixedBulanan);
 
+  // "BELUM ADA BIAYA TETAP" TIDAK SAMA DENGAN "BIAYA TETAPNYA NOL".
+  //
+  // `hitungActualOutlet()` menjumlahkan baris `outlet_costs`; kalau tidak ada
+  // satu pun baris, hasilnya 0 — angka yang sah secara aritmetika dan
+  // menyesatkan secara total. BEP Rp 0 berarti "outlet ini sudah impas sebelum
+  // menjual apa pun", yaitu kesimpulan terbaik yang bisa dibayangkan, diberikan
+  // justru kepada outlet yang datanya paling kosong.
+  //
+  // Dibedakan lewat ADA-TIDAKNYA baris biaya, bukan lewat nilainya. Kalau
+  // biaya tetapnya memang benar-benar nol, itu dinyatakan dengan mengisi asumsi
+  // perencanaan 0 — pernyataan yang disengaja, bukan kekosongan yang ditafsirkan.
+  const adaBarisFixed = (actual?.rincianFixed ?? []).length > 0;
+  const fixedTersedia = fixedAsumsi != null || adaBarisFixed;
+
   // Rasio biaya variabel diambil dari CM% aktual, bukan dihitung ulang dari
   // komponennya. CM% itu sudah memuat HPP, kemasan, biaya per porsi, dan persen
   // omzet persis seperti layar Actual menghitungnya.
@@ -130,14 +158,17 @@ export function ekonomiTarget({ actual, asumsi = {} }) {
     },
 
     fixedBulanan: {
-      nilai: fixedAsumsi != null ? fixedAsumsi : fixedAktual,
+      nilai: fixedTersedia ? (fixedAsumsi != null ? fixedAsumsi : fixedAktual) : null,
+      tersedia: fixedTersedia,
       sumber: fixedAsumsi != null ? SUMBER.ASUMSI : SUMBER.AKTUAL,
-      nilaiAktual: fixedAktual,
+      nilaiAktual: adaBarisFixed ? fixedAktual : null,
       rincian: actual?.rincianFixed ?? [],
       catatan:
         fixedAsumsi != null
           ? 'Asumsi perencanaan — tidak mengubah `outlet_costs`.'
-          : 'Biaya tetap langsung outlet ini per BULAN PENUH, dari daftar biaya. Biaya bersama BU & korporat tidak termasuk.'
+          : adaBarisFixed
+            ? 'Biaya tetap langsung outlet ini per BULAN PENUH, dari daftar biaya. Biaya bersama BU & korporat tidak termasuk.'
+            : 'Outlet ini belum punya satu pun biaya tetap langsung yang terdaftar. Belum ada biaya BUKAN berarti biayanya nol.'
     },
 
     cmPersen: {
@@ -147,8 +178,10 @@ export function ekonomiTarget({ actual, asumsi = {} }) {
       nilaiAktual: cmPersenAktual,
       catatan:
         variabelPersenAsumsi != null
-          ? 'Asumsi perencanaan.'
-          : 'Dari ekonomi aktual outlet ini — HPP, kemasan, biaya per porsi, dan persen omzet, persis seperti layar Profitabilitas menghitungnya.'
+          ? 'Asumsi perencanaan — dipakai hanya untuk menghitung target.'
+          : cmPersenAktual == null
+            ? 'Belum ada transaksi, jadi rasio biaya variabel belum bisa dihitung. Isi Variable Cost % perencanaan.'
+            : 'Dari ekonomi aktual outlet ini — HPP, kemasan, biaya per porsi, dan persen omzet, persis seperti layar Profitabilitas menghitungnya.'
     },
 
     // Benar kalau ADA satu saja asumsi yang menimpa angka aktual.
@@ -192,25 +225,45 @@ export function hitungTarget({ actual, targetLabaBulanan = 0, hariOperasional = 
   // angka negatif terbaca seolah targetnya sudah terlampaui — kebalikan persis
   // dari keadaannya. CM nol menghasilkan pembagian dengan nol.
   const cmRasio = cmPersen == null ? null : cmPersen / 100;
-  const bisaHitung = cmRasio != null && cmRasio > 0;
+  const cmSehat = cmRasio != null && cmRasio > 0;
 
-  if (cmRasio == null) {
-    sebab.push('Contribution margin belum bisa dihitung — belum ada transaksi, dan belum ada asumsi biaya variabel yang diisi.');
+  // Dua kekurangan yang berbeda, dan pesannya harus berbeda pula.
+  //
+  // "Belum bisa dihitung" tanpa menyebut YANG MANA yang kurang adalah jalan
+  // buntu: pengguna melihat kotak-kotak isian dan tidak tahu mana yang menahan.
+  // Itu persis yang terjadi pada AB Sentul — targetnya menolak dihitung, dan
+  // tidak ada satu pun petunjuk bahwa Variable Cost % yang belum ada.
+  let status;
+  if (!ek.fixedBulanan.tersedia) {
+    status = STATUS_HITUNG.LENGKAPI_FIXED;
+    sebab.push(
+      'FIXED COST BELUM TERSEDIA — outlet ini belum punya biaya tetap langsung yang terdaftar. Isi di Admin Portal → Biaya Outlet, atau isi asumsi perencanaan di bawah. Belum ada biaya BUKAN berarti biayanya nol.'
+    );
+  } else if (cmRasio == null) {
+    status = STATUS_HITUNG.LENGKAPI_VARIABEL;
+    sebab.push(
+      'LENGKAPI VARIABLE COST % — outlet ini belum punya transaksi, jadi rasio biaya variabelnya belum bisa dihitung sendiri. Isi Variable Cost % perencanaan di bawah dan target langsung muncul.'
+    );
   } else if (cmRasio <= 0) {
+    status = STATUS_HITUNG.TIDAK_BISA;
     sebab.push(
       cmRasio === 0
         ? 'Contribution margin persis NOL — berapa pun yang terjual, biaya tetap tidak akan tertutup. Tidak ada target yang bisa dicapai tanpa mengubah harga atau biaya.'
         : 'Contribution margin NEGATIF — setiap porsi yang terjual menambah rugi. Tidak ada omzet yang bisa membuat outlet ini impas.'
     );
+  } else {
+    status = STATUS_HITUNG.BISA;
   }
+
+  const bisaHitung = status === STATUS_HITUNG.BISA;
 
   // --- Laba target yang membuat kebutuhan omzet jadi negatif ditolak.
   //
   // Ini hanya terjadi kalau seseorang mengetik target laba negatif yang lebih
   // besar daripada biaya tetapnya — artinya "rugi sebesar ini pun tidak apa".
   // Omzet negatif bukan jawaban untuk itu; jawabannya "pertanyaannya keliru".
-  const kebutuhanBep = fixed;
-  const kebutuhanTarget = fixed + laba;
+  const kebutuhanBep = bisaHitung ? fixed : null;
+  const kebutuhanTarget = bisaHitung ? fixed + laba : null;
   if (bisaHitung && kebutuhanTarget < 0) {
     sebab.push('Target laba yang diisi lebih rugi daripada seluruh biaya tetap outlet ini, jadi tidak ada omzet yang menjawabnya.');
   }
@@ -251,6 +304,13 @@ export function hitungTarget({ actual, targetLabaBulanan = 0, hariOperasional = 
     outletName: actual?.outletName ?? '',
 
     bisaDihitung: bisaHitung,
+    // Yang KURANG, bukan sekadar "tidak bisa". Layar memakainya untuk membuka
+    // kotak isian yang tepat, bukan menyuruh pengguna menebak.
+    status,
+    // Target OMZET berlaku walau ASP belum ada — hanya target PORSI yang tidak.
+    // Dipisahkan supaya layar tidak mengosongkan seluruh kartu hanya karena
+    // harga rata-ratanya belum diketahui.
+    bisaPorsi,
     sebab: sebab.length ? sebab.join(' ') : null,
 
     // Masukan, dibawa serta supaya hasilnya bisa ditelusuri ulang tanpa menebak

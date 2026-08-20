@@ -10,6 +10,7 @@ import {
   ringkasBuTarget,
   pencapaianTarget,
   STATUS_TARGET,
+  STATUS_HITUNG,
   SUMBER,
   HARI_OPERASIONAL_BAKU
 } from './target.js';
@@ -161,13 +162,21 @@ async function muatDanGambar(root, ctx, state) {
   gambarHasil(isi, d, state);
 }
 
-/** Asumsi yang benar-benar berlaku untuk satu outlet. */
+/**
+ * Asumsi yang benar-benar berlaku untuk satu outlet.
+ *
+ * `?? null` bukan `?? 0`. Kotak yang dikosongkan berarti "pakai angka aktual",
+ * bukan "nilainya nol" — dan bedanya besar: Variable Cost 0% berarti CM 100%,
+ * yaitu target yang jauh lebih ringan, lahir dari kotak yang tidak diisi
+ * siapa pun.
+ */
 function asumsiOutlet(state, outletId) {
   const o = state.perOutlet[outletId] ?? {};
   return {
     laba: o.laba ?? state.umum.laba,
     hari: o.hari ?? state.umum.hari,
-    asp: o.asp ?? null
+    asp: o.asp ?? null,
+    variabel: o.variabel ?? null
   };
 }
 
@@ -182,7 +191,7 @@ function gambarHasil(isi, d, state) {
       actual: a,
       targetLabaBulanan: as.laba,
       hariOperasional: as.hari,
-      asumsi: { asp: as.asp }
+      asumsi: { asp: as.asp, variabelPersen: as.variabel }
     });
   });
 
@@ -219,44 +228,75 @@ function kartuOutlet(t, aktual, proyeksi, state) {
   const as = asumsiOutlet(state, t.outletId);
   const ek = t.masukan.ekonomi;
 
+  const simpanan = state.perOutlet[t.outletId] ?? {};
+
+  // Kotak isian DIBUKA sendiri kalau ada yang menahan perhitungan.
+  //
+  // `<details>` yang tertutup di bawah tulisan "belum bisa dihitung" adalah
+  // jalan buntu: yang menahan justru ada di dalamnya, dan tidak ada yang
+  // menunjukkan begitu. Itu persis kegagalan yang dilaporkan pada AB Sentul.
+  const perluDiisi = !t.bisaDihitung;
+
   const isian = `
-    <details style="margin-top:12px">
+    <details style="margin-top:12px"${perluDiisi ? ' open' : ''}>
       <summary style="cursor:pointer;font-size:0.85rem">Ubah asumsi khusus outlet ini</summary>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px">
         <div class="field" style="margin:0;flex:1;min-width:150px">
           <label style="font-size:0.72rem">Target laba / bulan</label>
           <input type="number" step="100000" data-outlet="${t.outletId}" data-kunci="laba"
-                 value="${state.perOutlet[t.outletId]?.laba ?? ''}" placeholder="${as.laba}" />
+                 value="${simpanan.laba ?? ''}" placeholder="${as.laba}" />
         </div>
         <div class="field" style="margin:0;flex:1;min-width:150px">
           <label style="font-size:0.72rem">Hari operasional</label>
           <input type="number" min="0" max="31" step="1" data-outlet="${t.outletId}" data-kunci="hari"
-                 value="${state.perOutlet[t.outletId]?.hari ?? ''}" placeholder="${as.hari ?? ''}" />
+                 value="${simpanan.hari ?? ''}" placeholder="${as.hari ?? ''}" />
         </div>
         <div class="field" style="margin:0;flex:1;min-width:150px">
-          <label style="font-size:0.72rem">ASP perencanaan</label>
+          <label style="font-size:0.72rem">Variable Cost %${asal(ek.cmPersen.sumber)}</label>
+          <input type="number" min="0" max="100" step="0.5" data-outlet="${t.outletId}" data-kunci="variabel"
+                 value="${simpanan.variabel ?? ''}"
+                 placeholder="${ek.cmPersen.nilaiAktual == null ? 'belum ada' : formatNum(100 - ek.cmPersen.nilaiAktual, 1)}" />
+        </div>
+        <div class="field" style="margin:0;flex:1;min-width:150px">
+          <label style="font-size:0.72rem">ASP perencanaan${asal(ek.asp.sumber)}</label>
           <input type="number" min="0" step="500" data-outlet="${t.outletId}" data-kunci="asp"
-                 value="${state.perOutlet[t.outletId]?.asp ?? ''}" placeholder="${ek.asp.nilaiAktual ?? 'belum ada'}" />
+                 value="${simpanan.asp ?? ''}" placeholder="${ek.asp.nilaiAktual ?? 'belum ada'}" />
         </div>
       </div>
       <p class="report-note" style="margin-top:10px">
-        Kosongkan untuk kembali ke asumsi umum / angka aktual. Mengubah ASP di sini
-        <strong>tidak mengubah harga jual mana pun</strong> — ia hanya membagi target omzet jadi target porsi.
+        <strong>Variable Cost %</strong> dan <strong>ASP</strong> bisa datang dari data aktual atau dari asumsi
+        perencanaan. Kalau outlet sudah punya transaksi, keduanya terisi sendiri dari transaksi itu; kalau belum,
+        isi manual di sini dan target langsung bisa dihitung.
+        <br /><br />
+        Isian perencanaan <strong>hanya dipakai menghitung Target</strong> — ia tidak mengubah Actual, Proyeksi,
+        harga jual, biaya outlet, maupun transaksi. Tidak ada satu pun yang tersimpan.
+        <br /><br />
+        Kosongkan sebuah kotak untuk kembali ke asumsi umum atau ke angka aktual. Kotak kosong <strong>bukan</strong>
+        berarti nol — Variable Cost 0% berarti CM 100%, yaitu target yang jauh lebih ringan daripada yang sebenarnya.
       </p>
     </details>`;
 
   if (!t.bisaDihitung) {
+    const cara =
+      t.status === STATUS_HITUNG.LENGKAPI_VARIABEL
+        ? 'Isi <strong>Variable Cost %</strong> di kotak yang sudah terbuka di bawah — misalnya <strong>40</strong> kalau HPP dan biaya per porsi diperkirakan 40% dari harga jual. Target BEP dan target laba langsung muncul.'
+        : t.status === STATUS_HITUNG.LENGKAPI_FIXED
+          ? 'Daftarkan biaya tetap outlet ini di <strong>Admin Portal → Biaya Outlet</strong> supaya angkanya ikut terpakai di seluruh halaman, bukan hanya di sini.'
+          : '';
+
     return `
       <section class="inline-card" style="margin-bottom:16px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
           <h3 style="margin:0">${escapeHtml(t.outletName || '(tanpa nama)')} — ${TANDA_TARGET}</h3>
-          <span class="badge">TARGET BELUM BISA DIHITUNG</span>
+          <span class="badge badge-pending">${escapeHtml(t.status)}</span>
         </div>
         <p class="report-note" style="margin-top:10px">
           ${escapeHtml(t.sebab ?? '')}
+          ${cara ? `<br /><br />${cara}` : ''}
           <br /><br />
-          Outlet ini <strong>tidak dianggap bertarget nol</strong>. Nol berarti "tidak perlu menghasilkan apa pun untuk
-          impas", yaitu kebalikan dari keadaannya. Ia dikeluarkan dari penjumlahan dan dilaporkan terpisah.
+          Untuk sementara outlet ini <strong>tidak dianggap bertarget nol</strong>. Nol berarti "tidak perlu
+          menghasilkan apa pun untuk impas", yaitu kebalikan dari keadaannya. Ia dikeluarkan dari penjumlahan
+          dan dilaporkan terpisah.
         </p>
         ${isian}
       </section>`;
@@ -275,8 +315,8 @@ function kartuOutlet(t, aktual, proyeksi, state) {
       <div class="report-kpis">
         ${kpi('BEP Omzet / bulan', rp(t.bep.revenueBulanan))}
         ${kpi('BEP Omzet / hari', rp(t.bep.revenueHarian), hariKet(t))}
-        ${kpi('BEP Porsi / bulan', porsi(t.bep.unitBulanan), desimal(t.bep.unitBulanan))}
-        ${kpi('BEP Porsi / hari', porsi(t.bep.unitHarian), desimal(t.bep.unitHarian))}
+        ${kpi('BEP Porsi / bulan', porsi(t.bep.unitBulanan), desimal(t.bep.unitBulanan, t))}
+        ${kpi('BEP Porsi / hari', porsi(t.bep.unitHarian), desimal(t.bep.unitHarian, t))}
       </div>
 
       <h4 style="margin:14px 0 6px;font-size:0.9rem">
@@ -285,8 +325,8 @@ function kartuOutlet(t, aktual, proyeksi, state) {
       <div class="report-kpis">
         ${kpi('Target Omzet / bulan', rp(t.target.revenueBulanan))}
         ${kpi('Target Omzet / hari', rp(t.target.revenueHarian), hariKet(t))}
-        ${kpi('Target Porsi / bulan', porsi(t.target.unitBulanan), desimal(t.target.unitBulanan))}
-        ${kpi('Target Porsi / hari', porsi(t.target.unitHarian), desimal(t.target.unitHarian))}
+        ${kpi('Target Porsi / bulan', porsi(t.target.unitBulanan), desimal(t.target.unitBulanan, t))}
+        ${kpi('Target Porsi / hari', porsi(t.target.unitHarian), desimal(t.target.unitHarian, t))}
       </div>
 
       ${tabelBanding(t, aktual, proyeksi, capai)}
@@ -298,7 +338,15 @@ function kartuOutlet(t, aktual, proyeksi, state) {
 }
 
 const hariKet = (t) => (t.rincian.hariOperasional ? `dibagi ${t.rincian.hariOperasional} hari` : 'hari operasional belum diisi');
-const desimal = (n) => (n == null ? '' : `tepatnya ${formatNum(n, 2)}`);
+
+/** Keterangan porsi: angka desimalnya, atau alasan kenapa kosong. */
+const desimal = (n, t) => (n == null ? (t?.bisaPorsi === false ? 'ASP belum tersedia' : '') : `tepatnya ${formatNum(n, 2)}`);
+
+/** Lencana kecil di sebelah label isian: dari mana angka yang sedang dipakai. */
+const asal = (sumber) =>
+  sumber === SUMBER.ASUMSI
+    ? ' <span class="badge badge-pending" style="font-size:0.6rem">PLANNING</span>'
+    : ' <span class="badge" style="font-size:0.6rem">dari aktual</span>';
 
 /**
  * ACTUAL vs TARGET vs PROJECTED — tabel, bukan tiga kartu.

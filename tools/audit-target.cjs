@@ -248,6 +248,91 @@ if (!/<th>\$\{TANDA_ACTUAL\}<\/th>/.test(layar) || !/<th>\$\{TANDA_PROJECTED\}<\
 }
 
 // =====================================================================
+// 9. SETIAP ASUMSI YANG DIDUKUNG MESIN HARUS PUNYA KOTAK ISIANNYA
+//
+// Ini aturan yang lahir dari kegagalan sungguhan. Mesin sudah menerima
+// `asumsi.variabelPersen` sejak awal dan tesnya lulus — tapi layar tidak pernah
+// menyediakan kotaknya. Akibatnya AB Sentul, yang biaya tetapnya sudah
+// terdaftar tapi belum punya transaksi, menampilkan "belum bisa dihitung" tanpa
+// satu pun jalan keluar. Mesinnya benar; yang tidak ada justru pintunya.
+//
+// Tes tidak bisa menangkap ini — tes memanggil mesin langsung. Hanya audit yang
+// bisa memeriksa bahwa layarnya benar-benar menyediakan jalan masuknya.
+// =====================================================================
+const ISIAN_WAJIB = [
+  { kunci: 'laba', apa: 'Target laba / bulan' },
+  { kunci: 'hari', apa: 'Hari operasional' },
+  { kunci: 'variabel', apa: 'Variable Cost % perencanaan' },
+  { kunci: 'asp', apa: 'ASP perencanaan' }
+];
+
+for (const i of ISIAN_WAJIB) {
+  if (!new RegExp(`data-kunci="${i.kunci}"`).test(layar)) {
+    catat(
+      `target.owner.js — tidak ada kotak isian untuk "${i.apa}" (data-kunci="${i.kunci}").\n` +
+        `    Mesin menerima asumsi ini, tapi tanpa kotaknya pengguna tidak punya jalan\n` +
+        `    mengisinya. Outlet yang belum punya transaksi akan berhenti di "belum bisa\n` +
+        `    dihitung" selamanya — dan justru outlet itulah yang paling butuh perencanaan.`
+    );
+  }
+}
+
+// Dan isian itu harus benar-benar SAMPAI ke mesin, bukan sekadar tergambar.
+if (!/variabelPersen:/.test(layar)) {
+  catat(
+    `target.owner.js — kotak Variable Cost % tidak diteruskan sebagai asumsi.variabelPersen.\n` +
+      `    Kotak yang tergambar tapi tidak dipakai lebih buruk daripada tidak ada:\n` +
+      `    pengguna mengisinya, tidak terjadi apa-apa, dan tidak ada yang menjelaskan kenapa.`
+  );
+}
+
+// Kotak yang dikosongkan harus jadi null, BUKAN 0.
+//
+// `Number('')` adalah 0. Variable Cost 0% berarti CM 100% — target yang jauh
+// lebih ringan daripada yang sebenarnya, lahir dari kotak yang tidak diisi
+// siapa pun. ASP 0 menghasilkan pembagian dengan nol.
+//
+// Dicari PERSIS pada baris yang menyimpan isian per outlet. Versi pertama
+// aturan ini hanya mencari polanya "di mana saja dalam berkas", dan sabotase
+// yang merusak justru baris per-outlet tetap lolos — karena baris asumsi umum
+// masih memakai pola yang sama beberapa puluh baris di atasnya.
+const polaKosongNull = /state\.perOutlet\[[^\]]+\]\[[^\]]+\]\s*=\s*[^;]*===\s*''\s*\?\s*null\s*:/;
+if (!polaKosongNull.test(layar)) {
+  catat(
+    `target.owner.js — isian per outlet tidak lagi mengubah kotak kosong jadi null.\n` +
+      `    Number('') adalah 0. Variable Cost 0% berarti CM 100%, yaitu target jauh\n` +
+      `    lebih ringan daripada yang sebenarnya — dari kotak yang tidak diisi siapa pun.\n` +
+      `    ASP 0 menghasilkan pembagian dengan nol.`
+  );
+}
+
+// =====================================================================
+// 10. "BELUM ADA DATA" TIDAK BOLEH JADI "NOL"
+// =====================================================================
+const tubuhEkonomi = tubuhFungsi(mesin, 'ekonomiTarget');
+// Diperiksa lewat MEKANISMENYA — ada-tidaknya baris `outlet_costs` — bukan lewat
+// kata "tersedia", yang tetap ada meski logikanya dimatikan jadi `true`.
+if (tubuhEkonomi && !/rincianFixed/.test(tubuhEkonomi)) {
+  catat(
+    `target.js — ekonomiTarget() tidak lagi membedakan biaya tetap yang BELUM ADA dari yang NOL.\n` +
+      `    Outlet tanpa satu pun baris outlet_costs akan menghasilkan BEP Rp 0, yaitu\n` +
+      `    "sudah impas sebelum menjual apa pun" — kesimpulan terbaik yang bisa\n` +
+      `    dibayangkan, diberikan justru ke outlet yang datanya paling kosong.`
+  );
+}
+
+// Status harus menyebut YANG MANA yang kurang, bukan sekadar gagal.
+for (const s of ['LENGKAPI_VARIABEL', 'LENGKAPI_FIXED', 'BISA']) {
+  if (!new RegExp(`\\b${s}\\s*:`).test(mesin)) {
+    catat(`target.js — STATUS_HITUNG.${s} tidak ada lagi. Layar memakainya untuk menunjuk kotak yang menahan.`);
+  }
+}
+const tubuhHitung = tubuhFungsi(mesin, 'hitungTarget');
+if (tubuhHitung && !/\bstatus\b/.test(tubuhHitung)) {
+  catat(`target.js — hitungTarget() tidak lagi mengembalikan status. "Belum bisa dihitung" tanpa menyebut yang mana adalah jalan buntu.`);
+}
+
+// =====================================================================
 // 8. TARGET TIDAK BOCOR KE LAYAR LAIN
 // =====================================================================
 for (const nama of ['actual.owner.js', 'proyeksi.owner.js', 'ringkasan.owner.js']) {
