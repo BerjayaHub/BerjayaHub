@@ -11,6 +11,7 @@ import { listBuOwner } from './modules/owner/owner.service.js';
 import { renderActualOwner } from './modules/owner/actual.owner.js';
 import { renderProyeksiOwner } from './modules/owner/proyeksi.owner.js';
 import { renderTargetOwner } from './modules/owner/target.owner.js';
+import { renderSimulasiOwner } from './modules/owner/simulasi.owner.js';
 import { renderRingkasanOwner } from './modules/owner/ringkasan.owner.js';
 import { renderBepOwner } from './modules/owner/bep.owner.js';
 import { renderDokumenOwner } from './modules/owner/dokumen.owner.js';
@@ -60,6 +61,11 @@ const TAB = [
   // Ia satu-satunya tab yang boleh menampilkan ketiga konteks sekaligus, karena
   // pertanyaannya memang perbandingan.
   { kode: 'target', label: 'Target', ikon: '🎯', render: renderTargetOwner },
+  // Simulasi ditaruh PALING BELAKANG di antara keempat tab angka, dan itu
+  // disengaja. Ia satu-satunya yang angkanya seluruhnya karangan; menaruhnya di
+  // depan membuat orang yang membuka halaman ini pertama kali mendarat di
+  // layar paling meyakinkan sekaligus paling tidak nyata.
+  { kode: 'simulasi', label: 'Simulasi', ikon: '🧪', render: renderSimulasiOwner },
   { kode: 'ringkasan', label: 'Ringkasan', ikon: '📊', render: renderRingkasanOwner },
   { kode: 'bep', label: 'BEP & Harga', ikon: '⚖️', render: renderBepOwner },
   { kode: 'dokumen', label: 'Dokumen & TTD', ikon: '✍️', render: renderDokumenOwner }

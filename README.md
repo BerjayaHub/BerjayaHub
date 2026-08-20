@@ -3299,17 +3299,20 @@ Perintah pemeriksaan yang saya pakai memotong keluaran `audit-syntax` dengan `he
 
 ## Halaman Owner (`owner.html`) — BEP, KPI, dan tanda tangan online
 
-Halaman keempat, sejajar dengan Staff App, Admin Portal, dan halaman reservasi publik. Isinya enam tab: **📒 Profitabilitas (ACTUAL)**, **🔮 Proyeksi (PROJECTED)**, **🎯 Target (TARGET)**, **📊 Ringkasan (KPI)**, **⚖️ BEP & Harga**, dan **✍️ Dokumen & TTD**.
+Halaman keempat, sejajar dengan Staff App, Admin Portal, dan halaman reservasi publik. Isinya tujuh tab: **📒 Profitabilitas (ACTUAL)**, **🔮 Proyeksi (PROJECTED)**, **🎯 Target (TARGET)**, **🧪 Simulasi (SIMULATED)**, **📊 Ringkasan (KPI)**, **⚖️ BEP & Harga**, dan **✍️ Dokumen & TTD**.
 
-Tiga tab pertama sengaja bersebelahan — mereka menjawab pertanyaan yang sama pada tiga posisi berbeda:
+Empat tab pertama sengaja berurutan — mereka menjawab pertanyaan yang sama dari empat sudut:
 
-| Tab | Menjawab | Angka contoh |
+| Tab | Menjawab | Terikat pada |
 |---|---|---|
-| 📒 ACTUAL | apa yang **sudah terjadi** | Rp 80 juta |
-| 🎯 TARGET | apa yang **harus dicapai** | Rp 116,67 juta |
-| 🔮 PROJECTED | apa yang **akan terjadi** kalau laju sekarang bertahan | Rp 124 juta |
+| 📒 ACTUAL | apa yang **sudah terjadi** | transaksi |
+| 🔮 PROJECTED | apa yang **akan terjadi** kalau laju bertahan | laju transaksi |
+| 🎯 TARGET | apa yang **harus dicapai** | biaya terdaftar |
+| 🧪 SIMULATED | apa yang terjadi **seandainya** | tidak terikat apa pun |
 
-Ketiganya angka omzet dalam rupiah, untuk outlet yang sama, dan ketiganya akan disebut "omzet" oleh orang yang berbeda. Satu-satunya pembedanya label — jadi labelnya dibawa sampai ke dalam objek datanya (`konteks: 'actual' | 'projected' | 'target'`), bukan hanya ditempel di layar.
+Keempatnya angka rupiah untuk outlet yang sama, dan keempatnya akan disebut "omzet" oleh orang yang berbeda. Satu-satunya pembedanya label — jadi labelnya dibawa sampai ke dalam objek datanya (`konteks: 'actual' | 'projected' | 'target' | 'simulated'`), bukan hanya ditempel di layar.
+
+Yang keempat paling berbahaya justru karena tidak terikat apa pun: angkanya seluruhnya karangan yang disengaja, dan karangan yang rapi lebih meyakinkan daripada kenyataan yang berantakan. Ia ditaruh paling belakang supaya orang yang membuka halaman ini tidak mendarat di layar paling meyakinkan sekaligus paling tidak nyata.
 
 ### Siapa yang membukanya: super admin
 
@@ -3694,6 +3697,84 @@ Diperbaiki dengan mencocokkan sampai kurung buka — **dan kelemahan yang sama d
 ### Yang sengaja belum dikerjakan di Phase 10A
 
 Simulation, Pricing Simulation, perubahan Master Price, dan Target Profit Simulation yang kompleks — semuanya menunggu review. Override perencanaan (`Planning Fixed Cost`, `Planning Variable Cost %`, `Planning ASP`) sudah ada di mesin dan di layar, tapi hanya sebagai asumsi baca; tidak ada satu pun jalur simpan.
+
+## Simulasi / what-if (Phase 10B)
+
+Tab `🧪 Simulasi`. `js/modules/owner/simulasi.js` — mesin murni keempat, sejajar dengan `profit-outlet.js`, `proyeksi.js`, dan `target.js`.
+
+Ia menjawab **"bagaimana kalau saya mengubah asumsi bisnis?"** — dan ia satu-satunya modul yang angkanya tidak terikat apa pun.
+
+### Baseline dihitung fungsi yang sama, dan ini bukan detail
+
+Godaan terbesar di modul ini adalah mengambil angka yang sudah ada di layar Actual dan menaruhnya di kolom kiri.
+
+Itu membuat seluruh kolom Delta tidak bermakna. Kalau kedua sisi lahir dari jalur kode yang berbeda, **selisihnya mengukur perbedaan kode, bukan perbedaan asumsi** — dan itu persis kebalikan dari yang mau dijawab. Selisih Rp 6 juta yang sebenarnya berasal dari cara membulatkan akan terbaca sebagai dampak menaikkan harga.
+
+Jadi `simulasiOutlet()` dipanggil **dua kali**: sekali dengan ekonomi apa adanya (`peran: 'baseline'`), sekali dengan ekonomi yang diubah. Kolom Baseline pun berlabel `SIMULATION`, karena ia memang bukan angka Actual.
+
+### Dua arah pertanyaan yang sama
+
+| Mode | Yang diisi | Yang dihitung |
+|---|---|---|
+| Omzet | target omzet | porsi, biaya variabel, CM, laba, margin |
+| Porsi | jumlah porsi | omzet, biaya variabel, CM, laba, margin |
+
+Keduanya wajib bertemu di angka yang sama, dan ada uji yang menuntut itu. 3.000 porsi @ Rp 50.000 dan omzet Rp 150 juta harus menghasilkan laba Rp 40 juta yang identik — kalau tidak, salah satu arahnya punya rumus sendiri.
+
+### Potongan tidak dihitung dua kali
+
+`promo` dan `fee` sama-sama bisa mewakili "uang yang tidak sampai ke kita", dan menerapkan keduanya sebagai biaya variabel akan memotong dua kali. Pembagiannya disengaja:
+
+```
+promo -> menurunkan HARGA EFEKTIF   (Rp 50.000 promo 10% = Rp 45.000)
+fee   -> memotong OMZET             (komponen biaya variabel)
+```
+
+Omzet dihitung dari harga efektif; fee dipotong dari omzet itu. Tidak ada satu rupiah pun yang lewat dua kali.
+
+Jebakan kedua lebih halus. Kalau pengguna mengisi **Variable Cost % langsung** DAN mengisi HPP, komponennya **tidak** ditambahkan di atas angka langsung — HPP akan terhitung dua kali, dan setiap kenaikan harga akan terlihat tidak menolong apa pun. Yang dipakai selalu dilaporkan di layar sebagai `langsung` / `terurai` / `baseline`, dan percampurannya diberi peringatan, bukan dibereskan diam-diam.
+
+### Biaya tetap tidak masuk ke harga jual
+
+Membebankan sewa ke tiap porsi supaya "marginnya kelihatan sehat" menghasilkan harga yang **naik ketika penjualan turun** — persis kebalikan dari yang seharusnya terjadi. Biaya tetap ditutup oleh volume, dan itulah gunanya BEP.
+
+`audit-simulasi.cjs` menegakkannya secara struktural: tubuh `hargaSimulasi()` tidak boleh menyebut `fixed`, `sewa`, `hariOperasional`, atau `targetLaba` sama sekali.
+
+Rumus harganya dipinjam dari `pricing.js` (Food Cost / Markup / Margin), tidak ditulis ulang — menulis ulang berarti dua definisi "markup" yang bisa menyimpang, dan yang satu sudah dipakai menetapkan harga sungguhan.
+
+### Contoh what-if
+
+Harga Rp 50.000 → Rp 55.000, biaya variabel 40% → 35%, pada 3.000 porsi:
+
+```
+Metrik                        Baseline        Simulasi          Delta
+Variable Cost %                  40,0%           35,0%         −5,0 pp
+Contribution Margin %            60,0%           65,0%         +5,0 pp
+BEP Omzet / bulan        Rp 83.333.333   Rp 76.923.077  −Rp 6.410.256
+Target Omzet / bulan    Rp 116.666.667  Rp 107.692.308  −Rp 8.974.359
+Target Porsi / bulan             2.333           1.958           −375
+Operating Profit         Rp 40.000.000   Rp 57.250.000 +Rp 17.250.000
+Operating Margin                 26,7%           34,7%         +8,0 pp
+```
+
+Warna delta memakai arti tiap baris, bukan tandanya: **BEP yang turun itu kabar baik, laba yang turun bukan.** Satu aturan seragam akan menghijaukan BEP yang membengkak.
+
+### Tidak menulis apa pun — dijaga di dua lapis
+
+Semua isian hidup di memori layar dan hilang bersamanya. Tidak ada tombol simpan, tidak ada `outlet_menu_prices`, tidak ada `outlet_costs`, tidak ada `localStorage`.
+
+Harga hasil simulasi **tidak bisa dipasang dari sini**. Kalau mau dipakai, ia diketik ulang di Admin Portal → Menu → Harga per Outlet, tempat perubahannya tercatat sebagai keputusan. Jarak antara "hitung harga seandainya" dan "pasang harga itu" tinggal satu tombol — dan tombol itu akan terasa sangat masuk akal untuk ditambahkan, jadi auditnya menolak tombol bernada menyimpan **bahkan yang belum terhubung ke mana pun**.
+
+Buktinya dijalankan, bukan diklaim: 200 simulasi dengan asumsi yang berubah-ubah, lalu `sales`, `products`, `outlet_costs`, hasil Actual, Projection, dan Target dibandingkan JSON-nya sebelum dan sesudah — semuanya utuh, dan menghitung ulang ketiganya menghasilkan objek yang identik.
+
+### Sabotase
+
+Empat belas pada mesinnya (CM negatif dihitung, double counting HPP, promo diabaikan, fee hilang, porsi negatif diteruskan, ASP 0 dipakai membagi, hari 0 dipakai membagi, target laba 0 ≠ BEP, delta terbalik, BEP naik dianggap baik, outlet rusak ikut dijumlahkan, kemasan hilang dari margin, HPP kosong jadi nol) — semua tertangkap, kontrolnya tetap lulus. Satu sempat lolos: "outlet rusak ikut dijumlahkan", karena uji konsolidasinya hanya berisi outlet yang sehat. Ujinya ditambah.
+
+Enam belas pada auditnya. **Dua lolos**, keduanya karena polanya dicari "di mana saja dalam berkas":
+
+- melumpuhkan penjaga `bisaPorsi` lolos karena pola yang sama masih ada di `susunVariabel()` beberapa puluh baris di atasnya — sekarang dicocokkan pada baris `const bisaPorsi = …` itu sendiri;
+- melumpuhkan penolakan porsi negatif lolos karena kalimat penolakan yang sama masih ada di cabang omzet — sekarang **dihitung**, harus ada dua.
 
 ## Semua tabel & halaman menyesuaikan layar
 
