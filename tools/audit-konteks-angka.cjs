@@ -194,12 +194,16 @@ for (const m of MESIN) {
   }
 
   for (const fn of m.fungsi) {
-    const i = src.indexOf(`export function ${fn}`);
-    if (i < 0) {
+    // Dicocokkan sampai kurung buka. `indexOf('export function ringkasBu')`
+    // juga cocok dengan `export function ringkasBuProyeksi` — fungsi yang
+    // diganti nama akan terlihat masih ada, dan pemeriksaan di bawahnya
+    // memeriksa fungsi yang salah tanpa satu pun tanda.
+    const cocok = new RegExp(`export\\s+function\\s+${fn}\\s*\\(`).exec(src);
+    if (!cocok) {
       masalah.push(`${m.berkas} — fungsi ${fn} tidak ada lagi.`);
       continue;
     }
-    const tubuh = src.slice(i, i + 6000);
+    const tubuh = src.slice(cocok.index, cocok.index + 6000);
     if (!new RegExp(`konteks:\\s*'${m.konteks}'`).test(tubuh)) {
       masalah.push(`${m.berkas} — ${fn}() mengembalikan hasil tanpa konteks: '${m.konteks}'.`);
     }

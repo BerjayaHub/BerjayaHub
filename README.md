@@ -3299,9 +3299,17 @@ Perintah pemeriksaan yang saya pakai memotong keluaran `audit-syntax` dengan `he
 
 ## Halaman Owner (`owner.html`) — BEP, KPI, dan tanda tangan online
 
-Halaman keempat, sejajar dengan Staff App, Admin Portal, dan halaman reservasi publik. Isinya lima tab: **📒 Profitabilitas (ACTUAL)**, **🔮 Proyeksi (PROJECTED)**, **📊 Ringkasan (KPI)**, **⚖️ BEP & Harga**, dan **✍️ Dokumen & TTD**.
+Halaman keempat, sejajar dengan Staff App, Admin Portal, dan halaman reservasi publik. Isinya enam tab: **📒 Profitabilitas (ACTUAL)**, **🔮 Proyeksi (PROJECTED)**, **🎯 Target (TARGET)**, **📊 Ringkasan (KPI)**, **⚖️ BEP & Harga**, dan **✍️ Dokumen & TTD**.
 
-Dua tab pertama sengaja bersebelahan: keduanya menjawab pertanyaan yang sama pada dua waktu berbeda, dan mendekatkannya membuat perbedaan labelnya terbaca sebagai pilihan yang disengaja — bukan sebagai dua halaman yang kebetulan mirip.
+Tiga tab pertama sengaja bersebelahan — mereka menjawab pertanyaan yang sama pada tiga posisi berbeda:
+
+| Tab | Menjawab | Angka contoh |
+|---|---|---|
+| 📒 ACTUAL | apa yang **sudah terjadi** | Rp 80 juta |
+| 🎯 TARGET | apa yang **harus dicapai** | Rp 116,67 juta |
+| 🔮 PROJECTED | apa yang **akan terjadi** kalau laju sekarang bertahan | Rp 124 juta |
+
+Ketiganya angka omzet dalam rupiah, untuk outlet yang sama, dan ketiganya akan disebut "omzet" oleh orang yang berbeda. Satu-satunya pembedanya label — jadi labelnya dibawa sampai ke dalam objek datanya (`konteks: 'actual' | 'projected' | 'target'`), bukan hanya ditempel di layar.
 
 ### Siapa yang membukanya: super admin
 
@@ -3532,11 +3540,116 @@ Aturan terakhir ditambahkan **karena sebuah sabotase lolos**: pemeriksaan per-fu
 
 Salah satu ujinya memeriksa hal yang tidak terlihat sama sekali di layar: **proyeksi tidak boleh memutasi objek aktualnya**. Kalau ia memutasi, tab Actual akan berubah hanya karena tab Proyeksi pernah dibuka, dan penyebabnya nyaris mustahil dilacak.
 
-### Yang sengaja belum dikerjakan
+### Yang sengaja belum dikerjakan di Phase 9
 
-**Simulasi** — skenario "bagaimana kalau", simulasi harga, target laba, dan report baru. Belum ada, dan tidak dicampurkan ke tab Proyeksi. Menggabungkannya menghasilkan satu layar yang setengah estimasi setengah andaian, dengan satu label untuk keduanya.
+**Simulasi** — skenario "bagaimana kalau", simulasi harga, dan report baru. Belum ada, dan tidak dicampurkan ke tab Proyeksi. Menggabungkannya menghasilkan satu layar yang setengah estimasi setengah andaian, dengan satu label untuk keduanya.
 
-Tab `⚖️ BEP & Harga` masih memakai mesin lama `bep.js` (seluruh outlet dilebur, kemasan dari `products`). Itu disengaja dan dijaga auditnya: mesin lama tidak boleh menyentuh layar Actual maupun Proyeksi.
+Tab `⚖️ BEP & Harga` masih memakai mesin lama `bep.js` (seluruh outlet dilebur, kemasan dari `products`). Itu disengaja dan dijaga auditnya: mesin lama tidak boleh menyentuh layar Actual, Proyeksi, maupun Target.
+
+## Target & perencanaan (Phase 10A)
+
+Tab `🎯 Target`. Ia menjawab dua pertanyaan: **"berapa yang harus dicapai outlet ini supaya impas?"** dan **"kalau mau untung sekian, berapa?"** — dalam omzet dan porsi, per bulan dan per hari.
+
+### Rumusnya, lengkap
+
+```
+CM%            = 100% − rasio biaya variabel
+BEP Omzet      = biaya tetap langsung ÷ CM%
+Target Omzet   = (biaya tetap langsung + target laba) ÷ CM%
+… / hari       = … ÷ hari operasional
+… porsi        = … ÷ ASP
+```
+
+**BEP bukan cabang tersendiri — ia target dengan laba nol.** Rumusnya ditulis sekali dan dipakai dua kali. Menuliskannya dua kali berarti dua rumus yang bisa menyimpang, dan penyimpangan sekecil apa pun akan tampak sebagai "BEP ≠ target laba 0" yang mustahil dijelaskan ke siapa pun. Ada uji yang menuntut keduanya identik sampai digit terakhir.
+
+### Dari mana tiap angkanya
+
+| Besaran | Sumber | Catatan |
+|---|---|---|
+| Biaya tetap | `outlet_costs` yang `direct_outlet` untuk outlet itu | **sebulan penuh**, tidak diprorata |
+| Rasio biaya variabel | CM% aktual outlet itu | sudah memuat HPP, kemasan, per porsi, % omzet |
+| ASP | `Σ omzet ÷ Σ porsi` dari transaksi | **bukan** `products.sale_price` |
+| Hari operasional | diisi pengguna, baku 30 | outlet yang tutup sehari seminggu jangan diisi 30 |
+
+Ketiganya membawa `sumber: 'actual' | 'planning'` di dalam hasilnya, dan layar menampilkan lencana **PLANNING ASSUMPTION** pada yang diketik. Angka Rp 50.000 dari transaksi nyata dan Rp 50.000 yang ditebak seseorang terlihat persis sama — sedangkan bobot keputusan di atas keduanya sangat berbeda.
+
+### Biaya tetap dipakai sebulan penuh — dan itu berbeda dari layar Actual
+
+Pertanyaan target adalah "berapa yang harus dicapai **bulan ini**", bukan "sampai tanggal 20". Memprorata biaya tetap menurut tanggal laporan menghasilkan target yang **naik setiap hari** — dan target yang berubah sendiri bukan target.
+
+Akibatnya, pencapaian di pertengahan bulan memang wajar terlihat rendah: aktual baru sebagian bulan, target sudah sebulan penuh. Layar mengatakannya, dan kolom PROJECTED-lah yang menjawab "kekejar atau tidak".
+
+### Tidak ada satu BEP gabungan — dan alasannya lebih tajam dari yang saya kira
+
+Mode Semua Outlet menampilkan **`SUM OF OUTLET TARGETS`**, penjumlahan target masing-masing. Bukan biaya tetap total dibagi CM rata-rata tertimbang.
+
+Saya semula menulis di komentar bahwa BEP gabungan "selalu terlihat lebih ringan". **Tesnya membuktikan itu salah**, dan yang sebenarnya lebih buruk: arahnya tidak bisa ditebak.
+
+| Kasus | Σ BEP outlet | BEP gabungan tertimbang |
+|---|---|---|
+| Dua outlet mirip (50jt@60%, 40jt@55%) | Rp 156,06 juta | Rp 156,52 juta — sedikit lebih **berat** |
+| Tebal-murah (10jt@80%) + tipis-mahal (90jt@20%) | Rp 462,5 juta | Rp 200 juta — **kurang dari separuh** |
+
+Bias yang konsisten masih bisa dikoreksi di kepala. Bias yang berubah arah tergantung sebaran biaya tetap tidak bisa. Di kasus kedua, outlet yang butuh Rp 450 juta untuk impas lenyap sepenuhnya di balik rata-rata.
+
+`audit-target.cjs` menegakkannya secara struktural: `konsolidasiTarget()` **tidak boleh menyentuh** `cmRasio`, `cmPersen`, `variabelPersen`, atau `fixedBulanan`. Penjumlahan murni tidak memerlukan satu pun dari itu — kehadirannya berarti ada BEP gabungan yang dihitung diam-diam.
+
+### Satu angka yang paling mudah terlewat
+
+Panel BU menampilkan **laba BU bila semua target tercapai** = Σ target laba outlet − biaya bersama BU.
+
+Tanpa baris itu, "semua outlet hijau" akan dibaca sebagai "BU untung". Target outlet hanya menutup biaya tetap **langsungnya sendiri**; biaya bersama BU masih harus ditutup dari sisanya. Biaya korporat ditampilkan tapi tidak dikurangkan dari BU mana pun, sama seperti di Actual.
+
+### Target tidak menulis apa pun
+
+Semua isian di layar ini hidup di memori dan hilang bersama layarnya. Tidak tersimpan ke `outlet_costs`, tidak ke `outlet_menu_prices`, tidak ke `localStorage`.
+
+Itu disengaja: asumsi yang tersimpan akan dibaca bulan depan oleh orang yang tidak tahu siapa yang mengetiknya. Dan ASP perencanaan yang bocor ke `outlet_menu_prices` akan mengubah harga jual sungguhan — tanpa error, hanya harga menu yang berubah karena seseorang mengisi kotak di halaman perencanaan. `audit-target.cjs` menolak `.insert/.update/.upsert/.delete/.rpc`, klien Supabase, `fetch`, dan penyimpanan peramban di kedua berkasnya.
+
+### Perbandingan tiga konteks: tabel, bukan kartu
+
+Ini satu-satunya layar yang boleh menampilkan ACTUAL, TARGET, dan PROJECTED bersamaan — karena pertanyaannya memang perbandingan. Justru karena itu ia digambar sebagai **tabel dengan tiga kepala kolom berlabel**, bukan tiga kartu berdampingan: kepala kolom tidak bisa terlepas dari angkanya saat digulir atau dipotret. Auditnya memeriksa bahwa label itu benar-benar ada di `<th>`.
+
+Angka contoh dari data uji (Serpong, 1–31 Agustus, posisi 20 Agustus):
+
+```
+                       OMZET            PORSI
+ACTUAL    (s/d 20 Agu) Rp  80.000.000    8.000
+TARGET    (BEP)        Rp  83.333.333    8.334
+TARGET    (laba 20jt)  Rp 116.666.667   11.667
+PROJECTED (akhir bln)  Rp 124.000.000   12.400
+
+Pencapaian aktual vs target : 68,6% — BELUM MENCAPAI
+Proyeksi vs target          : LEWAT target sebesar Rp 7.333.333
+```
+
+Dua baris terakhir itulah gunanya modul ini. Aktual sendirian berbunyi "masih jauh"; proyeksi sendirian berbunyi "aman". Yang benar keduanya, dan hanya terbaca kalau ketiganya berdampingan.
+
+### Kasus batas yang ditangani, bukan dihindari
+
+| Keadaan | Hasil |
+|---|---|
+| CM ≤ 0 | BEP & target `null` + sebabnya. Membagi dengan CM negatif menghasilkan **omzet target negatif**, yang terbaca seolah target sudah terlampaui |
+| Biaya tetap 0 | BEP = 0 (sah, bukan `null`) |
+| Hari operasional 0 | target harian `null`, bulanan tetap ada |
+| ASP kosong / 0 | target **omzet** tetap ada, target **porsi** `null` |
+| Belum ada transaksi | perlu asumsi; tanpa asumsi target `null`, bukan 0 |
+| Target laba negatif melebihi biaya tetap | ditolak — omzet negatif bukan jawaban untuk "rugi sebesar ini pun tidak apa" |
+| Outlet tak terhitung dalam konsolidasi | dikeluarkan & dilaporkan. Nol berarti "tidak perlu menghasilkan apa pun untuk impas" — kebalikan dari keadaannya |
+
+Porsi disimpan sebagai **desimal** di perhitungan dan dibulatkan **ke atas** hanya saat ditampilkan: 55,56 porsi berarti 56, karena 55 belum menutup biayanya.
+
+### Sabotase, dan satu yang lolos
+
+Sepuluh sabotase diuji pada mesinnya — biaya tetap ikut run-rate, target laba 0 ≠ BEP, CM negatif tetap dihitung, hari 0 dibagi diam-diam, selalu dibagi 30, ASP 0 dipakai membagi, outlet tak terhitung dinolkan, biaya bersama hilang, biaya bersama bocor ke outlet, override diabaikan. Semua tertangkap; satu perubahan kontrol yang memang tak berakibat tetap lulus.
+
+Sebelas sabotase diuji pada auditnya. **Satu lolos:** mengganti nama `pencapaianTarget` jadi `pencapaianTarget2` tidak terdeteksi, karena `indexOf('export function pencapaianTarget')` juga cocok dengan namanya yang lebih panjang. Fungsi yang diganti nama terlihat masih ada, dan seluruh pemeriksaan di bawahnya memeriksa fungsi yang salah tanpa satu pun tanda.
+
+Diperbaiki dengan mencocokkan sampai kurung buka — **dan kelemahan yang sama ditemukan juga di `audit-konteks-angka.cjs`**, tempat `ringkasBu` bisa tertukar dengan `ringkasBuProyeksi`. Keduanya sudah diperbaiki dan diuji ulang dengan sabotase yang sama.
+
+### Yang sengaja belum dikerjakan di Phase 10A
+
+Simulation, Pricing Simulation, perubahan Master Price, dan Target Profit Simulation yang kompleks — semuanya menunggu review. Override perencanaan (`Planning Fixed Cost`, `Planning Variable Cost %`, `Planning ASP`) sudah ada di mesin dan di layar, tapi hanya sebagai asumsi baca; tidak ada satu pun jalur simpan.
 
 ## Semua tabel & halaman menyesuaikan layar
 

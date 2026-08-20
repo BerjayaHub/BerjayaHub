@@ -10,6 +10,7 @@ import { pasangTabelResponsif } from './core/tabel-responsif.js';
 import { listBuOwner } from './modules/owner/owner.service.js';
 import { renderActualOwner } from './modules/owner/actual.owner.js';
 import { renderProyeksiOwner } from './modules/owner/proyeksi.owner.js';
+import { renderTargetOwner } from './modules/owner/target.owner.js';
 import { renderRingkasanOwner } from './modules/owner/ringkasan.owner.js';
 import { renderBepOwner } from './modules/owner/bep.owner.js';
 import { renderDokumenOwner } from './modules/owner/dokumen.owner.js';
@@ -55,6 +56,10 @@ const TAB = [
   // membuat perbedaan labelnya — ACTUAL vs PROJECTED — terbaca sebagai pilihan
   // yang disengaja, bukan sebagai dua halaman yang kebetulan mirip.
   { kode: 'proyeksi', label: 'Proyeksi', ikon: '🔮', render: renderProyeksiOwner },
+  // Target melengkapi ketiganya: sudah terjadi / akan terjadi / harus terjadi.
+  // Ia satu-satunya tab yang boleh menampilkan ketiga konteks sekaligus, karena
+  // pertanyaannya memang perbandingan.
+  { kode: 'target', label: 'Target', ikon: '🎯', render: renderTargetOwner },
   { kode: 'ringkasan', label: 'Ringkasan', ikon: '📊', render: renderRingkasanOwner },
   { kode: 'bep', label: 'BEP & Harga', ikon: '⚖️', render: renderBepOwner },
   { kode: 'dokumen', label: 'Dokumen & TTD', ikon: '✍️', render: renderDokumenOwner }
