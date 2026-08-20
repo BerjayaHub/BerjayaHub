@@ -96,7 +96,7 @@ const GROUPS = {
       { code: 'menu', label: 'Menu', render: renderMenuAdminPage },
       // Harga jual menempel pada OUTLET (0096), jadi ia layar tersendiri —
       // bukan kolom di tabel Menu, yang isinya master milik BU.
-      { code: 'harga_outlet', label: 'Harga per Outlet', render: renderHargaOutletTab },
+      { code: 'harga_outlet', label: 'Harga per Outlet', render: renderHargaOutletTab, syaratModul: 'menu' },
       { code: 'production', label: 'Produksi', render: renderProductionAdminPage },
       { code: 'sales', label: 'Penjualan', render: renderSalesAdminPage }
     ]
@@ -119,9 +119,25 @@ const CORE_ADMIN_MENU = [
   { code: 'dokumen_ttd', name: 'Dokumen untuk Owner' }
 ];
 
-/** Tab dalam sebuah grup yang boleh dilihat user ini di BU aktif. */
+/**
+ * Tab dalam sebuah grup yang boleh dilihat user ini di BU aktif.
+ *
+ * `syaratModul` untuk tab yang BUKAN modul tersendiri di tabel `modules`, tapi
+ * juga tidak layak `core: true`.
+ *
+ * Kasusnya "Harga per Outlet": kodenya tidak ada di tabel `modules`, jadi
+ * `activeCodes.has('harga_outlet')` selalu false dan tabnya TIDAK PERNAH
+ * muncul — tanpa satu pun error, karena tab yang disaring keluar memang tidak
+ * meninggalkan jejak. Menjadikannya `core: true` juga salah: BU yang tidak
+ * berjualan menu (Bengkel, Armada) akan melihat layar harga menu.
+ *
+ * Yang benar: ia ikut hidup-matinya modul Menu.
+ */
 function visibleTabsOf(group, activeCodes, isSuperAdmin, allowedTabs) {
-  return group.tabs.filter((t) => (t.core || activeCodes.has(t.code)) && canAccessTab(t.code, isSuperAdmin, allowedTabs));
+  return group.tabs.filter((t) => {
+    const aktif = t.core || activeCodes.has(t.syaratModul ?? t.code);
+    return aktif && canAccessTab(t.code, isSuperAdmin, allowedTabs);
+  });
 }
 
 /** Susun menu admin: Dashboard + grup + modul aktif lain, disaring izin akses. */
