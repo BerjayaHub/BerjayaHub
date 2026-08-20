@@ -1,4 +1,5 @@
 import { computeCosts } from '../product/hpp.js';
+import { todayWIB } from '../../core/dates.js';
 import { listRecipesFull } from '../product/product.service.js';
 import {
   listProductsOwner,
@@ -17,6 +18,7 @@ import { bauranPenjualan, biayaTetapDariKas, hitungBep, posisiTerhadapBep, ringk
 import { listBiayaOutlet } from './biaya.service.js';
 import { listHargaAktif } from '../menu/harga-outlet.service.js';
 import { hitungActualOutlet, konsolidasiOutlet, ringkasBu } from './profit-outlet.js';
+import { hitungHari, proyeksiOutlet, konsolidasiProyeksi, ringkasBuProyeksi } from './proyeksi.js';
 import { kpiPenjualan, kpiOperasional, kpiKepatuhan, kpiKeuangan, ringkasanOwner } from './kpi.js';
 
 /**
@@ -61,7 +63,11 @@ export async function muatDataOwner({ businessUnitId, dari, sampai, outletIds = 
     throw error;
   }
 
-  return hitung({ ...mentah, hariKerja, targetLaba, outletIdsAktif: outletIds });
+  // `dari`/`sampai` ikut masuk ke perhitungan, bukan cuma ke pengambilan data:
+  // proyeksi butuh tahu panjang periodenya untuk membagi laju harian. Rentangnya
+  // TIDAK diambil ulang dari layar supaya proyeksi tidak bisa memakai rentang
+  // yang berbeda dari yang dipakai mengambil penjualannya.
+  return hitung({ ...mentah, dari, sampai, hariKerja, targetLaba, outletIdsAktif: outletIds });
 }
 
 async function ambilMentah({ businessUnitId, dari, sampai, outletIds }) {
@@ -107,6 +113,8 @@ function hitung({
   presensi,
   biayaOutlet,
   hargaOutlet,
+  dari,
+  sampai,
   hariKerja,
   targetLaba,
   outletIdsAktif
@@ -172,11 +180,36 @@ function hitung({
     })
   );
 
+  const konsolidasiActual = konsolidasiOutlet(hasilOutlet);
+
   const actual = {
     konteks: 'actual',
     outlets: hasilOutlet,
-    konsolidasi: konsolidasiOutlet(hasilOutlet),
-    bu: ringkasBu({ konsolidasi: konsolidasiOutlet(hasilOutlet), biaya: biayaOutlet })
+    konsolidasi: konsolidasiActual,
+    bu: ringkasBu({ konsolidasi: konsolidasiActual, biaya: biayaOutlet })
+  };
+
+  // =====================================================================
+  // PROJECTED (Phase 9) — TURUNAN DARI ACTUAL, BUKAN HITUNGAN KEDUA.
+  //
+  // `proyeksiOutlet()` menerima objek hasil `hitungActualOutlet()` di atas,
+  // jadi definisi "biaya variabel" dan "biaya tetap" di sini MUSTAHIL berbeda
+  // dari yang di Actual: proyeksi hanya mengalikan yang sudah dihitung.
+  //
+  // Kalau ia membaca `sales`/`products` sendiri, cukup satu perubahan kecil di
+  // salah satunya untuk membuat tab Actual dan tab Proyeksi menampilkan angka
+  // yang berbeda tipis — persis kegagalan yang sudah dicegah di 8B.
+  // =====================================================================
+  const hari = hitungHari({ dari, sampai, hariIni: todayWIB() });
+  const hasilProyeksi = hasilOutlet.map((a) => proyeksiOutlet({ actual: a, hari }));
+  const konsolidasiProy = konsolidasiProyeksi(hasilProyeksi);
+
+  const proyeksi = {
+    konteks: 'projected',
+    hari,
+    outlets: hasilProyeksi,
+    konsolidasi: konsolidasiProy,
+    bu: ringkasBuProyeksi({ konsolidasi: konsolidasiProy, biaya: biayaOutlet })
   };
 
   const posisi = posisiTerhadapBep({ totalQty: bauran.totalQty, bepPorsi: bep.porsi });
@@ -185,6 +218,10 @@ function hitung({
   return {
     // SATU-SATUNYA sumber angka uang aktual.
     actual,
+    // Estimasi akhir periode. Selalu berlabel `konteks: 'projected'` sampai ke
+    // dalam objeknya, supaya angka proyeksi tidak bisa nyasar ke layar Actual
+    // tanpa membawa labelnya sendiri.
+    proyeksi,
 
     outlets,
     products,

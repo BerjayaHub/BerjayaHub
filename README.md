@@ -3299,7 +3299,9 @@ Perintah pemeriksaan yang saya pakai memotong keluaran `audit-syntax` dengan `he
 
 ## Halaman Owner (`owner.html`) — BEP, KPI, dan tanda tangan online
 
-Halaman keempat, sejajar dengan Staff App, Admin Portal, dan halaman reservasi publik. Isinya tiga tab: **Ringkasan (KPI)**, **BEP & Harga**, dan **Dokumen & TTD**.
+Halaman keempat, sejajar dengan Staff App, Admin Portal, dan halaman reservasi publik. Isinya lima tab: **📒 Profitabilitas (ACTUAL)**, **🔮 Proyeksi (PROJECTED)**, **📊 Ringkasan (KPI)**, **⚖️ BEP & Harga**, dan **✍️ Dokumen & TTD**.
+
+Dua tab pertama sengaja bersebelahan: keduanya menjawab pertanyaan yang sama pada dua waktu berbeda, dan mendekatkannya membuat perbedaan labelnya terbaca sebagai pilihan yang disengaja — bukan sebagai dua halaman yang kebetulan mirip.
 
 ### Siapa yang membukanya: super admin
 
@@ -3446,9 +3448,9 @@ Satu temuan dari pengujian itu: `effective_to < effective_from` memang ditolak, 
 
 `audit-outlet-tulis.cjs` menolak layar harga baru karena tidak menyebut penjaga wewenang — dan itu benar. RLS `omp_modify` hanya meloloskan admin BU, jadi tombol yang tampil untuk yang lain akan ditolak **diam-diam** (PostgREST mengembalikan sukses dengan nol baris). Sekarang layarnya memanggil `sayaAdminBu()` dan tombolnya memang tidak digambar.
 
-### Yang belum dikerjakan, dan kenapa dipisah
+### Kenapa 8–10 dipisah dari 1–7
 
-Langkah 8–10 dari urutan Anda — profitabilitas outlet-aware, pemisahan Actual/Projection/Simulation, dan report/KPI yang masih memakai harga BU — **belum**.
+Langkah 8–10 dari urutan Anda — profitabilitas outlet-aware, pemisahan Actual/Projection/Simulation, dan report/KPI yang masih memakai harga BU — dikerjakan **sesudahnya**, di putaran tersendiri (lihat dua bagian berikut).
 
 1–7 adalah perubahan **integritas data**: begitu terpasang, setiap transaksi baru sudah benar. 8–10 adalah perubahan **cara membaca**, dan tidak mengubah kebenaran data satu pun. Berhenti di sini menghasilkan keadaan yang utuh: harga sudah per outlet, tidak ada Rp 0, tidak ada baris ganda, dan halaman profitabilitas tetap bekerja memakai `sales.unit_price` yang memang sudah benar.
 
@@ -3457,6 +3459,84 @@ Menggabungkan semuanya dalam satu putaran berarti mengubah data **dan** cara mem
 ### Satu hal yang tidak bisa dijanjikan
 
 Backfill memberi setiap outlet harga yang **sama**. Sampai seseorang menyesuaikannya, profitabilitas per outlet akan menampilkan margin identik di semua outlet — bukan karena sistemnya salah, tapi karena harganya memang belum dibedakan. Layar Harga per Outlet menampilkan berapa banyak yang masih hasil backfill, supaya keadaan itu terlihat dan tidak disalahartikan sebagai kesimpulan.
+
+## Profitabilitas per outlet (Phase 8)
+
+`js/modules/owner/profit-outlet.js` — mesin baru, murni, tanpa impor apa pun ke luar dirinya. Tiap outlet dihitung **sendiri dari awal sampai akhir**, lalu hasilnya dijumlahkan. Layar `📒 Profitabilitas` memakainya sebagai satu-satunya sumber angka uang.
+
+### Konsolidasi adalah penjumlahan, bukan hitungan ulang
+
+Perbedaannya kelihatan sepele dan tidak. Menghitung ulang dari angka gabungan berarti memakai satu rasio biaya variabel dan satu harga rata-rata untuk seluruh BU — dan begitu itu dilakukan, outlet yang rugi lenyap ke dalam rata-rata outlet yang untung. Totalnya tetap benar; yang hilang justru satu-satunya hal yang ingin dilihat.
+
+Konsekuensinya dijaga di dua tempat lagi:
+
+- **Tidak ada satu BEP gabungan.** Yang ditampilkan berapa outlet di atas, di bawah, dan pas di titik impas. BEP gabungan hanya bermakna kalau bauran outletnya tetap, dan bauran itu tidak pernah tetap.
+- **Weighted Average ASP dilabeli "informasi saja"** dan dibawa dengan bendera `aspHanyaInformasi: true` di dalam objeknya. Ia tidak pernah jadi masukan perhitungan mana pun — harga rata-rata gabungan tidak berlaku di outlet mana pun.
+
+### Biaya bersama tidak dialokasikan
+
+Sesuai keputusan Anda. `outlet_costs.allocation_scope` memisahkan `direct_outlet` / `shared_bu` / `corporate`; hanya yang pertama masuk ke Operating Profit outlet. Tiga angka laba yang muncul di layar sengaja **berbeda namanya** — Outlet Operating Profit, BU Profit Before Shared, BU Profit After Shared — supaya tidak ada dua angka bernama "laba" yang isinya beda.
+
+Korporat ditampilkan tapi **tidak dikurangkan** dari BU mana pun, dan kalimat itu tertulis di layar, bukan cuma di kode.
+
+### Dua bug yang tertangkap justru oleh audit, bukan oleh mata
+
+`listBiayaOutlet` menyaring dengan `.in('outlet_id', outletIds)`. `.in()` **tidak pernah cocok dengan NULL**, dan seluruh biaya `shared_bu`/`corporate` justru ber-`outlet_id` NULL. Efeknya: semua biaya bersama menghilang dan laba BU terlihat lebih besar, tanpa satu pun baris error. Penyaringannya sekarang di JS.
+
+`audit-konteks-angka.cjs` menemukan layar Ringkasan menaruh "Biaya tetap" dari **buku kas** bersebelahan dengan profitabilitas dari **`outlet_costs`** — dua angka bertetangga, nama mirip, sumber berbeda. Bagian itu diganti nama jadi "Arus Kas Keluar" dengan penjelasan asalnya, dan kartu yang paling ambigu dibuang.
+
+## Proyeksi akhir periode (Phase 9)
+
+Tab `🔮 Proyeksi`. Metodenya **run-rate lurus**: omzet aktual ÷ hari berjalan × sisa hari, ditambahkan kembali ke aktual.
+
+### Masukannya hasil Actual, bukan data mentah
+
+`proyeksiOutlet()` menerima objek keluaran `hitungActualOutlet()` — bukan `sales`, bukan `products`, bukan `outlet_costs`. `audit-konteks-angka.cjs` menolak `proyeksi.js` yang mengimpor `bep.js`, `kpi.js`, `hpp.js`, atau service apa pun.
+
+Alasannya bukan kerapian. Kalau proyeksi membaca sumbernya sendiri, ia punya definisi kedua tentang "biaya variabel", dan dua definisi yang berdekatan akan menyimpang diam-diam begitu salah satunya diubah — dua laba yang berbeda tipis di dua tab, sama-sama masuk akal, tanpa cara menentukan mana yang benar. Dengan menerima hasil actual, ekonominya **mustahil** berbeda.
+
+### Biaya tetap tidak ikut dikalikan
+
+Sewa tidak bertambah karena penjualan bertambah. Yang diskalakan hanya omzet dan biaya variabel.
+
+Yang perlu diketahui dan tidak disembunyikan: `outlet_costs` bersatuan `per_bulan` dijumlahkan **apa adanya**, tidak dipotong menurut rentang tanggal. Melihat 1–20 Agustus karena itu membebankan sewa sebulan penuh pada omzet 20 hari, sehingga Operating Profit **aktual** di tengah bulan terlihat lebih buruk daripada kenyataannya dan membaik sendiri menjelang akhir bulan. Itu perilaku Phase 8 yang tidak diubah di sini; layar Proyeksi mengatakannya supaya selisih Actual vs Projected tidak dibaca sebagai perbaikan kinerja.
+
+### Outlet tanpa penjualan tidak diisi rata-rata
+
+Ia mengembalikan `null` beserta sebabnya, dikeluarkan dari konsolidasi, dan namanya dilaporkan di panel konsolidasi. Mengisinya dengan rata-rata BU menghasilkan omzet karangan yang terlihat wajar dan menaikkan total BU tanpa satu pun tanda — kegagalan yang tidak mungkin ketahuan dari layar.
+
+Nol pun tidak dipakai: "diproyeksi Rp 0" adalah pernyataan yang jauh lebih kuat daripada "belum bisa diproyeksi".
+
+### Metodenya ditampilkan, bukan disembunyikan
+
+Tiap kartu outlet punya blok **"Cara angkanya didapat"**: omzet aktual s/d tanggal, dibagi hari berjalan jadi laju harian, dikali sisa hari jadi omzet sisa, lalu hasil akhirnya — dengan angka antaranya, supaya siapa pun bisa mengalikan sendiri.
+
+Kotak hitam yang mengeluarkan satu angka besar akan dipercaya bulat-bulat atau ditolak bulat-bulat, dan keduanya keliru untuk tebakan lurus. Layar juga menyebutkan asumsi yang tidak bisa dihilangkan: **sisa periode dianggap berjalan sama seperti yang sudah lewat**. Untuk usaha yang ramai di akhir pekan, proyeksi yang dibuat di tengah minggu kerja akan terlalu rendah.
+
+Di bawah 7 hari berjalan, peringatan keyakinan-rendah muncul — tapi **angkanya tetap dihitung apa adanya**, tidak dibulatkan atau ditahan.
+
+### Label yang tidak bisa tertukar
+
+`audit-konteks-angka.cjs` menjaga dua arah sekaligus:
+
+| Aturan | Kegagalan yang dicegah |
+|---|---|
+| Layar `ACTUAL` tidak boleh membaca `d.proyeksi` | Angka estimasi muncul di bawah label "sudah terjadi" |
+| Layar `PROJECTED` tidak boleh membaca `d.actual` | Halaman berlabel proyeksi menampilkan angka bulan berjalan |
+| Penanda di layar Proyeksi harus benar-benar bertuliskan `PROJECTED` | Label yang ada tapi salah lebih meyakinkan daripada tidak ada label |
+| Seluruh isi `proyeksi.js` menandai dirinya `konteks: 'projected'` | Jalur hasil-kosong (outlet tanpa penjualan) salah label |
+
+Aturan terakhir ditambahkan **karena sebuah sabotase lolos**: pemeriksaan per-fungsi tidak menjangkau helper `proyeksiKosong()`, yang letaknya di luar jendela pembacaan — dan justru itulah jalur yang dipakai outlet tanpa penjualan.
+
+`tools/test-proyeksi.mjs` menutup 13 kasus wajib. Tujuh sabotase disengaja diuji satu per satu (biaya tetap ikut diskalakan, outlet kosong dilaporkan Rp 0, penyebut rasio salah, outlet tak terproyeksi ikut dijumlahkan, peringatan dimatikan, aktual tidak berhenti di akhir periode, korporat ikut dikurangkan) — semuanya tertangkap, dan satu perubahan kontrol yang memang tidak berakibat apa-apa tetap lulus.
+
+Salah satu ujinya memeriksa hal yang tidak terlihat sama sekali di layar: **proyeksi tidak boleh memutasi objek aktualnya**. Kalau ia memutasi, tab Actual akan berubah hanya karena tab Proyeksi pernah dibuka, dan penyebabnya nyaris mustahil dilacak.
+
+### Yang sengaja belum dikerjakan
+
+**Simulasi** — skenario "bagaimana kalau", simulasi harga, target laba, dan report baru. Belum ada, dan tidak dicampurkan ke tab Proyeksi. Menggabungkannya menghasilkan satu layar yang setengah estimasi setengah andaian, dengan satu label untuk keduanya.
+
+Tab `⚖️ BEP & Harga` masih memakai mesin lama `bep.js` (seluruh outlet dilebur, kemasan dari `products`). Itu disengaja dan dijaga auditnya: mesin lama tidak boleh menyentuh layar Actual maupun Proyeksi.
 
 ## Semua tabel & halaman menyesuaikan layar
 

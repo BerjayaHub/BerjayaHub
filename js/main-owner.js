@@ -9,6 +9,7 @@ import { pasangPenandaKoneksi } from './core/koneksi.js';
 import { pasangTabelResponsif } from './core/tabel-responsif.js';
 import { listBuOwner } from './modules/owner/owner.service.js';
 import { renderActualOwner } from './modules/owner/actual.owner.js';
+import { renderProyeksiOwner } from './modules/owner/proyeksi.owner.js';
 import { renderRingkasanOwner } from './modules/owner/ringkasan.owner.js';
 import { renderBepOwner } from './modules/owner/bep.owner.js';
 import { renderDokumenOwner } from './modules/owner/dokumen.owner.js';
@@ -49,6 +50,11 @@ const TAB = [
   // paling sering ditanyakan owner, dan ia satu-satunya tab yang seluruh
   // angkanya aktual tanpa asumsi apa pun.
   { kode: 'actual', label: 'Profitabilitas', ikon: '📒', render: renderActualOwner },
+  // Proyeksi ditaruh PERSIS SESUDAH Actual, bukan di ujung deretan. Keduanya
+  // menjawab pertanyaan yang sama pada dua waktu berbeda, dan mendekatkannya
+  // membuat perbedaan labelnya — ACTUAL vs PROJECTED — terbaca sebagai pilihan
+  // yang disengaja, bukan sebagai dua halaman yang kebetulan mirip.
+  { kode: 'proyeksi', label: 'Proyeksi', ikon: '🔮', render: renderProyeksiOwner },
   { kode: 'ringkasan', label: 'Ringkasan', ikon: '📊', render: renderRingkasanOwner },
   { kode: 'bep', label: 'BEP & Harga', ikon: '⚖️', render: renderBepOwner },
   { kode: 'dokumen', label: 'Dokumen & TTD', ikon: '✍️', render: renderDokumenOwner }
