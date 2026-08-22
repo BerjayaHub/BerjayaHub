@@ -3776,6 +3776,55 @@ Enam belas pada auditnya. **Dua lolos**, keduanya karena polanya dicari "di mana
 - melumpuhkan penjaga `bisaPorsi` lolos karena pola yang sama masih ada di `susunVariabel()` beberapa puluh baris di atasnya — sekarang dicocokkan pada baris `const bisaPorsi = …` itu sendiri;
 - melumpuhkan penolakan porsi negatif lolos karena kalimat penolakan yang sama masih ada di cabang omzet — sekarang **dihitung**, harus ada dua.
 
+## Export Excel bergambar (Inventaris Aset)
+
+Admin Portal → Inventaris Aset punya tombol **⇩ Export Excel**. Fotonya benar-benar tertanam di dalam sel, bukan tautan.
+
+### Kenapa butuh pustaka kedua
+
+`core/xlsx.js` memakai SheetJS versi komunitas, dan versi itu **tidak bisa menyisipkan gambar sama sekali** — kemampuannya hanya ada di versi berbayar. Tidak ada opsi dan tidak ada jalan memutar; `writeFile` cuma menghasilkan berkas tanpa gambar, tanpa memberi tahu apa pun.
+
+Dua jalan pintas yang sengaja tidak diambil:
+
+- **Formula `=IMAGE("url")`.** Bucket `asset-photos` bersifat privat, jadi yang bisa ditulis hanya signed URL — dan signed URL kedaluwarsa. Berkas yang hari ini penuh gambar akan jadi deretan sel rusak dalam hitungan hari, di komputer orang yang sudah tidak ingat berkas itu datang dari mana.
+- **Tautan "lihat foto".** Bukan yang diminta, dan punya masalah kedaluwarsa yang sama.
+
+Jadi dipakai **ExcelJS** (`core/xlsx-foto.js`), dimuat dari CDN hanya saat tombolnya ditekan. Gambarnya ditanam sebagai berkas di dalam `.xlsx`, jadi tetap terlihat lima tahun lagi tanpa internet. `core/xlsx.js` tidak diubah perannya — laporan lain tetap memakainya.
+
+### Tiga keadaan sel foto yang harus terlihat berbeda
+
+| Keadaan | Isi sel |
+|---|---|
+| ada fotonya | gambar tertanam |
+| memang belum difoto | `-` |
+| berfoto tapi gambarnya gagal diambil | `(foto gagal dimuat)` |
+
+Kalau dua yang terakhir sama-sama dikosongkan, laporan akan terlihat seperti separuh asetnya belum difoto — dan orang akan disuruh memotret ulang barang yang fotonya sudah ada. Toast-nya pun menyebut angkanya: "Excel terunduh — 42 foto ikut, 3 gagal dimuat", bukan sekadar "berhasil".
+
+### Bug yang ketahuan justru dari tes ini — dan ia ada di helper lama
+
+`Number('')` adalah `0`.
+
+Kolom numerik diproses dengan membuang semua karakter non-angka lalu memanggil `Number()`. Untuk `"Rp 1.500.000"` itu benar. Untuk `"-"`, `"n/a"`, atau `"belum ada"`, hasil pembuangannya adalah string **kosong** — dan `Number('')` lolos `isFinite` sebagai nol.
+
+Jadi sel bertanda `-` di kolom rupiah tertulis sebagai **angka nol**. Selnya tampak wajar, `SUM`-nya jalan, totalnya salah, dan tidak ada satu pun tanda.
+
+Bug ini ada di `core/xlsx.js` sejak awal, dan berkas itu dipakai **9 modul** — laporan kas, opname, nota, produk, data staff, dokumen kirim, dan lainnya. Diperbaiki di satu tempat (`keAngka()` yang sekarang diekspor dan dipinjam oleh helper bergambar), supaya tidak ada laporan yang tertinggal.
+
+### Yang diuji: isi ZIP-nya, bukan "tidak error"
+
+Kegagalan paling mungkin di sini **tidak melempar error sama sekali**: berkasnya terunduh, ukurannya wajar, Excel membukanya tanpa keluhan — dan kolom fotonya kosong. Persis itu yang terjadi kalau dipakai SheetJS.
+
+`tools/test-xlsx-foto.mjs` karena itu membongkar `.xlsx`-nya sebagai arsip ZIP dan memeriksa `xl/media/` benar-benar berisi berkas gambar, drawing XML-nya ada, gambarnya menempel di **baris dan kolom yang benar** (gambar yang meleset satu baris lebih buruk daripada tidak ada — foto kulkas di baris kursi adalah data yang keliru, bukan data yang hilang), tinggi barisnya disetel, dan angka tetap bertipe number.
+
+Modul aslinya yang diuji, bukan salinan logikanya: empat API peramban (`window`, `document`, `URL.createObjectURL`, `Blob`) dipalsukan seadanya di tes.
+
+Delapan sabotase dicoba; semuanya tertangkap, kontrolnya tetap lulus. Satu di antaranya — base64 yang terpotong — **lolos pada percobaan pertama**, karena contoh rusak yang saya pakai kebetulan mengandung karakter di luar alfabet base64 dan sudah tertolak lebih awal. Contohnya diganti dengan `AAAAA`: seluruh karakternya sah, hanya panjangnya bukan kelipatan 4. Bentuk itulah yang muncul dari data URL terpotong, dan tanpa penjaganya ia meledak di dalam pustaka ZIP **setelah seluruh baris selesai diproses** — satu foto cacat membatalkan laporan 300 aset, dengan pesan yang tidak menunjuk baris mana pun.
+
+### Catatan
+
+Tesnya butuh ~30 detik di sandbox, dan 27 detik di antaranya hanya `require('exceljs')` yang membaca ribuan berkas kecil lewat mount. Di peramban ia satu berkas CDN 1 MB.
+
 ## Semua tabel & halaman menyesuaikan layar
 
 ### Angka yang membuat masalahnya jelas

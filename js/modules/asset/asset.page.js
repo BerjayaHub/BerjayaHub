@@ -2,6 +2,7 @@ import { listMyOutlets } from '../../core/my-outlets.js';
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
 import { exportTablePDF, imageToDataUrl } from '../../core/pdf.js';
+import { exportTableXLSXFoto } from '../../core/xlsx-foto.js';
 import {
   ASSET_CONDITION,
   ASSET_CONDITION_BADGE,
@@ -50,6 +51,7 @@ async function render(container, { businessUnitId }, isAdmin) {
       <h1 style="margin:0">Inventaris Aset</h1>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button id="as-pdf">⇩ Export PDF</button>
+        ${isAdmin ? '<button id="as-xlsx">⇩ Export Excel</button>' : ''}
         <button class="primary" id="as-new" style="max-width:170px">+ Tambah Aset</button>
       </div>
     </div>
@@ -87,6 +89,10 @@ async function render(container, { businessUnitId }, isAdmin) {
   });
   container.querySelector('#as-new').addEventListener('click', () => openForm(null));
   container.querySelector('#as-pdf').addEventListener('click', exportPdf);
+  // `sekaliJalan` menahan klik kedua selagi foto masih diambil. Tanpa itu,
+  // menekan dua kali menjalankan dua unduhan yang saling berebut jaringan dan
+  // menghasilkan dua file yang sebagian fotonya kosong.
+  container.querySelector('#as-xlsx')?.addEventListener('click', sekaliJalan(exportXlsx, { teks: 'Menyiapkan…' }));
 
   async function refresh() {
     list.innerHTML = loadingHtml('Memuat…', { baris: 5 });
@@ -299,6 +305,79 @@ async function render(container, { businessUnitId }, isAdmin) {
       toast('PDF inventaris terunduh.', 'success');
     } catch (error) {
       toast(error.message ?? 'Gagal membuat PDF.', 'error');
+    }
+  }
+
+  /**
+   * Export Excel dengan foto TERTANAM di dalam selnya.
+   *
+   * Fotonya benar-benar ikut ke dalam berkas, bukan tautan. Bucket `asset-photos`
+   * bersifat privat, jadi satu-satunya URL yang bisa ditulis ke dalam file adalah
+   * signed URL — dan signed URL kedaluwarsa. File yang hari ini penuh gambar
+   * akan jadi deretan sel rusak dalam hitungan hari, di komputer orang yang
+   * sudah tidak ingat file itu datang dari mana. Alasan lengkapnya di
+   * `core/xlsx-foto.js`.
+   */
+  async function exportXlsx() {
+    if (!rows.length) return toast('Tidak ada data untuk diexport.', 'warning');
+    const nama = state.outletId ? outlets.find((o) => o.id === state.outletId)?.name ?? '-' : 'Semua outlet';
+    const berfoto = rows.filter((a) => a.photo_path).length;
+
+    try {
+      if (berfoto) toast(`Menyiapkan ${berfoto} foto…`, 'info');
+
+      // Berurutan, BUKAN Promise.all. Ratusan gambar yang dimuat serentak
+      // membuat sebagian permintaan tertunda lama atau ditolak — dan hasilnya
+      // file yang "sebagian fotonya hilang" tanpa sebab yang jelas. Sama seperti
+      // yang sudah dilakukan di jalur PDF.
+      const fotoSel = new Map();
+      for (const a of rows) {
+        if (!a.photo_path) continue;
+        const url = fotoUrl.get(a.photo_path);
+        // Signed URL-nya sendiri gagal dibuat, atau gambarnya gagal dimuat.
+        // Dua-duanya ditandai 'GAGAL', bukan dikosongkan: sel kosong terbaca
+        // sebagai "barang ini belum difoto", dan orang akan disuruh memfoto
+        // ulang barang yang fotonya sudah ada.
+        const dataUrl = url ? await imageToDataUrl(url, 220, 0.72) : null;
+        fotoSel.set(a.id, dataUrl ?? 'GAGAL');
+      }
+
+      const hasil = await exportTableXLSXFoto({
+        filename: `inventaris-aset-${new Date().toISOString().slice(0, 10)}`,
+        sheetName: 'Inventaris Aset',
+        title: 'Inventaris Aset',
+        subtitle: `${nama}${state.condition ? ` · Kondisi: ${ASSET_CONDITION[state.condition]}` : ''}${state.q ? ` · Cari: "${state.q}"` : ''} · ${rows.length} jenis barang · diunduh ${new Date().toLocaleString('id-ID')}`,
+        columns: [
+          { header: 'Foto', foto: true },
+          { header: 'Nama Barang', width: 28 },
+          { header: 'Jumlah', numeric: true, width: 10 },
+          { header: 'Ukuran', width: 16 },
+          { header: 'Kondisi', width: 22 },
+          { header: 'Outlet', width: 20 },
+          { header: 'Catatan', width: 30 }
+        ],
+        rows: rows.map((a) => [
+          a.photo_path ? fotoSel.get(a.id) ?? 'GAGAL' : null,
+          a.name,
+          // Angka mentah, bukan hasil format. Kolom Jumlah harus bisa
+          // dijumlahkan di Excel — dan itu alasan orang minta xlsx, bukan PDF.
+          Number(a.qty) || 0,
+          a.size ?? '-',
+          conditionText(a),
+          a.outlets?.name ?? '-',
+          a.notes ?? '-'
+        ])
+      });
+
+      // Dikatakan apa adanya. "Excel terunduh" saja akan menyembunyikan foto
+      // yang gagal, dan yang membukanya baru tahu setelah file sampai ke orang lain.
+      if (hasil.gagalFoto) {
+        toast(`Excel terunduh — ${hasil.adaFoto} foto ikut, ${hasil.gagalFoto} gagal dimuat. Muat ulang halaman lalu coba lagi untuk yang gagal.`, 'warning');
+      } else {
+        toast(`Excel terunduh — ${hasil.adaFoto} foto ikut di dalamnya.`, 'success');
+      }
+    } catch (error) {
+      toast(error.message ?? 'Gagal membuat Excel.', 'error');
     }
   }
 

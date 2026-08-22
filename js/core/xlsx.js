@@ -23,6 +23,39 @@ export function loadXLSX() {
 }
 
 /**
+ * Teks yang sudah diformat -> angka, atau apa adanya kalau memang bukan angka.
+ *
+ * ============ `Number('')` ADALAH 0 ============
+ *
+ * Versi pertama fungsi ini membuang semua karakter non-angka lalu memanggil
+ * `Number()`. Untuk "Rp 1.500.000" itu benar. Untuk "-", "n/a", atau "belum
+ * ada", hasil pembuangannya adalah string KOSONG — dan `Number('')` adalah `0`,
+ * yang lolos `isFinite`.
+ *
+ * Akibatnya sel bertanda "-" di kolom rupiah tertulis sebagai NOL. Selnya tampak
+ * wajar, SUM-nya jalan, totalnya salah, dan tidak ada satu pun tanda. Bug ini
+ * baru ketahuan saat helper Excel bergambar diuji isinya, dan diperbaiki di
+ * kedua berkas sekaligus supaya tidak ada satu pun laporan yang tertinggal.
+ *
+ * Maka sisa pembuangannya diperiksa dulu: kalau tidak ada satu digit pun,
+ * nilainya dikembalikan apa adanya sebagai teks.
+ */
+export function keAngka(nilai) {
+  if (typeof nilai === 'number') return Number.isFinite(nilai) ? nilai : (nilai ?? '');
+  if (nilai == null || nilai === '') return '';
+
+  const bersih = String(nilai)
+    .replace(/[^\d,.-]/g, '')
+    .replace(/\.(?=\d{3}\b)/g, '')
+    .replace(',', '.');
+
+  if (!/\d/.test(bersih)) return nilai;
+
+  const n = Number(bersih);
+  return Number.isFinite(n) ? n : nilai;
+}
+
+/**
  * Unduh tabel sebagai .xlsx.
  *
  * @param {object} o
@@ -50,11 +83,7 @@ export async function exportTableXLSX({ filename = 'laporan', sheetName = 'Lapor
     aoa.push(
       row.map((sel, i) => {
         if (!columns[i]?.numeric) return sel ?? '';
-        // Angka yang sudah diformat ("Rp 1.500.000") dikembalikan jadi angka
-        // mentah. Kalau tidak, Excel menganggapnya teks dan SUM-nya nol —
-        // gagal yang tidak terlihat, karena selnya tetap tampil rapi.
-        const n = Number(String(sel ?? '').replace(/[^\d,.-]/g, '').replace(/\.(?=\d{3}\b)/g, '').replace(',', '.'));
-        return Number.isFinite(n) ? n : sel ?? '';
+        return keAngka(sel);
       })
     );
   }
