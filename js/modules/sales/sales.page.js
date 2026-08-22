@@ -1,10 +1,11 @@
-import { toast, shareDialog } from '../../core/ui.js';
+import { toast, shareDialog, confirmDialog } from '../../core/ui.js';
 import { formatNum, formatRupiah } from '../../core/format.js';
 import { listProducts } from '../product/product.service.js';
 import { recordSales, getSalesSummary, todayWIB, buatRefKiriman } from './sales.service.js';
 import { listHargaAktif } from '../menu/harga-outlet.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
 import { loadingHtml } from '../../core/loading.js';
+import { saringMenu, ringkasIsian, isianTerkirim } from './saring-menu.js';
 
 export async function renderSalesPage(container, { businessUnitId, outletId }) {
   container.innerHTML = loadingHtml('Memuat penjualan…');
@@ -35,8 +36,21 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
   const state = {
     outletId: myOutlets.some((o) => o.id === outletId) ? outletId : myOutlets[0].id,
     category: '',
+    q: '',
     summary: new Map(),
     harga: new Map(),
+    // JUMLAH YANG DIKETIK DISIMPAN DI SINI, BUKAN DI KOTAK ISIANNYA.
+    //
+    // Menyaring daftar menggambar ulang seluruh tabel, dan kotak isian yang
+    // digambar ulang kehilangan isinya. Tanpa ingatan ini, staff yang mengetik
+    // "Nasi Goreng 20" lalu mencari menu berikutnya akan kehilangan angka 20 —
+    // tanpa peringatan apa pun, karena layarnya memang tidak menampilkannya lagi.
+    //
+    // Ini juga yang membuat SIMPAN membaca dari sini, bukan dari kotak yang
+    // sedang terlihat. Sebelum ada saringan nama, berganti kategori sudah
+    // menghapus isian yang sudah diketik; dengan saringan nama, kegagalan itu
+    // akan terjadi berkali-kali dalam satu sesi pengisian.
+    qty: new Map(),
     // Penanda kiriman. Dibuat SEKALI saat Simpan ditekan, dan DIPERTAHANKAN
     // selama percobaannya belum berhasil — supaya retry memakai penanda yang
     // sama dan tidak menghasilkan penjualan ganda. Alasan lengkapnya di 0098.
@@ -53,7 +67,11 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
       <div class="field" style="margin:0"><label>Kategori</label>
         <select id="sl-cat"><option value="">Semua</option>${categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
       </div>
+      <div class="field" style="margin:0;flex:1;min-width:180px"><label>Cari menu</label>
+        <input type="search" id="sl-q" placeholder="mis. nasi goreng" autocomplete="off" enterkeyhint="search" />
+      </div>
     </div>
+    <div id="sl-info" style="margin-bottom:8px"></div>
     <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead><tr><th>Menu</th><th>Harga</th><th>Jumlah terjual</th></tr></thead>
       <tbody id="sl-rows"></tbody>
@@ -64,10 +82,42 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
 
   const outletSel = container.querySelector('#sl-outlet');
   const catSel = container.querySelector('#sl-cat');
+  const cariInput = container.querySelector('#sl-q');
+
+  const menuTersaring = () => saringMenu(menus, { kategori: state.category, q: state.q });
+
+  /**
+   * Beri tahu kalau ada isian yang sedang TERSEMBUNYI oleh saringan.
+   *
+   * Ini penjaga yang paling penting di layar ini. Staff yang sudah mengisi lima
+   * menu lalu mencari menu keenam hanya melihat satu baris — dan tanpa
+   * keterangan ini, tombol Simpan terlihat seperti hanya akan menyimpan yang
+   * satu itu. Yang lebih buruk: ia bisa mengira empat isian sebelumnya hilang
+   * dan mengetiknya ulang.
+   */
+  function renderInfo() {
+    const box = container.querySelector('#sl-info');
+    const { terisi, tersembunyi } = ringkasIsian(state.qty, menuTersaring(), menus);
+    if (!terisi.length) {
+      box.innerHTML = '';
+      return;
+    }
+
+    box.innerHTML = `
+      <p class="report-note" style="margin:0">
+        <strong>${terisi.length} menu</strong> sudah diisi dan akan ikut tersimpan.
+        ${
+          tersembunyi.length
+            ? `<strong>${tersembunyi.length} di antaranya sedang tidak terlihat</strong> karena saringan —
+               isiannya tetap aman: ${tersembunyi.map((t) => `${esc(t.nama)} (${formatNum(t.qty)})`).join(', ')}.`
+            : ''
+        }
+      </p>`;
+  }
 
   function renderRows() {
     const tbody = container.querySelector('#sl-rows');
-    const list = state.category ? menus.filter((m) => m.category === state.category) : menus;
+    const list = menuTersaring();
     tbody.innerHTML = list
       .map(
         (m) => `<tr>
@@ -83,10 +133,18 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
               ? formatRupiah(state.harga.get(m.id))
               : '<span class="error-text" style="font-size:0.78rem">belum ada harga</span>'
           }</td>
-          <td><input type="number" class="sl-qty" data-id="${m.id}" min="0" placeholder="0" style="max-width:90px" /></td>
+          <td><input type="number" class="sl-qty" data-id="${m.id}" min="0" placeholder="0" style="max-width:90px"
+            inputmode="numeric" value="${state.qty.get(m.id) ?? ''}" /></td>
         </tr>`
       )
-      .join('') || '<tr><td colspan="3">Tidak ada menu di kategori ini.</td></tr>';
+      .join('') ||
+      `<tr><td colspan="3">${
+        state.q
+          ? `Tidak ada menu yang cocok dengan "${esc(state.q)}"${state.category ? ' di kategori ini' : ''}.`
+          : 'Tidak ada menu di kategori ini.'
+      }</td></tr>`;
+
+    renderInfo();
   }
 
   /** Harga aktif outlet ini hari ini: Map<productId, harga>. */
@@ -159,6 +217,27 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
   }
 
   outletSel.addEventListener('change', async () => {
+    // ISIAN TIDAK BOLEH IKUT BERPINDAH OUTLET DIAM-DIAM.
+    //
+    // Kalau dibiarkan, staff yang mengisi untuk Serpong lalu berganti ke Sentul
+    // sekadar mengecek sesuatu akan menekan Simpan dengan angka Serpong yang
+    // masih menempel — dan penjualannya tercatat di outlet yang salah. Stok
+    // outlet yang salah ikut terpotong, dan koreksinya harus lewat admin.
+    const terisi = [...state.qty.values()].filter((q) => q > 0).length;
+    if (terisi) {
+      const lama = myOutlets.find((o) => o.id === state.outletId)?.name ?? 'outlet sebelumnya';
+      const ok = await confirmDialog({
+        title: 'Pindah outlet?',
+        message: `${terisi} menu sudah diisi untuk ${lama}. Isiannya akan dikosongkan supaya tidak tercatat di outlet yang keliru.`,
+        confirmText: 'Pindah & kosongkan'
+      });
+      if (!ok) {
+        outletSel.value = state.outletId; // kembalikan pilihannya
+        return;
+      }
+      state.qty.clear();
+    }
+
     state.outletId = outletSel.value;
     // Harga menempel pada OUTLET, jadi berganti outlet berarti seluruh kolom
     // harga berubah. Tanpa ini, layarnya menampilkan harga outlet sebelumnya.
@@ -171,10 +250,54 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
     renderRows();
   });
 
+  // Ditunda 250 ms. Menggambar ulang tiap ketukan pada BU dengan ratusan menu
+  // membuat pengetikan tersendat di ponsel — dan tabel yang digambar ulang di
+  // tengah ketikan juga mencuri fokus dari kotak pencariannya.
+  let timerCari;
+  cariInput.addEventListener('input', () => {
+    clearTimeout(timerCari);
+    timerCari = setTimeout(() => {
+      state.q = cariInput.value.trim();
+      renderRows();
+    }, 250);
+  });
+
+  // Enter di kotak pencarian JANGAN mengirim apa pun. Di ponsel, tombol Enter
+  // berlabel "cari" berada tepat di tempat orang menekannya secara refleks —
+  // dan form submit yang tidak sengaja di layar ini berarti penjualan tercatat.
+  cariInput.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    clearTimeout(timerCari);
+    state.q = cariInput.value.trim();
+    renderRows();
+    cariInput.blur(); // tutup papan ketik supaya daftarnya langsung terlihat
+  });
+
+  // Isian disimpan ke ingatan lewat SATU pendengar di tabelnya, bukan satu per
+  // baris. Baris digambar ulang tiap kali saringan berubah, dan pendengar
+  // per-baris akan ikut hilang bersamanya — hanya baris hasil gambar terakhir
+  // yang masih merekam, dan sisanya diam-diam berhenti.
+  container.querySelector('#sl-rows').addEventListener('input', (e) => {
+    const inp = e.target.closest('.sl-qty');
+    if (!inp) return;
+    const n = Number(inp.value);
+    // Kotak yang dikosongkan berarti "batal", bukan nol — entrinya dibuang
+    // supaya tidak ikut terhitung sebagai menu yang sudah diisi.
+    if (inp.value === '' || !Number.isFinite(n) || n <= 0) state.qty.delete(inp.dataset.id);
+    else state.qty.set(inp.dataset.id, n);
+    renderInfo();
+  });
+
   container.querySelector('#sl-save').addEventListener('click', async (e) => {
-    const items = [...container.querySelectorAll('.sl-qty')]
-      .map((inp) => ({ product_id: inp.dataset.id, qty: Number(inp.value) }))
-      .filter((i) => i.qty > 0);
+    // DIBACA DARI INGATAN, BUKAN DARI KOTAK YANG SEDANG TERLIHAT.
+    //
+    // `querySelectorAll('.sl-qty')` hanya menemukan baris yang lolos saringan.
+    // Membacanya dari sana berarti menu yang sudah diisi lalu tersaring keluar
+    // TIDAK ikut tersimpan — penjualan hilang tanpa satu pun pesan, dan baru
+    // ketahuan saat rekap tidak cocok dengan kasir.
+    const items = isianTerkirim(state.qty);
+
     if (!items.length) {
       toast('Isi jumlah terjual dulu.', 'warning');
       return;
@@ -194,7 +317,14 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
 
       // Berhasil -> penanda dibuang, siap untuk kiriman berikutnya (shift kedua).
       state.ref = null;
+      // Ingatannya ikut dikosongkan, bukan hanya kotak yang terlihat. Kalau
+      // hanya kotaknya yang dibersihkan, isian yang sedang tersaring keluar
+      // akan tetap tersimpan di ingatan dan IKUT TERKIRIM LAGI pada penyimpanan
+      // berikutnya — penjualan ganda yang tidak tertangkap penanda kiriman,
+      // karena kirimannya memang berbeda.
+      state.qty.clear();
       container.querySelectorAll('.sl-qty').forEach((inp) => (inp.value = ''));
+      renderInfo();
 
       toast(
         hasil?.diproses === false

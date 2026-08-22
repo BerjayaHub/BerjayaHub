@@ -3825,6 +3825,41 @@ Delapan sabotase dicoba; semuanya tertangkap, kontrolnya tetap lulus. Satu di an
 
 Tesnya butuh ~30 detik di sandbox, dan 27 detik di antaranya hanya `require('exceljs')` yang membaca ribuan berkas kecil lewat mount. Di peramban ia satu berkas CDN 1 MB.
 
+## Cari menu di layar Penjualan (Staff App)
+
+Kotak **Cari menu** di samping saringan Kategori. Kata dicocokkan satu per satu, urutannya bebas — "nasi gor" dan "goreng nasi" sama-sama menemukan "Nasi Goreng Spesial". Subkategori ikut dicari, jadi "panas" langsung memunculkan kelompoknya.
+
+### Yang harus dibereskan dulu sebelum saringan ini aman
+
+Layar ini menggambar ulang seluruh tabel setiap kali saringannya berubah, dan kotak isian yang digambar ulang kehilangan isinya. Lebih jauh: SIMPAN membaca isian lewat `querySelectorAll('.sl-qty')`, yang **hanya menemukan baris yang sedang terlihat**.
+
+Bug itu sudah ada sebelum saringan nama — berganti kategori saja sudah menghapus angka yang diketik. Tapi dengan saringan nama ia berubah dari jarang jadi **hampir pasti**: alur paling wajar adalah ketik satu menu, cari menu berikutnya, ketik lagi. Setiap pencarian akan membuang yang sebelumnya, dan yang tercatat cuma yang terakhir.
+
+Kegagalannya tidak menampilkan error apa pun. Rekapnya terlihat wajar, uang di kasir tidak cocok, dan tidak ada yang bisa menunjuk penyebabnya.
+
+Maka jumlah yang diketik sekarang disimpan di `state.qty`, bukan di kotaknya:
+
+| Sebelum | Sesudah |
+|---|---|
+| isian hilang tiap ganti saringan | isian bertahan; kotak diisi ulang dari ingatan |
+| SIMPAN membaca kotak yang terlihat | SIMPAN membaca ingatan (`isianTerkirim`) |
+| pendengar `input` per baris | satu pendengar di `<tbody>` — pendengar per baris ikut hilang saat barisnya digambar ulang |
+
+### Dua hal yang dikatakan ke staff, bukan disimpan sebagai catatan kode
+
+**Isian yang sedang tersembunyi disebut namanya.** Kalau ada 5 menu terisi dan hanya 1 yang lolos saringan, di atas tabel tertulis "5 menu sudah diisi — 4 di antaranya sedang tidak terlihat: Nasi Goreng (20), Es Teh (12)…". Tanpa itu, tombol Simpan terlihat seperti hanya akan menyimpan satu, dan staff bisa mengetik ulang yang lain. Menyebut hitungannya saja tidak cukup — di tengah antrean pembeli, tidak ada yang mau membatalkan saringan satu per satu untuk memastikan.
+
+**Ganti outlet meminta konfirmasi** kalau sudah ada isian. Kalau angka Serpong ikut menempel saat staff pindah ke Sentul sekadar mengecek sesuatu, penjualan tercatat di outlet yang salah dan stok outlet yang salah ikut terpotong — koreksinya harus lewat admin.
+
+Setelah tersimpan, ingatannya **ikut dikosongkan**. Kalau hanya kotaknya yang dibersihkan, isian yang sedang tersaring keluar tetap tinggal dan ikut terkirim lagi pada penyimpanan berikutnya — penjualan ganda yang **tidak** tertangkap penanda kiriman, karena kirimannya memang berbeda.
+
+### Sabotase
+
+Logikanya dipisah ke `js/modules/sales/saring-menu.js` (murni, tanpa impor) dan diuji di `tools/test-saring-menu.mjs`. Sembilan sabotase; **dua lolos pada percobaan pertama**, keduanya pola yang sama dengan yang sudah ditemui di Phase 10A/10B:
+
+- menambahkan parameter `terlihat` ke `isianTerkirim()` lolos karena ujinya memanggil dengan satu argumen, jadi penyaringnya tak pernah aktif — sekarang **bentuk fungsinya** yang dikunci (`isianTerkirim.length === 1`), plus pemeriksaan bahwa layar tidak kembali mengumpulkan item dari DOM;
+- membuang `state.qty.clear()` di blok keberhasilan lolos karena pemanggilan yang sama masih ada di penukar outlet — sekarang dicari **berpasangan** dengan `state.ref = null` di blok yang tepat.
+
 ## Semua tabel & halaman menyesuaikan layar
 
 ### Angka yang membuat masalahnya jelas

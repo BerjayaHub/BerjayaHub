@@ -42,7 +42,21 @@ const benar = (nama, syarat, ket = '') => {
 // keempatnya dipalsukan seadanya di sini supaya modul ASLI yang diuji — bukan
 // salinan logikanya, yang justru akan menyimpang diam-diam dari yang dipakai.
 // =====================================================================
-const ExcelJS = require('exceljs');
+// ExcelJS TIDAK ada di repo — ia dimuat dari CDN saat dipakai di peramban, dan
+// `node_modules/` memang tidak ikut di-commit. Jadi tes ini melewatkan dirinya
+// dengan jelas kalau pustakanya belum dipasang, bukan gagal.
+//
+// Gagal di sini akan terbaca sebagai "export Excel-nya rusak", padahal yang
+// kurang cuma perkakas uji — dan laporan merah yang penyebabnya bukan kode
+// adalah cara tercepat membuat orang berhenti membaca hasil regresi.
+let ExcelJS;
+try {
+  ExcelJS = require('exceljs');
+} catch {
+  console.log('⏭️  xlsx-foto: dilewati — jalankan `npm install --no-save exceljs` dulu untuk mengujinya.');
+  process.exit(0);
+}
+
 const unduhan = [];
 
 globalThis.window = { ExcelJS };
