@@ -46,6 +46,54 @@ export function buatRefKiriman() {
   return crypto.randomUUID();
 }
 
+/**
+ * Baris penjualan satu outlet pada satu tanggal — SATU BARIS PER TRANSAKSI.
+ *
+ * Berbeda dengan `getSalesSummary()` yang menjumlahkan per menu. Untuk
+ * memperbaiki atau menghapus, yang dibutuhkan justru barisnya sendiri: menu
+ * yang sama bisa punya beberapa baris kalau dicatat di dua shift, dan
+ * menggabungkannya membuat "yang mana yang salah" tidak bisa dijawab.
+ *
+ * `boleh_ubah` ikut dibawa dari server. Menghitungnya di layar berarti
+ * menyalin aturan wewenang ke tempat kedua — dan salinan yang menyimpang akan
+ * menampilkan tombol yang pasti ditolak, atau menyembunyikan tombol yang
+ * sebenarnya boleh.
+ */
+export async function listSalesHariIni(outletId, date) {
+  const { data, error } = await supabase
+    .from('sales')
+    .select('id, product_id, qty, unit_price, revenue, created_at, created_by, products(name)')
+    .eq('outlet_id', outletId)
+    .eq('sale_date', date)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Ubah jumlah terjual.
+ *
+ * Lewat RPC, BUKAN `update` langsung. Dua alasannya sama pentingnya:
+ * harga tidak boleh dibaca ulang dari daftar harga sekarang (omzet historis
+ * akan bergeser), dan stok bahannya harus ikut dikoreksi — keduanya mustahil
+ * dijamin dari sisi klien.
+ */
+export async function ubahPenjualan(saleId, qty) {
+  const { data, error } = await supabase.rpc('ubah_penjualan', { p_sale: saleId, p_qty: Number(qty) });
+  if (error) throw error;
+  return data;
+}
+
+/** Balik stok bahannya lalu hapus barisnya. Lihat 0101. */
+export async function hapusPenjualan(saleId, alasan = null) {
+  const { data, error } = await supabase.rpc('hapus_penjualan', {
+    p_sale: saleId,
+    p_alasan: alasan?.trim() || null
+  });
+  if (error) throw error;
+  return data;
+}
+
 /** Rekap penjualan hari ini untuk sebuah outlet -> Map productId -> {qty, revenue}. */
 export async function getSalesSummary(outletId, date) {
   const { data, error } = await supabase

@@ -1,10 +1,18 @@
-import { toast, shareDialog, confirmDialog } from '../../core/ui.js';
+import { toast, shareDialog, confirmDialog, formDialog } from '../../core/ui.js';
 import { formatNum, formatRupiah } from '../../core/format.js';
 import { listProducts } from '../product/product.service.js';
-import { recordSales, getSalesSummary, todayWIB, buatRefKiriman } from './sales.service.js';
+import {
+  recordSales,
+  getSalesSummary,
+  listSalesHariIni,
+  ubahPenjualan,
+  hapusPenjualan,
+  todayWIB,
+  buatRefKiriman
+} from './sales.service.js';
 import { listHargaAktif } from '../menu/harga-outlet.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { saringMenu, ringkasIsian, isianTerkirim } from './saring-menu.js';
 
 export async function renderSalesPage(container, { businessUnitId, outletId }) {
@@ -38,6 +46,8 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
     category: '',
     q: '',
     summary: new Map(),
+    // Baris penjualan hari ini, satu per transaksi — bahan untuk Edit & Hapus.
+    baris: [],
     harga: new Map(),
     // JUMLAH YANG DIKETIK DISIMPAN DI SINI, BUKAN DI KOTAK ISIANNYA.
     //
@@ -168,26 +178,63 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
     } catch {
       state.summary = new Map();
     }
-    const rows = menus
-      .filter((m) => state.summary.has(m.id))
-      .map((m) => {
-        const s = state.summary.get(m.id);
-        return `<tr><td>${esc(m.name)}</td><td>${formatNum(s.qty)}</td><td>${formatRupiah(s.revenue)}</td></tr>`;
-      });
+    // Baris per TRANSAKSI, bukan agregat per menu. Menu yang sama bisa punya
+    // beberapa baris (shift pagi & malam), dan menggabungkannya membuat
+    // pertanyaan "yang mana yang salah ketik?" tidak bisa dijawab.
+    try {
+      state.baris = await listSalesHariIni(state.outletId, date);
+    } catch {
+      state.baris = [];
+    }
+
     let total = 0;
     for (const s of state.summary.values()) total += s.revenue;
+
+    const rows = state.baris.map(
+      (b) => `<tr>
+        <td data-label="Menu">${esc(b.products?.name ?? '(menu terhapus)')}</td>
+        <td data-label="Terjual" style="text-align:right">${formatNum(b.qty)}</td>
+        <td data-label="Omzet" style="text-align:right">${formatRupiah(b.revenue)}</td>
+        <td data-label="Aksi" style="white-space:nowrap">
+          <button class="sl-edit" data-id="${b.id}">Edit</button>
+          <button class="sl-del" data-id="${b.id}">Hapus</button>
+        </td>
+      </tr>`
+    );
+
     box.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;max-width:420px;flex-wrap:wrap">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;max-width:560px;flex-wrap:wrap">
         <h2 style="font-size:1rem;margin:0">Rekap Penjualan Hari Ini</h2>
         ${rows.length ? '<button id="sl-share">📤 Kirim via WhatsApp</button>' : ''}
       </div>
       ${
         rows.length
-          ? `<table class="data-table" style="max-width:420px;margin-top:8px"><thead><tr><th>Menu</th><th>Terjual</th><th>Omzet</th></tr></thead><tbody>${rows.join('')}</tbody></table>
-             <p style="font-weight:600;margin-top:8px">Total omzet: ${formatRupiah(total)}</p>`
+          ? `<div class="table-scroll" style="max-width:560px;margin-top:8px">
+               <table class="data-table table-freeze-1 kartu-sempit">
+                 <thead><tr><th>Menu</th><th>Terjual</th><th>Omzet</th><th>Aksi</th></tr></thead>
+                 <tbody>${rows.join('')}</tbody>
+               </table>
+             </div>
+             <p style="font-weight:600;margin-top:8px">Total omzet: ${formatRupiah(total)}</p>
+             <p class="report-note" style="max-width:560px">
+               Salah input bisa dibetulkan di sini. <strong>Stok bahan ikut dikoreksi otomatis</strong> —
+               mengurangi jumlah mengembalikan bahannya, menghapus mengembalikan seluruhnya.
+               <br /><br />
+               Harga tidak ikut berubah walau daftar harga sudah diperbarui: yang dipakai tetap harga saat
+               transaksi ini dicatat, supaya omzet hari-hari sebelumnya tidak bergeser sendiri.
+               <br /><br />
+               Kamu hanya bisa membetulkan yang <strong>kamu catat sendiri hari ini</strong>. Selebihnya lewat Admin BU.
+             </p>`
           : '<p style="color:var(--color-text-muted)">Belum ada penjualan tercatat hari ini.</p>'
       }
     `;
+
+    box.querySelectorAll('.sl-edit').forEach((b) =>
+      b.addEventListener('click', () => bukaEdit(state.baris.find((x) => x.id === b.dataset.id)))
+    );
+    box.querySelectorAll('.sl-del').forEach((b) =>
+      b.addEventListener('click', sekaliJalan(() => bukaHapus(state.baris.find((x) => x.id === b.dataset.id))))
+    );
 
     box.querySelector('#sl-share')?.addEventListener('click', () => {
       const outletName = myOutlets.find((o) => o.id === state.outletId)?.name ?? '-';
@@ -214,6 +261,89 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
         defaultMessage: text
       });
     });
+  }
+
+  /**
+   * Perbaiki jumlah terjual satu baris.
+   *
+   * Harganya SENGAJA ditampilkan sebagai keterangan mati, bukan kotak isian:
+   * yang boleh diperbaiki di sini hanya jumlahnya. Harga yang bisa diketik di
+   * layar staff berarti omzet bisa diubah tanpa lewat daftar harga — dan
+   * selisih antara omzet tercatat dan harga yang berlaku tidak akan pernah
+   * bisa dijelaskan.
+   */
+  async function bukaEdit(baris) {
+    if (!baris) return;
+    const nama = baris.products?.name ?? '(menu terhapus)';
+
+    const nilai = await formDialog({
+      title: `Perbaiki — ${nama}`,
+      fields: [
+        {
+          name: 'qty',
+          label: 'Jumlah terjual',
+          type: 'qty',
+          required: true,
+          value: baris.qty,
+          help: `Harga tetap ${formatRupiah(baris.unit_price)}/porsi (harga saat transaksi ini dicatat). Stok bahan ikut dikoreksi.`
+        }
+      ],
+      submitText: 'Simpan perbaikan'
+    });
+    if (!nilai) return;
+
+    const qty = Number(nilai.qty);
+    if (!(qty > 0)) {
+      // Diarahkan ke Hapus, bukan disimpan sebagai nol. Baris beromzet nol yang
+      // stoknya sudah terpotong adalah persis bentuk data yang dijaga sejak 0099.
+      toast('Jumlah harus lebih dari 0. Kalau memang tidak jadi terjual, pakai tombol Hapus.', 'warning');
+      return;
+    }
+
+    try {
+      const hasil = await ubahPenjualan(baris.id, qty);
+      // Dikatakan apa adanya kalau stoknya TIDAK ikut berubah. "Tersimpan" saja
+      // akan membuat orang mengira bahannya sudah dikoreksi padahal menunya
+      // memang tidak punya resep.
+      toast(
+        hasil?.stok_disesuaikan === false
+          ? 'Jumlah diperbarui. Menu ini tidak punya resep, jadi stok bahan tidak ikut berubah.'
+          : 'Jumlah diperbarui. Stok bahan ikut dikoreksi.',
+        'success'
+      );
+      await loadSummary();
+    } catch (error) {
+      toast(error.message ?? 'Gagal memperbaiki penjualan.', 'error');
+    }
+  }
+
+  /** Hapus satu baris penjualan. Stok bahannya dikembalikan lebih dulu. */
+  async function bukaHapus(baris) {
+    if (!baris) return;
+    const nama = baris.products?.name ?? '(menu terhapus)';
+
+    const ok = await confirmDialog({
+      title: `Hapus penjualan ${nama}?`,
+      message:
+        `${formatNum(baris.qty)} porsi — ${formatRupiah(baris.revenue)}.\n\n` +
+        'Stok bahan yang terpakai akan DIKEMBALIKAN, dan baris ini hilang permanen dari catatan penjualan.',
+      confirmText: 'Hapus & kembalikan stok',
+      danger: true
+    });
+    if (!ok) return;
+
+    try {
+      const hasil = await hapusPenjualan(baris.id);
+      toast(
+        hasil?.stok_dikembalikan === false
+          ? 'Penjualan dihapus. Menu ini tidak punya resep, jadi tidak ada stok yang dikembalikan.'
+          : 'Penjualan dihapus. Stok bahan dikembalikan.',
+        'success'
+      );
+      await loadSummary();
+    } catch (error) {
+      toast(error.message ?? 'Gagal menghapus penjualan.', 'error');
+    }
   }
 
   outletSel.addEventListener('change', async () => {

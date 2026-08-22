@@ -3860,6 +3860,94 @@ Logikanya dipisah ke `js/modules/sales/saring-menu.js` (murni, tanpa impor) dan 
 - menambahkan parameter `terlihat` ke `isianTerkirim()` lolos karena ujinya memanggil dengan satu argumen, jadi penyaringnya tak pernah aktif — sekarang **bentuk fungsinya** yang dikunci (`isianTerkirim.length === 1`), plus pemeriksaan bahwa layar tidak kembali mengumpulkan item dari DOM;
 - membuang `state.qty.clear()` di blok keberhasilan lolos karena pemanggilan yang sama masih ada di penukar outlet — sekarang dicari **berpasangan** dengan `state.ref = null` di blok yang tepat.
 
+## Edit & hapus penjualan — dan stoknya benar-benar ikut (0101)
+
+### Kenapa sebelumnya tidak berpengaruh ke stok
+
+Bukan karena rusak: **fiturnya memang tidak pernah ada.**
+
+`sales` sejak 0025 hanya punya policy `SELECT`. Tidak ada `UPDATE`, tidak ada `DELETE`, tidak ada RPC yang mengubahnya — jadi mengedit penjualan mustahil, dan karena mustahil, pembalikan stoknya pun tidak pernah ditulis.
+
+Yang menyesatkan: **PostgREST tidak menganggap penolakan RLS sebagai error.** Ia membalas sukses dengan nol baris. Klien yang mencoba `update` akan melihat "berhasil" dan tidak ada yang berubah — persis gejala yang dilaporkan.
+
+### Bentuknya: pergerakan penyeimbang
+
+Sama seperti produksi (0092), nota (0084), dan opname (0085): pergerakan stok lama **tidak pernah** diubah atau dihapus. Yang ditulis adalah pergerakan baru sebesar selisihnya. Kalau ada penerimaan atau opname di antara penjualan dan koreksinya, menimpa angka lama akan menghasilkan urutan yang tidak pernah terjadi.
+
+### Hapus = barisnya benar-benar hilang
+
+Berbeda dengan produksi & opname yang memakai penanda batal, di sini baris `sales`-nya **dihapus**. Itu keputusan pemilik. Konsekuensinya ditangani, bukan diabaikan:
+
+| Risiko | Penanganan |
+|---|---|
+| pergerakan stok ikut terhapus | `sale_id` dibuat `on delete set null`, **bukan** `cascade`. Cascade akan melenyapkan pemakaian bahan yang benar-benar terjadi, dan saldo stok berubah diam-diam |
+| ceritanya hilang bersama barisnya | dititipkan ke catatan pergerakan: `"Batal penjualan Nasi Goreng 20 porsi (12 Agu) — salah input"` |
+| `sales_submissions` menyimpan omzet yang barisnya sudah tiada | dihitung ulang setelah setiap edit & hapus |
+
+### Harga tidak pernah dibaca ulang
+
+`ubah_penjualan()` memakai `unit_price` yang **sudah tersimpan** di baris itu, bukan `harga_outlet_aktif()`.
+
+Kalau harganya dibaca ulang, membetulkan salah ketik jumlah di hari Senin akan diam-diam mengubah omzet hari Sabtu ke harga yang baru naik. Tidak ada error, tidak ada tanda; omzet historis sekadar bergeser. Itu persis yang dijaga sejak 0099, dan tidak boleh bocor lewat pintu edit.
+
+### Siapa yang boleh
+
+Pencatatnya sendiri **hari itu juga**, atau Admin BU kapan saja — bentuk yang sama dipakai produksi. Batas "hari ini" ada karena koreksi yang datang berhari-hari kemudian hampir selalu menyentuh periode yang laporannya sudah dibaca orang.
+
+### Dibuktikan dengan angka, bukan dengan membaca SQL
+
+Pertanyaan "apakah stoknya sudah ikut berubah?" tidak bisa dijawab dengan membaca kode: tandanya bisa terbalik, atau resep yang dipakai membalik berbeda dari yang dulu memotong. Keduanya menghasilkan selisih yang terlihat wajar dan tidak akan pernah dicurigai.
+
+`tools/test-migrasi-0101-0102.mjs` menjalankan migrationnya di **Postgres sungguhan** (PGlite) dan memeriksa **saldo stoknya**:
+
+```
+Nasi Goreng — 1 porsi = 200 g beras + 50 g bumbu
+
+catat 10 porsi   → beras −2.000 g
+ubah  10 → 15    → beras −3.000 g   (penyeimbang +/−, bukan hitung ulang)
+ubah  15 →  8    → beras −1.600 g
+HAPUS            → beras       0 g  ← kembali persis
+```
+
+Juga diuji: harga tetap Rp 25.000 walau daftar harga dinaikkan jadi Rp 40.000 di tengah jalan; buku besar bertambah (2 baris) bukan ditimpa; orang lain ditolak; pencatat ditolak untuk penjualan kemarin; qty 0 diarahkan ke Hapus; menu tanpa resep tetap bisa dikoreksi omzetnya dengan `stok_disesuaikan: false` yang dikatakan di layar.
+
+**Sebelas sabotase** dicoba pada migrationnya — tanda selisih dibalik, hapus malah memotong lagi, harga dibaca ulang dari master, `sale_id` diubah jadi `cascade`, wewenang dimatikan, batas hari ini dihapus. Semua tertangkap; kontrolnya tetap lulus.
+
+## Kategori aset & pindah massal (0102)
+
+### Kategori: kolom teks, bukan tabel tersendiri
+
+Persis seperti `products.category`. Daftar pilihannya dibangun dari nilai yang **sudah ada** (`select distinct`), jadi "tambah kategori" cukup dengan mengetik nama baru dan memilih "+ Tambah …" — tidak ada langkah "buat kategori dulu" yang harus dikerjakan admin sebelum staff bisa mencatat barang.
+
+Filternya ada di **Staff App maupun Admin Portal**, dan ikut ke export PDF & Excel. Setelah menyimpan, dropdown saringan langsung diperbarui — tanpa itu, orang yang baru membuat "Elektronik" tidak akan menemukannya sampai halamannya dimuat ulang, dan akan membuatnya lagi.
+
+Yang **hilang** dari pilihan ini dan diterima: salah ketik menghasilkan kategori baru ("Elektronik" vs "elektronik"). Master Produk sudah hidup dengan itu sejak awal.
+
+### Pindah massal: kenapa lewat RPC
+
+Policy `assets_update` memeriksa `has_outlet_scope` pada baris lama dan baru. Sekilas cukup — tapi dua hal tidak terjamin dari sana:
+
+1. **`business_unit_id` tidak diperiksa sama sekali.** Aset bisa mendarat di BU yang outletnya bukan miliknya, dan setiap laporan per-BU akan memuat atau kehilangan aset itu tanpa alasan yang terlihat.
+2. **PostgREST membalas sukses dengan nol baris saat RLS menolak.** Pemindahan 40 aset yang seluruhnya ditolak akan terlihat berhasil, dan yang mencarinya di outlet tujuan tidak akan menemukannya.
+
+`pindah_aset()` memeriksa wewenang di outlet **asal maupun tujuan**, memastikan outlet tujuan memang milik BU tujuan, dan **mengembalikan jumlahnya**: `"12 aset dipindahkan · 3 ditolak (di luar outlet yang bisa kamu kelola)"`.
+
+Di layar, dropdown outlet **mengikuti** BU yang dipilih — kombinasi mustahil tidak bisa dipilih, bukan ditolak setelah tombol ditekan.
+
+### Centang disimpan di luar tabel
+
+Tabelnya digambar ulang tiap kali saringan berubah, dan centang yang hidup di DOM ikut hilang. Kalau begitu, admin yang memilih 5 aset di outlet A lalu mengganti saringan untuk memilih 3 di outlet B akan memindahkan **3, bukan 8** — tanpa satu pun tanda bahwa 5 lainnya terlepas. Pola kegagalan yang sama persis dengan isian penjualan yang tersaring keluar.
+
+"Pilih semua" sengaja hanya menyentuh yang **sedang terlihat**.
+
+### Fotonya ikut pindah — dan urutannya disengaja
+
+Foto tersimpan di `<outlet_id>/<asset_id>.<ext>` dan izin bacanya mengikuti outlet (0050), jadi aset yang pindah kehilangan akses ke foto lamanya.
+
+Memindahkan berkas storage tidak bisa dilakukan dari SQL. Jadi `pindah_aset()` **mengosongkan** `photo_path` bagi yang berganti outlet, lalu klien memindahkan berkasnya (`storage.move`, bukan unduh-lalu-unggah) dan mengisi ulang kolomnya. Kegagalan di sini berakhir sebagai aset **tanpa foto** — bukan aset dengan tautan yang selalu gagal dibuka. "-" yang jujur mengalahkan tautan yang selalu gagal, dan jumlah yang gagal disebutkan di toast.
+
+Barisnya dipindahkan lebih dulu, berkasnya menyusul: kalau pemindahan baris gagal, tidak ada berkas yang terlanjur pindah dan tertinggal di folder yang salah.
+
 ## Semua tabel & halaman menyesuaikan layar
 
 ### Angka yang membuat masalahnya jelas

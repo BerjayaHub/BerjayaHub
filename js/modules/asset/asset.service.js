@@ -1,5 +1,6 @@
 import { supabase } from '../../config/supabase-client.js';
 import { compressImage } from '../../core/image-compress.js';
+import { ambilSemua } from '../../core/ambil-semua.js';
 
 export const ASSET_CONDITION = { normal: 'Normal', rusak: 'Rusak', lainnya: 'Lain-lain' };
 export const ASSET_CONDITION_BADGE = { normal: 'badge-approved', rusak: 'badge-rejected', lainnya: 'badge-pending' };
@@ -11,7 +12,7 @@ export function conditionText(a) {
   return a.condition === 'lainnya' && a.condition_note ? `${base} — ${a.condition_note}` : base;
 }
 
-export async function listAssets({ businessUnitId, outletId, condition, q, limit = 500 }) {
+export async function listAssets({ businessUnitId, outletId, condition, category, q, limit = 500 }) {
   let query = supabase
     .from('assets')
     // Tanpa embed nama pendaftar: layar aset tidak menggambarnya, dan embed
@@ -22,10 +23,102 @@ export async function listAssets({ businessUnitId, outletId, condition, q, limit
     .limit(limit);
   if (outletId) query = query.eq('outlet_id', outletId);
   if (condition) query = query.eq('condition', condition);
+  if (category) query = query.eq('category', category);
   if (q) query = query.ilike('name', `%${q}%`);
   const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
+}
+
+/**
+ * Daftar kategori yang SUDAH dipakai di BU ini.
+ *
+ * Sengaja dibangun dari nilai yang ada, bukan dari tabel referensi — sama
+ * seperti kategori di Master Produk. Menambah kategori berarti mengetik nama
+ * baru; tidak ada langkah "buat kategori dulu" yang harus dikerjakan admin
+ * sebelum staff bisa mencatat barang.
+ *
+ * Diambil TANPA batas baris: daftar yang terpotong akan menyembunyikan
+ * kategori lama dari kotak pencarian, dan orang akan membuat duplikatnya.
+ */
+export async function listKategoriAset(businessUnitId) {
+  const rows = await ambilSemua((dari, sampai) =>
+    supabase
+      .from('assets')
+      .select('category', { count: 'exact' })
+      .eq('business_unit_id', businessUnitId)
+      .not('category', 'is', null)
+      .range(dari, sampai)
+  );
+
+  return [...new Set((rows ?? []).map((r) => r.category?.trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, 'id')
+  );
+}
+
+/**
+ * Pindahkan aset ke outlet/BU lain — LEWAT RPC, bukan `update` biasa.
+ *
+ * PostgREST membalas SUKSES DENGAN NOL BARIS saat RLS menolak. Pemindahan
+ * massal 40 aset yang seluruhnya ditolak akan terlihat berhasil, dan yang
+ * mencarinya di outlet tujuan tidak akan menemukannya. RPC-nya mengembalikan
+ * jumlah yang benar-benar berpindah supaya layar bisa mengatakan apa adanya.
+ *
+ * Alasan lengkapnya di kepala migration 0102.
+ */
+export async function pindahAset({ ids, businessUnitId, outletId }) {
+  const { data, error } = await supabase.rpc('pindah_aset', {
+    p_ids: ids,
+    p_bu: businessUnitId,
+    p_outlet: outletId
+  });
+  if (error) throw error;
+  return data ?? { pindah: 0, ditolak: 0, ganti_outlet: 0 };
+}
+
+/**
+ * Pindahkan BERKAS foto ke folder outlet baru.
+ *
+ * Harus dikerjakan dari klien: memindahkan objek storage tidak bisa dilakukan
+ * dari dalam SQL. `pindah_aset()` sudah mengosongkan `photo_path` bagi yang
+ * berganti outlet, jadi kegagalan di sini berakhir sebagai aset tanpa foto —
+ * bukan aset dengan tautan yang selalu gagal dibuka.
+ *
+ * Dikerjakan SATU PER SATU, bukan serentak: puluhan penyalinan berbarengan
+ * membuat sebagian permintaan tertunda lama atau ditolak, dan hasilnya
+ * "sebagian fotonya hilang" tanpa sebab yang jelas.
+ */
+export async function pindahFotoAset(daftar) {
+  let berhasil = 0;
+  const gagal = [];
+
+  for (const { assetId, dariPath, keOutletId } of daftar) {
+    if (!dariPath || !keOutletId) continue;
+    const ext = (dariPath.split('.').pop() || 'jpg').toLowerCase();
+    const tujuan = `${keOutletId}/${assetId}.${ext}`;
+
+    try {
+      // `move` memindahkan tanpa mengunduh isinya — jauh lebih hemat daripada
+      // unduh-lalu-unggah, dan tidak ada jendela waktu dengan dua salinan.
+      const { error } = await supabase.storage.from('asset-photos').move(dariPath, tujuan);
+      if (error) throw error;
+
+      // `.select()`: penolakan RLS pada UPDATE membalas sukses dengan 0 baris.
+      const { data, error: upErr } = await supabase
+        .from('assets')
+        .update({ photo_path: tujuan })
+        .eq('id', assetId)
+        .select('id');
+      if (upErr) throw upErr;
+      if (!data?.length) throw new Error('path foto tidak tercatat');
+
+      berhasil++;
+    } catch (error) {
+      gagal.push({ assetId, sebab: error?.message ?? String(error) });
+    }
+  }
+
+  return { berhasil, gagal };
 }
 
 async function currentUserId() {
@@ -41,7 +134,7 @@ async function currentUserId() {
  * begitu satu aset selalu punya paling banyak satu foto dan tidak ada file
  * yatim saat penyimpanan gagal.
  */
-export async function saveAsset({ id, businessUnitId, outletId, name, qty, size, condition, conditionNote, notes, file }) {
+export async function saveAsset({ id, businessUnitId, outletId, name, category, qty, size, condition, conditionNote, notes, file }) {
   const uid = await currentUserId();
   if (!uid) throw new Error('Sesi tidak ditemukan, silakan login ulang.');
 
@@ -49,6 +142,7 @@ export async function saveAsset({ id, businessUnitId, outletId, name, qty, size,
     business_unit_id: businessUnitId,
     outlet_id: outletId,
     name: name.trim(),
+    category: category?.trim() || null,
     qty: Number(qty) || 0,
     size: size?.trim() || null,
     condition,
