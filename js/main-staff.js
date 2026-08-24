@@ -9,6 +9,8 @@ import { listTutorialsByModule } from './modules/tutorial/tutorial.service.js';
 import { pasangNavigasi, dorongLapis, bersihkanLapis, bersihkanIsian } from './core/navigasi.js';
 import { ingatModul, modulTerakhir, mulaiModul, pulihkanGulir, pasangPencatatGulir } from './core/ingatan-layar.js';
 import { pasangPerekamDraf, setLayarDraf, tawarkanDraf } from './core/pasang-draf.js';
+import { lencanaSemua, adaKabarBaru, bacaWaktuBuka, catatWaktuBuka, JENIS } from './core/lencana.js';
+import { ambilLencana } from './core/lencana.service.js';
 import { renderAttendancePage } from './modules/attendance/attendance.page.js';
 import { renderLeavePage } from './modules/leave/leave.page.js';
 import { renderCleaningPage } from './modules/cleaning/cleaning.page.js';
@@ -409,6 +411,13 @@ async function renderHome(context, modules, moduleCtx) {
     card.addEventListener('click', () => openModule(card.dataset.module, context, modules, moduleCtx));
   });
 
+  // LENCANA DIGAMBAR SESUDAH KARTUNYA, BUKAN MENUNGGUNYA.
+  //
+  // Beranda harus muncul seketika. Kalau digambar bersama kartunya, satu
+  // permintaan yang lambat membuat seluruh beranda menunggu — dan yang paling
+  // dibutuhkan justru kartunya, bukan angkanya.
+  gambarLencana(content, gridModules, context, moduleCtx);
+
   // Daftar tutorial di Beranda. Tombol ❓ di header modul hanya terlihat kalau
   // orangnya SUDAH membuka modul itu — padahal yang paling butuh tutorial justru
   // yang belum berani membukanya. Sengaja tidak di-await: Beranda harus tampil
@@ -563,7 +572,59 @@ function fmtClock(iso) {
  *   penting: membuka modul lewat ketukan harus mulai dari atas, sedangkan
  *   kembali dari aplikasi lain harus mendarat persis di tempat yang ditinggalkan.
  */
+/**
+ * Pasang lencana ke kartu yang sudah tergambar.
+ *
+ * Gagal = tidak ada lencana, dan itu sudah benar. Lencana adalah pelengkap;
+ * beranda yang tidak bisa dibuka karena hitungannya gagal jauh lebih merugikan
+ * daripada beranda tanpa tanda.
+ */
+async function gambarLencana(content, gridModules, context, moduleCtx) {
+  const hasil = await ambilLencana(moduleCtx.businessUnitId, moduleCtx.outletId);
+  if (!hasil?.modul) return;
+
+  const userId = context?.profile?.id ?? 'anon';
+  const waktuBuka = bacaWaktuBuka(userId, moduleCtx.outletId);
+
+  // Kabar baru diturunkan dari WAKTU AKTIVITAS TERBARU tiap modul, yang ikut
+  // dikirim RPC. Modul yang tidak mengirimkannya sekadar tidak pernah bertitik
+  // — lebih baik daripada titik yang muncul karena tebakan.
+  const aktivitas = {};
+  for (const [kode, m] of Object.entries(hasil.modul)) {
+    if (m?.terakhir_aktivitas) aktivitas[kode] = m.terakhir_aktivitas;
+  }
+  const baru = adaKabarBaru(aktivitas, waktuBuka);
+  const peta = lencanaSemua(gridModules, hasil, baru);
+
+  for (const kartu of content.querySelectorAll('[data-module]')) {
+    const l = peta.get(kartu.dataset.module);
+    if (!l || l.jenis === JENIS.KOSONG) continue;
+
+    const el = document.createElement('span');
+    el.className = 'lencana';
+    if (l.jenis === JENIS.BARU) {
+      el.innerHTML = '<span class="lencana-titik"></span>';
+    } else {
+      el.innerHTML = `<span class="${l.jenis === JENIS.SERU ? 'lencana-seru' : 'lencana-angka'}">${escapeHtml(l.teks)}</span>`;
+      // Tepi merah menyertai angka: di layar terang, titik kecil di sudut
+      // mudah tidak terlihat sama sekali.
+      kartu.classList.add('ada-tugas');
+    }
+    // Dibacakan pembaca layar & muncul sebagai tooltip di desktop — angka
+    // telanjang di sudut kartu tidak menjelaskan apa pun sendirian.
+    if (l.judul) el.title = l.judul;
+    kartu.setAttribute('aria-label', `${kartu.textContent.trim()}${l.judul ? ' — ' + l.judul : ''}`);
+    kartu.appendChild(el);
+  }
+}
+
 function openModule(code, context, modules, moduleCtx, { pulihkan = false } = {}) {
+  // Titik biru hilang di sini — SAAT DIBUKA, sesuai artinya ("ada yang baru
+  // sejak terakhir kamu lihat"). Lencana merah TIDAK ikut hilang: ia dihitung
+  // ulang dari pekerjaan yang benar-benar masih tertunda, jadi ia baru lenyap
+  // ketika kerjanya selesai. Bedanya dijaga di `core/lencana.js`.
+  catatWaktuBuka(context?.profile?.id ?? 'anon', moduleCtx.outletId, code);
+
   // Membaca-lalu-mengosongkan dikerjakan `mulaiModul()` dalam SATU langkah.
   // Memisahkannya jadi "baca dulu, lalu ingatModul" pernah menelan satu
   // perbaikan utuh — alasan lengkapnya di core/ingatan-layar.js.

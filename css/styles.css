@@ -869,7 +869,22 @@ select.sc-cell.is-off {
   margin-top: 16px;
 }
 
+/* =========================================================
+   LENCANA KARTU BERANDA
+
+   Dua bentuk yang SENGAJA berbeda, bukan dua warna dari bentuk yang sama:
+
+     .lencana-angka  merah + angka  -> ada yang menunggu DIKERJAKAN
+     .lencana-titik  titik biru     -> ada yang BARU sejak terakhir dibuka
+
+   Kalau keduanya cuma beda warna, staff akan menghafal "ada tanda = ada
+   kerjaan" dan titik biru ikut terbaca sebagai tuntutan. Ukuran & isi yang
+   berbeda membuat keduanya bisa dibedakan sekilas, bahkan oleh mata yang
+   kesulitan membedakan merah-biru.
+   ========================================================= */
 .module-card {
+  /* Jangkar lencana. Tanpa ini lencananya melayang ke sudut layar. */
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -894,6 +909,58 @@ select.sc-cell.is-off {
 
 .module-card-icon {
   font-size: 1.8rem;
+}
+
+.lencana {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* `pointer-events: none` supaya menekan tepat di atas lencana tetap membuka
+     kartunya — sasaran sentuh di ponsel tidak boleh punya lubang. */
+  pointer-events: none;
+  line-height: 1;
+}
+
+.lencana-angka,
+.lencana-seru {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--color-danger, #c0392b);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  /* Cincin sewarna kartu: lencana tetap terbaca walau menindih ikon. */
+  box-shadow: 0 0 0 2px var(--color-surface);
+}
+
+.lencana-titik {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #2f6fd0;
+  box-shadow: 0 0 0 2px var(--color-surface);
+}
+
+/* Kartu berlencana merah diberi tepi tipis juga — pada layar terang di luar
+   ruangan, titik kecil di sudut mudah tidak terlihat sama sekali. */
+.module-card.ada-tugas {
+  border-color: var(--color-danger, #c0392b);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .lencana-angka,
+  .lencana-seru {
+    animation: lencana-muncul 0.18s ease-out;
+  }
+}
+@keyframes lencana-muncul {
+  from { transform: scale(0.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
 }
 
 .module-card-label {

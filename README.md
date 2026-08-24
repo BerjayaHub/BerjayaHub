@@ -4046,6 +4046,59 @@ Momen "barang dikirim" berpindah dari INSERT ke UPDATE (`draft` → `sent`). Dij
 
 Kalau Edge Function belum sempat di-deploy ulang, notifikasi kirim **hilang** — bukan **salah**. Diam lebih baik daripada mengumumkan barang berangkat padahal masih di rak.
 
+## Lencana kartu Beranda Staff (0104)
+
+Permintaannya: tanda di kartu modul kalau ada perubahan, hilang setelah dibuka. Yang dibuat sedikit berbeda, dan alasannya penting.
+
+### Dua jenis tanda, bukan satu
+
+| | Merah + angka | Titik biru |
+|---|---|---|
+| Artinya | ada yang **menunggu dikerjakan** | ada **aktivitas baru** sejak terakhir dibuka |
+| Hilang saat | **pekerjaannya selesai** | **kartunya dibuka** |
+| Dihitung di | server (`lencana_beranda`) | klien (`core/lencana.js`) |
+
+Yang diminta adalah jenis kedua. Tapi jenis kedua sendirian punya kelemahan serius di aplikasi operasional: staff membuka Pengiriman, melihat tiga kiriman perlu dikonfirmasi, lalu dipanggil tamu. Tandanya sudah hilang — padahal kerjanya belum, dan besoknya tidak ada lagi yang mengingatkan.
+
+Itu pola "kegagalan yang terlihat seperti keberhasilan" yang dijaga di seluruh aplikasi ini. Maka yang merah dipakai untuk **pekerjaan**, yang biru hanya untuk **kabar** — dan kalau keduanya ada, merah menang.
+
+Bentuknya juga sengaja berbeda, bukan cuma warnanya: angka dalam pil versus titik kecil. Kalau bedanya hanya warna, staff akan menghafal "ada tanda = ada kerjaan" dan titik biru ikut terbaca sebagai tuntutan — dan mata yang kesulitan membedakan merah-biru tidak punya petunjuk lain sama sekali.
+
+### Yang dihitung (4 modul, putaran pertama)
+
+| Kartu | Lencana merah |
+|---|---|
+| Pengiriman | kiriman masuk belum dikonfirmasi + (CK) order menunggu + draft belum dikirim |
+| Bahan | bahan bersaldo **minus** |
+| Daily Activities | item **hari ini** yang belum dicentang |
+| Penjualan | tanda **!** kalau belum ada input hari ini |
+
+Penjualan memakai `!`, bukan angka. "1" di kartu Penjualan akan terbaca "ada 1 penjualan menunggu", padahal artinya justru **belum ada apa-apa**.
+
+### Satu RPC, bukan sebelas query
+
+Beranda punya sebelas kartu. Menghitung satu per satu berarti sebelas permintaan yang tiba pada waktu berbeda di sinyal seadanya — berandanya terlihat berkedip-kedip. Satu RPC berarti satu perjalanan, dan angkanya konsisten satu sama lain karena lahir dari satu transaksi.
+
+Lencananya digambar **sesudah** kartunya, bukan bersamaan: beranda harus muncul seketika, dan yang paling dibutuhkan adalah kartunya, bukan angkanya. Kalau hitungannya gagal, beranda tetap tergambar tanpa tanda.
+
+### Scope diperiksa eksplisit
+
+`security definer` mematikan RLS. Tanpa `has_outlet_scope`, siapa pun bisa membaca keadaan operasional outlet mana pun sekadar dengan menebak id-nya — berapa kiriman menggantung, berapa bahan minus. Angka itu sendiri sudah membocorkan banyak hal, dan kebocorannya tidak menghasilkan satu pun error.
+
+### Batas yang diketahui
+
+Daily Activities dihitung dari sesi yang **sudah dibuka** hari ini. Outlet yang belum membuka satu pun sesi tidak akan berlencana — menghitung "yang seharusnya dikerjakan" menuntut tahu sesi mana yang jadwalnya jalan hari ini di outlet itu, dan tebakan yang salah menghasilkan lencana yang tidak pernah bisa dihilangkan. `ada_sesi_hari_ini` tetap dikirim supaya layar bisa membedakan "sudah beres" dari "belum mulai".
+
+"Terakhir dibuka" disimpan **per perangkat** (`localStorage`), bukan di server — pertanyaannya "apa yang baru sejak *saya* terakhir melihat", dan orang yang sama di HP lain memang belum melihatnya di HP itu. Kalau penyimpanannya diblokir (mode privat), titik biru mati dan lencana merah tetap bekerja: yang hilang kabar, bukan pekerjaan.
+
+Modul yang **belum pernah dibuka** tidak dianggap punya kabar baru. Kalau dianggap baru, staff di hari pertama melihat seluruh kartu bertitik — dan titik yang muncul di mana-mana tidak menyampaikan apa pun.
+
+### Sabotase
+
+Delapan pada RPC-nya (penjaga scope dimatikan, kiriman selesai ikut dihitung, saldo nol dianggap minus, aktivitas kemarin ikut, penjualan kemarin memadamkan, seru jadi angka, CK ikut dilencanai, outlet baru dapat waktu 1970) — semuanya tertangkap.
+
+Delapan pada modul murninya. **Satu lolos:** melonggarkan `angka()` jadi `Number(v)` apa adanya, karena semua kasus uji kebetulan menghasilkan hasil yang sama. Ditutup dengan kasus `true`, `[]`, `{}`, dan string kosong — `Number(true)` adalah `1`, dan lencana "1" yang lahir dari boolean terlihat persis seperti satu pekerjaan sungguhan. Jebakan yang sama dengan yang dijaga di `pricing.js`.
+
 ## Semua tabel & halaman menyesuaikan layar
 
 ### Angka yang membuat masalahnya jelas
