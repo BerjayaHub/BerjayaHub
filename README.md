@@ -4064,16 +4064,33 @@ Itu pola "kegagalan yang terlihat seperti keberhasilan" yang dijaga di seluruh a
 
 Bentuknya juga sengaja berbeda, bukan cuma warnanya: angka dalam pil versus titik kecil. Kalau bedanya hanya warna, staff akan menghafal "ada tanda = ada kerjaan" dan titik biru ikut terbaca sebagai tuntutan — dan mata yang kesulitan membedakan merah-biru tidak punya petunjuk lain sama sekali.
 
-### Yang dihitung (4 modul, putaran pertama)
+### Yang dihitung
 
-| Kartu | Lencana merah |
-|---|---|
-| Pengiriman | kiriman masuk belum dikonfirmasi + (CK) order menunggu + draft belum dikirim |
-| Bahan | bahan bersaldo **minus** |
-| Daily Activities | item **hari ini** yang belum dicentang |
-| Penjualan | tanda **!** kalau belum ada input hari ini |
+| Kartu | Lencana | Cakupan |
+|---|---|---|
+| Pengiriman | kiriman masuk belum dikonfirmasi + (CK) order menunggu + draft belum dikirim | outlet |
+| Bahan | bahan bersaldo **minus** | outlet |
+| Daily Activities | item **hari ini** yang belum dicentang | outlet |
+| Penjualan | **!** kalau belum ada input hari ini | outlet |
+| Shift | **!** kalau ada jadwalmu hari ini yang belum di-clock-in | **pribadi** |
+| Pengajuan Cuti | titik biru saja — status pengajuanmu berubah | **pribadi** |
+| Reservasi | reservasi aktif hari ini + pending untuk hari mendatang | outlet |
 
-Penjualan memakai `!`, bukan angka. "1" di kartu Penjualan akan terbaca "ada 1 penjualan menunggu", padahal artinya justru **belum ada apa-apa**.
+Penjualan dan Shift memakai `!`, bukan angka. "1" di kartu Penjualan akan terbaca "ada 1 penjualan menunggu", padahal artinya justru **belum ada apa-apa**; dan seorang staff punya paling banyak satu shift sehari, jadi "1" di sana pun menyesatkan.
+
+### Shift, Cuti: lencana yang bersifat pribadi
+
+Dua kartu ini menghitung milik **akun yang membuka**, bukan milik outlet. Kalau Shift menghitung jadwal seluruh outlet, setiap orang melihat tanda untuk shift rekannya — dan tidak ada satu pun yang bisa menghilangkannya sendiri.
+
+**"Mode shift" tidak punya kolom.** Yang menandai outlet memakai shift adalah ada-tidaknya jam shift **aktif** di `outlet_shifts` — satu-satunya syarat yang membuat jadwal bisa disusun sama sekali. Memakai `shift_settings` (yang punya default 2 untuk semua BU) akan menyalakan lencana di outlet yang tidak pernah menyentuh modul shift.
+
+**Cuti tidak pernah berangka.** Menyetujui cuti hanya ada di Admin Portal, jadi di Staff App tidak ada pekerjaan yang menunggu — yang ada cuma kabar. Waktunya diambil dari `reviewed_at`, bukan `created_at`: yang jadi kabar adalah **keputusannya**. Kalau dipakai `created_at`, mengajukan cuti akan menyalakan titik biru untuk diri sendiri, dan pengajuan lama yang baru diputus hari ini justru **tidak** menyala.
+
+### Reservasi: dua hal, satu angka, tanpa hitung ganda
+
+`hari_ini` (reservasi hari ini yang masih pending/confirmed) + `menunggu_putusan` (pending untuk hari mendatang). Keduanya sengaja tidak tumpang tindih — tanpa pengecualian hari ini di bagian kedua, satu reservasi terhitung dua kali dan angkanya tidak akan pernah cocok dengan apa pun di layar.
+
+Pending yang tanggalnya **sudah lewat** tidak dihitung: ia tidak bisa lagi disiapkan, dan menyalakannya berarti lencana yang tidak akan pernah padam sampai seseorang membereskan data lama.
 
 ### Satu RPC, bukan sebelas query
 
@@ -4095,7 +4112,12 @@ Modul yang **belum pernah dibuka** tidak dianggap punya kabar baru. Kalau diangg
 
 ### Sabotase
 
-Delapan pada RPC-nya (penjaga scope dimatikan, kiriman selesai ikut dihitung, saldo nol dianggap minus, aktivitas kemarin ikut, penjualan kemarin memadamkan, seru jadi angka, CK ikut dilencanai, outlet baru dapat waktu 1970) — semuanya tertangkap.
+Delapan pada RPC 0104 (penjaga scope dimatikan, kiriman selesai ikut dihitung, saldo nol dianggap minus, aktivitas kemarin ikut, penjualan kemarin memadamkan, seru jadi angka, CK ikut dilencanai, outlet baru dapat waktu 1970) — semuanya tertangkap.
+
+Tiga belas pada 0105. **Tiga lolos pada percobaan pertama**, dan penyebabnya sama: dua penjaga yang saling menutupi.
+
+- `is_off = false` dan `shift_id is not null` **saling menggantikan** — constraint `shift_or_off` di 0034 sudah menjamin libur selalu ber-`shift_id` null. Menghapus salah satunya tidak mengubah hasil apa pun. Kerangka ujinya sempat tidak memuat constraint itu, jadi sabotase terlihat lolos untuk keadaan yang sebenarnya mustahil di produksi. Constraint-nya sekarang ada di kerangka uji, dan komentarnya menyatakan terus-terang bahwa keduanya memang defence-in-depth, bukan dua penjaga yang berbeda.
+- `max(reviewed_at)` versus `where reviewed_at is not null` juga saling menutupi. Ditutup dengan kasus yang memisahkan keduanya: pengajuan berumur 30 hari yang baru diputus hari ini — waktunya harus hari ini, bukan 30 hari lalu.
 
 Delapan pada modul murninya. **Satu lolos:** melonggarkan `angka()` jadi `Number(v)` apa adanya, karena semua kasus uji kebetulan menghasilkan hasil yang sama. Ditutup dengan kasus `true`, `[]`, `{}`, dan string kosong — `Number(true)` adalah `1`, dan lencana "1" yang lahir dari boolean terlihat persis seperti satu pekerjaan sungguhan. Jebakan yang sama dengan yang dijaga di `pricing.js`.
 
