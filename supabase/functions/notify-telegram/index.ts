@@ -258,14 +258,32 @@ async function buildMessage(payload: any): Promise<Built | null> {
 
   if (table === 'dispatches') {
     const buId = record.business_unit_id ?? null;
+
+    // DRAFT TIDAK PERNAH DIUMUMKAN.
+    //
+    // Sejak 0103, INSERT adalah pembuatan DRAFT — barangnya masih di rak CK.
+    // Mengumumkannya sebagai "dikirim" membuat outlet tujuan menunggu kiriman
+    // yang belum berangkat. Trigger SQL-nya juga sudah menyaring ini, jadi
+    // pemeriksaan di sini adalah lapis kedua: kalau salah satunya lupa
+    // diperbarui, yang terjadi notifikasi HILANG, bukan notifikasi SALAH.
+    if (record.status === 'draft') return null;
+
     if (type === 'INSERT') {
       return { text: await pesanDispatch(record, false), eventKey: 'dispatch_sent', buId };
     }
     if (type === 'UPDATE') {
-      // Hanya saat status BERUBAH jadi 'received' — update lain tidak perlu
-      // mengganggu grup.
       const berubah = old_record && old_record.status !== record.status;
-      if (berubah && record.status === 'received') {
+      if (!berubah) return null;
+
+      // MOMEN KIRIM SEKARANG ADALAH UPDATE, BUKAN INSERT.
+      //
+      // Alur barunya: draft dibuat (INSERT, didiamkan) lalu dikirim
+      // (UPDATE draft -> sent). Tanpa cabang ini, tidak ada satu pun
+      // pemberitahuan saat barang benar-benar berangkat.
+      if (record.status === 'sent') {
+        return { text: await pesanDispatch(record, false), eventKey: 'dispatch_sent', buId };
+      }
+      if (record.status === 'received') {
         return { text: await pesanDispatch(record, true), eventKey: 'dispatch_received', buId };
       }
     }

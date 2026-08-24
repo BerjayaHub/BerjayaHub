@@ -3,7 +3,7 @@ import { bukaDokumen } from './dokumen-ui.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 
-const STATUS_BADGE = { sent: 'badge-pending', received: 'badge-approved', cancelled: 'badge-cancelled' };
+const STATUS_BADGE = { draft: 'badge-pending', sent: 'badge', received: 'badge-approved', cancelled: 'badge-cancelled' };
 
 export async function renderDispatchAdminPage(container, { businessUnitId }) {
   const range = monthRangeWIB();

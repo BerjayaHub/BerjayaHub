@@ -5,7 +5,11 @@ import { listProducts } from '../product/product.service.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { createItemPicker } from './item-picker.js';
 import {
-  createDispatch,
+  buatDraftKiriman,
+  ubahDraftKiriman,
+  hapusDraftKiriman,
+  kirimDraftKiriman,
+  listDraftKiriman,
   receiveDispatch,
   listIncomingDispatches,
   getDispatchItems,
@@ -14,7 +18,7 @@ import {
   DISPATCH_STATUS,
   createStockOrder,
   updateStockOrder,
-  fulfillStockOrder,
+  siapkanOrderJadiDraft,
   rejectStockOrder,
   cancelStockOrder,
   listIncomingOrders,
@@ -108,6 +112,10 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     return isCK
       ? [
           { key: 'orders-in', label: '📥 Order Masuk', render: renderIncomingOrders },
+          // Draft duduk PERSIS di antara "order masuk" dan "kirim", karena di
+          // situlah tempatnya dalam alur: order disiapkan jadi draft H-1, lalu
+          // besoknya draft itu yang dibuka dan dikirim.
+          { key: 'drafts', label: '📝 Draft Surat Jalan', render: renderDrafts },
           { key: 'send', label: '🚚 Kirim ke Outlet', render: renderSend },
           riwayat
         ]
@@ -453,7 +461,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
             </table></div>
             <div class="field" style="margin-top:10px"><label>Catatan surat jalan (opsional)</label><input type="text" class="ord-sj-notes" /></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="primary btn-fulfill" data-id="${o.id}" style="max-width:250px">Kirim &amp; Buat Surat Jalan</button>
+              <button class="primary btn-fulfill" data-id="${o.id}" style="max-width:280px">Siapkan &amp; Buat Draft SJ</button>
               <button class="btn-reject-order" data-id="${o.id}">Tolak Order</button>
             </div>
           </div>
@@ -480,15 +488,16 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         }
         btn.disabled = true;
         try {
-          const dispatchId = await fulfillStockOrder({ orderId: btn.dataset.id, items, notes: card.querySelector('.ord-sj-notes').value });
-          const { code, waText } = await emitSuratJalan(dispatchId, { showReceived: false, title: 'SURAT JALAN' });
-          toast(`Surat jalan ${code ?? ''} dibuat dari order.`, 'success');
-          await loadStock();
-          showTab();
+          await siapkanOrderJadiDraft({ orderId: btn.dataset.id, items, notes: card.querySelector('.ord-sj-notes').value });
+          // TIDAK ada PDF & tidak ada share di sini. Draft belum berangkat, dan
+          // surat jalan yang sudah tercetak untuk barang yang masih di rak CK
+          // adalah dokumen yang menyesatkan siapa pun yang memegangnya.
+          toast('Draft surat jalan dibuat. Buka tab Draft untuk memeriksa & mengirimnya.', 'success');
+          state.tab = 'drafts';
+          buildTabs();
           renderIncoming();
-          await shareDialog({ title: `Surat Jalan ${code ?? ''}`, helper: 'PDF sudah terunduh. Kirim info via WhatsApp (lampirkan file PDF-nya manual).', defaultMessage: waText });
         } catch (error) {
-          toast(error.message ?? 'Gagal memproses order.', 'error');
+          toast(error.message ?? 'Gagal menyiapkan order.', 'error');
           btn.disabled = false;
         }
       })
@@ -569,17 +578,222 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       }
       e.target.disabled = true;
       try {
-        const id = await createDispatch({ fromOutlet: state.outletId, toOutlet: to, items, notes: box.querySelector('#disp-notes').value });
-        const { code, waText } = await emitSuratJalan(id, { showReceived: false, title: 'SURAT JALAN' });
-        toast(`Surat jalan ${code ?? ''} dibuat. Menunggu konfirmasi tujuan.`, 'success');
-        await loadStock();
-        showTab();
-        await shareDialog({ title: `Surat Jalan ${code ?? ''}`, helper: 'PDF sudah terunduh. Kirim info via WhatsApp (lampirkan file PDF-nya manual).', defaultMessage: waText });
+        await buatDraftKiriman({ fromOutlet: state.outletId, toOutlet: to, items, notes: box.querySelector('#disp-notes').value });
+        toast('Draft surat jalan dibuat. Periksa lalu kirim dari tab Draft.', 'success');
+        state.tab = 'drafts';
+        buildTabs();
       } catch (error) {
-        errorEl.textContent = error.message ?? 'Gagal membuat pengiriman.';
+        errorEl.textContent = error.message ?? 'Gagal membuat draft.';
         e.target.disabled = false;
       }
     });
+  }
+
+  // ---- Tab: Draft Surat Jalan (CK) ----
+
+  /**
+   * Draft = barang yang sudah disiapkan tapi BELUM berangkat.
+   *
+   * Inti perubahan 0103 ada di layar ini: menyiapkan H-1 tidak lagi memotong
+   * stok CK semalaman untuk barang yang masih di rak. Stok baru bergeser saat
+   * outlet mengonfirmasi terima.
+   */
+  async function renderDrafts(box) {
+    let drafts;
+    try {
+      drafts = await listDraftKiriman([state.outletId]);
+    } catch (error) {
+      box.innerHTML = `<p class="error-text">${esc(error.message ?? error)}</p>`;
+      return;
+    }
+
+    if (!drafts.length) {
+      box.innerHTML = `
+        <p class="report-note">
+          Belum ada draft surat jalan.
+          <br /><br />
+          Draft dibuat dari <strong>Order Masuk</strong> (tombol “Siapkan &amp; Buat Draft SJ”) atau dari
+          <strong>Kirim ke Outlet</strong>. Gunanya untuk menyiapkan barang H-1: nomor SJ sudah ada dan bisa
+          ditempel ke keranjang, tapi <strong>stok belum bergerak sama sekali</strong>.
+        </p>`;
+      return;
+    }
+
+    box.innerHTML = `
+      <p class="report-note" style="margin-bottom:12px">
+        <strong>${drafts.length} draft</strong> menunggu dikirim.
+        Selama masih draft, <strong>stok CK belum berkurang</strong> — isinya masih bisa diperiksa & diubah.
+        <br /><br />
+        Stok baru bergeser saat outlet tujuan <strong>mengonfirmasi terima</strong>: stok CK berkurang sebesar yang
+        dikirim, stok outlet bertambah sebesar yang diterima.
+      </p>
+      ${drafts
+        .map(
+          (d) => `
+        <div class="inline-card" style="margin-bottom:12px" data-draft="${d.id}">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+            <div>
+              <strong>${esc(d.code ?? '(tanpa nomor)')}</strong>
+              <span class="badge badge-pending" style="margin-left:6px">DRAFT</span>
+              <div style="font-size:0.8rem;color:var(--color-text-muted)">
+                → ${esc(d.to_outlet?.name ?? '-')} · disiapkan ${esc(d.user_profiles?.full_name ?? '-')}
+                · ${new Date(d.created_at).toLocaleString('id-ID')}
+                ${d.stock_order_id ? ' · dari order' : ''}
+              </div>
+            </div>
+            <button class="drf-toggle" data-id="${d.id}">Lihat isi</button>
+          </div>
+          ${d.notes ? `<p style="font-size:0.82rem;margin:8px 0 0">${esc(d.notes)}</p>` : ''}
+          <div class="drf-body" data-id="${d.id}" hidden style="margin-top:10px"></div>
+        </div>`
+        )
+        .join('')}`;
+
+    box.querySelectorAll('.drf-toggle').forEach((btn) =>
+      btn.addEventListener('click', async () => {
+        const body = box.querySelector(`.drf-body[data-id="${btn.dataset.id}"]`);
+        if (!body.hidden) {
+          body.hidden = true;
+          btn.textContent = 'Lihat isi';
+          return;
+        }
+        body.hidden = false;
+        btn.textContent = 'Tutup';
+        await gambarIsiDraft(body, drafts.find((d) => d.id === btn.dataset.id));
+      })
+    );
+  }
+
+  /** Isi satu draft: bisa diperiksa, diubah jumlahnya, lalu dikirim atau dihapus. */
+  async function gambarIsiDraft(body, draft) {
+    body.innerHTML = loadingHtml('Memuat isi draft…', { baris: 3 });
+    let items;
+    try {
+      items = await getDispatchItems(draft.id);
+    } catch (error) {
+      body.innerHTML = `<p class="error-text">${esc(error.message ?? error)}</p>`;
+      return;
+    }
+
+    body.innerHTML = `
+      <div class="table-scroll">
+        <table class="data-table kartu-sempit">
+          <thead><tr><th>Barang</th><th>Stok CK</th><th>Jumlah kirim</th></tr></thead>
+          <tbody>
+            ${items
+              .map((i) => {
+                const stok = state.stockMap.get(i.product_id);
+                // Stok CK ditampilkan di sebelah jumlah kirim supaya kekurangan
+                // ketahuan SEKARANG, saat masih draft — bukan besok saat
+                // barangnya ternyata tidak ada di rak.
+                const kurang = stok != null && Number(stok) < Number(i.sent_qty);
+                return `<tr>
+                  <td data-label="Barang">${esc(i.products?.name ?? '-')}</td>
+                  <td data-label="Stok CK" style="text-align:right${kurang ? ';color:var(--color-danger)' : ''}">
+                    ${stok == null ? '-' : formatNum(stok)}${kurang ? ' ⚠' : ''}
+                  </td>
+                  <td data-label="Jumlah kirim">
+                    <input type="number" class="drf-qty" data-product="${i.product_id}" min="0" step="any"
+                      inputmode="decimal" value="${i.sent_qty}" style="max-width:100px" />
+                    <span style="font-size:0.75rem;color:var(--color-text-muted)">${esc(i.products?.base_unit ?? '')}</span>
+                  </td>
+                </tr>`;
+              })
+              .join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="field" style="margin:10px 0 0">
+        <label style="font-size:0.72rem">Catatan surat jalan</label>
+        <input type="text" class="drf-notes" value="${esc(draft.notes ?? '')}" />
+      </div>
+
+      <p class="report-note" style="margin-top:10px">
+        Angka bertanda <strong>⚠</strong> melebihi stok CK saat ini. Kiriman tetap bisa dibuat — sistem ini
+        memang mengizinkan stok menembus nol — tapi selisihnya akan muncul di opname.
+      </p>
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="drf-save" data-id="${draft.id}">Simpan perubahan</button>
+        <button class="primary drf-send" data-id="${draft.id}">🚚 Kirim sekarang</button>
+        <button class="drf-del" data-id="${draft.id}">Hapus draft</button>
+      </div>`;
+
+    const ambilItem = () =>
+      [...body.querySelectorAll('.drf-qty')]
+        .map((el) => ({ product_id: el.dataset.product, qty: Number(el.value) }))
+        .filter((i) => i.qty > 0);
+
+    body.querySelector('.drf-save').addEventListener('click', sekaliJalan(async () => {
+      const daftar = ambilItem();
+      if (!daftar.length) {
+        // Diarahkan ke Hapus, bukan disimpan kosong. Draft kosong tetap memakai
+        // satu nomor SJ dan muncul di daftar tanpa isi.
+        toast('Isi minimal satu barang. Kalau memang batal, pakai Hapus draft.', 'warning');
+        return;
+      }
+      try {
+        await ubahDraftKiriman({ dispatchId: draft.id, items: daftar, notes: body.querySelector('.drf-notes').value });
+        toast('Draft diperbarui. Stok masih belum bergerak.', 'success');
+        showTab();
+      } catch (error) {
+        toast(error.message ?? 'Gagal menyimpan draft.', 'error');
+      }
+    }));
+
+    body.querySelector('.drf-send').addEventListener('click', sekaliJalan(async () => {
+      const daftar = ambilItem();
+      if (!daftar.length) return toast('Draft kosong, tidak ada yang bisa dikirim.', 'warning');
+
+      const ok = await confirmDialog({
+        title: `Kirim ${draft.code ?? 'surat jalan'}?`,
+        message:
+          `${daftar.length} barang ke ${draft.to_outlet?.name ?? 'outlet tujuan'}.\n\n` +
+          'Barang berangkat sekarang. Stok baru bergeser saat outlet tujuan mengonfirmasi terima.',
+        confirmText: 'Ya, kirim'
+      });
+      if (!ok) return;
+
+      try {
+        // Perubahan yang belum disimpan ikut dikirim. Tanpa ini, angka yang
+        // baru saja diperbaiki di layar akan berangkat dengan jumlah lama —
+        // dan tidak ada yang menyadarinya sampai barangnya sampai.
+        await ubahDraftKiriman({ dispatchId: draft.id, items: daftar, notes: body.querySelector('.drf-notes').value });
+        await kirimDraftKiriman(draft.id);
+
+        // PDF baru dicetak SEKARANG, saat barangnya benar-benar berangkat.
+        const { code, waText } = await emitSuratJalan(draft.id, { showReceived: false, title: 'SURAT JALAN' });
+        toast(`Surat jalan ${code ?? ''} dikirim. Menunggu konfirmasi outlet tujuan.`, 'success');
+        showTab();
+        renderIncoming();
+        await shareDialog({
+          title: `Surat Jalan ${code ?? ''}`,
+          helper: 'PDF sudah terunduh. Kirim info via WhatsApp (lampirkan file PDF-nya manual).',
+          defaultMessage: waText
+        });
+      } catch (error) {
+        toast(error.message ?? 'Gagal mengirim draft.', 'error');
+      }
+    }));
+
+    body.querySelector('.drf-del').addEventListener('click', sekaliJalan(async () => {
+      const ok = await confirmDialog({
+        title: `Hapus draft ${draft.code ?? ''}?`,
+        message: 'Draft ini hilang permanen. Tidak ada stok yang terpengaruh karena memang belum bergerak.'
+          + (draft.stock_order_id ? '\n\nOrder yang menjadi asalnya kembali menunggu, dan bisa disiapkan ulang.' : ''),
+        confirmText: 'Hapus draft',
+        danger: true
+      });
+      if (!ok) return;
+      try {
+        await hapusDraftKiriman(draft.id);
+        toast('Draft dihapus.', 'success');
+        showTab();
+      } catch (error) {
+        toast(error.message ?? 'Gagal menghapus draft.', 'error');
+      }
+    }));
   }
 
   // ---- Kiriman Masuk (di luar tab, disorot di atas) ----
@@ -654,9 +868,17 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         const items = [...card.querySelectorAll('.recv-input')].map((el) => ({ item_id: el.dataset.item, received_qty: Number(el.value) }));
         btn.disabled = true;
         try {
-          await receiveDispatch(btn.dataset.id, items);
+          const hasil = await receiveDispatch(btn.dataset.id, items);
           const { code, waText } = await emitSuratJalan(btn.dataset.id, { showReceived: true, title: 'BUKTI TERIMA' });
-          toast(`Surat jalan ${code ?? ''} diterima. Stok diperbarui.`, 'success');
+          // SUSUT DISEBUT ANGKANYA, bukan didiamkan. Selisih kirim-vs-terima yang
+          // tidak pernah dikatakan akan ditemukan berminggu-minggu kemudian
+          // sebagai angka opname yang tidak bisa dijelaskan siapa pun.
+          toast(
+            Number(hasil?.susut) > 0
+              ? `Surat jalan ${code ?? ''} diterima. Stok CK berkurang & stok outlet bertambah — ${formatNum(hasil.susut)} susut di perjalanan.`
+              : `Surat jalan ${code ?? ''} diterima. Stok CK berkurang & stok outlet bertambah.`,
+            Number(hasil?.susut) > 0 ? 'warning' : 'success'
+          );
           await loadStock();
           renderIncoming();
           showTab();

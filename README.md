@@ -3948,6 +3948,104 @@ Memindahkan berkas storage tidak bisa dilakukan dari SQL. Jadi `pindah_aset()` *
 
 Barisnya dipindahkan lebih dulu, berkasnya menyusul: kalau pemindahan baris gagal, tidak ada berkas yang terlanjur pindah dan tertinggal di folder yang salah.
 
+## Draft surat jalan & stok bergeser saat terima (0103)
+
+### Alur
+
+```
+LAMA  Outlet order → CK kirim (stok CK −) → Outlet terima (stok outlet +)
+
+BARU  Outlet order → CK siapkan DRAFT  (nomor SJ ada, stok DIAM)
+                   → CK buka & cek     (isinya masih bisa diubah)
+                   → CK kirim          (stok masih DIAM)
+                   → Outlet terima     (stok CK − DAN stok outlet + sekaligus)
+```
+
+Draft ada karena cara kerjanya memang begitu: CK menyiapkan bahan H-1, besoknya draftnya tinggal diperiksa ulang dan dikirim. Sebelum ini, "menyiapkan" berarti sudah memotong stok CK semalaman untuk barang yang belum berangkat.
+
+### Konsekuensi yang perlu diketahui, bukan disembunyikan
+
+Stok bergeser seluruhnya saat diterima. Artinya **selama barang di jalan, stok CK masih terlihat penuh** padahal barangnya sudah keluar — CK bisa menjanjikan barang yang sama ke outlet lain, dan opname CK sore hari akan menemukan selisih sebesar yang sedang dalam perjalanan.
+
+Untungnya juga nyata: tidak ada lagi **"stok hantu"** — barang yang sudah dipotong dari CK tapi tidak pernah sampai ke outlet mana pun karena kirimannya tidak pernah dikonfirmasi. Sebelum ini barang seperti itu lenyap dari kedua sisi.
+
+Susut di perjalanan tetap tercatat: CK berkurang sebesar yang **dikirim**, outlet bertambah sebesar yang **diterima**, dan selisihnya disebut angkanya di toast — bukan didiamkan sampai muncul di opname berminggu-minggu kemudian.
+
+### Kiriman lama tidak boleh terpotong dua kali
+
+Ini bagian paling berbahaya dari migration ini.
+
+Kiriman yang sudah berstatus `sent` **sebelum** 0103 dijalankan sudah memotong stok CK saat dibuat. Kalau `receive_dispatch()` yang baru menulis `transfer_out` untuk semua kiriman, kiriman lama yang baru dikonfirmasi besok akan terpotong **dua kali** di CK. Tidak ada error, tidak ada tanda — stok CK sekadar berkurang dua kali lipat untuk kiriman yang kebetulan berada di tengah jalan saat migration dijalankan, dan selisihnya diserap opname sebagai "susut".
+
+Dijaga dengan **memeriksa buku besarnya sendiri**, bukan kolom penanda:
+
+```sql
+exists (select 1 from stock_movements
+        where dispatch_id = ... and movement_type = 'transfer_out')
+```
+
+Pemeriksaan itu tidak bisa basi. Kolom penanda perlu di-backfill, dan backfill yang meleset menghasilkan kesalahan yang persis sama tanpa cara mengetahuinya.
+
+### Order tetap `open` sampai draftnya dikirim
+
+Selama masih draft, outlet pemesan memang belum menerima apa pun. Menutup ordernya lebih awal akan membuat layar outlet berbunyi "sudah dikirim" untuk barang yang masih di rak CK — dan kalau draftnya dibatalkan, ordernya sudah terlanjur tertutup.
+
+Satu order = satu draft. Menekan "Siapkan" dua kali ditolak, kalau tidak akan lahir dua nomor SJ untuk order yang sama dan yang kedua dikirim tanpa ada yang sadar barangnya dobel.
+
+Menghapus draft mengembalikan ordernya ke antrean — dan memang bisa disiapkan ulang sesudahnya.
+
+### Draft tidak muncul di riwayat outlet tujuan
+
+Draft adalah siapan internal CK. Kalau ikut muncul di riwayat, outlet tujuan akan melihat "ada kiriman untuk saya" untuk barang yang belum berangkat, lalu menunggu sesuatu yang belum dikirim. Draft punya tabnya sendiri di sisi CK.
+
+Draft milik **outlet asal**, bukan pembuatnya: shift pagi menyiapkan, shift berikutnya yang mengirim. Kalau dikunci ke pembuat, draft H-1 tidak akan bisa disentuh orang yang masuk besoknya.
+
+### Fungsi lama di-drop
+
+`create_dispatch()` dan `fulfill_stock_order()` dihapus. Aplikasi ini PWA — versi lama bisa masih terpasang di HP staff. Kalau dibiarkan hidup dengan perilaku baru, staff di klien lama akan menekan "Kirim", melihat "berhasil", dan yang terjadi sebenarnya hanya draft tersimpan: barangnya berangkat secara fisik, sistemnya diam, tanpa satu pun pesan. Dengan di-drop, klien lama gagal dengan pesan yang bisa ditindaklanjuti.
+
+PDF surat jalan juga baru dicetak **saat dikirim**, bukan saat draft dibuat — surat jalan yang sudah tercetak untuk barang yang masih di rak adalah dokumen yang menyesatkan siapa pun yang memegangnya.
+
+### Dibuktikan dengan saldo, bukan dengan membaca SQL
+
+`tools/test-migrasi-0103.mjs` menjalankan migration di Postgres sungguhan (PGlite) dan memeriksa saldo di tiap tahap:
+
+```
+stok awal CK        : ayam 100
+buat draft 15       : ayam 100   ← DIAM
+kirim               : ayam 100   ← masih DIAM
+outlet terima 13    : ayam  75, outlet +13, susut 2 dilaporkan
+
+kiriman LAMA (dibuat sebelum migration, CK sudah −10):
+outlet terima 10    : CK TIDAK berkurang lagi, outlet +10
+                      hanya ada SATU transfer_out untuk kiriman itu
+```
+
+**Delapan belas sabotase** dicoba — penjaga dobel dimatikan, CK dipotong sebesar yang diterima alih-alih yang dikirim, kirim langsung jadi received, order ditutup saat draft dibuat, satu order boleh banyak draft, wewenang dimatikan, siapa pun boleh mengonfirmasi terima, draft bisa langsung diterima, draft boleh dikosongkan. Semua tertangkap; kontrolnya tetap lulus.
+
+### Tiga kesalahan yang lolos ke produksi — dan kenapa ujinya buta
+
+Migration ini **gagal saat dijalankan pertama kali**, dan penyebabnya satu hal yang sama: kerangka uji PGlite-nya membuat skema dari nol, bukan menyerupai keadaan produksi.
+
+| Kesalahan | Kenapa uji dari nol tidak melihatnya |
+|---|---|
+| `42P13 cannot change return type` — `receive_dispatch` lama `void`, baru `jsonb` | uji membuat fungsinya dari nol, jadi tidak pernah ada versi lama untuk bertabrakan |
+| Membuat DRAFT mengumumkan "barang dikirim" ke Telegram | trigger 0046 (`after insert`) tidak ada di kerangka ujinya |
+| Menjalankan ulang gagal `42710` — trigger baru tidak ikut di-drop | ketahuan justru oleh pemeriksaan idempotensi yang memang sudah ada |
+
+Kerangka ujinya sekarang membuat **versi lama** `receive_dispatch` (yang `void`) dan **trigger notifikasi 0046 apa adanya** lebih dulu. Keempat sabotase baru — menghapus `drop function`, membuang penyaring draft di trigger, membuang `drop trigger` yang baru, dan memutus notifikasi kirim — semuanya tertangkap.
+
+Pelajarannya bukan "kurang teliti": uji yang tidak menyerupai produksi akan **hijau untuk migration yang tidak bisa dijalankan di produksi**. Itu kelas kegagalan yang sama dengan yang dijaga di seluruh berkas ini.
+
+### Notifikasi Telegram ikut berubah
+
+Momen "barang dikirim" berpindah dari INSERT ke UPDATE (`draft` → `sent`). Dijaga di dua lapis dengan arah gagal yang disengaja:
+
+- **SQL** — INSERT berstatus `draft` tidak memicu trigger sama sekali.
+- **Edge Function** — UPDATE ke `sent` dipetakan jadi `dispatch_sent`; `draft` selalu diabaikan.
+
+Kalau Edge Function belum sempat di-deploy ulang, notifikasi kirim **hilang** — bukan **salah**. Diam lebih baik daripada mengumumkan barang berangkat padahal masih di rak.
+
 ## Semua tabel & halaman menyesuaikan layar
 
 ### Angka yang membuat masalahnya jelas
