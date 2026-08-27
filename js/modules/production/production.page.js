@@ -205,7 +205,7 @@ export async function renderProductionPage(container, { businessUnitId, outletId
     const needs = computeNeeds(product, qty);
     preview.innerHTML = `
       <p style="font-size:0.85rem;font-weight:600;margin:4px 0">Kebutuhan bahan:</p>
-      <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
+      <div class="table-scroll"><table class="data-table baris-sejajar">
         <thead><tr><th>Bahan</th><th>Butuh</th><th>Stok</th><th>Cukup?</th></tr></thead>
         <tbody>
           ${needs

@@ -50,6 +50,20 @@
 const KELAS_TOLAK = 'tabel-tetap';
 
 /**
+ * Tabel yang memilih mode BARIS SEJAJAR alih-alih mode kartu.
+ *
+ * Bukan penolakan seperti `tabel-tetap` — ia tetap dapat `data-label` dan tetap
+ * dibungkus penggulir. Yang tidak boleh adalah `kartu-sempit` ikut menempel,
+ * karena keduanya mengatur `display` sel yang sama dan yang belakangan menang
+ * secara acak menurut urutan tulisannya di stylesheet.
+ *
+ * Kegagalannya kalau ini terlewat tidak menghasilkan error: barisnya sekadar
+ * kembali menumpuk ke bawah di sebagian layar dan berjajar di sebagian lain,
+ * tanpa pola yang bisa dijelaskan.
+ */
+const KELAS_SEJAJAR = 'baris-sejajar';
+
+/**
  * Penanda sudah diurus.
  *
  * JUJURNYA: ini penghematan, BUKAN penjagaan. Sabotase yang membuangnya tidak
@@ -129,7 +143,9 @@ function urus(tabel) {
   if (tabel.dataset[PENANDA]) return;
   tabel.dataset[PENANDA] = '1';
 
-  if (!tabel.classList.contains(KELAS_TOLAK)) tabel.classList.add('kartu-sempit');
+  if (!tabel.classList.contains(KELAS_TOLAK) && !tabel.classList.contains(KELAS_SEJAJAR)) {
+    tabel.classList.add('kartu-sempit');
+  }
   isiLabel(tabel);
   bungkusGulir(tabel);
 }

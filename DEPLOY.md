@@ -59,6 +59,22 @@ pernah dijalankan.
 | 0090 | `0090_run_kosong_ikut_terhapus.sql` | **Sesi ikut terhapus saat item terakhirnya dihapus.** Trigger `trg_bersihkan_run_kosong` pada `checklist_run_items` + RPC `hapus_run_kosong()` + **pembersihan sekali** untuk sesi hantu yang sudah terlanjur ada. Dikerjakan trigger karena `checklist_runs` tidak punya policy DELETE — pembersihan lewat PostgREST akan ditolak RLS dan itu terbaca sebagai sukses dengan nol baris |
 | 0091 | `0091_ambang_porsi.sql` | **Bahan menipis diukur PORSI, bukan hari.** `outlets.min_porsi` (1–10.000, default 30) + RPC `set_min_porsi()`; `outlets.safety_days` & `set_safety_days()` **dibuang**. Dasarnya sekarang stok ÷ takaran resep, jadi tidak lagi menuntut penjualan diinput rajin — bekerja di hari pertama outlet dipakai. `product_min_stock` tetap, dan makin penting untuk bahan non-resep (gas, tisu, kemasan) |
 | 0092 | `0092_ubah_hapus_produksi.sql` | **Produksi bisa diperbaiki & dibatalkan.** `ubah_produksi()` menulis pergerakan stok sebesar SELISIHNYA; `hapus_produksi()` membalik seluruh stoknya lalu menandai `cancelled_at` (barisnya TIDAK dihapus — pergerakan penyeimbangnya butuh asal-usul). Wewenang: pembuatnya sendiri hari itu juga, atau Admin BU kapan saja (`boleh_ubah_produksi()`, pola sama dengan 0073) |
+| 0093 | `0093_role_owner.sql` | Penanda **biaya tetap** & angka penetapan harga yang dipakai halaman Owner |
+| 0094 | `0094_dokumen_ttd_owner.sql` | Dokumen & **tanda tangan owner** |
+| 0095 | `0095_biaya_outlet.sql` | Biaya **tetap & variabel** yang didaftarkan, menempel di outlet |
+| 0096 | `0096_harga_menu_outlet.sql` | **Harga jual pindah ke OUTLET** (`outlet_menu_prices`), bukan lagi satu harga per BU |
+| 0097 | `0097_isi_harga_outlet_awal.sql` | Isi harga outlet awal dari `products.sale_price` (sekali jalan) |
+| 0098 | `0098_pengiriman_penjualan.sql` | **Penjualan ganda**: penanda kiriman (`sales_submissions`) dari klien, idempotent |
+| 0099 | `0099_penjualan_harga_outlet.sql` | `record_sales()` mengambil harga dari **outlet**, tanpa fallback, tanpa Rp 0, tanpa ganda |
+| 0100 | `0100_cakupan_biaya.sql` | Cakupan biaya: langsung outlet / bersama BU / korporat |
+| 0101 | `0101_ubah_hapus_penjualan.sql` | **Penjualan bisa diperbaiki & dihapus, dan stok bahannya ikut terkoreksi.** `stock_movements.sale_id` sengaja `on delete set null`, BUKAN cascade — cascade akan menghapus pemakaian bahan yang sungguh terjadi dan mengubah saldo tanpa jejak |
+| 0102 | `0102_kategori_pindah_aset.sql` | Aset punya **kategori**, dan bisa dipindah massal ke outlet / BU lain (`pindah_aset`, wewenang diperiksa di asal DAN tujuan) |
+| 0103 | `0103_draft_surat_jalan.sql` | **Surat jalan punya tahap DRAFT**, dan stok baru bergeser saat outlet MENERIMA. ⚠️ Mengandung `drop function receive_dispatch(uuid, jsonb)` karena tipe kembaliannya berubah — tanpa itu gagal dengan `42P13`. **Perlu redeploy `notify-telegram`** supaya draft tidak diumumkan sebagai "barang dikirim" |
+| 0104 | `0104_lencana_beranda.sql` | **Lencana Beranda**: satu RPC menghitung berapa pekerjaan yang menunggu di Dispatch, Inventory, Daily Activities, Penjualan |
+| 0105 | `0105_lencana_shift_cuti_reservasi.sql` | Lencana putaran kedua: **Shift, Pengajuan Cuti, Reservasi** — yang tiga ini bersifat PRIBADI (milik user yang membuka), bukan milik outlet |
+| 0106 | `0106_nilai_ulang_shift_berjejak.sql` | **Menilai ulang presensi yang sudah pernah dinilai**, saat jadwal shift dikoreksi belakangan. Penilaian aslinya disimpan di `late_status_awal`/`late_menit_awal` dan **tidak pernah ditimpa**; alasan wajib diisi |
+| 0107 | `0107_kabar_shift_dari_penilaian_ulang.sql` | Kartu **Shift** ikut menyala saat presensi ORANG ITU dinilai ulang |
+| 0108 | `0108_lapor_penjualan_tanpa_resep.sql` | **Menu yang terjual tapi tidak menggerakkan stok kini mengatakannya.** Stok tetap dipotong sesuai resep dan **tetap boleh minus** (itu disengaja). Yang baru: menu tanpa resep — dan menu yang resepnya ada tapi isinya kosong — dilaporkan balik lewat `tanpa_resep` / `resep_kosong`. Kunci lama tidak berubah, jadi PWA lama tetap jalan |
 
 
 > ⚠️ **Gejala setelah 0085: tab Opname kosong dengan pesan *"Could not find a relationship between 'stock_counts' and 'user_profiles'"*.**
@@ -555,6 +571,29 @@ node tools/test-navigasi-back.mjs
 node tools/test-koneksi.mjs
 node tools/test-slot-fleksibel.mjs
 ```
+
+Atau semuanya sekaligus (26 audit + 58 tes):
+
+```bash
+node --experimental-vm-modules tools/audit-syntax.cjs
+for f in tools/audit-*.cjs; do [ "$f" = "tools/audit-syntax.cjs" ] && continue; node "$f" || echo "GAGAL $f"; done
+for f in tools/test-*.mjs; do node "$f" >/dev/null || echo "GAGAL $f"; done
+```
+
+Tes yang butuh paket luar (`@electric-sql/pglite` untuk tes migration,
+`linkedom` untuk tes DOM) **melewatkan dirinya sendiri** kalau paketnya tidak
+ada — dan tes yang melewatkan diri itu hijau tanpa memeriksa apa pun. Pasang
+**sekaligus dalam satu perintah**:
+
+```bash
+npm install --no-save @electric-sql/pglite linkedom
+```
+
+⚠️ Satu per satu **tidak bisa**: `--no-save` membuat npm memangkas paket lain
+yang juga tidak tercatat di `package.json`, jadi memasang `linkedom` sendirian
+akan **membuang `pglite`** — dan tujuh tes migration langsung mati dengan
+`ERR_MODULE_NOT_FOUND`. `node_modules/` ada di `.gitignore`, jadi ini aman
+diulang kapan saja.
 
 `audit-syntax` yang paling penting: satu SyntaxError membuat **seluruh**
 aplikasi berhenti di layar "Memuat…".

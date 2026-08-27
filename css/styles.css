@@ -2183,6 +2183,117 @@ select.sc-cell.is-off {
   /* Sel yang membentang penuh (baris rincian yang bisa dibuka, atau pesan
      "belum ada data") BUKAN judul kartu — ia isi. Tanpa pengecualian ini, panel
      rincian yang terbuka akan tampil sebagai judul tebal bergaris bawah. */
+  /* =========================================================
+     BARIS SEJAJAR — untuk tabel isian pendek (Menu | Harga | Jumlah)
+
+     Mode kartu menumpuk tiap sel ke bawah, dan untuk tabel isian itu justru
+     memburukkan: nama menu, harganya, lalu kotak isiannya jadi tiga baris
+     terpisah. Satu layar HP cuma memuat 3-4 menu, dan mengisi dua puluh menu
+     berarti menggulir terus-menerus sambil kehilangan konteks.
+
+     Padahal isinya pendek dan MUAT berjajar: nama (melebar), harga (kecil),
+     kotak isian (sempit). Yang perlu dikecilkan cuma ukuran hurufnya.
+
+     Dipakai lewat kelas `baris-sejajar` — opt-in, karena hanya benar untuk
+     tabel yang selnya memang pendek. Tabel berisi kalimat panjang tetap lebih
+     terbaca sebagai kartu.
+     ========================================================= */
+  .table-scroll:has(.data-table.baris-sejajar) {
+    overflow-x: visible;
+  }
+
+  .data-table.baris-sejajar,
+  .table-scroll .data-table.baris-sejajar {
+    display: block;
+    width: 100%;
+    /* Alasan `!important`-nya sama dengan di `kartu-sempit`: gaya inline
+       `min-width` yang dipasang untuk layar lebar akan mendorong isinya keluar
+       layar di 360px. */
+    min-width: 0 !important;
+    border: none;
+    box-shadow: none;
+  }
+
+  .data-table.baris-sejajar thead {
+    /* Disembunyikan dari mata, TIDAK dari pembaca layar — sama seperti mode
+       kartu. `display:none` memutus hubungan sel dengan judul kolomnya. */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .data-table.baris-sejajar tbody {
+    display: block;
+  }
+
+  .data-table.baris-sejajar tbody > tr {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 2px;
+    border-bottom: 1px solid var(--color-border);
+    background: transparent;
+  }
+
+  .data-table.baris-sejajar tbody > tr[hidden] {
+    display: none;
+  }
+
+  .data-table.baris-sejajar td {
+    display: block;
+    border: none;
+    padding: 0;
+    text-align: right;
+    flex: 0 0 auto;
+    font-size: 0.8rem;
+    white-space: normal;
+  }
+
+  /* Label kolom TIDAK ditampilkan di sini: judulnya sudah jelas dari
+     posisinya, dan menambahkan "Menu:" di depan nama menu justru memakan
+     lebar yang sedang diperjuangkan. */
+  .data-table.baris-sejajar td::before {
+    content: none;
+  }
+
+  /* Kolom pertama (nama) yang melebar. `min-width: 0` wajib — tanpa itu flex
+     item menolak menyusut di bawah lebar kontennya, dan nama menu yang panjang
+     mendorong kotak isian keluar layar. */
+  .data-table.baris-sejajar td:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: left;
+    font-size: 0.82rem;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .data-table.baris-sejajar input[type='number'],
+  .data-table.baris-sejajar input[type='text'] {
+    width: 68px;
+    max-width: 68px;
+    padding: 6px 7px;
+    font-size: 0.85rem;
+    /* 16px mencegah iOS memperbesar halaman saat kotak difokus. Di bawah itu
+       Safari melakukan zoom otomatis dan tata letaknya berantakan — jadi
+       ukuran kecilnya dipasang lewat `transform`, bukan `font-size`. */
+    font-size: max(0.85rem, 16px);
+  }
+
+  /* Sel yang membentang penuh (panel rincian, pesan "belum ada data") bukan
+     bagian dari baris berjajar — ia isi yang berdiri sendiri. */
+  .data-table.baris-sejajar td.sel-penuh,
+  .data-table.baris-sejajar td[colspan] {
+    flex: 1 1 100%;
+    text-align: left;
+  }
+  .data-table.baris-sejajar tbody > tr:has(> td[colspan]) {
+    display: block;
+  }
+
   .data-table.kartu-sempit td.sel-penuh,
   .data-table.kartu-sempit td[colspan] {
     display: block;
@@ -2472,5 +2583,112 @@ select.sc-cell.is-off {
   .draf-aksi button {
     flex: 1 1 0;
     min-height: 44px;
+  }
+}
+
+
+/* =========================================================
+   PANEL LENGKET — header & footer tetap, isian yang menggulir
+
+   Layar isian panjang (Penjualan, Menu) punya tiga bagian dengan umur pakai
+   yang berbeda:
+
+     atas   saringan + tombol Simpan  -> dipakai berkali-kali selama mengisi
+     tengah daftar menunya            -> yang panjang
+     bawah  rekap hari ini            -> yang dilihat sesudah menyimpan
+
+   Tanpa ini, tombol Simpan hanya ada di satu tempat: paling bawah, sesudah
+   dua ratus baris menu. Staff yang mengisi lima menu di bagian atas harus
+   menggulir melewati seluruh daftar untuk menyimpannya — dan yang paling
+   sering terjadi, ia lupa dan pindah layar.
+   ========================================================= */
+.panel-lengket-atas {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: var(--color-bg);
+  padding: 8px 0;
+  /* Bayangan tipis supaya batasnya terlihat saat daftar lewat di bawahnya. */
+  box-shadow: 0 6px 10px -10px rgba(0, 0, 0, 0.45);
+}
+
+.panel-lengket-bawah {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  padding: 8px 10px;
+  margin-top: 10px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  box-shadow: 0 -6px 10px -10px rgba(0, 0, 0, 0.45);
+  /* DIBATASI TINGGINYA, lalu menggulir sendiri.
+
+     Rekap yang panjang akan memakan seluruh layar kalau dibiarkan — dan
+     footer lengket yang menutupi daftar isian lebih mengganggu daripada
+     footer yang harus digulir. */
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+/* Daftar isian: sekitar 10 baris, sisanya menggulir di dalam wadahnya.
+
+   `--baris-tampak` bisa ditimpa per halaman kalau barisnya lebih tinggi. */
+.gulir-baris {
+  --baris-tampak: 10;
+  --tinggi-baris: 46px;
+  max-height: calc(var(--baris-tampak) * var(--tinggi-baris) + 44px);
+  overflow-y: auto;
+}
+
+/* Judul kolom ikut menempel saat isinya digulir. Tanpa ini, menggulir ke baris
+   ke-30 berarti kehilangan keterangan kolomnya. */
+.gulir-baris .data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--color-bg);
+}
+
+@media (max-width: 560px) {
+  .gulir-baris {
+    --tinggi-baris: 40px;
+  }
+  /* Rekap di HP dibatasi lebih ketat: layarnya jauh lebih pendek, dan yang
+     sedang dikerjakan adalah mengisi, bukan membaca rekap. */
+  .panel-lengket-bawah {
+    max-height: 32vh;
+  }
+}
+
+
+/* Kotak isian angka di dalam tabel `baris-sejajar`.
+   Lebarnya diatur di sini, BUKAN sebagai gaya inline di JS — gaya inline menang
+   atas stylesheet, jadi selama `style="max-width:90px"` masih menempel, aturan
+   68px di layar sempit tidak akan pernah berlaku. Kegagalannya senyap: CSS-nya
+   ada, terlihat benar saat dibaca, dan tidak berpengaruh apa-apa. */
+.sl-qty-input,
+.isian-sempit {
+  max-width: 100px;
+}
+@media (max-width: 560px) {
+  .sl-qty-input,
+  .isian-sempit {
+    max-width: 68px;
+  }
+
+  /* Kolom isian di Menu memuat kotak + label perkiraan. Di baris berjajar ia
+     menumpuk ke bawah DI DALAM selnya sendiri — barisnya tetap sejajar, yang
+     bertumpuk hanya kotak dan keterangan kecil di bawahnya. */
+  .data-table.baris-sejajar .menu-isi {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+  }
+  .data-table.baris-sejajar .menu-perkiraan,
+  .data-table.baris-sejajar .menu-saved {
+    font-size: 0.68rem;
+    line-height: 1.1;
   }
 }

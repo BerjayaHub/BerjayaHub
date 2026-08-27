@@ -4199,6 +4199,101 @@ Sekarang `rencanaSekarang()` menggabungkan ingatan (`state.plans`) dengan kotak 
 
 Baris info di atas tabel menyebut nama isian yang sedang tersembunyi, sama seperti di layar Penjualan.
 
+---
+
+# Layar Penjualan: tombol di atas, baris berjajar, dan stok yang bicara
+
+Tiga keluhan yang datang bersamaan dari satu tangkapan layar HP, dan ketiganya ternyata masalah yang berbeda.
+
+## 1. "Apakah bahannya ikut berkurang? Saya ingin tetap berkurang walaupun minus" (0108)
+
+**Sudah, dan sudah boleh minus.** `record_sales` menulis `stock_movements` bertipe `usage` dengan `qty_delta` negatif sebesar takaran resep, dan tidak ada satu pun penjaga yang menahannya di nol. Itu disengaja: minus adalah kalimat yang jujur — *"terpakai lebih banyak daripada yang pernah tercatat masuk"* — biasanya karena nota penerimaan belum diinput. Menahannya di nol membuat neraca terlihat rapi sambil menyembunyikan selisihnya, dan selisih yang disembunyikan tidak akan pernah ditagih siapa pun.
+
+Jadi tidak ada yang perlu diperbaiki di sana. Yang rusak adalah hal lain yang baru terlihat saat memeriksanya:
+
+```sql
+if v_recipe.id is not null and v_recipe.yield_qty > 0 then
+  ... potong stok ...
+end if;                      -- tidak ada else, tidak ada catatan
+```
+
+**Menu tanpa resep melewati blok itu tanpa jejak.** Penjualannya tercatat, omzetnya bertambah, stok bahannya tidak bergerak satu gram pun — dan di layar hasilnya identik dengan penjualan yang berhasil sepenuhnya. Toast-nya tetap berbunyi *"Stok & omzet diperbarui"*, kalimat yang setengahnya tidak benar.
+
+Ada **dua sebab yang bentuknya sama persis dari luar**, dan `0108` membedakannya:
+
+| | sebab | yang terlihat di Admin |
+|---|---|---|
+| `tanpa_resep` | menu memang belum punya resep | status "Belum" — jelas |
+| `resep_kosong` | resepnya ada tapi `recipe_items` kosong | status **"sudah ada resep"** — menipis |
+
+Yang kedua jauh lebih berbahaya. Tanpa dibedakan, orang akan membuka daftar resep, melihat namanya ada, lalu menyimpulkan sistemnya yang salah.
+
+**Dilaporkan, bukan ditolak.** Menolak transaksi menu tanpa resep akan menghentikan penjualan air mineral botolan di kasir yang sedang antre. Sebagian menu memang wajar tidak punya resep; yang tahu mana yang wajar cuma orangnya.
+
+### Kenapa badan fungsinya disalin, bukan diketik ulang
+
+`0108` menyalin `record_sales` dari `0101` **secara terprogram** lalu menambah tiga hal: dua array penampung, cabang `else`, dan dua kunci baru. Alasannya sama dengan `0107`: validasi harga (`0099`) dan idempotency (`0098`) ada di dalam fungsi yang sama, dan satu baris yang bergeser tanpa sengaja di sana tidak menghasilkan error — hanya penjualan Rp0 yang tercatat rapi. §7 pada tesnya menjaga tepat itu.
+
+Tipe kembaliannya tetap `jsonb`, jadi tidak ada `42P13` seperti yang menggagalkan `receive_dispatch` di `0103`. Kunci lama (`diproses`, `item`, `omzet`) tidak disentuh — penting karena **PWA yang ter-cache di HP staff tidak berganti versi pada detik yang sama dengan database.** Di sisi layar, `laporkanStokTakBergerak()` membaca kunci barunya lewat `Array.isArray`, jadi layar versi baru yang berjalan melawan database yang belum dimigrasi hanya diam — perilaku lama, yang lebih baik daripada pesan salah.
+
+### Sabotase
+
+Enam, semuanya tertangkap pada percobaan pertama. Yang paling berharga: mengganti `qty_delta` jadi `greatest(-(...), 0)` — persis penjaga "jangan sampai minus" yang mungkin ditambahkan orang dengan niat baik. Tertangkap oleh §2, yang memeriksa **baris pergerakan terakhirnya**, bukan cuma saldo akhirnya; penjaga yang memotong per baris tetap meninggalkan saldo negatif dari baris-baris sebelumnya, jadi memeriksa saldo saja belum cukup.
+
+Dan `to_jsonb(nullif(v_tanpa_resep, '{}'))` — array kosong yang jadi `null`. Layar yang menulis `hasil.tanpa_resep.length` akan meledak pada kasus yang **paling sering terjadi**: semuanya normal.
+
+## 2. Tombol Simpan pindah ke atas
+
+Daftar menunya bisa dua ratus baris. Tombol yang hanya ada di bawahnya berarti staff yang mengisi lima menu di bagian atas harus menggulir melewati seluruh daftar untuk menyimpannya — dan yang paling sering terjadi, ia lupa lalu pindah layar.
+
+Sekarang layarnya punya tiga bagian dengan umur pakai yang berbeda:
+
+| | isi | kelas |
+|---|---|---|
+| atas, lengket | saringan + **Simpan Penjualan** + baris info | `.panel-lengket-atas` |
+| tengah, menggulir | daftar menu, ~10 baris tampak | `.gulir-baris` |
+| bawah, lengket | rekap hari ini | `.panel-lengket-bawah` |
+
+`thead` ikut menempel di dalam penggulirnya — tanpa itu, menggulir ke baris ke-30 berarti kehilangan keterangan kolom.
+
+Rekapnya **dibatasi tingginya lalu menggulir sendiri** (40vh, 32vh di HP), dan catatan penjelasnya dipindah ke `<details>`. Footer lengket yang menutupi daftar isian lebih mengganggu daripada footer yang harus digulir.
+
+## 3. Baris yang berjajar, bukan menumpuk
+
+Mode kartu (`kartu-sempit`) menumpuk tiap sel ke bawah. Untuk tabel isian itu justru memburukkan: nama menu, harganya, lalu kotak isiannya jadi tiga baris terpisah. Satu layar HP cuma memuat 3–4 menu, dan mengisi dua puluh menu berarti menggulir terus-menerus sambil kehilangan konteks.
+
+Padahal isinya pendek dan **muat** berjajar. Kelas baru **`baris-sejajar`**: `tr` jadi flex row, label `td::before` dimatikan, kolom pertama melebar (`flex: 1 1 auto; min-width: 0`), sisanya menempel di kanan, huruf 0.8rem, kotak isian 68px.
+
+`min-width: 0` itu wajib dan tidak jelas kalau tidak ditulis: tanpa itu flex item **menolak menyusut di bawah lebar kontennya**, dan nama menu yang panjang mendorong kotak isian keluar layar — gejala yang sedang diperbaiki, tapi mendatar. Auditnya memeriksa baris itu secara khusus.
+
+**Opt-in, bukan bawaan.** `baris-sejajar` hanya benar untuk tabel yang **semua** selnya pendek. Rekap Penjualan sempat ikut diubah, lalu lebarnya dihitung ulang: nama menu + `Rp 120.000` + tombol Edit + tombol Hapus tidak muat di 360px, dan yang tergencet justru tombolnya. Ia dikembalikan ke mode kartu.
+
+Ikut diperbaiki: **Menu** (jumlah tersedia), **Dispatch** (tiga tabel — siapkan order, isi draft, terima kiriman), **Produksi** (kebutuhan bahan), **Inventory** (stok), **panel resep** di Menu staff dan Menu admin.
+
+Opname **sengaja tidak diubah** — ia sudah punya tata letak kartu sendiri yang ditulis khusus, dengan alasannya tertulis di sana: mengisi stok fisik di rak yang gelap butuh kotak selebar mungkin, bukan sesempit mungkin.
+
+### Empat cara perbaikan ini bisa rusak diam-diam
+
+`tools/audit-baris-sejajar.cjs`. Tidak satu pun dari keempatnya menghasilkan error; tampilannya sekadar kembali menumpuk, dan biasanya baru ketahuan berbulan-bulan kemudian saat ada yang mengeluh lagi.
+
+1. **`tabel-responsif.js` lupa diajari melewatinya.** `MutationObserver`-nya menempelkan `kartu-sempit` ke setiap tabel. Dua kelas mengatur `display` sel yang sama, dan yang menang ditentukan **urutan tulisannya di stylesheet** — bukan sesuatu yang bisa dibaca dari file JS-nya.
+2. **Satu tabel menulis kedua kelas sekaligus.** Sama akibatnya, sebabnya manusia.
+3. **`style="max-width:110px"` inline yang tertinggal.** Gaya inline menang atas stylesheet, jadi aturan mengecilkan kotak di 560px ada, terlihat benar saat dibaca, dan **tidak berpengaruh apa-apa**. Semua diganti kelas `isian-sempit`.
+4. **Aturannya keluar dari media query-nya** dan ikut merusak desktop yang sudah benar.
+
+### Dua sabotase yang lolos — dan kelemahan yang sama untuk ketiga kalinya
+
+`.panel-lengket-atas` → `.panel-lengket-atas-x` dan `tbody > tr` → `tbody > tr-x` keduanya **lolos**. Sebabnya: `css.includes('.panel-lengket-atas')` tetap `true`, karena `.panel-lengket-atas-x` **mengandung** nama aslinya sebagai penggalan teks.
+
+Ini persis kelemahan yang sudah dua kali ditemukan sebelumnya — `indexOf('export function X')` yang ikut cocok dengan `Xsomething` di `audit-target.cjs`, lalu hal yang sama di `audit-konteks-angka.cjs`. Ketiga kalinya ia muncul dalam bentuk CSS.
+
+`punyaSelektor()` sekarang menuntut nama selektor **diikuti pembatas yang sah** (`{`, `,`, atau akhir baris). Ketujuh sabotase tertangkap sesudahnya.
+
+### Tes DOM
+
+`tools/test-tabel-responsif.mjs` menambah lima pemeriksaan lewat linkedom. Yang penting bukan "kartu-sempit tidak ditempelkan" melainkan bedanya dengan `tabel-tetap`: `tabel-tetap` menolak **semuanya**, `baris-sejajar` cuma menolak mode kartunya. Ia **tetap** butuh `data-label` untuk pembaca layar. Sabotase yang menyamakan keduanya membuat pembaca layar kehilangan judul kolom tanpa satu pun tanda di layar — dan tertangkap.
+
+
 ## Semua tabel & halaman menyesuaikan layar
 
 ### Angka yang membuat masalahnya jelas
@@ -4387,6 +4482,7 @@ Dua hal yang diputuskan sadar:
 - [x] **Bahan menipis (stok ÷ takaran resep = cukup berapa porsi)** — takaran rata-rata dari semua menu yang memakai bahan itu, ambang **porsi minimum per outlet** berlaku untuk semua menu sekaligus, bisa **ditimpa manual** per bahan (satu-satunya cara mengawasi gas/tisu/kemasan); tabel di Staff App (kartu di HP) + tab Admin Portal, unduh xlsx & kirim daftar belanja lewat WhatsApp tanpa API
 - [x] **Harga jual per OUTLET** (`0096`–`0099`) — `outlet_menu_prices` ber-effective-dating, `record_sales()` tanpa fallback ke harga BU, transaksi ditolak (bukan beromzet Rp 0) bila harga belum disetel, dan penanda kiriman dari klien yang mencegah penjualan & pemakaian stok ganda
 - [x] **Semua tabel & halaman responsif** — mode kartu jadi opt-out (86 tabel), `data-label` diisi otomatis dari judul kolom lewat `MutationObserver`, tipografi `clamp()`, isian 16px di layar sentuh, dan `audit-lebar-baris.cjs` yang menjumlahkan lebar tetap tiap baris flex terhadap anggaran layar 360px
+- [x] **Tabel isian berjajar di HP** — kelas opt-in `baris-sejajar` untuk tabel yang semua selnya pendek (Penjualan, Menu, Dispatch ×3, Produksi, Inventory, dua panel resep), tombol Simpan pindah ke panel lengket atas, `thead` menempel di dalam penggulir ~10 baris, rekap lengket di bawah, dijaga `audit-baris-sejajar.cjs`
 - [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal
 - [x] **Halaman Owner (`owner.html`)** — dibuka super admin, KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin

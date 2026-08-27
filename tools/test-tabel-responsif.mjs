@@ -192,5 +192,30 @@ w = pasang(`
   </table>`);
 cek('sel berlebih tidak dapat label karangan', label(w), ['A', null]);
 
+// =====================================================================
+// BARIS SEJAJAR — memilih tata letak lain, bukan menolak diurus
+//
+// Bedanya dengan `tabel-tetap` halus tapi penting: `tabel-tetap` menolak
+// SEMUANYA, sedangkan `baris-sejajar` cuma menolak `kartu-sempit`. Ia tetap
+// butuh `data-label` (untuk pembaca layar) dan tetap dibungkus penggulir.
+//
+// Kalau suatu saat ada yang menyederhanakannya jadi "sama seperti tabel-tetap",
+// pembaca layar akan kehilangan judul kolomnya tanpa satu pun tanda di layar.
+// =====================================================================
+w = pasang(`
+  <table class="data-table baris-sejajar">
+    <thead><tr><th>Menu</th><th>Harga</th><th>Jumlah</th></tr></thead>
+    <tbody><tr><td>Nasi Goreng</td><td>25000</td><td><input /></td></tr></tbody>
+  </table>`);
+sapuTabel(w);
+cek('baris-sejajar: mode kartu TIDAK ditempelkan', w.querySelector('table').classList.contains('kartu-sempit'), false);
+cek('baris-sejajar: kelasnya sendiri tetap ada', w.querySelector('table').classList.contains('baris-sejajar'), true);
+cek('baris-sejajar: label tetap diisi untuk pembaca layar', label(w), ['Menu', 'Harga', 'Jumlah']);
+cek('baris-sejajar: tetap dibungkus penggulir', w.querySelectorAll('.table-scroll').length, 1);
+
+// Dijalankan dua kali tidak menempelkan apa pun secara diam-diam.
+sapuTabel(w);
+cek('baris-sejajar: sapuan kedua tetap tidak mengartukan', w.querySelector('table').classList.contains('kartu-sempit'), false);
+
 console.log(gagal === 0 ? '✅ tabel responsif: semua lulus' : `❌ tabel responsif: ${gagal} gagal`);
 process.exit(gagal === 0 ? 0 : 1);

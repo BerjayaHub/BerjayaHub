@@ -124,7 +124,7 @@ export function renderResepStaff(wadah, products, recipes) {
           isi =
             '<p style="font-size:0.85rem;margin:4px 0;color:var(--color-danger)">Resep ini kosong — bahannya tidak tersimpan. Laporkan ke admin.</p>';
         } else {
-          isi = `<table class="data-table" style="margin:4px 0;width:100%">
+          isi = `<table class="data-table baris-sejajar" style="margin:4px 0;width:100%">
               <thead><tr><th>Bahan</th><th style="text-align:right;white-space:nowrap">Jumlah</th></tr></thead>
               <tbody>${panel.baris
                 .map(

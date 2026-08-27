@@ -68,7 +68,7 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
       </div>
     </div>
     <div id="menu-info" style="margin-bottom:8px"></div>
-    <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
+    <div class="table-scroll gulir-baris"><table class="data-table baris-sejajar">
       <thead><tr><th>Menu</th><th>Kategori</th><th>Jumlah tersedia</th></tr></thead>
       <tbody id="menu-rows"></tbody>
     </table></div>
@@ -160,7 +160,7 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
           <td data-label="Kategori">${esc(m.category ?? '-')}</td>
           <td data-label="Jumlah tersedia">
             <div class="menu-isi">
-              <input type="number" class="menu-qty" data-id="${m.id}" min="0" inputmode="numeric"
+              <input type="number" class="menu-qty isian-sempit" data-id="${m.id}" min="0" inputmode="numeric"
                      value="${state.plans.has(m.id) ? state.plans.get(m.id) : ''}" aria-label="Jumlah tersedia ${esc(m.name)}" />
               <span class="menu-perkiraan" data-id="${m.id}"></span>
             </div>
@@ -301,7 +301,7 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
             : ''
         }
       </div>
-      <table class="data-table kartu-sempit"><thead><tr><th>Bahan</th><th>Per menu</th><th>Stok</th></tr></thead><tbody>${rows.join('')}</tbody></table>
+      <table class="data-table baris-sejajar"><thead><tr><th>Bahan</th><th>Per menu</th><th>Stok</th></tr></thead><tbody>${rows.join('')}</tbody></table>
     `;
   }
 

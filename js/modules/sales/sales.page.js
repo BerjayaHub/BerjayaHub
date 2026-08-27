@@ -68,26 +68,40 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
   };
 
   container.innerHTML = `
-    <h1>Penjualan</h1>
-    <p style="color:var(--color-text-muted);font-size:0.85rem;margin:0 0 10px">Isi jumlah terjual tiap menu hari ini (${fmtDate(date)}), lalu Simpan. Stok bahan otomatis berkurang sesuai resep, omzet tercatat.</p>
-    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
-      <div class="field" style="margin:0"><label>Outlet</label>
-        <select id="sl-outlet">${myOutlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${esc(o.name)}</option>`).join('')}</select>
+    <h1 style="margin-bottom:4px">Penjualan</h1>
+    <p style="color:var(--color-text-muted);font-size:0.82rem;margin:0 0 8px">Isi jumlah terjual tiap menu hari ini (${fmtDate(date)}), lalu Simpan. Stok bahan otomatis berkurang sesuai resep, omzet tercatat.</p>
+
+    <div class="panel-lengket-atas">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="field" style="margin:0;min-width:130px"><label>Outlet</label>
+          <select id="sl-outlet">${myOutlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${esc(o.name)}</option>`).join('')}</select>
+        </div>
+        <div class="field" style="margin:0;min-width:120px"><label>Kategori</label>
+          <select id="sl-cat"><option value="">Semua</option>${categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
+        </div>
+        <div class="field" style="margin:0;flex:1;min-width:150px"><label>Cari menu</label>
+          <input type="search" id="sl-q" placeholder="mis. nasi goreng" autocomplete="off" enterkeyhint="search" />
+        </div>
       </div>
-      <div class="field" style="margin:0"><label>Kategori</label>
-        <select id="sl-cat"><option value="">Semua</option>${categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
-      </div>
-      <div class="field" style="margin:0;flex:1;min-width:180px"><label>Cari menu</label>
-        <input type="search" id="sl-q" placeholder="mis. nasi goreng" autocomplete="off" enterkeyhint="search" />
-      </div>
+
+      <!-- TOMBOL SIMPAN DI ATAS, bukan di bawah daftar.
+
+           Daftar menunya bisa dua ratus baris. Tombol yang hanya ada di
+           bawahnya berarti staff yang mengisi lima menu di bagian atas harus
+           menggulir melewati seluruh daftar untuk menyimpan — dan yang paling
+           sering terjadi, ia lupa lalu pindah layar. -->
+      <button class="primary" id="sl-save" style="max-width:100%;margin-top:8px">Simpan Penjualan</button>
+      <div id="sl-info" style="margin-top:8px"></div>
     </div>
-    <div id="sl-info" style="margin-bottom:8px"></div>
-    <div class="table-scroll"><table class="data-table table-freeze-1">
-      <thead><tr><th>Menu</th><th>Harga</th><th>Jumlah terjual</th></tr></thead>
-      <tbody id="sl-rows"></tbody>
-    </table></div>
-    <button class="primary" id="sl-save" style="max-width:220px;margin-top:12px">Simpan Penjualan</button>
-    <div id="sl-summary" style="margin-top:18px"></div>
+
+    <div class="table-scroll gulir-baris" style="margin-top:8px">
+      <table class="data-table baris-sejajar">
+        <thead><tr><th>Menu</th><th>Harga</th><th>Jumlah terjual</th></tr></thead>
+        <tbody id="sl-rows"></tbody>
+      </table>
+    </div>
+
+    <div class="panel-lengket-bawah" id="sl-summary"></div>
   `;
 
   const outletSel = container.querySelector('#sl-outlet');
@@ -143,7 +157,7 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
               ? formatRupiah(state.harga.get(m.id))
               : '<span class="error-text" style="font-size:0.78rem">belum ada harga</span>'
           }</td>
-          <td><input type="number" class="sl-qty" data-id="${m.id}" min="0" placeholder="0" style="max-width:90px"
+          <td><input type="number" class="sl-qty sl-qty-input" data-id="${m.id}" min="0" placeholder="0"
             inputmode="numeric" value="${state.qty.get(m.id) ?? ''}" /></td>
         </tr>`
       )
@@ -216,15 +230,18 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
                </table>
              </div>
              <p style="font-weight:600;margin-top:8px">Total omzet: ${formatRupiah(total)}</p>
-             <p class="report-note" style="max-width:560px">
-               Salah input bisa dibetulkan di sini. <strong>Stok bahan ikut dikoreksi otomatis</strong> —
-               mengurangi jumlah mengembalikan bahannya, menghapus mengembalikan seluruhnya.
-               <br /><br />
-               Harga tidak ikut berubah walau daftar harga sudah diperbarui: yang dipakai tetap harga saat
-               transaksi ini dicatat, supaya omzet hari-hari sebelumnya tidak bergeser sendiri.
-               <br /><br />
-               Kamu hanya bisa membetulkan yang <strong>kamu catat sendiri hari ini</strong>. Selebihnya lewat Admin BU.
-             </p>`
+             <details style="max-width:560px">
+               <summary style="cursor:pointer;font-size:0.82rem;color:var(--color-text-muted)">Tentang mengubah &amp; menghapus</summary>
+               <p class="report-note" style="max-width:560px">
+                 Salah input bisa dibetulkan di sini. <strong>Stok bahan ikut dikoreksi otomatis</strong> —
+                 mengurangi jumlah mengembalikan bahannya, menghapus mengembalikan seluruhnya.
+                 <br /><br />
+                 Harga tidak ikut berubah walau daftar harga sudah diperbarui: yang dipakai tetap harga saat
+                 transaksi ini dicatat, supaya omzet hari-hari sebelumnya tidak bergeser sendiri.
+                 <br /><br />
+                 Kamu hanya bisa membetulkan yang <strong>kamu catat sendiri hari ini</strong>. Selebihnya lewat Admin BU.
+               </p>
+             </details>`
           : '<p style="color:var(--color-text-muted)">Belum ada penjualan tercatat hari ini.</p>'
       }
     `;
@@ -419,6 +436,39 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
     renderInfo();
   });
 
+  /**
+   * Katakan menu mana yang TIDAK memotong stok.
+   *
+   * Dibaca dengan sangat hati-hati karena PWA ini ter-cache di HP staff: layar
+   * versi baru bisa berjalan melawan database yang BELUM dimigrasi 0108, dan
+   * saat itu kedua kunci ini tidak ada sama sekali. `Array.isArray` menangkap
+   * itu tanpa menampilkan apa pun — diam adalah perilaku lama, dan perilaku
+   * lama lebih baik daripada pesan salah.
+   */
+  function laporkanStokTakBergerak(hasil) {
+    const tanpa = Array.isArray(hasil?.tanpa_resep) ? hasil.tanpa_resep : [];
+    const kosong = Array.isArray(hasil?.resep_kosong) ? hasil.resep_kosong : [];
+    if (!tanpa.length && !kosong.length) return;
+
+    const bagian = [];
+    if (tanpa.length) {
+      bagian.push(`${tanpa.join(', ')} belum punya resep`);
+    }
+    if (kosong.length) {
+      // Dibedakan dari yang di atas karena perbaikannya berbeda — dan karena di
+      // layar Admin, menu ini terlihat SUDAH punya resep. Tanpa kalimat ini,
+      // orang akan membuka daftar resep, melihat namanya ada, lalu menyimpulkan
+      // sistemnya yang salah.
+      bagian.push(`${kosong.join(', ')} resepnya tersimpan tapi isinya kosong`);
+    }
+
+    toast(
+      `Omzet tercatat, tapi stok bahan TIDAK berkurang untuk: ${bagian.join('; ')}. ` +
+        'Kalau menu itu memang dibeli jadi, ini wajar. Kalau tidak, minta admin melengkapi resepnya.',
+      'warning'
+    );
+  }
+
   container.querySelector('#sl-save').addEventListener('click', async (e) => {
     // DIBACA DARI INGATAN, BUKAN DARI KOTAK YANG SEDANG TERLIHAT.
     //
@@ -462,6 +512,18 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
           : 'Penjualan tersimpan. Stok & omzet diperbarui.',
         'success'
       );
+
+      // MENU YANG TERJUAL TAPI TIDAK MENGGERAKKAN STOK.
+      //
+      // Dilaporkan server sejak 0108. Sebelum itu, menu tanpa resep menambah
+      // omzet tanpa menyentuh stok sama sekali dan layar ini tetap berkata
+      // "Stok & omzet diperbarui" — kalimat yang setengahnya tidak benar.
+      //
+      // Ditampilkan sebagai peringatan TERPISAH, bukan menggantikan pesan
+      // berhasilnya: penjualannya memang berhasil, yang perlu diketahui adalah
+      // bagian yang tidak terjadi.
+      laporkanStokTakBergerak(hasil);
+
       await loadSummary();
     } catch (error) {
       const pesan = error.message ?? 'Gagal menyimpan penjualan.';

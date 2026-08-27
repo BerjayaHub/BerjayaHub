@@ -199,7 +199,7 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
         })
         .join('');
       const isi = r
-        ? `<table class="data-table" style="margin:6px 0;max-width:420px">
+        ? `<table class="data-table baris-sejajar" style="margin:6px 0;max-width:420px">
              <thead><tr><th>Bahan</th><th style="text-align:right">Jumlah</th></tr></thead>
              <tbody>${baris || `<tr><td colspan="2" style="background:var(--color-warning-bg,#fff8e1)">
                  <strong>Resep ini kosong — bahannya tidak pernah tersimpan.</strong>

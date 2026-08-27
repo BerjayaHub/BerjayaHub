@@ -168,7 +168,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
              </p>`
           : ''
       }
-      <div class="table-scroll"><table class="data-table table-freeze-1">
+      <div class="table-scroll"><table class="data-table baris-sejajar">
         <thead><tr><th>Produk</th><th>Stok</th><th>Satuan</th></tr></thead>
         <tbody>
           ${

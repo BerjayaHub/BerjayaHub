@@ -443,7 +443,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
             <div style="font-size:0.78rem;color:var(--color-text-muted)">${fmtDateTime(o.created_at)} · oleh ${esc(o.user_profiles?.full_name ?? '-')}${o.notes ? ' · ' + esc(o.notes) : ''} · ketuk untuk proses ▾</div>
           </button>
           <div class="ord-body" hidden style="margin-top:10px">
-            <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
+            <div class="table-scroll"><table class="data-table baris-sejajar">
               <thead><tr><th>Produk</th><th>Diminta</th><th>Stok CK</th><th>Dikirim</th></tr></thead>
               <tbody>
                 ${items
@@ -453,7 +453,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                       <td data-label="Produk">${esc(it.products?.name ?? '-')}</td>
                       <td data-label="Diminta">${formatNum(it.qty)} ${esc(it.products?.base_unit ?? '')}</td>
                       <td style="color:${stok < Number(it.qty) ? 'var(--color-danger)' : 'var(--color-text-muted)'}" data-label="Stok CK">${formatNum(stok)}</td>
-                      <td data-label="Dikirim"><input type="number" class="ord-send-input" min="0" data-product="${it.product_id}" value="${round(it.qty)}" style="max-width:110px" /></td>
+                      <td data-label="Dikirim"><input type="number" class="ord-send-input isian-sempit" min="0" data-product="${it.product_id}" value="${round(it.qty)}" /></td>
                     </tr>`;
                   })
                   .join('')}
@@ -677,7 +677,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
 
     body.innerHTML = `
       <div class="table-scroll">
-        <table class="data-table kartu-sempit">
+        <table class="data-table baris-sejajar">
           <thead><tr><th>Barang</th><th>Stok CK</th><th>Jumlah kirim</th></tr></thead>
           <tbody>
             ${items
@@ -693,8 +693,8 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                     ${stok == null ? '-' : formatNum(stok)}${kurang ? ' ⚠' : ''}
                   </td>
                   <td data-label="Jumlah kirim">
-                    <input type="number" class="drf-qty" data-product="${i.product_id}" min="0" step="any"
-                      inputmode="decimal" value="${i.sent_qty}" style="max-width:100px" />
+                    <input type="number" class="drf-qty isian-sempit" data-product="${i.product_id}" min="0" step="any"
+                      inputmode="decimal" value="${i.sent_qty}" />
                     <span style="font-size:0.75rem;color:var(--color-text-muted)">${esc(i.products?.base_unit ?? '')}</span>
                   </td>
                 </tr>`;
@@ -834,7 +834,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
             <div style="font-size:0.78rem;color:var(--color-text-muted)">${fmtDateTime(d.created_at)} · oleh ${esc(d.user_profiles?.full_name ?? '-')} · ketuk untuk terima ▾</div>
           </button>
           <div class="recv-body" hidden style="margin-top:10px">
-            <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
+            <div class="table-scroll"><table class="data-table baris-sejajar">
               <thead><tr><th>Produk</th><th>Dikirim</th><th>Diterima</th></tr></thead>
               <tbody>
                 ${items
@@ -842,7 +842,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                     (it) => `<tr>
                       <td data-label="Produk">${esc(it.products?.name ?? '-')}</td>
                       <td data-label="Dikirim">${formatNum(it.sent_qty)} ${esc(it.products?.base_unit ?? '')}</td>
-                      <td data-label="Diterima"><input type="number" class="recv-input" min="0" data-item="${it.id}" value="${round(it.sent_qty)}" style="max-width:100px" /></td>
+                      <td data-label="Diterima"><input type="number" class="recv-input isian-sempit" min="0" data-item="${it.id}" value="${round(it.sent_qty)}" /></td>
                     </tr>`
                   )
                   .join('')}
