@@ -4121,6 +4121,84 @@ Tiga belas pada 0105. **Tiga lolos pada percobaan pertama**, dan penyebabnya sam
 
 Delapan pada modul murninya. **Satu lolos:** melonggarkan `angka()` jadi `Number(v)` apa adanya, karena semua kasus uji kebetulan menghasilkan hasil yang sama. Ditutup dengan kasus `true`, `[]`, `{}`, dan string kosong — `Number(true)` adalah `1`, dan lencana "1" yang lahir dari boolean terlihat persis seperti satu pekerjaan sungguhan. Jebakan yang sama dengan yang dijaga di `pricing.js`.
 
+## Menilai ulang presensi saat jadwal shift dikoreksi belakangan (0106)
+
+### Yang dilaporkan
+
+```
+Rabu  : dijadwalkan shift pagi, staff clock in -> tercatat TERLAMBAT 140 menit
+Jumat : jadwal Rabu-nya dikoreksi (ternyata shift siang)
+Hasil : keterangan terlambatnya TIDAK berubah
+```
+
+### Bukan kerusakan — fiturnya memang menolak
+
+`late_status` dan `late_minutes` adalah **potret** yang diambil sekali saat clock in. `0074` menuliskan alasannya: penilaian kehadiran memakai aturan yang berlaku **saat itu**.
+
+Tombol ↻ yang sudah ada memang sengaja melewati baris yang sudah pernah dinilai:
+
+```sql
+if not p_paksa and r.late_status is not null and r.late_status <> 'no_schedule'
+```
+
+Parameter `p_paksa` sudah ada sejak 0074, tapi **tidak pernah dipasang ke layar**. Jadi jalan keluarnya ada; yang tidak ada adalah pintunya.
+
+### Kenapa tidak cukup "pasang saja tombolnya"
+
+Menilai ulang berarti mengubah penilaian masa lalu. Angka 140 menit itu mungkin sudah dipakai memotong tunjangan, sudah dibahas dengan orangnya, atau sudah masuk laporan yang dicetak. Kalau sekadar ditimpa, pertanyaan "kok bulan lalu beda?" tidak akan bisa dijawab siapa pun.
+
+Maka penilaian aslinya **disimpan, tidak dibuang**:
+
+| Kolom | Isi |
+|---|---|
+| `late_status_awal` / `late_menit_awal` | potret pertama — diisi **sekali seumur hidup baris itu** |
+| `late_dinilai_ulang_at` / `_by` / `_alasan` | siapa, kapan, kenapa |
+
+Rekap menampilkan keduanya: `Tepat waktu` dengan baris kecil di bawahnya `dinilai ulang · dulu Terlambat 140 mnt`. Riwayatnya bertambah, bukan tergantikan — pola yang sama dengan pergerakan stok di 0084/0092/0101.
+
+Menilai ulang **dua kali** tidak menggeser potret pertama. Kalau digeser, penilaian asli hilang setelah dua koreksi dan yang tersisa justru angka yang paling tidak berarti.
+
+### Dua tombol yang sengaja dibedakan
+
+| | Untuk | Menyentuh |
+|---|---|---|
+| ↻ Hitung ulang | baris yang **belum pernah** dinilai ("Tanpa jadwal") | tidak mengubah penilaian |
+| ⟳ Nilai ulang | baris yang **sudah** dinilai | mengubah penilaian, **alasan wajib** |
+
+Kalau keduanya jadi satu tombol, memperbaiki "Tanpa jadwal" (yang dilakukan hampir tiap minggu) dan mengubah keputusan keterlambatan (yang menyentuh tunjangan orang) jadi satu ketukan yang sama. Perilaku ↻ tidak berubah sedikit pun.
+
+Versi massalnya membatasi rentang **62 hari** — tanpa batas, satu klik bisa menilai ulang setahun penuh dan pembatalannya harus dikerjakan satu per satu. Hasilnya tiga angka (`diproses`, `berubah`, `tetap`), bukan satu: "20 diproses" saja akan terbaca sebagai keberhasilan padahal bisa jadi tidak satu pun berubah.
+
+### Orang yang penilaiannya berubah diberi tahu (0107)
+
+Kartu **Shift** di Staff App bertitik biru saat presensi orang itu dinilai ulang — dan titiknya hilang begitu ia membuka kartunya. Tanpa ini, angka keterlambatannya bergeser dan ia baru tahu saat tunjangannya sudah dihitung.
+
+`0107` disalin dari `0105` **secara terprogram**, bukan diketik ulang: satu baris yang berubah tanpa sengaja di fungsi sepanjang itu tidak akan menghasilkan error, hanya angka lencana yang meleset di modul yang tidak ada hubungannya. Yang berubah hanya `v_akt_shift`.
+
+### Sabotase
+
+Sembilan pada 0106 (potret pertama ditimpa, tidak memaksa, alasan tidak wajib, wewenang dimatikan, rentang tanpa batas, massal menyentuh outlet lain, alasan tidak dirapikan) — semuanya tertangkap setelah dua uji dipertajam. Yang pertama sempat lolos karena pesan penolakannya mirip dengan milik `hitung_ulang_status_shift` di dalamnya; sekarang dicocokkan dengan kalimat milik fungsi ini sendiri.
+
+Empat pada 0107. **Satu lolos**: menghapus `late_dinilai_ulang_at is not null` — `max()` memang mengabaikan null, jadi klausanya redundan secara hasil. Dipertahankan karena ia yang membuat indeks parsial `idx_attendance_dinilai_ulang` bisa dipakai, dan komentarnya menyatakan itu terus-terang alih-alih berpura-pura ia penjaga.
+
+## Cari menu di modul Menu
+
+Kotak **Cari menu** di samping saringan Kategori, memakai `saringMenu()` yang sama dengan layar Penjualan.
+
+### Satu bug yang ikut ketahuan
+
+`rencanaSekarang()` membaca kotak isian dari **baris yang sedang tampak**:
+
+```js
+new Map([...tbody.querySelectorAll('.menu-qty')].map(...))
+```
+
+Perkiraan "bisa dibuat berapa porsi" memakainya untuk memotong bahan. Dengan saringan aktif, menu lain yang sudah diisi **ikut memakai bahan yang sama tapi tidak dihitung** — angkanya jadi terlalu optimis, terlihat wajar, dan tidak ada satu pun tanda. Bug ini sudah ada dengan saringan kategori; pencarian nama membuatnya hampir pasti terjadi.
+
+Sekarang `rencanaSekarang()` menggabungkan ingatan (`state.plans`) dengan kotak yang terlihat — yang terlihat menang karena ia yang sedang diketik — dan `petaPerkiraan()` menerima **seluruh** menu, bukan hanya yang lolos saringan.
+
+Baris info di atas tabel menyebut nama isian yang sedang tersembunyi, sama seperti di layar Penjualan.
+
 ## Semua tabel & halaman menyesuaikan layar
 
 ### Angka yang membuat masalahnya jelas

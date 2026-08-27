@@ -5,6 +5,7 @@ import { petaPerkiraan, labelPerkiraan } from './perkiraan.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { getMenuPlans, upsertMenuPlan, todayWIB } from './menu.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
+import { saringMenu, ringkasIsian } from '../sales/saring-menu.js';
 import { loadingHtml } from '../../core/loading.js';
 
 export async function renderMenuPage(container, { businessUnitId, outletId }) {
@@ -47,6 +48,7 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
   const state = {
     outletId: outlets.some((o) => o.id === outletId) ? outletId : outlets[0].id,
     category: '',
+    q: '',
     plans: new Map(),
     stock: new Map()
   };
@@ -61,7 +63,11 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
       <div class="field" style="margin:0"><label>Kategori</label>
         <select id="menu-cat"><option value="">Semua</option>${categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
       </div>
+      <div class="field" style="margin:0;flex:1;min-width:180px"><label>Cari menu</label>
+        <input type="search" id="menu-q" placeholder="mis. nasi goreng" autocomplete="off" enterkeyhint="search" />
+      </div>
     </div>
+    <div id="menu-info" style="margin-bottom:8px"></div>
     <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
       <thead><tr><th>Menu</th><th>Kategori</th><th>Jumlah tersedia</th></tr></thead>
       <tbody id="menu-rows"></tbody>
@@ -81,11 +87,56 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
     renderRows();
   }
 
-  /** Jumlah yang sedang tampak di kotak isian (belum tentu tersimpan). */
+  /**
+   * Rencana yang berlaku SEKARANG — gabungan ingatan dan kotak yang terlihat.
+   *
+   * DULU ia hanya membaca kotak yang sedang tampak, dan itu salah begitu ada
+   * saringan: perkiraan "bisa dibuat berapa porsi" memotong bahan hanya untuk
+   * menu yang kebetulan terlihat. Menu lain yang sudah diisi ikut memakai bahan
+   * yang sama, tapi tidak dihitung — angkanya jadi terlalu optimis, terlihat
+   * wajar, dan tidak ada satu pun tanda.
+   *
+   * Kotak yang terlihat MENANG atas ingatan: ia yang sedang diketik, jadi ia
+   * yang paling baru.
+   */
   function rencanaSekarang() {
+    const gabung = new Map(state.plans);
     const tbody = container.querySelector('#menu-rows');
-    if (!tbody) return new Map(state.plans);
-    return new Map([...tbody.querySelectorAll('.menu-qty')].map((el) => [el.dataset.id, el.value === '' ? 0 : Number(el.value)]));
+    if (tbody) {
+      for (const el of tbody.querySelectorAll('.menu-qty')) {
+        gabung.set(el.dataset.id, el.value === '' ? 0 : Number(el.value));
+      }
+    }
+    return gabung;
+  }
+
+  /** Menu yang lolos saringan kategori DAN pencarian nama. */
+  const menuTersaring = () => saringMenu(menus, { kategori: state.category, q: state.q });
+
+  /**
+   * Beri tahu kalau ada isian yang sedang TERSEMBUNYI oleh saringan.
+   *
+   * Tanpa ini, staff yang sudah mengisi lima menu lalu mencari menu keenam
+   * hanya melihat satu baris — dan akan mengira empat isian sebelumnya hilang.
+   */
+  function renderInfo() {
+    const box = container.querySelector('#menu-info');
+    if (!box) return;
+    const { terisi, tersembunyi } = ringkasIsian(state.plans, menuTersaring(), menus);
+    if (!terisi.length) {
+      box.innerHTML = '';
+      return;
+    }
+    box.innerHTML = `
+      <p class="report-note" style="margin:0">
+        <strong>${terisi.length} menu</strong> sudah diisi.
+        ${
+          tersembunyi.length
+            ? `<strong>${tersembunyi.length} di antaranya sedang tidak terlihat</strong> karena saringan —
+               isiannya tetap tersimpan: ${tersembunyi.map((t) => `${esc(t.nama)} (${t.qty})`).join(', ')}.`
+            : ''
+        }
+      </p>`;
   }
 
   /** Varian resep yang berlaku di outlet ini — gerai CK memakai resep CK. */
@@ -95,7 +146,7 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
 
   function renderRows() {
     const tbody = container.querySelector('#menu-rows');
-    const list = state.category ? menus.filter((m) => m.category === state.category) : menus;
+    const list = menuTersaring();
     // Dihitung SETIAP kali baris digambar ulang, bukan sekali di awal: stok
     // berubah saat outlet berganti, dan angka perkiraan dari stok outlet
     // sebelumnya akan terlihat normal sambil menyesatkan.
@@ -118,7 +169,14 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
         </tr>
         <tr class="menu-detail" data-id="${m.id}" hidden><td colspan="3" class="sel-penuh"><div class="menu-detail-body" style="padding:6px 2px"></div></td></tr>`
         )
-        .join('') || '<tr><td colspan="3">Tidak ada menu di kategori ini.</td></tr>';
+        .join('') ||
+      `<tr><td colspan="3">${
+        state.q
+          ? `Tidak ada menu yang cocok dengan "${esc(state.q)}"${state.category ? ' di kategori ini' : ''}.`
+          : 'Tidak ada menu di kategori ini.'
+      }</td></tr>`;
+
+    renderInfo();
 
     /**
      * Gambar ulang SEMUA label perkiraan dari isian yang sedang tampak.
@@ -133,7 +191,10 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
      * diisi, dan angka yang sedang diketik ikut hilang.
      */
     function perbaruiPerkiraan() {
-      const peta = petaPerkiraan({ menus: list, recipes, stok: state.stock, mode: modeOutlet(), rencana: rencanaSekarang() });
+      // SELURUH menu, bukan `list`. Bahan yang dipakai menu yang sedang
+      // tersaring keluar tetap harus ikut dipotong — kalau tidak, perkiraannya
+      // terlalu optimis persis untuk menu yang paling sering diisi bersamaan.
+      const peta = petaPerkiraan({ menus, recipes, stok: state.stock, mode: modeOutlet(), rencana: rencanaSekarang() });
       for (const span of tbody.querySelectorAll('.menu-perkiraan')) {
         const h = peta.get(span.dataset.id);
         span.textContent = labelPerkiraan(h) + (h?.dikurangi ? ' (sisa)' : '');
@@ -251,6 +312,27 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
   catSel.addEventListener('change', () => {
     state.category = catSel.value;
     renderRows();
+  });
+
+  // Ditunda 250 ms: menggambar ulang tiap ketukan membuat pengetikan tersendat
+  // di ponsel, dan tabel yang digambar ulang di tengah ketikan mencuri fokus
+  // dari kotak pencariannya.
+  const cariInput = container.querySelector('#menu-q');
+  let timerCari;
+  cariInput.addEventListener('input', () => {
+    clearTimeout(timerCari);
+    timerCari = setTimeout(() => {
+      state.q = cariInput.value.trim();
+      renderRows();
+    }, 250);
+  });
+  cariInput.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    clearTimeout(timerCari);
+    state.q = cariInput.value.trim();
+    renderRows();
+    cariInput.blur();
   });
 
   await reload();

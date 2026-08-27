@@ -7,6 +7,8 @@ import {
   koreksiOutletBasis,
   hitungUlangStatusShift,
   hitungUlangStatusShiftMassal,
+  nilaiUlangStatusShift,
+  nilaiUlangStatusShiftMassal,
   listOutletsWithGeofence,
   listAttendanceOutlets,
   setOutletLocation,
@@ -170,6 +172,48 @@ async function renderPresensiTab(container, businessUnitId) {
     wireEditButtons(container, outlets ?? []);
     wirePhotoButtons(container);
     wireAddressButtons(container);
+    container.querySelectorAll('.btn-renilai-shift').forEach((btn) =>
+      btn.addEventListener('click', async () => {
+        // Alasan WAJIB, dan diminta lewat form — bukan confirm biasa. Mengubah
+        // penilaian yang sudah tercatat harus meninggalkan kalimat yang bisa
+        // dibaca enam bulan kemudian.
+        const nilai = await formDialog({
+          title: 'Nilai ulang status shift',
+          fields: [
+            {
+              name: 'alasan',
+              label: 'Alasan',
+              type: 'text',
+              required: true,
+              placeholder: 'mis. jadwal Rabu dikoreksi jadi shift siang',
+              help: 'Penilaian yang sekarang akan diganti memakai jadwal shift yang berlaku sekarang. Angka lamanya tetap disimpan dan ditampilkan di bawah statusnya.'
+            }
+          ],
+          submitText: 'Nilai ulang'
+        });
+        if (!nilai?.alasan?.trim()) return;
+
+        btn.disabled = true;
+        try {
+          const h = await nilaiUlangStatusShift(btn.dataset.id, nilai.alasan);
+          const berubah = h && (h.status !== h.status_lama || (h.menit ?? null) !== (h.menit_lama ?? null));
+          // Dikatakan apa adanya kalau TIDAK berubah. "Berhasil" untuk hitungan
+          // yang hasilnya sama hanya membuat admin mengira jadwalnya belum
+          // tersimpan, lalu mencoba lagi.
+          toast(
+            berubah
+              ? `${LATE_LABEL[h.status_lama] ?? h.status_lama} → ${LATE_LABEL[h.status] ?? h.status}${h.menit ? ` ${h.menit} mnt` : ''}.`
+              : 'Hasilnya sama dengan sebelumnya — jadwal shift untuk tanggal itu tidak berubah.',
+            berubah ? 'success' : 'warning'
+          );
+          await refresh();
+        } catch (error) {
+          toast(error.message ?? 'Gagal menilai ulang.', 'error');
+          btn.disabled = false;
+        }
+      })
+    );
+
     container.querySelectorAll('.btn-recalc-shift').forEach((btn) =>
       btn.addEventListener('click', async () => {
         btn.disabled = true;
@@ -270,6 +314,7 @@ async function renderPresensiTab(container, businessUnitId) {
       <div class="field" style="margin:0"><label>Sampai tanggal</label><input type="date" id="filter-to" value="${range.to}" /></div>
       <button class="primary" id="btn-filter" style="max-width:120px">Filter</button>
       <button id="btn-recalc-all" title="Untuk presensi yang terlanjur Tanpa jadwal karena jadwalnya baru dibuat belakangan">↻ Hitung Ulang Shift</button>
+      <button id="btn-renilai-all" title="Untuk jadwal yang DIKOREKSI belakangan — mengubah penilaian yang sudah tercatat">⟳ Nilai Ulang (jadwal dikoreksi)</button>
       <button id="btn-export-att">⇩ Export PDF</button>
     </div>
 
@@ -404,6 +449,52 @@ async function renderPresensiTab(container, businessUnitId) {
     }
   });
 
+  document.getElementById('btn-renilai-all').addEventListener('click', async (e) => {
+    const dari = document.getElementById('filter-from').value;
+    const sampai = document.getElementById('filter-to').value;
+    if (!dari || !sampai) return toast('Isi rentang tanggalnya dulu.', 'warning');
+
+    const nilai = await formDialog({
+      title: 'Nilai ulang status shift satu rentang',
+      fields: [
+        {
+          name: 'alasan',
+          label: 'Alasan',
+          type: 'text',
+          required: true,
+          placeholder: 'mis. jadwal minggu ini dikoreksi',
+          help: `Seluruh presensi ${dari} s/d ${sampai} akan dinilai ulang memakai jadwal shift yang berlaku sekarang — termasuk yang sudah tercatat terlambat. Angka lamanya tetap disimpan.`
+        }
+      ],
+      submitText: 'Nilai ulang'
+    });
+    if (!nilai?.alasan?.trim()) return;
+
+    e.target.disabled = true;
+    try {
+      const h = await nilaiUlangStatusShiftMassal({
+        from: dari,
+        to: sampai,
+        outletId: document.getElementById('filter-outlet').value || null,
+        alasan: nilai.alasan
+      });
+      // TIGA angka, bukan satu. "20 diproses" saja akan terbaca sebagai
+      // keberhasilan padahal bisa jadi tidak satu pun berubah — dan admin akan
+      // mengira jadwalnya belum tersimpan.
+      toast(
+        h.diproses
+          ? `${h.berubah} dari ${h.diproses} presensi berubah penilaiannya (${h.tetap} tetap sama).`
+          : 'Tidak ada presensi di rentang ini.',
+        h.berubah ? 'success' : 'warning'
+      );
+      await refresh();
+    } catch (error) {
+      toast(error.message ?? 'Gagal menilai ulang.', 'error');
+    } finally {
+      e.target.disabled = false;
+    }
+  });
+
   document.getElementById('btn-filter').addEventListener('click', () => {
     filters.outletId = document.getElementById('filter-outlet').value || '';
     filters.outletMode = document.getElementById('filter-outlet-mode').value || 'lokasi';
@@ -428,14 +519,38 @@ function shiftCell(r) {
   // dinilai tidak diberi tombol — penilaian yang sudah terjadi bukan sesuatu
   // yang pantas diubah dengan satu ketukan.
   const bisaHitungUlang = !r.late_status || r.late_status === 'no_schedule';
+
+  // DUA TOMBOL BERBEDA, DAN BEDANYA DISENGAJA.
+  //
+  //   ↻  hitung ulang  -> hanya baris yang BELUM pernah dinilai
+  //   ⟳  nilai ulang   -> baris yang SUDAH dinilai; mengubah penilaian masa lalu
+  //
+  // Kalau keduanya jadi satu tombol, memperbaiki "Tanpa jadwal" (yang dilakukan
+  // hampir tiap minggu) dan mengubah keputusan keterlambatan (yang menyentuh
+  // tunjangan orang) jadi satu ketukan yang sama.
   const tombol = bisaHitungUlang
     ? ` <button class="btn-recalc-shift" data-id="${r.id}" title="Hitung ulang dari jadwal shift yang berlaku">↻</button>`
-    : '';
+    : ` <button class="btn-renilai-shift" data-id="${r.id}" title="Nilai ulang memakai jadwal shift yang berlaku sekarang — mengubah penilaian yang sudah tercatat">⟳</button>`;
+
   if (!r.late_status) return `<span style="color:var(--color-text-muted)">-</span>${tombol}`;
   const label = LATE_LABEL[r.late_status] ?? r.late_status;
   const badge = LATE_BADGE[r.late_status] ?? '';
   const detail = r.late_minutes ? ` ${r.late_minutes} mnt` : '';
-  return `${r.shift_name ? `${escapeHtml(r.shift_name)}<br>` : ''}<span class="badge ${badge}">${label}${detail}</span>${tombol}`;
+
+  // PENILAIAN ASLINYA IKUT DITAMPILKAN.
+  //
+  // Tanpa ini, angka yang berubah tidak bisa dibedakan dari angka yang memang
+  // selalu begitu — dan pertanyaan "kok bulan lalu beda?" tidak akan bisa
+  // dijawab siapa pun.
+  const jejak = r.late_dinilai_ulang_at
+    ? `<div style="font-size:0.7rem;color:var(--color-text-muted)" title="${escapeHtml(r.late_dinilai_ulang_alasan ?? '')}">
+         dinilai ulang · dulu ${LATE_LABEL[r.late_status_awal] ?? r.late_status_awal ?? '-'}${
+           r.late_menit_awal ? ` ${r.late_menit_awal} mnt` : ''
+         }
+       </div>`
+    : '';
+
+  return `${r.shift_name ? `${escapeHtml(r.shift_name)}<br>` : ''}<span class="badge ${badge}">${label}${detail}</span>${tombol}${jejak}`;
 }
 
 /** Teks ringkas untuk export PDF. */

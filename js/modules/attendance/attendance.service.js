@@ -476,7 +476,7 @@ export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFro
     // `user_id` WAJIB ikut: dipakai UI untuk mencocokkan penanda 🔕 (status
     // langganan push). Tanpa kolom ini pencocokannya meleset diam-diam dan
     // SEMUA staff ditandai belum mengaktifkan notifikasi.
-    .select('id, user_id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, clock_in_accuracy_m, shift_name, late_minutes, late_status, business_unit_id, nbm_business_unit_id, nbm_outlet_id, nbm_outlet_note, outlet_id, user_profiles!user_id(full_name)')
+    .select('id, user_id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, clock_in_accuracy_m, shift_name, late_minutes, late_status, late_status_awal, late_menit_awal, late_dinilai_ulang_at, late_dinilai_ulang_alasan, business_unit_id, nbm_business_unit_id, nbm_outlet_id, nbm_outlet_note, outlet_id, user_profiles!user_id(full_name)')
     .or(`nbm_business_unit_id.eq.${businessUnitId},and(nbm_business_unit_id.is.null,business_unit_id.eq.${businessUnitId})`)
     .order('clock_in_at', { ascending: false })
     .limit(200);
@@ -628,6 +628,34 @@ export async function hitungUlangStatusShift(recordId, paksa = false) {
   const { data, error } = await supabase.rpc('hitung_ulang_status_shift', { p_record: recordId, p_paksa: paksa });
   if (error) throw error;
   return data?.[0] ?? null;
+}
+
+/**
+ * NILAI ULANG presensi yang SUDAH pernah dinilai — jalur terpisah, beralasan.
+ *
+ * Berbeda dari `hitungUlangStatusShift()`, yang sengaja hanya menyentuh baris
+ * "Tanpa jadwal". Yang ini MENGUBAH PENILAIAN MASA LALU, jadi ia menuntut
+ * alasan dan menyimpan penilaian aslinya. Alasan lengkapnya di 0106.
+ */
+export async function nilaiUlangStatusShift(recordId, alasan) {
+  const { data, error } = await supabase.rpc('nilai_ulang_status_shift', {
+    p_record: recordId,
+    p_alasan: alasan
+  });
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
+/** Nilai ulang satu rentang — untuk koreksi jadwal seminggu penuh. */
+export async function nilaiUlangStatusShiftMassal({ from, to, outletId = null, alasan }) {
+  const { data, error } = await supabase.rpc('nilai_ulang_status_shift_massal', {
+    p_from: from,
+    p_to: to,
+    p_outlet: outletId || null,
+    p_alasan: alasan
+  });
+  if (error) throw error;
+  return data?.[0] ?? { diproses: 0, berubah: 0, tetap: 0 };
 }
 
 /**
