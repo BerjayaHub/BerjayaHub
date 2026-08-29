@@ -4482,7 +4482,77 @@ Dua hal yang diputuskan sadar:
 - [x] **Bahan menipis (stok ÷ takaran resep = cukup berapa porsi)** — takaran rata-rata dari semua menu yang memakai bahan itu, ambang **porsi minimum per outlet** berlaku untuk semua menu sekaligus, bisa **ditimpa manual** per bahan (satu-satunya cara mengawasi gas/tisu/kemasan); tabel di Staff App (kartu di HP) + tab Admin Portal, unduh xlsx & kirim daftar belanja lewat WhatsApp tanpa API
 - [x] **Harga jual per OUTLET** (`0096`–`0099`) — `outlet_menu_prices` ber-effective-dating, `record_sales()` tanpa fallback ke harga BU, transaksi ditolak (bukan beromzet Rp 0) bila harga belum disetel, dan penanda kiriman dari klien yang mencegah penjualan & pemakaian stok ganda
 - [x] **Semua tabel & halaman responsif** — mode kartu jadi opt-out (86 tabel), `data-label` diisi otomatis dari judul kolom lewat `MutationObserver`, tipografi `clamp()`, isian 16px di layar sentuh, dan `audit-lebar-baris.cjs` yang menjumlahkan lebar tetap tiap baris flex terhadap anggaran layar 360px
+---
+
+# Transfer & retur: draft yang dibuat tapi tidak punya pintu
+
+> *"cek di modul pengiriman fitur transfer/retur … keterangannya jadi draft tetapi draft nya tidak ada, apa benar"*
+
+Benar. Dan penyebabnya satu anggapan yang sudah tidak berlaku, tertulis di **tiga tempat**.
+
+## Apa yang sebenarnya terjadi
+
+`tabsFor()` mengembalikan dua daftar tab yang berbeda menurut peran outlet:
+
+```js
+return isCK
+  ? [ 'orders-in', 'drafts', 'send', 'docs' ]
+  : [ 'order', 'transfer', 'docs' ];   // <- tidak ada 'drafts'
+```
+
+Sementara tombol **"Kirim & Buat Surat Jalan"** di tab Transfer/Retur — yang dipakai outlet biasa — menutup pekerjaannya dengan `state.tab = 'drafts'`. Lalu di `buildTabs()`:
+
+```js
+if (!tabs.some((t) => t.key === state.tab)) state.tab = tabs[0].key;
+```
+
+Tab `'drafts'` tidak ada di daftar outlet, jadi **dilempar balik ke tab pertama tanpa sepatah kata pun**. Staff melihat toast *"Draft dibuat, kirim dari tab Draft"*, mendarat di **Order ke CK**, dan drafnya tidak muncul di mana pun.
+
+Tiga tempat yang menyembunyikannya sekaligus:
+
+| | tempat | akibat |
+|---|---|---|
+| 1 | `tabsFor()` | tab Draft tidak ada di sisi outlet |
+| 2 | `listMyDispatches()` | Riwayat mengecualikan `status = 'draft'` |
+| 3 | `lencana_beranda()` | `v_draft` dihitung di dalam `if v_role = 'central_kitchen'` |
+
+Nomor 2 **tetap dipertahankan** — draft bukan riwayat, dan kalau ikut muncul di sana outlet tujuan akan melihat "ada kiriman untuk saya" untuk barang yang belum berangkat.
+
+**Datanya sendiri tidak pernah salah.** `buat_draft_kiriman` dan `boleh_kelola_draft` memakai `has_outlet_scope(from_outlet_id)` dan tidak pernah memeriksa peran outlet — outlet biasa memang berhak membuat draft. Yang hilang cuma jalan untuk melihatnya. Akibat praktisnya berat: barang sudah diserahkan secara fisik sementara sistem masih mencatatnya di outlet asal, **tanpa satu pun error**.
+
+## Kenapa pengalihan tab itu harus bersuara
+
+Baris `if (!tabs.some(...))` sendiri benar — peran outlet bisa berganti sementara `state.tab` masih memegang tab lama. Yang salah adalah **diamnya**: kode yang meminta tab tidak-ada tetap "berhasil", layarnya pindah ke tempat lain, dan tidak ada apa pun yang menghubungkan keduanya. Sekarang ia `console.warn` dengan kalimat yang menyebut kemungkinan penyebabnya, supaya jejaknya ada saat ditelusuri.
+
+## Audit yang naif akan hijau untuk bug ini
+
+Ini bagian yang paling layak diingat. Audit yang bertanya *"apakah `'drafts'` ada di file ini?"* akan **lulus** — karena `'drafts'` memang ada, **di cabang yang satunya**. Dari kejauhan semuanya tampak lengkap.
+
+`tools/audit-tab-ada.cjs` karena itu membandingkan **cabang per cabang**: ia mengurai tiap array literal yang punya `key:` sekaligus `render:` (dengan menghitung kurung, bukan regex — daftar tab berisi objek bersarang), lalu menuntut setiap `state.tab = '...'` ada di **semua** daftar, bukan salah satunya. Sabotase yang mengembalikan bug aslinya menghasilkan pesan yang menyebut baris dan isi cabang yang kekurangan:
+
+> `state.tab = 'drafts'` hanya ada di sebagian daftar tab. Hilang di daftar yang dimulai baris 122 (isinya: order/transfer).
+
+## Kata-kata yang menganggap pengirim selalu CK
+
+Ikut diperbaiki, karena kalimat yang salah arah di layar konfirmasi adalah cara tercepat membuat orang berhenti percaya pada angkanya:
+
+- *"stok CK belum berkurang"* → menyebut nama outlet asal yang sebenarnya
+- kolom **"Stok CK"** di isi draft → `Stok <nama outlet>`; pada retur, stok yang relevan justru stok outlet yang meretur
+- toast terima *"Stok CK berkurang & stok outlet bertambah"* → `Stok <asal> berkurang & stok di sini bertambah`. Pada retur, kalimat lama **salah dua arah sekaligus**
+- teks tab Draft yang kosong menunjuk tab **"Kirim ke Outlet"** yang tidak ada di sisi outlet — kalimat yang menyebut tempat tidak-ada membuat orang mencari-cari, lalu menyimpulkan aplikasinya rusak
+
+Satu kesalahan saya sendiri di tengah jalan: penunjuk nama outlet asal pada toast terima mula-mula saya tulis `kiriman.find(...)`, padahal `kiriman` hidup di `renderOrderTab`, bukan di `renderIncoming`. `audit-syntax` tidak menangkapnya (sintaksnya sah), jadi saya membuktikan cakupannya dengan menghitung kurung badan fungsinya sebelum melanjutkan.
+
+## Migration 0109
+
+Disalin dari `0107` secara terprogram — fungsi yang sama menghitung tujuh modul sekaligus, dan satu baris yang bergeser tanpa sengaja tidak menghasilkan error, hanya angka lencana yang meleset di modul yang tidak ada hubungannya. Yang berubah cuma `v_draft`, dipindah **keluar** dari `if v_role = 'central_kitchen'` supaya penambahan peran outlet baru di kemudian hari tidak bisa mengulang kesalahan yang sama. **Order Masuk tetap khusus CK** dan itu memang benar — outlet biasa tidak pernah bisa memproses order.
+
+Enam sabotase, semuanya tertangkap. Yang paling berguna dua: mengembalikan `v_draft` ke dalam `if` (bug aslinya), dan melonggarkan Order Masuk ikut-ikutan (perbaikan yang kelewat jauh — §3 menuntut outlet biasa tetap melihat nol).
+
+Draft yang terlanjur tersangkut **tidak disentuh migration ini**. Tiap draft adalah keputusan operasional: barangnya sudah pindah, atau memang batal. Query untuk melihatnya lebih dulu ada di `DEPLOY.md §5b`.
+
 - [x] **Tabel isian berjajar di HP** — kelas opt-in `baris-sejajar` untuk tabel yang semua selnya pendek (Penjualan, Menu, Dispatch ×3, Produksi, Inventory, dua panel resep), tombol Simpan pindah ke panel lengket atas, `thead` menempel di dalam penggulir ~10 baris, rekap lengket di bawah, dijaga `audit-baris-sejajar.cjs`
+- [x] **Transfer antar outlet & retur ke CK bisa diselesaikan** — outlet non-CK dapat tab 📝 Draft Kiriman (sebelumnya drafnya dibuat lalu tidak punya pintu sama sekali), pengalihan tab tidak lagi senyap, kata-kata layar tidak lagi menganggap pengirim selalu CK, lencana menghitung draft semua outlet (`0109`), dijaga `audit-tab-ada.cjs` yang membandingkan cabang per cabang
 - [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal
 - [x] **Halaman Owner (`owner.html`)** — dibuka super admin, KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin

@@ -122,13 +122,46 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       : [
           { key: 'order', label: '🧾 Order ke CK', render: renderOrderTab },
           { key: 'transfer', label: '🔁 Transfer / Retur', render: renderSend },
+          // TAB INI SEMPAT TIDAK ADA, DAN ITU MENELAN BARANG.
+          //
+          // Tombol "Kirim & Buat Surat Jalan" di tab Transfer/Retur memanggil
+          // `buatDraftKiriman()` — sama seperti sisi CK. Drafnya benar-benar
+          // tersimpan (`buat_draft_kiriman` memakai `has_outlet_scope`, tidak
+          // peduli peran outletnya), lalu layar menyetel `state.tab = 'drafts'`
+          // yang di sini TIDAK ADA, dan `buildTabs()` melemparnya balik ke tab
+          // pertama tanpa sepatah kata pun.
+          //
+          // Hasilnya: staff melihat "Draft dibuat, kirim dari tab Draft",
+          // mendarat di "Order ke CK", dan drafnya tidak muncul di mana pun —
+          // Riwayat pun mengecualikan draft (`.neq('status','draft')`).
+          // Barangnya sudah diserahkan secara fisik sementara sistem masih
+          // mencatatnya di outlet asal, tanpa satu pun error.
+          { key: 'drafts', label: '📝 Draft Kiriman', render: renderDrafts },
           riwayat
         ];
   }
 
   function buildTabs() {
     const tabs = tabsFor();
-    if (!tabs.some((t) => t.key === state.tab)) state.tab = tabs[0].key;
+
+    // PENGALIHAN INI HARUS BERSUARA.
+    //
+    // Baris ini ada karena peran outlet bisa berganti sementara `state.tab`
+    // masih menyimpan tab lama — pengalihannya sendiri benar. Yang salah
+    // adalah DIAMNYA: ketika tab 'drafts' tidak ada di sisi outlet, kode yang
+    // memintanya tetap "berhasil", layarnya pindah ke tempat lain, dan tidak
+    // ada apa pun yang menghubungkan keduanya. Bug itu bertahan sampai ada
+    // yang menyadari barangnya tidak pernah sampai.
+    //
+    // Sekarang ia mengaku. Bukan ke pengguna — mereka tidak bisa berbuat apa
+    // pun soal ini — melainkan ke console, supaya jejaknya ada saat ditelusuri.
+    if (!tabs.some((t) => t.key === state.tab)) {
+      console.warn(
+        `[dispatch] tab "${state.tab}" tidak tersedia untuk outlet ini; dialihkan ke "${tabs[0].key}". ` +
+          'Kalau ini terjadi sesudah sebuah tombol ditekan, kemungkinan besar tombol itu menunjuk tab yang tidak ada.'
+      );
+      state.tab = tabs[0].key;
+    }
     tabBar.innerHTML = tabs
       .map((t) => `<button class="tab-btn ${t.key === state.tab ? 'active' : ''}" data-dtab="${t.key}">${t.label}</button>`)
       .join('');
@@ -579,7 +612,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       e.target.disabled = true;
       try {
         await buatDraftKiriman({ fromOutlet: state.outletId, toOutlet: to, items, notes: box.querySelector('#disp-notes').value });
-        toast('Draft surat jalan dibuat. Periksa lalu kirim dari tab Draft.', 'success');
+        toast('Draft surat jalan dibuat. Periksa isinya, lalu tekan “Kirim sekarang”.', 'success');
         state.tab = 'drafts';
         buildTabs();
       } catch (error) {
@@ -599,6 +632,17 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
    * outlet mengonfirmasi terima.
    */
   async function renderDrafts(box) {
+    // KATA-KATANYA HARUS TAHU SIAPA YANG SEDANG MEMBACA.
+    //
+    // Layar ini dulu hanya ada di sisi CK, jadi teksnya menyebut "stok CK" dan
+    // menunjuk tab "Kirim ke Outlet" yang tidak ada di sisi outlet. Kalimat
+    // yang menyebut tempat yang tidak ada bukan sekadar janggal — ia membuat
+    // orang mencari-cari, lalu menyimpulkan aplikasinya rusak.
+    const outlet = outletsById.get(state.outletId);
+    const isCK = outlet?.outlet_role === 'central_kitchen';
+    const namaAsal = outlet?.name ?? 'outlet ini';
+    const asalnya = isCK ? 'Order Masuk' : 'Transfer / Retur';
+
     let drafts;
     try {
       drafts = await listDraftKiriman([state.outletId]);
@@ -610,22 +654,23 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     if (!drafts.length) {
       box.innerHTML = `
         <p class="report-note">
-          Belum ada draft surat jalan.
+          Belum ada draft surat jalan dari <strong>${esc(namaAsal)}</strong>.
           <br /><br />
-          Draft dibuat dari <strong>Order Masuk</strong> (tombol “Siapkan &amp; Buat Draft SJ”) atau dari
-          <strong>Kirim ke Outlet</strong>. Gunanya untuk menyiapkan barang H-1: nomor SJ sudah ada dan bisa
-          ditempel ke keranjang, tapi <strong>stok belum bergerak sama sekali</strong>.
+          Draft dibuat dari tab <strong>${esc(asalnya)}</strong>${
+            isCK ? ' (tombol “Siapkan &amp; Buat Draft SJ”) atau <strong>Kirim ke Outlet</strong>' : ''
+          }. Gunanya menyiapkan barang lebih dulu: nomor SJ sudah ada dan bisa ditempel ke keranjang, tapi
+          <strong>stok belum bergerak sama sekali</strong>.
         </p>`;
       return;
     }
 
     box.innerHTML = `
       <p class="report-note" style="margin-bottom:12px">
-        <strong>${drafts.length} draft</strong> menunggu dikirim.
-        Selama masih draft, <strong>stok CK belum berkurang</strong> — isinya masih bisa diperiksa & diubah.
+        <strong>${drafts.length} draft</strong> menunggu dikirim dari <strong>${esc(namaAsal)}</strong>.
+        Selama masih draft, <strong>stoknya belum berkurang</strong> — isinya masih bisa diperiksa & diubah.
         <br /><br />
-        Stok baru bergeser saat outlet tujuan <strong>mengonfirmasi terima</strong>: stok CK berkurang sebesar yang
-        dikirim, stok outlet bertambah sebesar yang diterima.
+        Stok baru bergeser saat outlet tujuan <strong>mengonfirmasi terima</strong>: stok ${esc(namaAsal)} berkurang
+        sebesar yang dikirim, stok outlet tujuan bertambah sebesar yang diterima.
       </p>
       ${drafts
         .map(
@@ -666,6 +711,10 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
 
   /** Isi satu draft: bisa diperiksa, diubah jumlahnya, lalu dikirim atau dihapus. */
   async function gambarIsiDraft(body, draft) {
+    // Judul kolomnya menyebut outlet ASAL yang sebenarnya, bukan selalu "CK".
+    // Untuk retur, stok yang relevan justru stok outlet yang meretur.
+    const labelStok = `Stok ${outletsById.get(state.outletId)?.name ?? 'asal'}`;
+
     body.innerHTML = loadingHtml('Memuat isi draft…', { baris: 3 });
     let items;
     try {
@@ -678,18 +727,18 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     body.innerHTML = `
       <div class="table-scroll">
         <table class="data-table baris-sejajar">
-          <thead><tr><th>Barang</th><th>Stok CK</th><th>Jumlah kirim</th></tr></thead>
+          <thead><tr><th>Barang</th><th>${esc(labelStok)}</th><th>Jumlah kirim</th></tr></thead>
           <tbody>
             ${items
               .map((i) => {
                 const stok = state.stockMap.get(i.product_id);
-                // Stok CK ditampilkan di sebelah jumlah kirim supaya kekurangan
+                // Stok outlet ASAL ditampilkan di sebelah jumlah kirim supaya kekurangan
                 // ketahuan SEKARANG, saat masih draft — bukan besok saat
                 // barangnya ternyata tidak ada di rak.
                 const kurang = stok != null && Number(stok) < Number(i.sent_qty);
                 return `<tr>
                   <td data-label="Barang">${esc(i.products?.name ?? '-')}</td>
-                  <td data-label="Stok CK" style="text-align:right${kurang ? ';color:var(--color-danger)' : ''}">
+                  <td data-label="${esc(labelStok)}" style="text-align:right${kurang ? ';color:var(--color-danger)' : ''}">
                     ${stok == null ? '-' : formatNum(stok)}${kurang ? ' ⚠' : ''}
                   </td>
                   <td data-label="Jumlah kirim">
@@ -710,8 +759,9 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       </div>
 
       <p class="report-note" style="margin-top:10px">
-        Angka bertanda <strong>⚠</strong> melebihi stok CK saat ini. Kiriman tetap bisa dibuat — sistem ini
-        memang mengizinkan stok menembus nol — tapi selisihnya akan muncul di opname.
+        Angka bertanda <strong>⚠</strong> melebihi stok ${esc(outletsById.get(state.outletId)?.name ?? 'asal')} saat ini.
+        Kiriman tetap bisa dibuat — sistem ini memang mengizinkan stok menembus nol — tapi selisihnya akan
+        muncul di opname.
       </p>
 
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
@@ -870,13 +920,23 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         try {
           const hasil = await receiveDispatch(btn.dataset.id, items);
           const { code, waText } = await emitSuratJalan(btn.dataset.id, { showReceived: true, title: 'BUKTI TERIMA' });
+
+          // PENGIRIMNYA DISEBUT NAMANYA, bukan diasumsikan CK.
+          //
+          // Sejak transfer antar outlet dan retur ke CK dipakai, "Stok CK
+          // berkurang" bisa keliru dua arah sekaligus: pada retur, yang
+          // berkurang justru stok outlet, dan yang bertambah stok CK. Kalimat
+          // yang salah arah di layar konfirmasi adalah cara tercepat membuat
+          // orang berhenti percaya pada angkanya.
+          const asal = incoming.find((d) => d.id === btn.dataset.id)?.from_outlet?.name ?? 'outlet asal';
+
           // SUSUT DISEBUT ANGKANYA, bukan didiamkan. Selisih kirim-vs-terima yang
           // tidak pernah dikatakan akan ditemukan berminggu-minggu kemudian
           // sebagai angka opname yang tidak bisa dijelaskan siapa pun.
           toast(
             Number(hasil?.susut) > 0
-              ? `Surat jalan ${code ?? ''} diterima. Stok CK berkurang & stok outlet bertambah — ${formatNum(hasil.susut)} susut di perjalanan.`
-              : `Surat jalan ${code ?? ''} diterima. Stok CK berkurang & stok outlet bertambah.`,
+              ? `Surat jalan ${code ?? ''} diterima. Stok ${asal} berkurang & stok di sini bertambah — ${formatNum(hasil.susut)} susut di perjalanan.`
+              : `Surat jalan ${code ?? ''} diterima. Stok ${asal} berkurang & stok di sini bertambah.`,
             Number(hasil?.susut) > 0 ? 'warning' : 'success'
           );
           await loadStock();

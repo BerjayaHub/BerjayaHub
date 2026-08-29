@@ -75,6 +75,7 @@ pernah dijalankan.
 | 0106 | `0106_nilai_ulang_shift_berjejak.sql` | **Menilai ulang presensi yang sudah pernah dinilai**, saat jadwal shift dikoreksi belakangan. Penilaian aslinya disimpan di `late_status_awal`/`late_menit_awal` dan **tidak pernah ditimpa**; alasan wajib diisi |
 | 0107 | `0107_kabar_shift_dari_penilaian_ulang.sql` | Kartu **Shift** ikut menyala saat presensi ORANG ITU dinilai ulang |
 | 0108 | `0108_lapor_penjualan_tanpa_resep.sql` | **Menu yang terjual tapi tidak menggerakkan stok kini mengatakannya.** Stok tetap dipotong sesuai resep dan **tetap boleh minus** (itu disengaja). Yang baru: menu tanpa resep — dan menu yang resepnya ada tapi isinya kosong — dilaporkan balik lewat `tanpa_resep` / `resep_kosong`. Kunci lama tidak berubah, jadi PWA lama tetap jalan |
+| 0109 | `0109_lencana_draft_semua_outlet.sql` | **Perbaikan bug**: draft transfer antar outlet & retur ke CK tidak terhitung di lencana. `v_draft` dulu dihitung di dalam `if v_role = 'central_kitchen'`, padahal `buat_draft_kiriman` tidak pernah peduli peran outlet. **Butuh kode terbaru juga** — tab Draft-nya belum ada di sisi outlet |
 
 
 > ⚠️ **Gejala setelah 0085: tab Opname kosong dengan pesan *"Could not find a relationship between 'stock_counts' and 'user_profiles'"*.**
@@ -302,6 +303,52 @@ select net.http_post(
 ```
 
 ---
+
+---
+
+## 5b. Draft transfer/retur yang tersangkut (sekali, setelah 0109)
+
+Sebelum perbaikan ini, tombol **Transfer / Retur** di outlet membuat draft yang
+**tidak bisa dilihat dari mana pun** — tabnya belum ada di sisi outlet, Riwayat
+mengecualikan status `draft`, dan lencana tidak menghitungnya. Barangnya
+kemungkinan sudah diserahkan secara fisik sementara stoknya masih tercatat di
+outlet asal.
+
+**Lihat dulu, jangan diapa-apakan.** Tidak ada satu pun yang diubah otomatis:
+
+```sql
+select d.code,
+       f.name  as dari,
+       t.name  as ke,
+       u.full_name as disiapkan_oleh,
+       d.created_at,
+       d.notes,
+       (select string_agg(p.name || ' ' || di.sent_qty, ', ')
+          from dispatch_items di join products p on p.id = di.product_id
+         where di.dispatch_id = d.id) as isinya
+  from dispatches d
+  join outlets f on f.id = d.from_outlet_id
+  left join outlets t on t.id = d.to_outlet_id
+  left join user_profiles u on u.id = d.created_by
+ where d.status = 'draft'
+   and f.outlet_role is distinct from 'central_kitchen'
+ order by d.created_at;
+```
+
+Sesudah `0109` **dan kode terbaru** terpasang, semuanya muncul di **Pengiriman →
+📝 Draft Kiriman** di outlet masing-masing. Putuskan satu per satu:
+
+- **Barangnya memang sudah pindah** → buka drafnya, cocokkan jumlahnya dengan
+  yang benar-benar diserahkan, lalu **Kirim sekarang**. Stok baru bergeser saat
+  outlet tujuan mengonfirmasi terima.
+- **Batal / salah input** → **Hapus draft**. Aman, karena selama berstatus draft
+  belum ada satu pun pergerakan stok yang ditulis.
+
+⚠️ **Jangan mengubah `status` lewat SQL.** Pergeseran stoknya dikerjakan
+`kirim_draft_kiriman()` dan `receive_dispatch()`, bukan oleh kolom status. Baris
+yang diubah langsung akan berstatus "sent" dengan stok yang tidak pernah
+bergerak — persis kebalikan dari masalah yang sedang dibereskan, dan jauh lebih
+sulit ditemukan.
 
 ## 6. Yang perlu diatur lewat UI setelah deploy
 
