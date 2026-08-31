@@ -77,6 +77,7 @@ pernah dijalankan.
 | 0108 | `0108_lapor_penjualan_tanpa_resep.sql` | **Menu yang terjual tapi tidak menggerakkan stok kini mengatakannya.** Stok tetap dipotong sesuai resep dan **tetap boleh minus** (itu disengaja). Yang baru: menu tanpa resep — dan menu yang resepnya ada tapi isinya kosong — dilaporkan balik lewat `tanpa_resep` / `resep_kosong`. Kunci lama tidak berubah, jadi PWA lama tetap jalan |
 | 0109 | `0109_lencana_draft_semua_outlet.sql` | **Perbaikan bug**: draft transfer antar outlet & retur ke CK tidak terhitung di lencana. `v_draft` dulu dihitung di dalam `if v_role = 'central_kitchen'`, padahal `buat_draft_kiriman` tidak pernah peduli peran outlet. **Butuh kode terbaru juga** — tab Draft-nya belum ada di sisi outlet |
 | 0110 | `0110_order_milik_outlet.sql` | **Perbaikan bug**: order ke CK tidak bisa diedit rekan seoutlet. `0035` mengunci ke `created_by`, jadi Elsa (bar) membuat order dan Maskal (kitchen) ditolak saat menambah bahannya — sesudah mengisi, bukan sebelum. Sekarang `has_outlet_scope(from_outlet_id)`, pola yang sama dengan draft surat jalan di `0103`. **Membatalkan ikut disamakan** (atas permintaan); pembatalnya tercatat di `handled_by` |
+| 0111 | `0111_draft_order_ck.sql` | **Order ke CK punya tahap DRAFT.** Disusun bersama dulu (bar + kitchen), baru ditekan Kirim — sebelum itu CK tidak melihatnya sama sekali. Satu draft per pasangan outlet-tujuan (unique index parsial). Sesudah dikirim, isinya **terkunci**. ⚠️ **Perlu redeploy `notify-telegram`** supaya draft tidak diumumkan sebagai order baru. Jalur lama `create_stock_order` dicabut grant-nya |
 
 
 > ⚠️ **Gejala setelah 0085: tab Opname kosong dengan pesan *"Could not find a relationship between 'stock_counts' and 'user_profiles'"*.**
@@ -350,6 +351,25 @@ Sesudah `0109` **dan kode terbaru** terpasang, semuanya muncul di **Pengiriman �
 yang diubah langsung akan berstatus "sent" dengan stok yang tidak pernah
 bergerak — persis kebalikan dari masalah yang sedang dibereskan, dan jauh lebih
 sulit ditemukan.
+
+---
+
+## 5c. Redeploy Edge Function setelah 0111
+
+```bash
+supabase functions deploy notify-telegram
+```
+
+`0111` memasang trigger baru pada `stock_orders`: INSERT hanya berbunyi kalau
+statusnya **bukan** draft, dan ada trigger UPDATE baru yang menangkap saat draft
+berangkat jadi `open`. Edge Function versi lama hanya menangani `INSERT`, jadi
+**selama belum di-redeploy, notifikasi "order dikirim" tidak akan sampai.**
+
+Arah kegagalannya sengaja dipilih begitu: Edge Function basi **kehilangan**
+notifikasi, bukan mengumumkan draft yang belum jadi. CK yang tidak diberitahu
+akan bertanya; CK yang diberi tahu terlalu dini akan menyiapkan barang untuk
+daftar yang masih berubah.
+
 
 ## 6. Yang perlu diatur lewat UI setelah deploy
 

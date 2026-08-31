@@ -16,8 +16,9 @@ import {
   getDispatchForPdf,
   ORDER_STATUS,
   DISPATCH_STATUS,
-  createStockOrder,
   updateStockOrder,
+  ambilAtauBuatDraftOrder,
+  kirimDraftOrder,
   siapkanOrderJadiDraft,
   rejectStockOrder,
   cancelStockOrder,
@@ -32,7 +33,7 @@ import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { bukaDokumen } from './dokumen-ui.js';
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 
-const ORDER_BADGE = { open: 'badge-pending', fulfilled: 'badge-approved', rejected: 'badge-rejected', cancelled: 'badge-cancelled' };
+const ORDER_BADGE = { draft: 'badge-pending', open: 'badge-pending', fulfilled: 'badge-approved', rejected: 'badge-rejected', cancelled: 'badge-cancelled' };
 
 export async function renderDispatchPage(container, { businessUnitId, outletId }) {
   container.innerHTML = loadingHtml('Memuat pengiriman…');
@@ -291,9 +292,13 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       <div class="inline-card" style="max-width:640px">
         <h3 style="margin-top:0">Order ke Central Kitchen</h3>
         <p class="report-note" style="margin:0 0 10px">
-          Order ini <strong>milik outlet</strong>, bukan milik yang membuatnya. Kalau divisi lain sudah
-          membuat order yang belum diproses CK, <strong>tambahkan bahanmu lewat tombol Edit</strong> di
-          daftar bawah — jangan membuat order baru. Satu outlet cukup satu order per pengiriman.
+          Order disusun sebagai <strong>draft</strong> dulu. Selama masih draft, siapa pun di outlet ini
+          boleh menambah barangnya — bar mengisi sirup, kitchen menambah daging — dan
+          <strong>CK belum melihatnya sama sekali</strong>. Baru saat ditekan <strong>Kirim ke CK</strong>,
+          ordernya berangkat dan isinya terkunci.
+          <br /><br />
+          Satu outlet hanya punya <strong>satu draft</strong> per Central Kitchen tujuan. Menekan tombol di
+          bawah akan membuka draft yang sudah ada, bukan membuat yang baru.
         </p>
         ${
           ckChoices.length
@@ -307,9 +312,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                        .map((o) => `<option value="${o.id}">${esc(o.name)}</option>`)
                        .join('')}</select></div>`
                }
-               <div id="ord-picker"></div>
-               <div class="field" style="margin-top:12px"><label>Catatan (opsional)</label><input type="text" id="ord-notes" /></div>
-               <button class="primary" id="ord-send" style="max-width:220px">Kirim Order</button>
+               <button class="primary" id="ord-buka-draft" style="max-width:280px">📝 Buka / Buat Draft Order</button>
                <p class="error-text" id="ord-error"></p>`
             : `<p style="color:var(--color-text-muted);font-size:0.88rem;margin:0">Belum ada Central Kitchen di BU ini.</p>`
         }
@@ -346,11 +349,26 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                          }
                        </td>
                        <td data-label="Aksi">${
-                         o.status === 'open'
+                         // TIGA KEADAAN, TIGA KUMPULAN TOMBOL YANG BERBEDA.
+                         //
+                         //   draft -> masih bisa disusun bersama, dan dikirim
+                         //   open  -> sudah di tangan CK; isinya TERKUNCI, yang
+                         //            tersisa cuma membatalkan
+                         //   lain  -> sudah selesai, tidak ada yang bisa dilakukan
+                         //
+                         // Tombol Edit yang tetap muncul pada order yang sudah
+                         // dikirim akan membuka form, orangnya mengisi, lalu
+                         // ditolak server — pekerjaannya terbuang. Bug persis
+                         // itu yang baru saja diperbaiki di 0110; jangan
+                         // dihidupkan lagi dari sisi layar.
+                         o.status === 'draft'
                            ? `<button class="btn-edit-order" data-id="${o.id}" data-code="${esc(o.code ?? '')}"
                                 data-pembuat="${esc(o.pembuat?.full_name ?? '')}">Tambah / Edit</button>
-                              <button class="btn-cancel-order" data-id="${o.id}">Batalkan</button>`
-                           : ''
+                              <button class="primary btn-kirim-order" data-id="${o.id}" data-code="${esc(o.code ?? '')}">🚚 Kirim ke CK</button>
+                              <button class="btn-cancel-order" data-id="${o.id}">Hapus draft</button>`
+                           : o.status === 'open'
+                             ? `<button class="btn-cancel-order" data-id="${o.id}">Batalkan</button>`
+                             : ''
                        }</td>
                      </tr>`
                    )
@@ -370,12 +388,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     );
 
     if (ckChoices.length) {
-      const picker = createItemPicker(box.querySelector('#ord-picker'), {
-        products: stockProducts,
-        stockMap: state.stockMap,
-        showStock: true
-      });
-      box.querySelector('#ord-send').addEventListener('click', async (e) => {
+      box.querySelector('#ord-buka-draft').addEventListener('click', sekaliJalan(async (e) => {
         const errorEl = box.querySelector('#ord-error');
         errorEl.textContent = '';
         const toOutlet = servedCk ? servedCk.id : box.querySelector('#ord-to')?.value;
@@ -383,22 +396,44 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           errorEl.textContent = 'Pilih Central Kitchen tujuan.';
           return;
         }
-        const items = picker.getItems();
-        if (!items.length) {
-          errorEl.textContent = 'Tambahkan minimal satu produk dengan jumlah.';
-          return;
-        }
-        e.target.disabled = true;
         try {
-          await createStockOrder({ fromOutlet: state.outletId, toOutlet, items, notes: box.querySelector('#ord-notes').value });
+          // Server yang memutuskan apakah ini draft baru atau draft yang sudah
+          // ada — TIDAK diperiksa di sini lebih dulu.
+          //
+          // Pemeriksaan di layar hanya melihat daftar yang termuat beberapa
+          // detik lalu; rekan di HP lain bisa membuat draft di antaranya. Yang
+          // menjamin cuma satu adalah unique index parsial di database.
+          const id = await ambilAtauBuatDraftOrder({ fromOutlet: state.outletId, toOutlet });
+          await showTab();
+          // Panel editnya langsung dibuka supaya orangnya tidak perlu mencari
+          // barisnya sendiri di daftar bawah.
+          contentBox.querySelector(`.btn-edit-order[data-id="${id}"]`)?.click();
+        } catch (error) {
+          errorEl.textContent = error.message ?? 'Gagal membuka draft order.';
+        }
+      }));
+    }
+
+    // Kirim draft ke CK — satu-satunya titik di mana order jadi terlihat CK.
+    box.querySelectorAll('.btn-kirim-order').forEach((btn) =>
+      btn.addEventListener('click', sekaliJalan(async () => {
+        const ok = await confirmDialog({
+          title: `Kirim ${btn.dataset.code || 'order'} ke CK?`,
+          message:
+            'Sesudah dikirim, isinya TIDAK bisa diubah lagi — CK sudah melihatnya dan mungkin langsung menyiapkan barangnya.\n\n' +
+            'Pastikan semua divisi sudah menambahkan kebutuhannya.',
+          confirmText: 'Ya, kirim'
+        });
+        if (!ok) return;
+        try {
+          await kirimDraftOrder(btn.dataset.id);
           toast('Order terkirim ke Central Kitchen.', 'success');
           showTab();
         } catch (error) {
-          errorEl.textContent = error.message ?? 'Gagal membuat order.';
-          e.target.disabled = false;
+          toast(error.message ?? 'Gagal mengirim order.', 'error');
         }
-      });
-    }
+      }))
+    );
 
     box.querySelectorAll('.btn-cancel-order').forEach((btn) =>
       btn.addEventListener('click', async () => {

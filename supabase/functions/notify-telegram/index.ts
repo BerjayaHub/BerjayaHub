@@ -250,7 +250,34 @@ async function buildMessage(payload: any): Promise<Built | null> {
   }
 
   if (table === 'stock_orders') {
-    if (type === 'INSERT') {
+    // DRAFT TIDAK PERNAH DIUMUMKAN.
+    //
+    // Sejak 0111, order disusun dulu sebagai draft: Elsa mengisi sirup, Maskal
+    // menambah daging, baru ada yang menekan Kirim. Selama masih draft, CK
+    // belum melihatnya sama sekali — jadi mengirim pesan "Order baru dari
+    // Serpong" untuk daftar yang belum jadi hanya membuat CK menyiapkan barang
+    // yang masih akan berubah.
+    if (record.status === 'draft') return null;
+
+    // Yang diumumkan adalah SAAT BERANGKAT, dan itu bisa datang dari dua
+    // bentuk peristiwa:
+    //
+    //   INSERT  order yang dibuat langsung 'open' (jalur lama, dan order dari
+    //           luar Staff App kalau suatu saat ada)
+    //   UPDATE  draft yang statusnya berubah jadi 'open' — inilah jalur yang
+    //           normal sekarang
+    //
+    // Triggernya di 0111 sudah menyaring keduanya, tapi penyaringan diulang di
+    // sini dengan sengaja. Trigger dan Edge Function di-deploy TERPISAH, dan
+    // di antara keduanya selalu ada jeda ketika yang satu sudah baru dan yang
+    // lain masih lama.
+    //
+    // Arah kegagalannya dipilih: Edge Function LAMA yang bertemu trigger BARU
+    // akan kehilangan notifikasi "order dikirim" (karena ia hanya menangani
+    // INSERT). Itu jauh lebih baik daripada kebalikannya — mengumumkan draft
+    // yang belum jadi, yang membuat CK bekerja untuk daftar yang masih
+    // berubah.
+    if (type === 'INSERT' || (type === 'UPDATE' && record.status === 'open')) {
       return { text: await pesanOrderStok(record), eventKey: 'stock_order', buId: record.business_unit_id ?? null };
     }
     return null;

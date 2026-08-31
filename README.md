@@ -4762,7 +4762,63 @@ Sembilan sabotase pada `0110`, semuanya merah pada percobaan pertama.
 Yang gagal duluan justru saya sendiri: tesnya tidak mau dijalankan sama sekali karena saya menulis <code>\`42P13\`</code> dengan backtick **di dalam komentar SQL yang berada di dalam template literal JavaScript**. Satu backtick menutup literalnya di tengah jalan. Ini kejadian **ketiga** di repo ini — modul shift, lalu `test-migrasi-0103`, sekarang `test-migrasi-0110`. `audit-syntax` menangkapnya seperti dua kali sebelumnya, dan sekarang ada peringatan tertulis di dalam blok SQL-nya sendiri, di tempat orang berikutnya akan menuliskan komentar.
 
 - [x] **Opname bersama benar-benar bisa dilanjutkan** — layar staff memuat hitungan yang sudah tersimpan (dulu `itemOpname()` tidak pernah dipanggil, jadi kotaknya selalu kosong dan bahan dihitung dua kali atau tidak sama sekali), centang + siapa/kapan per bahan, penyaring Belum/Sudah (bawaannya **Semua** — hitungannya kumulatif, jadi tidak ada baris yang boleh lenyap), peringatan saat angka baru lebih kecil dari isian rekan, bilah kemajuan dari data server, header lengket dengan tombol Simpan di dalamnya
+---
+
+# Order ke CK disusun sebagai draft dulu
+
+> *"saya ingin ada draft saja di order ini, jadi sebelum kirim order jadi draft dulu, edit nya ada di draft ini"*
+
+`0110` sudah membuat order **milik outlet**, jadi Maskal boleh menyunting punya Elsa. Yang belum ada adalah **tempat** untuk menyusunnya sebelum berangkat: order langsung berstatus `open`, dan CK sudah melihat serta bisa memprosesnya sementara divisi lain masih hendak menambah.
+
+```
+Elsa (bar)       buka Order ke CK  → isi sirup    → Simpan Draft
+Maskal (kitchen) buka DRAFT SAMA   → tambah daging → Simpan Draft
+siapa pun        tekan Kirim ke CK → status open, CK baru melihatnya
+```
+
+## Satu draft per pasangan outlet-tujuan
+
+Dijamin **unique index parsial**, bukan diserahkan pada disiplin orangnya:
+
+```sql
+create unique index stock_orders_satu_draft
+  on stock_orders(from_outlet_id, to_outlet_id) where status = 'draft';
+```
+
+Parsialnya penting dua arah: ia mengunci draft, dan **tidak** mengunci order yang sudah dikirim — jadi outlet boleh punya banyak order `open` sekaligus, dan draft baru bisa dibuat begitu yang lama berangkat.
+
+`buat_atau_ambil_draft_order()` **mengembalikan** draft yang sudah ada alih-alih meledak — pola yang sama dengan `buka_opname()` di `0085`. Menekan tombolnya dua kali bukan kesalahan; artinya "bawa saya ke draft itu". Layar pun tidak memeriksa "sudah ada belum" sendiri: pemeriksaan di layar hanya melihat daftar yang termuat beberapa detik lalu, dan rekan di HP lain bisa membuat draft di antaranya.
+
+## Notifikasi: bahaya yang sudah pernah terjadi, dicegah sebelum terjadi lagi
+
+`trg_notify_stock_orders` (`0043`) menyala pada **`after insert`**. Draft dibuat lewat INSERT — jadi tanpa perubahan, CK menerima *"Order baru dari Serpong"* untuk daftar yang masih kosong. Ini persis kegagalan yang muncul saat draft surat jalan ditambahkan di `0103`, dan ditemukan waktu itu hanya karena ada yang memeriksa triggernya.
+
+Diperbaiki dengan pola yang sama: INSERT disaring `when (new.status <> 'draft')`, ditambah trigger UPDATE yang menangkap `draft → open`. Nama trigger **lama** ikut di-drop — migration yang cuma membuat nama baru akan gagal `42710` saat dijalankan ulang, dan yang lebih buruk, trigger lamanya tetap hidup berdampingan sehingga draft tetap diumumkan.
+
+Tesnya memasang `notify_telegram_event()` **palsu** yang mencatat tiap panggilan ke sebuah tabel; yang diperiksa bukan isi pesannya melainkan **berapa kali** dan **pada peristiwa apa**. Hasilnya: satu order = tepat satu kabar, dan kabar itu terjadi saat UPDATE ke `open`, bukan saat dibuat. Menyunting draft berkali-kali dan membatalkannya tidak membangunkan siapa pun.
+
+## Draft boleh kosong, order yang berangkat tidak
+
+Berubah dari `0110`, dan ini disengaja. Elsa membuka draft, menghapus satu barang yang batal, lalu menyimpan — kalau draft kosong ditolak, ia terpaksa meninggalkan barang yang sudah tidak dibutuhkan di sana. Draft memang tempat yang belum jadi. Yang dijaga adalah `kirim_draft_order()`: draft kosong tidak bisa berangkat.
+
+## Sesudah dikirim, terkunci
+
+`update_stock_order` sekarang hanya menerima status `draft`, dan pesannya **membedakan dua sebab**: sudah dikirim (batalkan dulu, susun draft baru) vs sudah diproses CK (tidak ada yang bisa dilakukan). Pesan yang menggabungkan keduanya membuat orang mencoba membatalkan sesuatu yang sudah selesai.
+
+Layarnya ikut: tombol **Tambah / Edit** hanya muncul untuk draft. Tombol Edit yang tetap muncul pada order terkirim akan membuka form, orangnya mengisi, lalu ditolak server — bug persis itu yang baru saja diperbaiki di `0110`, dan tidak boleh dihidupkan lagi dari sisi layar.
+
+## Dua "sabotase lolos" yang ternyata cacat alatnya sendiri
+
+Dari tiga belas sabotase, dua awalnya hijau — dan keduanya bukan celah di kodenya:
+
+1. **Mengubah index jadi non-parsial** tampak lolos. Penyebabnya: pola yang saya cari (`on stock_orders(from_outlet_id, to_outlet_id) where status = 'draft';`) juga muncul di **komentar penjelasan** di kepala migration, dan `replace` dengan `count=1` mengganti komentarnya, bukan pernyataannya. Kodenya tidak pernah tersabotase. Diperbaiki dengan menyertakan baris `create unique index if not exists` ke dalam pola.
+
+2. **Membuang `revoke execute on create_stock_order`** tampak lolos. Penyebabnya: kerangka tes saya membuat fungsi itu tapi **tidak pernah memberinya grant**, jadi pemeriksaan "grant sudah dicabut" hijau tanpa menguji apa pun. Kerangkanya sekarang memasang grant persis seperti `0031`.
+
+Yang kedua adalah bentuk kegagalan yang paling sering muncul di repo ini: **pemeriksaan yang hijau karena sasarannya tidak ada.** Sesudah kedua alatnya dibetulkan, ketiga belas sabotase merah.
+
 - [x] **Order ke CK bisa diisi beberapa divisi** — order milik OUTLET asal, bukan pembuatnya (`0110`), jadi bar dan kitchen menumpang pada satu nomor order alih-alih CK menerima tiga permintaan terpisah; membatalkan ikut disamakan dengan pembatal tercatat di `handled_by`
+- [x] **Order ke CK punya tahap draft** (`0111`) — disusun bersama lintas divisi, CK baru melihatnya saat ditekan Kirim, satu draft per pasangan outlet-tujuan dijamin unique index parsial, dan notifikasi Telegram berbunyi tepat sekali (saat berangkat, bukan saat dibuat)
 - [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal
 - [x] **Halaman Owner (`owner.html`)** — dibuka super admin, KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin

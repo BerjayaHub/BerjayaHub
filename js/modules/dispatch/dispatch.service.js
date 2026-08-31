@@ -29,10 +29,22 @@ export async function getMyScopedOutlets(businessUnitId, allOutlets) {
   return listMyOutlets(businessUnitId, allOutlets);
 }
 
-export const ORDER_STATUS = { open: 'Menunggu diproses', fulfilled: 'Dikirim', rejected: 'Ditolak', cancelled: 'Dibatalkan' };
+export const ORDER_STATUS = { draft: 'Draft (belum dikirim)', open: 'Menunggu diproses', fulfilled: 'Dikirim', rejected: 'Ditolak', cancelled: 'Dibatalkan' };
 
 // ---- Order stok (Outlet -> Central Kitchen) ----
 
+/**
+ * JALUR LAMA — order langsung berstatus 'open', tanpa tahap draft.
+ *
+ * TIDAK dipakai layar mana pun sejak 0111, dan sengaja dibiarkan hidup:
+ * fungsinya masih ada di database, dan menghapus pembungkusnya di sini tidak
+ * menutup apa pun. Yang menutup jalur ini adalah `create_stock_order` yang
+ * dicabut grant-nya di 0111 — dan itu ditulis di migrationnya.
+ *
+ * Dipertahankan sebagai penanda sejarah supaya orang yang menemukan
+ * `create_stock_order` di database tahu ke mana harus mencari penggantinya:
+ * `ambilAtauBuatDraftOrder()` + `kirimDraftOrder()`.
+ */
 export async function createStockOrder({ fromOutlet, toOutlet, items, notes }) {
   const { data, error } = await supabase.rpc('create_stock_order', {
     p_from: fromOutlet,
@@ -62,6 +74,27 @@ export async function siapkanOrderJadiDraft({ orderId, items, notes }) {
 }
 
 /** Outlet mengubah isi order yang masih menunggu (jejak edit ikut tercatat). */
+/**
+ * Ambil draft order yang sedang terbuka untuk pasangan outlet-tujuan ini, atau
+ * buat kalau belum ada.
+ *
+ * Sengaja TIDAK bernama `createDraftOrder`: menekan tombolnya dua kali tidak
+ * menghasilkan dua draft, dan namanya harus mengatakan itu supaya pemanggil
+ * tidak menambahkan penjagaan "sudah ada belum" sendiri yang justru bisa
+ * berbeda hasilnya dari yang di server.
+ */
+export async function ambilAtauBuatDraftOrder({ fromOutlet, toOutlet }) {
+  const { data, error } = await supabase.rpc('buat_atau_ambil_draft_order', { p_from: fromOutlet, p_to: toOutlet });
+  if (error) throw error;
+  return data;
+}
+
+/** Kirim draft ke CK. Sesudah ini isinya terkunci. */
+export async function kirimDraftOrder(orderId) {
+  const { error } = await supabase.rpc('kirim_draft_order', { p_order: orderId });
+  if (error) throw error;
+}
+
 export async function updateStockOrder({ orderId, items, notes }) {
   const { error } = await supabase.rpc('update_stock_order', {
     p_order: orderId,
