@@ -76,6 +76,7 @@ pernah dijalankan.
 | 0107 | `0107_kabar_shift_dari_penilaian_ulang.sql` | Kartu **Shift** ikut menyala saat presensi ORANG ITU dinilai ulang |
 | 0108 | `0108_lapor_penjualan_tanpa_resep.sql` | **Menu yang terjual tapi tidak menggerakkan stok kini mengatakannya.** Stok tetap dipotong sesuai resep dan **tetap boleh minus** (itu disengaja). Yang baru: menu tanpa resep — dan menu yang resepnya ada tapi isinya kosong — dilaporkan balik lewat `tanpa_resep` / `resep_kosong`. Kunci lama tidak berubah, jadi PWA lama tetap jalan |
 | 0109 | `0109_lencana_draft_semua_outlet.sql` | **Perbaikan bug**: draft transfer antar outlet & retur ke CK tidak terhitung di lencana. `v_draft` dulu dihitung di dalam `if v_role = 'central_kitchen'`, padahal `buat_draft_kiriman` tidak pernah peduli peran outlet. **Butuh kode terbaru juga** — tab Draft-nya belum ada di sisi outlet |
+| 0110 | `0110_order_milik_outlet.sql` | **Perbaikan bug**: order ke CK tidak bisa diedit rekan seoutlet. `0035` mengunci ke `created_by`, jadi Elsa (bar) membuat order dan Maskal (kitchen) ditolak saat menambah bahannya — sesudah mengisi, bukan sebelum. Sekarang `has_outlet_scope(from_outlet_id)`, pola yang sama dengan draft surat jalan di `0103`. **Membatalkan ikut disamakan** (atas permintaan); pembatalnya tercatat di `handled_by` |
 
 
 > ⚠️ **Gejala setelah 0085: tab Opname kosong dengan pesan *"Could not find a relationship between 'stock_counts' and 'user_profiles'"*.**

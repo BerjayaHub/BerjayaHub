@@ -290,6 +290,11 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     box.innerHTML = `
       <div class="inline-card" style="max-width:640px">
         <h3 style="margin-top:0">Order ke Central Kitchen</h3>
+        <p class="report-note" style="margin:0 0 10px">
+          Order ini <strong>milik outlet</strong>, bukan milik yang membuatnya. Kalau divisi lain sudah
+          membuat order yang belum diproses CK, <strong>tambahkan bahanmu lewat tombol Edit</strong> di
+          daftar bawah — jangan membuat order baru. Satu outlet cukup satu order per pengiriman.
+        </p>
         ${
           ckChoices.length
             ? `<p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 10px">
@@ -324,14 +329,26 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                        <td style="font-size:0.8rem" data-label="Waktu">${fmtDateTime(o.created_at)}</td>
                        <td data-label="Status"><span class="badge ${ORDER_BADGE[o.status] ?? ''}">${ORDER_STATUS[o.status] ?? o.status}</span>
                          ${o.status === 'rejected' && o.reject_reason ? `<div style="font-size:0.74rem;color:var(--color-danger)">${esc(o.reject_reason)}</div>` : ''}</td>
-                       <td style="font-size:0.78rem" data-label="Keterangan">${
-                         o.edited_at
-                           ? `<span class="badge badge-pending">✎</span> Diedit oleh ${esc(o.editor?.full_name ?? 'staff')} · ${fmtDateTime(o.edited_at)}`
-                           : '<span style="color:var(--color-text-muted)">-</span>'
-                       }</td>
+                       <td style="font-size:0.78rem" data-label="Keterangan">
+                         <!-- PEMBUATNYA DISEBUT, selalu.
+
+                              Sejak 0110 order milik OUTLET: siapa pun di outlet
+                              itu boleh menambah isinya. Begitu banyak tangan
+                              bisa menyentuh satu order, "ini punya siapa"
+                              berhenti jelas dengan sendirinya — dan orang yang
+                              hendak menambah perlu tahu ia sedang menumpang
+                              pada pekerjaan rekannya. -->
+                         Dibuat ${esc(o.pembuat?.full_name ?? 'staff')}
+                         ${
+                           o.edited_at
+                             ? `<br /><span class="badge badge-pending">✎</span> diubah ${esc(o.editor?.full_name ?? 'staff')} · ${fmtDateTime(o.edited_at)}`
+                             : ''
+                         }
+                       </td>
                        <td data-label="Aksi">${
                          o.status === 'open'
-                           ? `<button class="btn-edit-order" data-id="${o.id}" data-code="${esc(o.code ?? '')}">Edit</button>
+                           ? `<button class="btn-edit-order" data-id="${o.id}" data-code="${esc(o.code ?? '')}"
+                                data-pembuat="${esc(o.pembuat?.full_name ?? '')}">Tambah / Edit</button>
                               <button class="btn-cancel-order" data-id="${o.id}">Batalkan</button>`
                            : ''
                        }</td>
@@ -413,7 +430,11 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           <div class="inline-card fade-in" style="max-width:640px">
             <h4 style="margin:0 0 4px">Ubah Order ${esc(btn.dataset.code)}</h4>
             <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 10px">
-              Nomor order tetap sama. Perubahan tercatat atas namamu beserta waktunya.
+              Daftar di bawah adalah isi order yang <strong>sudah ada</strong>${
+                btn.dataset.pembuat ? ` (dibuat ${esc(btn.dataset.pembuat)})` : ''
+              }.
+              Tambahkan bahanmu ke daftar ini — jangan menghapus punya rekanmu.
+              <br />Nomor order tetap sama, dan perubahan tercatat atas namamu beserta waktunya.
             </p>
             <div id="ord-edit-picker"></div>
             <div class="field" style="margin-top:12px"><label>Catatan (opsional)</label><input type="text" id="ord-edit-notes" /></div>

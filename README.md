@@ -4706,7 +4706,63 @@ Ditambah peringatan **"N isian belum tersimpan"** yang muncul saat ada ketikan b
 Bentuk **kartu** di daftar opname sengaja dipertahankan (tidak diubah jadi `baris-sejajar`): opname dikerjakan sambil berdiri di depan rak, dan kotak isian di sana perlu selebar mungkin, bukan sesempit mungkin.
 
 - [x] **Opname: potret stok sistem tidak bisa dikarang jadi nol** — panel menolak dibuka & Simpan menolak menyimpan saat peta stok gagal dimuat (dulu `stockMap?.get() ?? 0` diam-diam menjadikan semua `system_qty` nol, dan opname kedua melipatgandakan stok), alurnya dibuktikan di Postgres sungguhan lewat `test-opname-stok-awal.mjs`
+---
+
+# Order ke CK milik outlet, bukan milik yang mengetiknya
+
+> *"tidak satu staff saja yang melakukan order… elsa bagian bar melakukan order, sudah jadi draft, lalu maskal bagian kitchen jika ingin menambahkan orderan, dia tinggal edit draft yang sudah dibuat sebelumnya"*
+
+Tombolnya ada, isinya termuat, penolakannya baru datang **saat menyimpan** — `0035`:
+
+```sql
+if v_o.created_by <> v_uid and not is_admin_of_outlet(v_uid, v_o.from_outlet_id) then
+  raise exception 'Hanya pembuat order atau admin outlet asal yang bisa mengubah';
+```
+
+Urutan terburuk yang mungkin: Maskal menekan Edit, daftar Elsa muncul lengkap (RLS `select` memakai `has_bu_scope`, jadi **membaca** memang boleh), ia menambahkan lima bahan, menekan Simpan — lalu ditolak dengan aturan yang tidak bisa ia penuhi. Seluruh pekerjaannya terbuang.
+
+## Anggapan yang salah: satu order = satu orang
+
+Satu order ke CK adalah kebutuhan **satu outlet** untuk satu pengiriman. Bar menyumbang sirup, kitchen menyumbang daging, dan yang berangkat dari CK cuma satu surat jalan.
+
+Mengunci order ke pembuatnya memaksa tiap divisi membuat ordernya sendiri — dan akibatnya bukan sekadar merepotkan: **CK menerima tiga order terpisah dari satu outlet di hari yang sama, menyiapkan tiga keranjang, mengirim tiga surat jalan untuk satu tujuan.**
+
+Pola yang benar sudah ada di repo ini sejak `0103`, pada draft surat jalan — dan alasannya identik:
+
+> *Draft milik OUTLET ASAL, bukan milik pembuatnya. Shift pagi menyiapkan, shift berikutnya yang mengirim.*
+
+`0110` menyamakan order dengan draft: `has_outlet_scope(v_uid, v_o.from_outlet_id)`.
+
+## Yang sengaja TIDAK ikut longgar
+
+- **`has_outlet_scope`, bukan `has_bu_scope`.** Beda satu kata, dan yang kedua membuat staff Sentul bisa menyunting order Serpong — kesalahannya lalu terlihat seperti perbuatan orang Serpong. Setengah dari tesnya justru memeriksa siapa yang **tetap harus ditolak**; sabotase yang menggantinya ke `has_bu_scope` akan lulus §1 dengan sempurna kalau §2 tidak ada.
+- **Order `fulfilled`/`rejected`/`cancelled` tetap terkunci.** CK sudah menyiapkan barangnya berdasarkan isi yang lama.
+- **`is_admin_of_outlet` dan `is_bu_admin` dipakai apa adanya**, tidak diubah — keduanya menopang puluhan policy lain.
+
+## Membatalkan ikut disamakan — dan itu keputusan iko
+
+Saya tanyakan lebih dulu karena membatalkan itu **merusak dan tidak bisa dikembalikan**: satu orang bisa menghapus order yang sudah diisi tiga rekannya. Yang dipilih adalah konsistensi — satu aturan untuk satu objek, lebih mudah dijelaskan daripada "boleh mengubah tapi tidak boleh membatalkan".
+
+Yang meredam risikonya: `handled_by` mencatat pembatalnya (kolomnya sudah ada sejak `0031`), dan ordernya tidak dihapus — statusnya jadi `cancelled` dan tetap terbaca di riwayat. "Siapa yang membatalkan order saya?" selalu bisa dijawab.
+
+Satu hal yang hampir saya rusak sambil melonggarkan: `cancel_stock_order` dulu menerima **admin BU**, dan mengganti syaratnya jadi `has_outlet_scope` **saja** akan diam-diam mencabutnya dari admin BU yang tidak punya baris scope di outlet itu. Melonggarkan tidak boleh sekaligus mencabut. §5 pada tesnya menjaga tepat itu, dan sabotasenya merah.
+
+## Layarnya ikut berubah
+
+Aturannya dikatakan **sebelum** orang bekerja, bukan sesudah:
+
+> Order ini **milik outlet**, bukan milik yang membuatnya. Kalau divisi lain sudah membuat order yang belum diproses CK, **tambahkan bahanmu lewat tombol Edit** — jangan membuat order baru.
+
+Tombolnya berbunyi **"Tambah / Edit"**, kolom keterangan selalu menyebut **"Dibuat Elsa"** (plus "diubah Maskal · jam" kalau ada), dan panel editnya berkata *"Daftar di bawah adalah isi order yang sudah ada (dibuat Elsa). Tambahkan bahanmu — jangan menghapus punya rekanmu."* Begitu banyak tangan bisa menyentuh satu order, "ini punya siapa" berhenti jelas dengan sendirinya.
+
+## Sembilan sabotase, dan satu jebakan lama untuk ketiga kalinya
+
+Sembilan sabotase pada `0110`, semuanya merah pada percobaan pertama.
+
+Yang gagal duluan justru saya sendiri: tesnya tidak mau dijalankan sama sekali karena saya menulis <code>\`42P13\`</code> dengan backtick **di dalam komentar SQL yang berada di dalam template literal JavaScript**. Satu backtick menutup literalnya di tengah jalan. Ini kejadian **ketiga** di repo ini — modul shift, lalu `test-migrasi-0103`, sekarang `test-migrasi-0110`. `audit-syntax` menangkapnya seperti dua kali sebelumnya, dan sekarang ada peringatan tertulis di dalam blok SQL-nya sendiri, di tempat orang berikutnya akan menuliskan komentar.
+
 - [x] **Opname bersama benar-benar bisa dilanjutkan** — layar staff memuat hitungan yang sudah tersimpan (dulu `itemOpname()` tidak pernah dipanggil, jadi kotaknya selalu kosong dan bahan dihitung dua kali atau tidak sama sekali), centang + siapa/kapan per bahan, penyaring Belum/Sudah (bawaannya **Semua** — hitungannya kumulatif, jadi tidak ada baris yang boleh lenyap), peringatan saat angka baru lebih kecil dari isian rekan, bilah kemajuan dari data server, header lengket dengan tombol Simpan di dalamnya
+- [x] **Order ke CK bisa diisi beberapa divisi** — order milik OUTLET asal, bukan pembuatnya (`0110`), jadi bar dan kitchen menumpang pada satu nomor order alih-alih CK menerima tiga permintaan terpisah; membatalkan ikut disamakan dengan pembatal tercatat di `handled_by`
 - [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal
 - [x] **Halaman Owner (`owner.html`)** — dibuka super admin, KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin

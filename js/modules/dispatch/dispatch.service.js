@@ -105,7 +105,15 @@ export async function listMyOrders(outletIds, { dateFrom, dateTo, limit = 300 } 
   let q = supabase
     .from('stock_orders')
     .select(
-      'id, code, status, notes, reject_reason, created_at, handled_at, edited_at, editor:user_profiles!edited_by(full_name), from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name)'
+      // `pembuat` ikut dibawa sejak 0110. Order milik OUTLET, jadi siapa pun di
+      // outlet itu boleh menyuntingnya — dan begitu banyak tangan bisa
+      // menyentuh satu order, "ini punya siapa" berhenti jelas dengan
+      // sendirinya. Nama pembuatnya ditampilkan supaya orang yang hendak
+      // menambah tahu ia sedang menumpang pada pekerjaan rekannya, bukan
+      // membuka daftar kosong miliknya sendiri.
+      'id, code, status, notes, reject_reason, created_at, handled_at, edited_at, ' +
+        'pembuat:user_profiles!created_by(full_name), editor:user_profiles!edited_by(full_name), ' +
+        'from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name)'
     )
     .in('from_outlet_id', outletIds)
     .order('created_at', { ascending: false })
