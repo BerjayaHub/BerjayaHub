@@ -12,6 +12,25 @@
  * (yang kedua menimpa yang pertama tanpa ada yang sadar), atau bahan tidak
  * dihitung sama sekali karena masing-masing mengira yang lain sudah.
  *
+ * ============ ANGKANYA KUMULATIF, BUKAN MILIK MASING-MASING ============
+ *
+ * Satu bahan bisa tersimpan di dua tempat. Susu ada 3 liter di kitchen dan 1
+ * liter di bar — dan yang dicatat opname adalah TOTAL outlet, bukan jatah tiap
+ * divisi. Alurnya:
+ *
+ *   Adhe (kitchen)  mengisi 3, menyimpan   -> tersimpan 3
+ *   Shenda (bar)    membuka, melihat 3,
+ *                   menghitung 1 di barnya,
+ *                   MENGUBAH 3 menjadi 4   -> tersimpan 4
+ *
+ * Karena itu kotaknya HARUS tetap tampil terisi sesudah disimpan. Kotak kosong
+ * memaksa Shenda menebak, dan tebakan yang paling wajar — mengisi 1, jatahnya
+ * sendiri — menghapus hitungan Adhe tanpa satu pun peringatan.
+ *
+ * Bentuk salah itulah yang dijaga `peringatanTurun()`: pada penghitungan yang
+ * menumpuk, angka baru yang LEBIH KECIL dari yang tersimpan hampir selalu
+ * berarti seseorang mengisi jatahnya sendiri, bukan totalnya.
+ *
  * Ditulis sebagai fungsi MURNI supaya urutannya bisa diuji tanpa browser.
  * "Yang belum dihitung naik ke atas" terdengar sepele sampai daftarnya berisi
  * dua ratus bahan dan penyaringnya aktif — dan bug urutan tidak pernah
@@ -159,4 +178,47 @@ export function keteranganHitung(tersimpan, produkId) {
     ? waktu.toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
     : null;
   return jam ? `dihitung ${nama} · ${jam}` : `dihitung ${nama}`;
+}
+
+
+/**
+ * Peringatan saat angka baru LEBIH KECIL dari yang sudah tersimpan orang lain.
+ *
+ * ============ KENAPA INI PERLU ============
+ *
+ * Hitungan opname bersifat menumpuk: kotaknya berisi TOTAL outlet, dan orang
+ * berikutnya menambahkan bagiannya. Kotak yang sudah berisi 3 lalu diketik 1
+ * hampir selalu berarti orangnya mengisi jatah divisinya sendiri, bukan
+ * totalnya — dan hasilnya menghapus hitungan rekannya tanpa jejak di layar.
+ *
+ * ============ MEMPERINGATKAN, BUKAN MENOLAK ============
+ *
+ * Turun itu SAH dan tidak boleh dihalangi. Yang pertama bisa salah hitung,
+ * barangnya bisa terpakai di antara dua hitungan, atau angkanya memang salah
+ * ketik. Menolaknya berarti memaksa orang menunggu admin untuk membetulkan
+ * satu angka — dan opname yang macet menghasilkan stok yang lebih salah lagi
+ * daripada satu angka yang keliru.
+ *
+ * Jadi ini hanya keterangan di sebelah kotaknya. Tidak ada dialog, tidak ada
+ * tombol yang dikunci.
+ *
+ * Mengembalikan `null` kalau tidak ada yang perlu dikatakan — bukan string
+ * kosong — supaya pemanggil harus memutuskan dengan sadar.
+ */
+export function peringatanTurun(tersimpan, produkId, nilaiBaru) {
+  if (!sudahDihitung(tersimpan, produkId)) return null;
+  if (nilaiBaru === '' || nilaiBaru == null) return null;
+
+  const baru = Number(nilaiBaru);
+  // `Number('abc')` menghasilkan NaN, dan setiap perbandingan dengan NaN
+  // bernilai false — jadi tanpa penjagaan ini, ketikan yang belum selesai
+  // (mis. "-" atau "1e") lewat begitu saja sebagai "tidak apa-apa".
+  if (!Number.isFinite(baru)) return null;
+
+  const lama = Number(tersimpan.get(produkId)?.counted_qty);
+  if (!Number.isFinite(lama)) return null;
+  if (baru >= lama) return null;
+
+  const nama = tersimpan.get(produkId)?.penghitung?.full_name ?? 'rekanmu';
+  return `lebih kecil dari ${lama} yang diisi ${nama}`;
 }

@@ -15,7 +15,8 @@ import {
   nilaiKotak,
   susunDaftar,
   hitungBelumTersimpan,
-  keteranganHitung
+  keteranganHitung,
+  peringatanTurun
 } from '../js/modules/inventory/opname-daftar.js';
 
 let gagal = 0;
@@ -144,6 +145,55 @@ benar(
 cek('8. bahan null', susunDaftar(null, { tersimpan }).baris, []);
 cek('8. tanpa opsi sama sekali', susunDaftar(bahan).baris.length, 5);
 cek('8. tersimpan null: semua dianggap belum', susunDaftar(bahan, { tersimpan: null }).selesai, 0);
+
+// =====================================================================
+// 9. HITUNGAN KUMULATIF — angka turun itu mencurigakan, tapi tidak dilarang
+//
+// Alur yang sebenarnya terjadi di lapangan:
+//
+//   Adhe (kitchen)  isi 3, simpan          -> tersimpan 3
+//   Shenda (bar)    lihat 3, hitung 1,
+//                   ubah jadi 4            -> tersimpan 4
+//
+// Yang berbahaya adalah kalau Shenda mengisi 1 (jatahnya sendiri) — hitungan
+// Adhe terhapus tanpa satu pun tanda di layar.
+// =====================================================================
+const susu = new Map([
+  ['s1', { counted_qty: 3, counted_at: '2026-08-31T02:00:00Z', penghitung: { full_name: 'Adhe' } }]
+]);
+
+cek('9. menambah 3 -> 4: tidak ada peringatan', peringatanTurun(susu, 's1', '4'), null);
+cek('9. mengetik ulang 3: tidak ada peringatan', peringatanTurun(susu, 's1', '3'), null);
+
+const p9 = peringatanTurun(susu, 's1', '1');
+benar('9. mengisi 1 (jatah sendiri): DIPERINGATKAN', p9 !== null, String(p9));
+benar('9.   menyebut angka lamanya', /3/.test(p9 ?? ''), String(p9));
+benar('9.   menyebut siapa yang mengisi', /Adhe/.test(p9 ?? ''), String(p9));
+
+// Bahan yang BELUM pernah dihitung tidak punya apa-apa untuk dibandingkan —
+// mengisi 1 di sana wajar sepenuhnya.
+cek('9. belum pernah dihitung: diam', peringatanTurun(susu, 'lain', '1'), null);
+
+// Kotak yang sedang dikosongkan bukan penurunan; orangnya belum selesai.
+cek('9. kotak kosong: diam', peringatanTurun(susu, 's1', ''), null);
+cek('9. null: diam', peringatanTurun(susu, 's1', null), null);
+
+// KETIKAN YANG BELUM SELESAI TIDAK BOLEH DIANGGAP TURUN.
+//
+// `Number('-')` dan `Number('1e')` menghasilkan NaN, dan setiap perbandingan
+// dengan NaN bernilai false. Tanpa `Number.isFinite`, `baru >= lama` bernilai
+// false juga — jadi peringatannya justru MENYALA saat orang baru mengetik
+// tanda minus. Peringatan yang muncul di saat yang salah akan diabaikan, dan
+// sesudah itu ia tidak melindungi apa pun.
+cek('9. ketikan setengah jadi "-": diam', peringatanTurun(susu, 's1', '-'), null);
+cek('9. ketikan setengah jadi "1e": diam', peringatanTurun(susu, 's1', '1e'), null);
+
+// Turun ke NOL tetap diperingatkan — itu justru penurunan terbesar.
+benar('9. turun ke 0: tetap diperingatkan', peringatanTurun(susu, 's1', '0') !== null);
+
+// Angka tersimpan yang rusak tidak boleh membuat layar meledak.
+cek('9. tersimpan bukan angka: diam',
+  peringatanTurun(new Map([['x', { counted_qty: null }]]), 'x', '1'), null);
 
 console.log(gagal === 0 ? '✅ daftar opname: semua lulus' : `❌ daftar opname: ${gagal} gagal`);
 process.exit(gagal === 0 ? 0 : 1);

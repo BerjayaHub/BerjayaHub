@@ -204,6 +204,43 @@ if (iKemajuan === -1) {
   }
 }
 
+
+// ---------------------------------------------------------------
+// 6. BAWAAN PENYARING TIDAK BOLEH MENYEMBUNYIKAN YANG SUDAH DIHITUNG.
+//
+// Hitungan opname bersifat KUMULATIF: kotaknya berisi total outlet, dan orang
+// berikutnya menambahkan bagiannya.
+//
+//   Adhe (kitchen) isi susu 3, simpan
+//   Shenda (bar)   punya 1 lagi -> harus MELIHAT 3 supaya bisa mengubah jadi 4
+//
+// Kalau bawaannya `SARING.BELUM`, baris susu LENYAP dari layar Shenda begitu
+// Adhe menyimpan. Shenda tidak punya apa pun untuk ditambah, dan tebakan yang
+// paling wajar — mengisi 1, jatahnya sendiri — menghapus hitungan Adhe.
+//
+// Saya sempat memasangnya sebagai BELUM dengan alasan "sisa pekerjaan jadi
+// jelas". Itu alasan yang benar untuk cara kerja yang salah.
+// ---------------------------------------------------------------
+const mBawaan = isi.match(/const opnameState = \{[^}]*\}/);
+if (!mBawaan) {
+  salah(`${BERKAS}: \`opnameState\` tidak ditemukan — audit kehilangan sasarannya.`);
+} else if (!/saring:\s*SARING\.SEMUA/.test(mBawaan[0])) {
+  salah(
+    `${BERKAS}: bawaan penyaring opname bukan \`SARING.SEMUA\` (${mBawaan[0].replace(/\s+/g, ' ')}). ` +
+      'Hitungannya kumulatif — bahan yang sudah diisi rekan HARUS tetap terlihat, ' +
+      'supaya orang berikutnya menambahkan ke angka itu alih-alih menimpanya dengan jatahnya sendiri.'
+  );
+}
+
+// Peringatan "angka turun" harus benar-benar dipasang, bukan cuma diimpor.
+if (!/peringatanTurun\(tersimpan,/.test(isi)) {
+  salah(
+    `${BERKAS}: \`peringatanTurun()\` tidak dipanggil saat mengetik. ` +
+      'Pada hitungan kumulatif, angka baru yang lebih kecil hampir selalu berarti seseorang mengisi ' +
+      'jatah divisinya sendiri — dan itu menghapus hitungan rekannya tanpa satu pun tanda.'
+  );
+}
+
 if (gagal === 0) {
   console.log('Opname: potret sistem tidak dikarang, tidak basi, dan hitungan tersimpan selalu dimuat. ✅');
 }

@@ -4664,6 +4664,39 @@ Panelnya juga **tidak lagi menutup diri sesudah menyimpan**. Itu masuk akal keti
 
 **Yang kedua ternyata bukan celah.** Membuang `.slice()` sebelum `.sort()` tidak menggagalkan satu tes pun — dan itu benar: `filter()` sudah mengembalikan array baru, jadi tidak ada array pemanggil yang bisa teracak. `.slice()`-nya redundan. Saya biarkan hidup sebagai pertahanan berlapis dan menulis di komentarnya bahwa ia **redundan secara hasil**, bukan berpura-pura ia penjaga.
 
+## Hitungannya KUMULATIF — dan itu mengubah seluruh rancangan layarnya
+
+Setelah putaran pertama, iko menjelaskan cara opname ini benar-benar dipakai:
+
+> *"adhe div kitchen mengisi susu 3 liter, lalu shenda div bar ada susu 1 liter, karena sudah diisi adhe 3 liter, maka shenda ubah 3 liter isian adhe menjadi 4 liter"*
+
+Satu bahan tersimpan di beberapa tempat, dan yang dicatat opname adalah **total outlet**, bukan jatah tiap divisi. Itu membatalkan keputusan yang saya buat di putaran sebelumnya.
+
+Saya sempat memasang bawaan penyaring ke **"Belum dihitung"** dengan alasan "sisa pekerjaan jadi jelas". Alasannya benar, untuk cara kerja yang salah: dengan bawaan itu, baris susu **lenyap dari layar Shenda** begitu Adhe menyimpan. Shenda tidak punya apa pun untuk ditambah — dan tebakan yang paling wajar, mengisi `1` sebagai jatahnya sendiri, **menghapus hitungan Adhe**.
+
+Sekarang bawaannya **Semua**. Tidak ada bahan yang pernah lenyap dari layar; yang belum dihitung tetap diangkat ke atas, jadi sisa pekerjaan tetap mudah ditemukan tanpa menyembunyikan apa pun.
+
+### Angkanya disebut terang-terangan, bukan diam-diam jadi isi kotak
+
+Kalau `3` hanya muncul sebagai isi kotak, ia terlihat seperti isian sendiri yang tinggal ditimpa. Jadi di atas kotaknya ada baris hijau yang berbunyi:
+
+> **Sudah terisi 3 liter** · dihitung Adhe · 31 Agu 09:16
+> Kalau kamu menemukan lagi di tempat lain, TAMBAHKAN ke angka ini.
+
+Sengaja tidak dibuat redup seperti keterangan biasa — baris inilah yang mencegah orang menimpanya.
+
+### `peringatanTurun()` — memperingatkan, tidak menghalangi
+
+Pada hitungan yang menumpuk, angka baru yang **lebih kecil** dari yang tersimpan hampir selalu berarti seseorang mengisi jatah divisinya sendiri. Mengetik `1` di kotak berisi `3` memunculkan, di sebelah kotaknya:
+
+> ⚠ lebih kecil dari 3 yang diisi Adhe — sudah ditambahkan?
+
+**Tidak ada dialog dan tidak ada tombol yang dikunci** — sesuai pilihan iko sebelumnya (boleh langsung, tanpa konfirmasi). Turun juga bisa benar: yang pertama salah hitung, barangnya terpakai di antara dua hitungan, atau memang salah ketik. Opname yang macet menghasilkan stok yang lebih salah lagi daripada satu angka yang keliru.
+
+Satu detail yang mudah terlewat: `Number('-')` dan `Number('1e')` menghasilkan `NaN`, dan **setiap** perbandingan dengan `NaN` bernilai `false` — termasuk `baru >= lama`. Tanpa `Number.isFinite`, peringatannya justru **menyala saat orang baru mengetik tanda minus**. Peringatan yang muncul di saat yang salah akan diabaikan, dan sesudah itu ia tidak melindungi apa pun. Sabotase yang membuang penjagaan itu tertangkap.
+
+Enam sabotase untuk putaran ini, semuanya merah pada percobaan pertama — termasuk mengembalikan bawaan penyaring ke `BELUM` (bug yang baru saja saya perbaiki), dan membuat peringatan ikut menyala saat angka naik.
+
 ## Tata letak Bahan & Opname
 
 Pola yang sama dengan Penjualan: header lengket berisi outlet, saringan, dan tombol tindakan; hanya daftarnya yang menggulir. **Simpan Hasil Opname pindah ke header** — daftar bahan bisa dua ratus baris, dan tombol yang cuma ada di bawahnya memaksa orang menggulir melewati seluruh daftar untuk menyimpan lima isian di bagian atas.
@@ -4673,7 +4706,7 @@ Ditambah peringatan **"N isian belum tersimpan"** yang muncul saat ada ketikan b
 Bentuk **kartu** di daftar opname sengaja dipertahankan (tidak diubah jadi `baris-sejajar`): opname dikerjakan sambil berdiri di depan rak, dan kotak isian di sana perlu selebar mungkin, bukan sesempit mungkin.
 
 - [x] **Opname: potret stok sistem tidak bisa dikarang jadi nol** — panel menolak dibuka & Simpan menolak menyimpan saat peta stok gagal dimuat (dulu `stockMap?.get() ?? 0` diam-diam menjadikan semua `system_qty` nol, dan opname kedua melipatgandakan stok), alurnya dibuktikan di Postgres sungguhan lewat `test-opname-stok-awal.mjs`
-- [x] **Opname bersama benar-benar bisa dilanjutkan** — layar staff memuat hitungan yang sudah tersimpan (dulu `itemOpname()` tidak pernah dipanggil, jadi kotaknya selalu kosong dan bahan dihitung dua kali atau tidak sama sekali), centang + siapa/kapan per bahan, penyaring Belum/Sudah, bilah kemajuan dari data server, header lengket dengan tombol Simpan di dalamnya
+- [x] **Opname bersama benar-benar bisa dilanjutkan** — layar staff memuat hitungan yang sudah tersimpan (dulu `itemOpname()` tidak pernah dipanggil, jadi kotaknya selalu kosong dan bahan dihitung dua kali atau tidak sama sekali), centang + siapa/kapan per bahan, penyaring Belum/Sudah (bawaannya **Semua** — hitungannya kumulatif, jadi tidak ada baris yang boleh lenyap), peringatan saat angka baru lebih kecil dari isian rekan, bilah kemajuan dari data server, header lengket dengan tombol Simpan di dalamnya
 - [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal
 - [x] **Halaman Owner (`owner.html`)** — dibuka super admin, KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin

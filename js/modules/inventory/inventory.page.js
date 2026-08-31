@@ -8,7 +8,7 @@ import { cocokNama } from '../../core/nama.js';
 import { urutStokTerendah } from './urutan-stok.js';
 import { renderResepStaff } from './resep-staff.js';
 import { sesiTerbuka, catatHitungan, itemOpname } from './opname.service.js';
-import { SARING, susunDaftar, nilaiKotak, sudahDihitung, keteranganHitung, hitungBelumTersimpan } from './opname-daftar.js';
+import { SARING, susunDaftar, nilaiKotak, sudahDihitung, keteranganHitung, hitungBelumTersimpan, peringatanTurun } from './opname-daftar.js';
 import { renderNotaStaff } from './nota-staff.js';
 import { renderMenipisStaff } from './menipis-staff.js';
 
@@ -302,12 +302,20 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   }));
 
   // ---- Stok Opname: tabel yang langsung diisi (bukan pop up per produk) ----
-  // `saring` bawaannya BELUM DIHITUNG, bukan SEMUA.
+  // `saring` bawaannya SEMUA — tidak boleh ada bahan yang lenyap dari layar.
   //
-  // Yang membuka layar ini hampir selalu sedang melanjutkan pekerjaan yang
-  // tertinggal, bukan memulai dari nol. Membuka pada "Semua" berarti sisa
-  // pekerjaannya tercampur di antara ratusan bahan yang sudah selesai.
-  const opnameState = { open: false, category: '', q: '', saring: SARING.BELUM };
+  // Sempat saya buat bawaannya "Belum dihitung" supaya sisa pekerjaan terlihat
+  // jelas. Itu salah untuk cara opname ini dipakai: hitungannya KUMULATIF.
+  //
+  // Susu ada 3 liter di kitchen dan 1 liter di bar, dan yang dicatat adalah
+  // TOTAL outlet. Shenda (bar) harus MELIHAT angka 3 milik Adhe supaya bisa
+  // mengubahnya jadi 4. Kalau barisnya hilang begitu Adhe menyimpan, Shenda
+  // tidak punya apa pun untuk ditambah — dan tebakan yang paling wajar,
+  // mengisi 1 sebagai jatahnya sendiri, menghapus hitungan Adhe.
+  //
+  // Yang belum dihitung tetap diangkat ke atas, jadi sisa pekerjaan tetap
+  // mudah ditemukan tanpa perlu menyembunyikan apa pun.
+  const opnameState = { open: false, category: '', q: '', saring: SARING.SEMUA };
   const categories = [...new Set(activeProducts.map((p) => p.category).filter(Boolean))].sort();
 
   container.querySelector('#inv-opname')?.addEventListener('click', () => {
@@ -489,8 +497,8 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
             </div>
             <div class="field" style="margin:0;flex:1;min-width:120px"><label>Status</label>
               <select id="opname-saring">
-                <option value="${SARING.BELUM}"${opnameState.saring === SARING.BELUM ? ' selected' : ''}>Belum dihitung</option>
                 <option value="${SARING.SEMUA}"${opnameState.saring === SARING.SEMUA ? ' selected' : ''}>Semua</option>
+                <option value="${SARING.BELUM}"${opnameState.saring === SARING.BELUM ? ' selected' : ''}>Belum dihitung</option>
                 <option value="${SARING.SUDAH}"${opnameState.saring === SARING.SUDAH ? ' selected' : ''}>Sudah dihitung</option>
               </select>
             </div>
@@ -579,11 +587,23 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
                   <div class="opname-nama">${selesai ? '<span class="opname-centang">✓</span> ' : ''}${esc(p.name)}</div>
                   <div class="opname-meta">${esc(p.category ?? 'Tanpa kategori')} · sistem <strong>${formatNum(sys)}</strong> ${esc(p.base_unit)}</div>
                   ${
-                    // SIAPA & KAPAN, supaya "kok angkanya beda dari yang saya
-                    // lihat di rak" bisa ditanyakan ke orangnya langsung —
-                    // bukan jadi perdebatan tanpa ujung berminggu-minggu
-                    // kemudian saat opname sudah ditutup.
-                    ket ? `<div class="opname-jejak">${esc(ket)}</div>` : ''
+                    // ANGKA YANG SUDAH TERSIMPAN DISEBUT TERANG-TERANGAN,
+                    // bukan cuma diam-diam menjadi isi kotaknya.
+                    //
+                    // Hitungannya kumulatif: Shenda harus tahu bahwa 3 di
+                    // kotak itu MILIK Adhe dan bagiannya harus DITAMBAHKAN,
+                    // bukan menggantikan. Kalau angkanya hanya muncul sebagai
+                    // isi kotak, ia terlihat seperti isian sendiri yang tinggal
+                    // ditimpa — dan menimpanya menghapus hitungan rekannya.
+                    //
+                    // Nama & jamnya ikut supaya "kok angkanya beda dari yang
+                    // saya lihat di rak" bisa ditanyakan ke orangnya langsung.
+                    ket
+                      ? `<div class="opname-jejak">
+                           Sudah terisi <strong>${formatNum(tersimpan.get(p.id)?.counted_qty ?? 0)} ${esc(p.base_unit)}</strong> · ${esc(ket)}
+                           <br /><span class="opname-jejak-tambah">Kalau kamu menemukan lagi di tempat lain, TAMBAHKAN ke angka ini.</span>
+                         </div>`
+                      : ''
                   }
                   <div class="opname-isi">
                     <input type="number" class="opname-input" data-p="${p.id}" data-sys="${sys}" min="0" step="any"
@@ -591,6 +611,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
                     <span class="opname-satuan">${esc(p.base_unit)}</span>
                     <span class="opname-diff" data-p="${p.id}">-</span>
                   </div>
+                  <div class="opname-turun" data-p="${p.id}" hidden></div>
                 </div>`;
               })
               .join('') ||
@@ -621,6 +642,24 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
           const diff = Number(inp.value) - Number(inp.dataset.sys);
           cell.textContent = diff === 0 ? 'sesuai' : `${diff > 0 ? '+' : ''}${formatNum(diff)}`;
           cell.style.color = diff === 0 ? 'var(--color-text-muted)' : diff > 0 ? 'var(--color-primary)' : 'var(--color-danger)';
+
+          // ANGKA YANG TURUN DIPERINGATKAN, TIDAK DIHALANGI.
+          //
+          // Pada hitungan yang menumpuk, angka baru yang lebih kecil hampir
+          // selalu berarti orangnya mengisi jatah divisinya sendiri, bukan
+          // total outlet — dan itu menghapus hitungan rekannya.
+          //
+          // Tapi turun juga bisa BENAR: yang pertama salah hitung, barangnya
+          // terpakai di antara dua hitungan, atau memang salah ketik. Jadi ini
+          // keterangan di sebelah kotaknya, bukan dialog dan bukan tombol yang
+          // dikunci. Opname yang macet menghasilkan stok yang lebih salah lagi
+          // daripada satu angka yang keliru.
+          const kotakTurun = rowsBox.querySelector(`.opname-turun[data-p="${inp.dataset.p}"]`);
+          const pesanTurun = peringatanTurun(tersimpan, inp.dataset.p, inp.value);
+          if (kotakTurun) {
+            kotakTurun.textContent = pesanTurun ? `⚠ ${pesanTurun} — sudah ditambahkan?` : '';
+            kotakTurun.hidden = !pesanTurun;
+          }
         };
         inp.addEventListener('input', () => {
           updateDiff();
