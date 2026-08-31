@@ -4605,7 +4605,75 @@ Versi pertama `audit-opname-potret.cjs` memeriksa penangan tombol dengan memoton
 Jendela tetap selalu punya bentuk kegagalan itu — ia bergantung pada panjang **komentar** di atas kodenya, yang bisa berubah kapan saja tanpa ada yang sadar auditnya ikut berhenti bekerja. Diganti `badanPenangan()` yang menghitung kurung. Kelima sabotase tertangkap sesudahnya.
 
 - [x] **Transfer antar outlet & retur ke CK bisa diselesaikan** — outlet non-CK dapat tab 📝 Draft Kiriman (sebelumnya drafnya dibuat lalu tidak punya pintu sama sekali), pengalihan tab tidak lagi senyap, kata-kata layar tidak lagi menganggap pengirim selalu CK, lencana menghitung draft semua outlet (`0109`), dijaga `audit-tab-ada.cjs` yang membandingkan cabang per cabang
+---
+
+# Opname bersama: hitungan yang tidak pernah terlihat
+
+> *"staff yang mengisi tidak akan tahu, apakah bahan ini sudah dihitung atau belum, karena di staff app tetap 0 isinya"*
+
+Ditemukan dari satu tangkapan layar plus satu query. Dan ia adalah bug paling merugikan di modul ini.
+
+## Fungsinya sudah ada — hanya tidak pernah dipanggil
+
+`js/modules/inventory/inventory.page.js` mengimpor `sesiTerbuka` dan `catatHitungan`. Tidak lebih. `itemOpname()` sudah ada di `opname.service.js`, RLS-nya (`sci_select`, pakai `has_bu_scope`) sudah mengizinkan staff membaca — **fungsi itu tidak pernah dipanggil dari layar staff.**
+
+Jadi kotak isian **selalu** kosong. Adhe menghitung rak kering pagi ini; Widyantoro membuka layar yang sama sorenya dan melihat semuanya nol.
+
+Dua akibatnya sama-sama senyap:
+
+- bahan **dihitung dua kali**, yang kedua menimpa yang pertama (`counted_qty` yang terakhir menang)
+- bahan **tidak dihitung sama sekali**, karena masing-masing mengira yang lain sudah
+
+Tidak ada error di mana pun. **Layar kosong terlihat persis seperti "belum ada yang menghitung"** — itulah yang membuatnya bertahan.
+
+## Nol adalah hitungan yang sah
+
+Detail paling mudah salah di seluruh perbaikan ini. `sudahDihitung()` memeriksa **keberadaan barisnya**, bukan kebenaran angkanya:
+
+```js
+return tersimpan instanceof Map && tersimpan.has(produkId);
+```
+
+`if (tersimpan.get(id))` akan menganggap setiap bahan bernilai nol sebagai belum dihitung — persis bahan yang **paling** perlu ditandai selesai, karena orang berikutnya akan mendatangi rak kosong itu lagi. "Sudah didatangi, raknya memang kosong" adalah informasi yang berbeda dari "belum didatangi", dan `tutup_opname` memang tidak menulis pergerakan untuk selisih nol.
+
+## Yang tampil di kotak
+
+Urutan menangnya: **yang sedang diketik > yang tersimpan > kosong**. Yang sedang diketik menang karena ia paling baru dan belum sempat terkirim; menimpanya dengan angka server berarti membuang ketikan orang di depan matanya sendiri.
+
+Ada konsekuensi yang tidak jelas sampai ditulis: kotak yang **sengaja dikosongkan** harus dicatat sebagai string kosong di `draft`, bukan dihapus dari `draft`. Menghapusnya membuat nilai jatuh kembali ke angka server, jadi kotak yang baru saja dikosongkan terisi lagi sendiri pada penggambaran berikutnya — dan orangnya akan mengira aplikasinya menolak hapusannya.
+
+## Yang belum dihitung naik ke atas
+
+Penyaring **Belum dihitung / Semua / Sudah dihitung**, bawaannya **Belum**. Yang membuka layar ini hampir selalu sedang melanjutkan pekerjaan yang tertinggal, bukan memulai dari nol.
+
+Pengurutannya hanya melihat status hitung, jadi bahan dengan status sama **mempertahankan urutan aslinya**. Kalau modul murni ini ikut mengurutkan nama, tata letak rak yang sudah diatur pemanggil akan tertimpa diam-diam.
+
+Angka kemajuan dihitung dari **seluruh** daftar, bukan dari yang tampak — "3 dari 5" yang berubah jadi "0 dari 2" begitu penyaring diganti akan membuat orang mengira pekerjaannya hilang. Dan sumbernya **server**, bukan `draft`: versi lama menghitung `draft.has(...)` — isian di HP ini saja — jadi angkanya selalu mulai dari 0 tiap panel dibuka. "0 dari 87" pada sesi yang sudah separuh selesai bukan sekadar tidak membantu; ia menyuruh orang mengulang pekerjaan yang sudah beres.
+
+Tiap kartu yang sudah dihitung diberi centang, latar hijau, dan **siapa & kapan** — supaya *"kok angkanya beda dari yang saya lihat di rak"* bisa ditanyakan ke orangnya langsung, bukan jadi perdebatan tanpa ujung berminggu-minggu kemudian saat opname sudah ditutup.
+
+## Satu bug yang saya buat sendiri di tengah jalan
+
+Peta hitungan-dari-server saya beri nama `tersimpan`. Penangan tombol Simpan sudah punya `let tersimpan = 0` sebagai penghitung — **shadowing**. JavaScript tidak mengeluh sama sekali; kesalahannya baru terasa sebagai daftar yang tiba-tiba menganggap semua bahan belum dihitung. Penghitungnya diganti jadi `terkirim`, dan alasannya ditulis di sana.
+
+Panelnya juga **tidak lagi menutup diri sesudah menyimpan**. Itu masuk akal ketika layar ini tidak bisa menampilkan apa pun yang tersimpan — tidak ada yang perlu dilihat. Sekarang sebaliknya: orangnya ingin melihat centangnya bertambah lalu lanjut ke bahan berikutnya.
+
+## Dua sabotase yang lolos
+
+**Yang pertama kesalahan audit saya.** Pemeriksaan kemajuan mencari `draft.has` — sabotasenya memakai `[...draft.keys()].length` dan lolos. Daftar hitam bentuk-yang-salah selalu bisa dilewati dengan menulisnya sedikit berbeda. Sekarang auditnya **menuntut bentuk yang benar** (`h.selesai`/`h.total`) dan menolak pembacaan `draft` apa pun di blok itu.
+
+**Yang kedua ternyata bukan celah.** Membuang `.slice()` sebelum `.sort()` tidak menggagalkan satu tes pun — dan itu benar: `filter()` sudah mengembalikan array baru, jadi tidak ada array pemanggil yang bisa teracak. `.slice()`-nya redundan. Saya biarkan hidup sebagai pertahanan berlapis dan menulis di komentarnya bahwa ia **redundan secara hasil**, bukan berpura-pura ia penjaga.
+
+## Tata letak Bahan & Opname
+
+Pola yang sama dengan Penjualan: header lengket berisi outlet, saringan, dan tombol tindakan; hanya daftarnya yang menggulir. **Simpan Hasil Opname pindah ke header** — daftar bahan bisa dua ratus baris, dan tombol yang cuma ada di bawahnya memaksa orang menggulir melewati seluruh daftar untuk menyimpan lima isian di bagian atas.
+
+Ditambah peringatan **"N isian belum tersimpan"** yang muncul saat ada ketikan berbeda dari yang tersimpan. Ketikan yang sama persis tidak dihitung — peringatan yang menyala terus-menerus berhenti dipercaya, dan sesudah itu ia sama saja dengan tidak ada.
+
+Bentuk **kartu** di daftar opname sengaja dipertahankan (tidak diubah jadi `baris-sejajar`): opname dikerjakan sambil berdiri di depan rak, dan kotak isian di sana perlu selebar mungkin, bukan sesempit mungkin.
+
 - [x] **Opname: potret stok sistem tidak bisa dikarang jadi nol** — panel menolak dibuka & Simpan menolak menyimpan saat peta stok gagal dimuat (dulu `stockMap?.get() ?? 0` diam-diam menjadikan semua `system_qty` nol, dan opname kedua melipatgandakan stok), alurnya dibuktikan di Postgres sungguhan lewat `test-opname-stok-awal.mjs`
+- [x] **Opname bersama benar-benar bisa dilanjutkan** — layar staff memuat hitungan yang sudah tersimpan (dulu `itemOpname()` tidak pernah dipanggil, jadi kotaknya selalu kosong dan bahan dihitung dua kali atau tidak sama sekali), centang + siapa/kapan per bahan, penyaring Belum/Sudah, bilah kemajuan dari data server, header lengket dengan tombol Simpan di dalamnya
 - [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal
 - [x] **Halaman Owner (`owner.html`)** — dibuka super admin, KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin

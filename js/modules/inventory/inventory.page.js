@@ -7,7 +7,8 @@ import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { cocokNama } from '../../core/nama.js';
 import { urutStokTerendah } from './urutan-stok.js';
 import { renderResepStaff } from './resep-staff.js';
-import { sesiTerbuka, catatHitungan } from './opname.service.js';
+import { sesiTerbuka, catatHitungan, itemOpname } from './opname.service.js';
+import { SARING, susunDaftar, nilaiKotak, sudahDihitung, keteranganHitung, hitungBelumTersimpan } from './opname-daftar.js';
 import { renderNotaStaff } from './nota-staff.js';
 import { renderMenipisStaff } from './menipis-staff.js';
 
@@ -44,36 +45,44 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   const state = { outletId: outlets.some((o) => o.id === outletId) ? outletId : outlets[0].id };
 
   container.innerHTML = `
-    <h1>Bahan</h1>
-    <div class="field" style="max-width:280px">
-      <label>Outlet</label>
-      <select id="inv-outlet">${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${escapeHtml(o.name)}</option>`).join('')}</select>
+    <h1 style="margin-bottom:6px">Bahan</h1>
+
+    <!-- HEADER LENGKET: outlet, tombol tindakan, dan saringan daftar stok.
+         Yang menggulir hanya daftar bahannya. Daftar stok satu outlet bisa
+         ratusan baris, dan tanpa ini "Terima dari Supplier" hilang dari layar
+         begitu orangnya menggulir sedikit untuk memeriksa satu angka. -->
+    <div class="panel-lengket-atas">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <div class="field" style="margin:0;flex:1;min-width:150px">
+          <label>Outlet</label>
+          <select id="inv-outlet">${outlets.map((o) => `<option value="${o.id}"${o.id === state.outletId ? ' selected' : ''}>${escapeHtml(o.name)}</option>`).join('')}</select>
+        </div>
+        <div class="field" style="margin:0;flex:1;min-width:120px">
+          <label>Kategori</label>
+          <select id="inv-cat"><option value="">Semua</option>${[...new Set(activeProducts.map((p) => p.category).filter(Boolean))]
+            .sort()
+            .map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)
+            .join('')}</select>
+        </div>
+        <div class="field" style="margin:0;flex:1.3;min-width:140px">
+          <label>Cari nama</label>
+          <input type="search" id="inv-q" placeholder="ketik nama bahan…" autocomplete="off" enterkeyhint="search" />
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+        <button class="primary" id="inv-receive">📥 Terima dari Supplier</button>
+        <button id="inv-waste">🗑️ Waste / Spoil</button>
+        ${allowOpname ? '<button id="inv-opname">📋 Stok Opname</button>' : ''}
+        <button id="inv-resep">📖 Resep</button>
+        <button id="inv-menipis">⚠️ Bahan Menipis</button>
+      </div>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-      <button class="primary" id="inv-receive" style="max-width:220px">📥 Terima dari Supplier</button>
-      <button id="inv-waste">🗑️ Waste / Spoil</button>
-      ${allowOpname ? '<button id="inv-opname">📋 Stok Opname</button>' : ''}
-      <button id="inv-resep">📖 Resep</button>
-      <button id="inv-menipis">⚠️ Bahan Menipis</button>
-    </div>
+
     <div id="inv-nota-panel" hidden></div>
     <div id="inv-menipis-panel" hidden></div>
     <div id="inv-opname-panel"></div>
     <div id="inv-resep-panel"></div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
-      <div class="field" style="margin:0;max-width:200px">
-        <label>Kategori</label>
-        <select id="inv-cat"><option value="">Semua</option>${[...new Set(activeProducts.map((p) => p.category).filter(Boolean))]
-          .sort()
-          .map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)
-          .join('')}</select>
-      </div>
-      <div class="field" style="margin:0;max-width:240px">
-        <label>Cari nama</label>
-        <input type="search" id="inv-q" placeholder="ketik nama bahan…" autocomplete="off" />
-      </div>
-    </div>
-    <div id="inv-stock"></div>
+    <div id="inv-stock" style="margin-top:8px"></div>
   `;
 
   const outletSelect = container.querySelector('#inv-outlet');
@@ -168,7 +177,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
              </p>`
           : ''
       }
-      <div class="table-scroll"><table class="data-table baris-sejajar">
+      <div class="table-scroll gulir-baris" style="--tinggi-baris:38px"><table class="data-table baris-sejajar">
         <thead><tr><th>Produk</th><th>Stok</th><th>Satuan</th></tr></thead>
         <tbody>
           ${
@@ -293,7 +302,12 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   }));
 
   // ---- Stok Opname: tabel yang langsung diisi (bukan pop up per produk) ----
-  const opnameState = { open: false, category: '', q: '' };
+  // `saring` bawaannya BELUM DIHITUNG, bukan SEMUA.
+  //
+  // Yang membuka layar ini hampir selalu sedang melanjutkan pekerjaan yang
+  // tertinggal, bukan memulai dari nol. Membuka pada "Semua" berarti sisa
+  // pekerjaannya tercampur di antara ratusan bahan yang sudah selesai.
+  const opnameState = { open: false, category: '', q: '', saring: SARING.BELUM };
   const categories = [...new Set(activeProducts.map((p) => p.category).filter(Boolean))].sort();
 
   container.querySelector('#inv-opname')?.addEventListener('click', () => {
@@ -326,6 +340,8 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   });
 
   let sesi = null;
+  // Hitungan yang SUDAH TERSIMPAN di server: produkId -> baris stock_count_items.
+  let tersimpan = new Map();
 
   async function renderOpnamePanel() {
     const panel = container.querySelector('#inv-opname-panel');
@@ -414,45 +430,128 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       return;
     }
 
+    // HITUNGAN YANG SUDAH TERSIMPAN DIMUAT LEBIH DULU.
+    //
+    // Ini yang dulu tidak ada, dan ketiadaannya adalah bug paling merugikan di
+    // modul ini. Opname dikerjakan BERSAMA dan BERTAHAP — Adhe menghitung rak
+    // kering pagi ini, Widyantoro melanjutkan chiller sorenya. Tanpa memuat
+    // hitungan yang sudah masuk, kotaknya selalu kosong dan orang kedua tidak
+    // punya satu pun cara tahu rak mana yang sudah didatangi.
+    //
+    // Dua akibatnya sama-sama senyap: bahan dihitung dua kali (yang kedua
+    // menimpa yang pertama), atau bahan tidak dihitung sama sekali karena
+    // masing-masing mengira yang lain sudah.
+    //
+    // Gagal memuatnya BUKAN alasan menampilkan panel kosong — panel kosong
+    // terlihat persis seperti "belum ada yang menghitung", dan itu justru
+    // kebohongan yang sedang diperbaiki. Jadi ditolak terang-terangan.
+    try {
+      const isi = await itemOpname(sesi.id);
+      tersimpan = new Map(isi.map((b) => [b.product_id, b]));
+    } catch (error) {
+      panel.innerHTML = `
+        <div class="inline-card fade-in" style="max-width:100%">
+          <div class="page-header" style="margin-bottom:8px">
+            <h3 style="margin:0;font-size:1rem">Stok Opname</h3>
+            <button id="opname-close">Tutup</button>
+          </div>
+          <p class="error-text" style="margin:0 0 8px">Hitungan yang sudah masuk gagal dimuat.</p>
+          <p style="margin:0;font-size:0.85rem;color:var(--color-text-muted)">
+            Panel ini sengaja tidak dibuka: layar kosong akan terlihat persis seperti
+            “belum ada yang menghitung”, dan kamu bisa menghitung ulang rak yang sebenarnya sudah selesai.
+            <br /><br />${esc(error.message ?? error)}
+          </p>
+          <button class="primary" id="opname-ulang" style="max-width:220px;margin-top:10px">Coba lagi</button>
+        </div>`;
+      panel.querySelector('#opname-close').addEventListener('click', () => {
+        opnameState.open = false;
+        renderOpnamePanel();
+      });
+      panel.querySelector('#opname-ulang').addEventListener('click', () => renderOpnamePanel());
+      return;
+    }
+
     panel.innerHTML = `
-      <div class="inline-card fade-in" style="max-width:100%">
-        <div class="page-header" style="margin-bottom:8px">
-          <h3 style="margin:0;font-size:1rem">Stok Opname — ${esc(outlets.find((o) => o.id === state.outletId)?.name ?? '')}</h3>
-          <button id="opname-close">Tutup</button>
-        </div>
-        <p style="margin:0 0 10px;font-size:0.85rem">
-          Nomor <strong>${esc(sesi.code)}</strong> · dibuka ${esc(sesi.pembuka?.full_name ?? '-')}
-          <br /><span style="color:var(--color-text-muted)">
-            Hitunganmu bisa diubah berkali-kali. <strong>Stok belum berubah</strong> sampai admin menutup sesi ini.
-          </span>
-        </p>
-        <p style="font-size:0.83rem;color:var(--color-text-muted);margin:0 0 10px">
-          Isi <strong>Stok Fisik</strong> hasil hitung di lapangan. Baris yang dikosongkan diabaikan; selisih dihitung otomatis.
-        </p>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
-          <div class="field" style="margin:0;max-width:200px"><label>Kategori</label>
-            <select id="opname-cat"><option value="">Semua</option>${categories.map((c) => `<option value="${esc(c)}"${c === opnameState.category ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      <div class="inline-card fade-in" style="max-width:100%;padding-top:0">
+        <div class="panel-lengket-atas">
+          <div class="page-header" style="margin:0 0 6px">
+            <h3 style="margin:0;font-size:1rem">Stok Opname — ${esc(outlets.find((o) => o.id === state.outletId)?.name ?? '')}</h3>
+            <button id="opname-close">Tutup</button>
           </div>
-          <div class="field" style="margin:0;max-width:240px"><label>Cari bahan</label>
-            <input type="text" id="opname-q" placeholder="ketik nama bahan…" value="${esc(opnameState.q)}" />
+          <p style="margin:0 0 8px;font-size:0.8rem;color:var(--color-text-muted)">
+            <strong>${esc(sesi.code)}</strong> · dibuka ${esc(sesi.pembuka?.full_name ?? '-')} ·
+            stok belum berubah sampai admin menutup sesi
+          </p>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <div class="field" style="margin:0;flex:1;min-width:120px"><label>Kategori</label>
+              <select id="opname-cat"><option value="">Semua</option>${categories.map((c) => `<option value="${esc(c)}"${c === opnameState.category ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select>
+            </div>
+            <div class="field" style="margin:0;flex:1;min-width:120px"><label>Status</label>
+              <select id="opname-saring">
+                <option value="${SARING.BELUM}"${opnameState.saring === SARING.BELUM ? ' selected' : ''}>Belum dihitung</option>
+                <option value="${SARING.SEMUA}"${opnameState.saring === SARING.SEMUA ? ' selected' : ''}>Semua</option>
+                <option value="${SARING.SUDAH}"${opnameState.saring === SARING.SUDAH ? ' selected' : ''}>Sudah dihitung</option>
+              </select>
+            </div>
+            <div class="field" style="margin:0;flex:1.4;min-width:140px"><label>Cari bahan</label>
+              <input type="search" id="opname-q" placeholder="ketik nama bahan…" value="${esc(opnameState.q)}"
+                     autocomplete="off" enterkeyhint="search" />
+            </div>
           </div>
+
+          <!-- TOMBOL SIMPAN DI HEADER, seperti layar Penjualan.
+               Daftar bahan bisa dua ratus baris; tombol yang cuma ada di
+               bawahnya memaksa orang menggulir melewati seluruh daftar untuk
+               menyimpan lima isian di bagian atas — dan yang paling sering
+               terjadi, ia lupa. -->
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+            <button class="primary" id="opname-save" style="flex:1;min-width:170px">Simpan Hasil Opname</button>
+            <button id="opname-clear">Kosongkan Isian</button>
+          </div>
+          <div id="opname-kemajuan" style="margin-top:8px"></div>
         </div>
-        <div id="opname-rows"></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-          <button class="primary" id="opname-save" style="max-width:220px">Simpan Hasil Opname</button>
-          <button id="opname-clear">Kosongkan Isian</button>
-        </div>
+
+        <div id="opname-rows" class="gulir-baris" style="--tinggi-baris:74px;margin-top:8px"></div>
       </div>`;
 
     const rowsBox = panel.querySelector('#opname-rows');
     const draft = new Map(); // productId -> nilai yang sedang diketik
 
     function renderRows() {
-      const list = activeProducts.filter(
+      // Saringan kategori & pencarian dulu; status hitung diurus modul murni.
+      const cocok = activeProducts.filter(
         (p) =>
           (!opnameState.category || p.category === opnameState.category) &&
           (!opnameState.q || fuzzyMatch(opnameState.q, `${p.name} ${p.category ?? ''} ${p.subcategory ?? ''}`))
       );
+
+      const h = susunDaftar(cocok, { tersimpan, draft, saring: opnameState.saring });
+      const list = h.baris;
+
+      // KEMAJUAN DIHITUNG DARI YANG TERSIMPAN DI SERVER, bukan dari isian lokal.
+      //
+      // Versi lama menghitung `draft.has(...)` — isian di HP ini saja. Angkanya
+      // selalu mulai dari 0 tiap kali panel dibuka, walau rekannya sudah
+      // menghitung separuh gudang. "0 dari 5" pada sesi yang sudah 60% selesai
+      // bukan sekadar tidak membantu; ia menyuruh orang mengulang pekerjaan
+      // yang sudah beres.
+      const kemajuan = panel.querySelector('#opname-kemajuan');
+      const persen = h.total ? Math.round((h.selesai / h.total) * 100) : 0;
+      kemajuan.innerHTML = `
+        <div style="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:4px">
+          <span><strong>${h.selesai}</strong> dari <strong>${h.total}</strong> bahan sudah dihitung</span>
+          <span style="color:var(--color-text-muted)">${h.belum} belum</span>
+        </div>
+        <div class="opname-bar"><div class="opname-bar-isi" style="width:${persen}%"></div></div>
+        ${
+          h.belumTersimpan
+            ? `<p class="error-text" style="font-size:0.76rem;margin:6px 0 0">
+                 ${h.belumTersimpan} isian belum tersimpan — tekan <strong>Simpan Hasil Opname</strong> sebelum menutup halaman.
+               </p>`
+            : ''
+        }`;
+
       // KARTU, BUKAN TABEL.
       //
       // Opname dikerjakan sambil berdiri di depan rak, satu tangan memegang HP.
@@ -467,30 +566,39 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       // Kartu membuang gulir mendatar sama sekali: nama di atas, kotak isian di
       // bawahnya dengan lebar penuh. Tidak ada yang perlu dibekukan karena
       // tidak ada yang bisa hilang.
-      const sudahIsi = list.filter((p) => draft.has(p.id)).length;
       rowsBox.innerHTML = `
-        <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
-          <strong class="opname-kemajuan">${sudahIsi}</strong> dari <strong>${list.length}</strong> bahan sudah diisi.
-          Yang dikosongkan tidak ikut tersimpan.
-        </p>
         <div class="opname-list">
           ${
             list
               .map((p) => {
-                const sys = stockMap?.get(p.id) ?? 0;
-                const val = draft.has(p.id) ? draft.get(p.id) : '';
-                return `<div class="opname-kartu" data-p="${p.id}">
-                  <div class="opname-nama">${esc(p.name)}</div>
+                const sys = stockMap.get(p.id) ?? 0;
+                const val = nilaiKotak(draft, tersimpan, p.id);
+                const selesai = sudahDihitung(tersimpan, p.id);
+                const ket = keteranganHitung(tersimpan, p.id);
+                return `<div class="opname-kartu${selesai ? ' opname-selesai' : ''}" data-p="${p.id}">
+                  <div class="opname-nama">${selesai ? '<span class="opname-centang">✓</span> ' : ''}${esc(p.name)}</div>
                   <div class="opname-meta">${esc(p.category ?? 'Tanpa kategori')} · sistem <strong>${formatNum(sys)}</strong> ${esc(p.base_unit)}</div>
+                  ${
+                    // SIAPA & KAPAN, supaya "kok angkanya beda dari yang saya
+                    // lihat di rak" bisa ditanyakan ke orangnya langsung —
+                    // bukan jadi perdebatan tanpa ujung berminggu-minggu
+                    // kemudian saat opname sudah ditutup.
+                    ket ? `<div class="opname-jejak">${esc(ket)}</div>` : ''
+                  }
                   <div class="opname-isi">
                     <input type="number" class="opname-input" data-p="${p.id}" data-sys="${sys}" min="0" step="any"
-                      inputmode="decimal" placeholder="stok fisik" value="${val}" aria-label="Stok fisik ${esc(p.name)}" />
+                      inputmode="decimal" placeholder="stok fisik" value="${esc(val)}" aria-label="Stok fisik ${esc(p.name)}" />
                     <span class="opname-satuan">${esc(p.base_unit)}</span>
                     <span class="opname-diff" data-p="${p.id}">-</span>
                   </div>
                 </div>`;
               })
-              .join('') || '<p style="color:var(--color-text-muted)">Tidak ada bahan pada filter ini.</p>'
+              .join('') ||
+            `<p style="color:var(--color-text-muted);padding:10px 2px">${
+              opnameState.saring === SARING.BELUM && h.total
+                ? 'Semua bahan pada saringan ini sudah dihitung. 🎉'
+                : 'Tidak ada bahan pada filter ini.'
+            }</p>`
           }
         </div>`;
 
@@ -498,7 +606,13 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
         const updateDiff = () => {
           const cell = rowsBox.querySelector(`.opname-diff[data-p="${inp.dataset.p}"]`);
           if (inp.value === '') {
-            draft.delete(inp.dataset.p);
+            // Dicatat sebagai string kosong, BUKAN dihapus dari `draft`.
+            //
+            // Menghapusnya membuat `nilaiKotak()` jatuh kembali ke angka
+            // server, jadi kotak yang baru saja dikosongkan orangnya akan
+            // terisi lagi sendiri pada penggambaran berikutnya — dan ia akan
+            // mengira aplikasinya menolak hapusannya.
+            draft.set(inp.dataset.p, '');
             cell.textContent = '-';
             cell.style.color = 'var(--color-text-muted)';
             return;
@@ -510,14 +624,31 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
         };
         inp.addEventListener('input', () => {
           updateDiff();
-          // Penghitung kemajuan diperbarui di tempat. Menggambar ulang seluruh
-          // daftar akan membuat kotak yang sedang diketik kehilangan fokus —
-          // dan di HP itu berarti papan ketiknya ikut tertutup setiap angka.
-          const info = rowsBox.querySelector('.opname-kemajuan');
-          if (info) info.textContent = String(list.filter((p) => draft.has(p.id)).length);
+          // HANYA peringatan "belum tersimpan" yang diperbarui, bukan seluruh
+          // daftar. Menggambar ulang saat mengetik membuang fokus dari kotak
+          // yang sedang diisi — dan di HP itu berarti papan ketiknya tertutup
+          // setiap angka. Kartunya juga akan melompat posisi karena yang baru
+          // terisi naik/turun kelompok.
+          tandaBelumTersimpan();
         });
         updateDiff();
       });
+    }
+
+    /** Perbarui angka "belum tersimpan" saja, tanpa menyentuh daftarnya. */
+    function tandaBelumTersimpan() {
+      const kotak = panel.querySelector('#opname-kemajuan .error-text');
+      const n = hitungBelumTersimpan(draft, tersimpan);
+      if (n && kotak) {
+        kotak.innerHTML = `${n} isian belum tersimpan — tekan <strong>Simpan Hasil Opname</strong> sebelum menutup halaman.`;
+      } else if (n && !kotak) {
+        panel.querySelector('#opname-kemajuan').insertAdjacentHTML(
+          'beforeend',
+          `<p class="error-text" style="font-size:0.76rem;margin:6px 0 0">${n} isian belum tersimpan — tekan <strong>Simpan Hasil Opname</strong> sebelum menutup halaman.</p>`
+        );
+      } else if (!n && kotak) {
+        kotak.remove();
+      }
     }
 
     panel.querySelector('#opname-close').addEventListener('click', () => {
@@ -532,7 +663,14 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       opnameState.q = e.target.value;
       renderRows();
     });
+    panel.querySelector('#opname-saring').addEventListener('change', (e) => {
+      opnameState.saring = e.target.value;
+      renderRows();
+    });
     panel.querySelector('#opname-clear').addEventListener('click', () => {
+      // Yang dibuang hanya ketikan yang BELUM terkirim. Hitungan yang sudah
+      // tersimpan di server tetap ada dan muncul kembali di kotaknya — tombol
+      // ini bukan "batalkan opname", dan tidak boleh terasa begitu.
       draft.clear();
       renderRows();
     });
@@ -581,21 +719,39 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       }
 
       e.target.disabled = true;
-      let tersimpan = 0;
+      // DINAMAI `terkirim`, BUKAN `tersimpan`.
+      //
+      // `tersimpan` sudah dipakai untuk peta hitungan-dari-server di cakupan
+      // luar. Penghitung bernama sama akan MENUTUPINYA di dalam blok ini —
+      // dan karena JavaScript tidak mengeluh, kesalahannya baru terasa sebagai
+      // daftar yang tiba-tiba menganggap semua bahan belum dihitung.
+      let terkirim = 0;
       try {
         for (const it of isian) {
           await catatHitungan({ countId: sesi.id, productId: it.pid, counted: it.counted, systemQty: it.sys });
-          tersimpan++;
+          terkirim++;
         }
         // Sengaja TIDAK menyebut "stok dikoreksi": stok belum bergerak sama
         // sekali. Menulis "tersimpan" untuk sesuatu yang mengubah stok padahal
         // tidak, adalah cara tercepat membuat orang salah paham soal kapan
         // angkanya benar-benar berlaku.
-        toast(`${tersimpan} hitungan tersimpan ke ${sesi.code}. Stok berubah setelah admin menutup sesi.`, 'success');
-        opnameState.open = false;
-        renderOpnamePanel();
+        toast(`${terkirim} hitungan tersimpan ke ${sesi.code}. Stok berubah setelah admin menutup sesi.`, 'success');
+
+        // PANELNYA TETAP TERBUKA, hanya dimuat ulang.
+        //
+        // Versi lama menutup panel sesudah menyimpan. Itu masuk akal ketika
+        // layar ini tidak bisa menampilkan apa pun yang sudah tersimpan —
+        // tidak ada yang perlu dilihat. Sekarang justru sebaliknya: sesudah
+        // menyimpan, orangnya ingin melihat centangnya bertambah dan
+        // melanjutkan ke bahan berikutnya. Menutup panel memaksa ia membuka
+        // ulang dan mencari posisinya lagi, tiap kali menyimpan.
+        //
+        // `draft` ikut dibuang lewat penggambaran ulang: isiannya sudah ada di
+        // server, jadi kotaknya akan terisi dari sana. Menyimpannya di dua
+        // tempat berarti salah satunya cepat atau lambat jadi basi.
+        await renderOpnamePanel();
       } catch (error) {
-        toast(`${error.message ?? 'Gagal menyimpan hitungan.'} (${tersimpan} tersimpan)`, 'error');
+        toast(`${error.message ?? 'Gagal menyimpan hitungan.'} (${terkirim} tersimpan)`, 'error');
         e.target.disabled = false;
       }
     });

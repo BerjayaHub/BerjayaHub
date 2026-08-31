@@ -142,7 +142,69 @@ if (badanUlang && /stockMap\s*=\s*\(await refresh\(\)\)\s*\?\?\s*stockMap/.test(
   );
 }
 
+
+// ---------------------------------------------------------------
+// 5. HITUNGAN YANG SUDAH TERSIMPAN WAJIB DIMUAT.
+//
+// Bug aslinya: layar staff tidak pernah memanggil `itemOpname()`. Fungsinya
+// sudah ada di service dan RLS-nya sudah mengizinkan staff membaca — ia cuma
+// tidak pernah dipanggil.
+//
+// Akibatnya kotak isian SELALU kosong, walau rekannya sudah menghitung separuh
+// gudang. Orang kedua tidak punya satu pun cara tahu rak mana yang sudah
+// didatangi, jadi bahan dihitung dua kali (yang kedua menimpa yang pertama)
+// atau tidak dihitung sama sekali karena masing-masing mengira yang lain sudah.
+//
+// Tidak ada error di mana pun. Layar kosong terlihat persis seperti "belum ada
+// yang menghitung" — dan itulah yang membuatnya bertahan.
+// ---------------------------------------------------------------
+if (!/itemOpname/.test(isi)) {
+  salah(
+    `${BERKAS}: tidak memanggil \`itemOpname()\`. Panel opname akan selalu tampil kosong, ` +
+      'jadi staff kedua tidak bisa tahu bahan mana yang sudah dihitung rekannya — dan menghitung ulang menimpa hasilnya.'
+  );
+}
+
+// Dipanggil dengan sesi yang sedang terbuka, bukan sekadar disebut namanya di
+// suatu tempat (mis. tertinggal di import tanpa dipakai).
+if (!/await itemOpname\(sesi\.id\)/.test(isi)) {
+  salah(
+    `${BERKAS}: \`itemOpname\` disebut tapi tidak dipanggil dengan \`sesi.id\`. ` +
+      'Import yang tidak terpakai tidak menampilkan apa pun ke staff.'
+  );
+}
+
+// Kemajuan dihitung dari yang TERSIMPAN, bukan dari isian lokal.
+//
+// Versi lama menghitung `draft.has(...)` — isian di HP ini saja — jadi angkanya
+// selalu mulai dari 0 tiap panel dibuka. "0 dari 5" pada sesi yang sudah 60%
+// selesai bukan sekadar tidak membantu; ia menyuruh orang mengulang pekerjaan
+// yang sudah beres.
+//
+// Diperiksa dengan menuntut sumber yang BENAR (`h.selesai` / `h.total` dari
+// `susunDaftar`), bukan dengan melarang satu bentuk tulisan yang salah.
+// Sabotase pertama saya lolos justru karena auditnya mencari `draft.has` —
+// sementara sabotasenya memakai `[...draft.keys()].length`. Daftar hitam
+// bentuk-yang-salah selalu bisa dilewati dengan menulisnya sedikit berbeda;
+// menuntut bentuk-yang-benar tidak bisa.
+const iKemajuan = isi.indexOf("#opname-kemajuan')");
+if (iKemajuan === -1) {
+  salah(`${BERKAS}: blok kemajuan opname (#opname-kemajuan) tidak ditemukan — audit kehilangan sasarannya.`);
+} else {
+  const blok = isi.slice(iKemajuan, iKemajuan + 900);
+  if (!/h\.selesai/.test(blok) || !/h\.total/.test(blok)) {
+    salah(
+      `${BERKAS}: angka kemajuan opname tidak lagi dibaca dari \`h.selesai\`/\`h.total\` (hasil susunDaftar, ` +
+        'yang bersumber dari server). Dihitung dari isian lokal, angkanya selalu mulai dari 0 tiap panel dibuka — ' +
+        'dan "0 dari 87" pada sesi yang sudah separuh selesai menyuruh orang mengulang pekerjaan yang sudah beres.'
+    );
+  }
+  if (/draft\.(has|keys|size)/.test(blok)) {
+    salah(`${BERKAS}: blok kemajuan opname masih membaca \`draft\` — itu isian di perangkat ini saja, bukan pekerjaan tim.`);
+  }
+}
+
 if (gagal === 0) {
-  console.log('Opname: potret stok sistem tidak pernah dikarang jadi nol, dan tidak pernah basi. ✅');
+  console.log('Opname: potret sistem tidak dikarang, tidak basi, dan hitungan tersimpan selalu dimuat. ✅');
 }
 process.exit(gagal === 0 ? 0 : 1);

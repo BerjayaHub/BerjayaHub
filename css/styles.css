@@ -2692,3 +2692,52 @@ select.sc-cell.is-off {
     line-height: 1.1;
   }
 }
+
+
+/* =========================================================
+   STOK OPNAME — tanda "sudah dihitung" & bilah kemajuan
+
+   Opname dikerjakan bergantian oleh beberapa orang. Yang paling menentukan
+   apakah ia selesai bukan kecepatan menghitung, melainkan apakah orang
+   berikutnya bisa melihat rak mana yang sudah didatangi.
+   ========================================================= */
+
+/* Kartu yang hitungannya SUDAH tersimpan di server.
+
+   Dibedakan lewat warna latar dan garis kiri, bukan lewat menyembunyikannya:
+   yang sudah dihitung tetap harus bisa dibuka dan dibetulkan kalau salah. */
+.opname-kartu.opname-selesai {
+  background: var(--color-success-bg, #f1f8f2);
+  border-left: 3px solid var(--color-success, #2e7d32);
+}
+
+.opname-centang {
+  color: var(--color-success, #2e7d32);
+  font-weight: 700;
+}
+
+/* Siapa yang menghitung dan kapan. Kecil dan redup — ia keterangan, bukan
+   sesuatu yang harus dibaca tiap baris. Tapi ADA, supaya "kok angkanya beda
+   dari yang saya lihat di rak" bisa ditanyakan ke orangnya langsung. */
+.opname-jejak {
+  font-size: 0.72rem;
+  color: var(--color-success, #2e7d32);
+  margin-top: 2px;
+}
+
+/* Bilah kemajuan. Angka "42 dari 87" saja sudah benar, tapi bilahnya yang
+   membuat sisa pekerjaan terbaca dalam sekali lihat sambil berdiri di depan
+   rak — dan itu keadaan sebenarnya saat layar ini dipakai. */
+.opname-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.opname-bar-isi {
+  height: 100%;
+  background: var(--color-success, #2e7d32);
+  border-radius: 3px;
+  transition: width 0.25s ease;
+}
