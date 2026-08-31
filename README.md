@@ -4552,7 +4552,60 @@ Enam sabotase, semuanya tertangkap. Yang paling berguna dua: mengembalikan `v_dr
 Draft yang terlanjur tersangkut **tidak disentuh migration ini**. Tiap draft adalah keputusan operasional: barangnya sudah pindah, atau memang batal. Query untuk melihatnya lebih dulu ada di `DEPLOY.md §5b`.
 
 - [x] **Tabel isian berjajar di HP** — kelas opt-in `baris-sejajar` untuk tabel yang semua selnya pendek (Penjualan, Menu, Dispatch ×3, Produksi, Inventory, dua panel resep), tombol Simpan pindah ke panel lengket atas, `thead` menempel di dalam penggulir ~10 baris, rekap lengket di bawah, dijaga `audit-baris-sejajar.cjs`
+---
+
+# Opname: kapan persisnya stok berubah
+
+> *"apakah bila sesi belum ditutup stok tidak akan bertambah? … saat staff isi stock opname dan klik simpan hasil opname, stock masih 0 — fyi ini kita baru isi stok awal"*
+
+**Ya, dan itu memang rancangannya.** Stok tidak bergerak satu gram pun sampai **Admin BU menutup sesinya**.
+
+| tindakan | siapa | akibat pada stok |
+|---|---|---|
+| Buka sesi | Admin BU / Super Admin | tidak ada |
+| Isi hitungan (berkali-kali) | staff | **tidak ada** |
+| Simpan Hasil Opname | staff | **tidak ada** |
+| **Tutup sesi** | Admin BU / Super Admin | `stock_movements` ditulis, saldo berubah |
+| Batalkan sesi | Admin BU / Super Admin | tidak ada — hitungannya tetap jadi riwayat |
+
+Alasannya: menutup itu **mengubah stok dan tidak bisa dibatalkan**, jadi ia dipisahkan dari mengisi. Staff boleh menghitung berkali-kali dan memperbaiki angkanya tanpa risiko; yang memutuskan angka itu berlaku adalah orang lain.
+
+## Dibuktikan berjalan, bukan dibaca
+
+"Memang begitu rancangannya" adalah kalimat yang sama persis dengan yang diucapkan orang tepat sebelum menemukan bug. `tools/test-opname-stok-awal.mjs` menjalankannya di Postgres sungguhan dan memeriksa **saldo di `stock_balances`** — view yang sama yang dibaca layar Inventory, bukan nilai kembalian fungsinya. Fungsi yang melaporkan "3 bahan disesuaikan" sambil tidak menulis apa pun akan lolos dari pemeriksaan nilai kembalian, dan itu justru bentuk kegagalan yang paling meyakinkan di layar.
+
+Stok awal diuji **tersendiri** karena bentuknya khas: sistem 0, fisik sekian, jadi penyesuaiannya seluruh angkanya. Kalau di suatu tempat ada penjaga yang melewati baris "yang sistemnya nol" — dianggap produk yang belum pernah dipakai, misalnya — seluruh pengisian stok awal menghasilkan nol pergerakan **tanpa satu pun error**, dan outletnya beroperasi berbulan-bulan dengan stok yang selamanya minus. Tidak ada penjaga seperti itu; sekarang ada tesnya juga.
+
+Ikut dibuktikan: bahan yang dihitung dan ternyata **cocok** tidak menghasilkan pergerakan (tapi tetap tersimpan — "dihitung dan cocok" beda dari "belum dihitung"), menutup dua kali ditolak, dan opname kedua menulis **selisih** (−2), bukan menimpa absolut.
+
+## Satu risiko yang ditemukan saat menelusuri
+
+Ini yang tidak ditanyakan tapi lebih penting daripada jawabannya.
+
+`system_qty` dikirim dari layar, diambil dari peta stok yang dimuat `refresh()` — dan `refresh()` mengembalikan **`null`** kalau pemuatannya gagal. Barisnya dulu berbunyi:
+
+```js
+sys: stockMap?.get(pid) ?? 0
+```
+
+Saat petanya null, **setiap** potret sistem jadi 0. Untuk stok awal itu kebetulan tidak berbahaya — sistemnya memang 0. Tapi pada opname **kedua** dan seterusnya, selisihnya berubah dari `dihitung − 40` menjadi `dihitung − 0`: beras yang tercatat 40 lalu dihitung 38 tidak menghasilkan −2 melainkan **+38**, dan saldonya melonjak ke 78.
+
+Yang membuatnya berbahaya: layar menulis "sistem 0" untuk semua bahan, dan itu terlihat **masuk akal** buat orang yang memang sedang mengisi stok awal.
+
+Sekarang ada tiga lapis, dan ketiganya perlu:
+
+1. panel opname **menolak dibuka** tanpa peta stok, dengan tombol muat ulang
+2. tombol Simpan **memeriksa ulang** — panel bisa terbuka lama sambil orangnya menghitung isi rak, dan yang menentukan benar-salahnya angka adalah keadaan pada **detik disimpan**
+3. tombol muat ulang di panel opname **tidak** memakai `?? stockMap`. Di tempat lain pola itu benar (data basi lebih berguna daripada layar kosong untuk sekadar menampilkan stok), tapi untuk opname justru terbalik: potret basi menghasilkan selisih yang salah dengan tenang
+
+## Sabotase yang lolos: jendela tetap
+
+Versi pertama `audit-opname-potret.cjs` memeriksa penangan tombol dengan memotong **700 karakter** di belakang jangkarnya. Sabotase yang mengembalikan `?? stockMap` **lolos**: polanya mulai di karakter ke-662 dan panjangnya ~40, jadi ujungnya terpotong jendela dan regex-nya tidak pernah cocok.
+
+Jendela tetap selalu punya bentuk kegagalan itu — ia bergantung pada panjang **komentar** di atas kodenya, yang bisa berubah kapan saja tanpa ada yang sadar auditnya ikut berhenti bekerja. Diganti `badanPenangan()` yang menghitung kurung. Kelima sabotase tertangkap sesudahnya.
+
 - [x] **Transfer antar outlet & retur ke CK bisa diselesaikan** — outlet non-CK dapat tab 📝 Draft Kiriman (sebelumnya drafnya dibuat lalu tidak punya pintu sama sekali), pengalihan tab tidak lagi senyap, kata-kata layar tidak lagi menganggap pengirim selalu CK, lencana menghitung draft semua outlet (`0109`), dijaga `audit-tab-ada.cjs` yang membandingkan cabang per cabang
+- [x] **Opname: potret stok sistem tidak bisa dikarang jadi nol** — panel menolak dibuka & Simpan menolak menyimpan saat peta stok gagal dimuat (dulu `stockMap?.get() ?? 0` diam-diam menjadikan semua `system_qty` nol, dan opname kedua melipatgandakan stok), alurnya dibuktikan di Postgres sungguhan lewat `test-opname-stok-awal.mjs`
 - [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal
 - [x] **Halaman Owner (`owner.html`)** — dibuka super admin, KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin

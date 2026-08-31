@@ -335,6 +335,63 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     }
     sesi = await sesiTerbuka(state.outletId).catch(() => null);
 
+    // TANPA PETA STOK, OPNAME TIDAK BOLEH DIBUKA SAMA SEKALI.
+    //
+    // `refresh()` mengembalikan `null` kalau pemuatan stok gagal (jaringan
+    // putus, RLS menolak, PostgREST error). Sebelum penjaga ini, panel opname
+    // tetap terbuka dan `stockMap?.get(pid) ?? 0` menjadikan SETIAP potret
+    // sistem bernilai 0.
+    //
+    // Untuk pengisian stok awal itu kebetulan tidak berbahaya — sistemnya
+    // memang 0. Tapi pada opname KEDUA dan seterusnya, akibatnya parah dan
+    // sepenuhnya senyap: penyesuaiannya `dihitung − 0` = seluruh angkanya, jadi
+    // beras yang tercatat 40 dan dihitung 38 tidak menghasilkan −2 melainkan
+    // +38, dan saldonya melonjak jadi 78.
+    //
+    // Tidak ada error di mana pun. Layarnya menulis "sistem 0" untuk semua
+    // bahan — yang justru terlihat masuk akal buat orang yang memang sedang
+    // mengisi stok awal, dan tidak mencurigakan buat siapa pun yang lain.
+    //
+    // Jadi ditolak di depan. Kehilangan satu sesi hitung jauh lebih murah
+    // daripada stok yang salah tanpa ada yang tahu kapan mulai salahnya.
+    if (sesi && !stockMap) {
+      panel.innerHTML = `
+        <div class="inline-card fade-in" style="max-width:100%">
+          <div class="page-header" style="margin-bottom:8px">
+            <h3 style="margin:0;font-size:1rem">Stok Opname</h3>
+            <button id="opname-close">Tutup</button>
+          </div>
+          <p class="error-text" style="margin:0 0 8px">Stok sistem gagal dimuat — opname belum bisa dibuka.</p>
+          <p style="margin:0;font-size:0.85rem;color:var(--color-text-muted)">
+            Hitungan opname disimpan sebagai <strong>selisih terhadap stok sistem</strong>, jadi angka sistemnya
+            harus benar-benar terbaca dulu. Kalau tetap dilanjutkan tanpa itu, selisihnya akan dihitung dari
+            angka nol dan stok akhirmu jadi keliru tanpa ada peringatan apa pun.
+            <br /><br />
+            Periksa koneksi, lalu tekan tombol di bawah.
+          </p>
+          <button class="primary" id="opname-ulang" style="max-width:220px;margin-top:10px">Muat ulang stok</button>
+        </div>`;
+      panel.querySelector('#opname-close').addEventListener('click', () => {
+        opnameState.open = false;
+        renderOpnamePanel();
+      });
+      panel.querySelector('#opname-ulang').addEventListener('click', async () => {
+        // TANPA `?? stockMap`, dan itu disengaja.
+        //
+        // Di tempat lain pola `?? stockMap` dipakai untuk mempertahankan angka
+        // lama saat pemuatan gagal — untuk sekadar MENAMPILKAN stok, data basi
+        // lebih berguna daripada layar kosong.
+        //
+        // Untuk opname justru sebaliknya. Potret sistem yang basi menghasilkan
+        // selisih yang salah dengan tenang: dihitung 145 sesudah nota 50 masuk
+        // sementara potretnya masih 100 memberi +45, dan stoknya jadi 195.
+        // Gagal terang-terangan lebih baik daripada berhasil dengan angka basi.
+        stockMap = await refresh();
+        renderOpnamePanel();
+      });
+      return;
+    }
+
     // Tanpa sesi terbuka, tidak ada tempat menyimpan hitungan. Ditolak DI SINI
     // dengan kalimat yang menyebut siapa yang bisa membukanya — bukan dibiarkan
     // sampai orangnya selesai menghitung seratus bahan lalu ditolak server.
@@ -486,6 +543,22 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
         return;
       }
 
+      // PENJAGA KEDUA, dan bukan pengulangan yang sia-sia.
+      //
+      // Penjaga pertama berjalan saat panel DIBUKA. Panel ini bisa terbuka
+      // lama — orang menghitung isi rak sambil membawa HP — dan `stockMap`
+      // bisa berubah jadi null di tengah jalan lewat tombol muat ulang mana
+      // pun yang gagal. Yang menentukan benar-salahnya angka adalah keadaan
+      // pada DETIK DISIMPAN, bukan detik panelnya dibuka.
+      if (!stockMap) {
+        toast(
+          'Stok sistem tidak terbaca, jadi hitungan ini tidak bisa disimpan — selisihnya akan dihitung dari nol ' +
+            'dan stokmu jadi keliru. Tutup panel, muat ulang stoknya, lalu isi lagi.',
+          'error'
+        );
+        return;
+      }
+
       // SEMUA yang diisi dikirim, termasuk yang selisihnya nol.
       //
       // Versi lama hanya mengirim yang berselisih, dengan alasan "tidak ada yang
@@ -496,7 +569,11 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       const isian = [];
       for (const [pid, raw] of draft.entries()) {
         if (raw === '') continue;
-        isian.push({ pid, counted: Number(raw), sys: stockMap?.get(pid) ?? 0 });
+        // `?? 0` DI SINI SAH, dan artinya berbeda dari kegagalan di atas:
+        // produk yang belum pernah punya pergerakan memang tidak muncul di
+        // `stock_balances`, dan stoknya memang nol. Yang tidak sah adalah
+        // SELURUH peta yang hilang — itu sudah ditolak dua penjaga di atas.
+        isian.push({ pid, counted: Number(raw), sys: stockMap.get(pid) ?? 0 });
       }
       if (!isian.length) {
         toast('Belum ada bahan yang diisi.', 'info');
