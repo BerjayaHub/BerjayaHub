@@ -78,8 +78,18 @@ export async function listSalesHariIni(outletId, date) {
  * akan bergeser), dan stok bahannya harus ikut dikoreksi — keduanya mustahil
  * dijamin dari sisi klien.
  */
-export async function ubahPenjualan(saleId, qty) {
-  const { data, error } = await supabase.rpc('ubah_penjualan', { p_sale: saleId, p_qty: Number(qty) });
+export async function ubahPenjualan(saleId, qty, alasan = null) {
+  // `p_alasan` SELALU dikirim, walau null.
+  //
+  // Sejak 0112 fungsinya bertanda tangan tiga parameter dengan default null.
+  // Mengirimnya secara eksplisit membuat pemanggilan ini tidak bergantung pada
+  // resolusi default PostgREST — dan kalau suatu saat defaultnya dicabut,
+  // yang gagal adalah SQL-nya, bukan diam-diam memanggil overload lain.
+  const { data, error } = await supabase.rpc('ubah_penjualan', {
+    p_sale: saleId,
+    p_qty: Number(qty),
+    p_alasan: alasan || null
+  });
   if (error) throw error;
   return data;
 }
@@ -136,10 +146,58 @@ export async function listSalesReport({ businessUnitId, outletId, dateFrom, date
   });
 }
 
+/**
+ * Daftar penjualan PER TRANSAKSI untuk layar koreksi Admin Portal.
+ *
+ * Berbeda dengan `listSalesReport()` yang dipakai laporan: yang itu diagregat
+ * per menu untuk menjawab "menu apa yang laku". Yang ini menjawab pertanyaan
+ * lain — "baris mana yang salah ketik" — dan untuk itu barisnya harus utuh,
+ * lengkap dengan siapa yang menginput dan jejak koreksinya kalau ada.
+ *
+ * `ambilSemua` dipakai karena PostgREST memotong diam-diam di ~1000 baris.
+ * Satu outlet ramai bisa melewati itu dalam sebulan, dan yang hilang adalah
+ * baris paling lama — persis yang sedang dicari kalau kesalahannya baru
+ * ketahuan belakangan.
+ */
+export async function listSalesTransaksi({ businessUnitId, outletId, dateFrom, dateTo }) {
+  return ambilSemua((dari, sampai) => {
+    let query = supabase
+      .from('sales')
+      .select(
+        'id, sale_date, product_id, qty, unit_price, revenue, created_at, created_by, ' +
+          'qty_awal, dikoreksi_at, dikoreksi_alasan, ' +
+          'products(name, category), outlets(name), ' +
+          'pencatat:user_profiles!created_by(full_name), pengoreksi:user_profiles!dikoreksi_by(full_name)',
+        { count: 'exact' }
+      )
+      .eq('business_unit_id', businessUnitId)
+      .order('sale_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .range(dari, sampai);
+    if (outletId) query = query.eq('outlet_id', outletId);
+    if (dateFrom) query = query.gte('sale_date', dateFrom);
+    if (dateTo) query = query.lte('sale_date', dateTo);
+    return query;
+  });
+}
+
 export async function listRecentSalesActivity({ limit = 25, before = null } = {}) {
   let query = supabase
     .from('sales')
-    .select('created_at, qty, revenue, products(name), outlets(name), business_units(name), user_profiles(full_name)')
+    // `user_profiles!created_by`, BUKAN `user_profiles` polos.
+    //
+    // Sejak 0112 tabel `sales` punya DUA foreign key ke `user_profiles`
+    // (`created_by` dan `dikoreksi_by`). Embed polos jadi ambigu, dan PostgREST
+    // menolak SELURUH query-nya — bukan cuma kolom itu. Akibatnya kartu
+    // "Aktivitas Penjualan Terbaru" di Dashboard Admin akan kosong total.
+    //
+    // Ini ditemukan `audit-embed-ambigu.cjs`, bukan oleh saya. Kolom baru yang
+    // menunjuk tabel yang SUDAH pernah di-embed di tempat lain adalah cara
+    // paling mudah merusak layar yang tidak sedang disentuh sama sekali.
+    .select(
+      'created_at, qty, revenue, products(name), outlets(name), business_units(name), ' +
+        'user_profiles!created_by(full_name)'
+    )
     .order('created_at', { ascending: false })
     .limit(limit);
   if (before) query = query.lt('created_at', before);

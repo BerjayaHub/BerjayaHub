@@ -4818,7 +4818,65 @@ Dari tiga belas sabotase, dua awalnya hijau — dan keduanya bukan celah di kode
 Yang kedua adalah bentuk kegagalan yang paling sering muncul di repo ini: **pemeriksaan yang hijau karena sasarannya tidak ada.** Sesudah kedua alatnya dibetulkan, ketiga belas sabotase merah.
 
 - [x] **Order ke CK bisa diisi beberapa divisi** — order milik OUTLET asal, bukan pembuatnya (`0110`), jadi bar dan kitchen menumpang pada satu nomor order alih-alih CK menerima tiga permintaan terpisah; membatalkan ikut disamakan dengan pembatal tercatat di `handled_by`
+---
+
+# Memperbaiki penjualan yang sudah diinput
+
+> *"penjualan yang sudah diinput bisa diedit lagi kapanpun, setelah di edit ini akan berpengaruh pada stock juga, karena ada case staff salah input jumlah menu terjual"*
+
+**Wewenangnya sudah ada sejak `0101`.** `boleh_ubah_penjualan()` mengizinkan `is_bu_admin` mengubah penjualan tanggal kapan pun, dan `ubah_penjualan()` sudah menulis pergerakan stok penyeimbang sebesar selisihnya.
+
+Yang tidak ada adalah **pintunya**: Admin Portal → Penjualan cuma menampilkan laporan agregat per menu (Menu, Kategori, Terjual, Omzet). Tidak ada baris per transaksi, jadi tidak ada yang bisa ditekan. Staff App punya tombolnya, tapi hanya untuk transaksi **hari ini**.
+
+Bentuknya sama persis dengan bug draft surat jalan di `0109`: kemampuannya ada di database, jalannya tidak ada di layar. Ini yang ketiga kalinya pola itu muncul, dan tiap kali gejalanya sama — fitur yang "tidak ada" padahal separuhnya sudah dibangun.
+
+## Dua tab, dua pertanyaan yang berbeda
+
+| tab | menjawab | bentuknya |
+|---|---|---|
+| 📊 Rekap per Menu | "menu apa yang laku" | diagregat per menu |
+| 🧾 Transaksi & Koreksi | "baris mana yang salah ketik" | satu baris per transaksi |
+
+Menggabungkannya jadi satu tabel sempat dipertimbangkan dan ditolak: yang membaca rekap sedang menilai penjualan, yang membuka transaksi sedang mencari kesalahan. Tabel yang melayani keduanya akan penuh kolom yang tidak dipakai separuh pembacanya.
+
+## Alasan wajib — tapi hanya untuk tanggal lampau
+
+Hari ini bebas: staff membetulkan ketikannya sendiri beberapa menit kemudian, dan menuntut alasan di situ cuma memperlambat tanpa menambah apa pun.
+
+Tanggal lampau lain sepenuhnya. Angkanya sudah masuk rekap harian, mungkin sudah dibahas, mungkin sudah dipakai menghitung bonus. Mengubahnya tanpa keterangan membuat *"kok omzet Selasa berubah?"* tidak bisa dijawab siapa pun — dan yang paling merugikan, **koreksi yang sah jadi tidak bisa dibedakan dari kesalahan yang tidak sengaja.**
+
+Kotak alasannya pun **hanya muncul saat memang diwajibkan**. Kotak yang selalu ada tapi cuma kadang wajib akan diisi seadanya ("-", "koreksi") sampai isinya berhenti berarti.
+
+`qty_awal` disimpan **sekali seumur hidup baris itu** — koreksi kedua tidak menimpanya. Kalau ditimpa, angka yang benar-benar diinput staff hilang sesudah dua kali koreksi, dan yang tersisa justru angka yang paling tidak berarti. Pola yang sama dengan `late_status_awal` di `0106`.
+
+Alasannya ikut ke **catatan pergerakan stok**, bukan cuma tersimpan di baris penjualan. Yang membaca buku besar stok biasanya sedang menelusuri selisih opname, dan ia tidak akan tahu harus membuka tabel `sales` untuk mencari sebabnya.
+
+## Harga tidak dihitung ulang
+
+Perilaku `0101` dipertahankan: omzet = `unit_price` dari barisnya sendiri × jumlah baru. Kalau harga sekarang yang dipakai, mengoreksi satu salah ketik di bulan lalu akan menggeser omzet **seluruh periode itu** — dan laporan yang dicetak ulang tidak akan cocok dengan yang sudah beredar, tanpa ada yang menyentuh angka lain mana pun.
+
+## Tanda tangan fungsi berubah — dan itu berbahaya
+
+`ubah_penjualan(uuid, numeric)` → `ubah_penjualan(uuid, numeric, text)`.
+
+`create or replace` dengan parameter tambahan **tidak menimpa** — ia membuat **overload**, dan versi dua-parameter yang tanpa penjagaan alasan tetap hidup. PostgREST bisa memilih yang mana saja, jadi penjagaan yang baru ditulis bisa dilewati tanpa satu pun tanda. Karena itu ada `drop function` eksplisit, dan §6 pada tesnya menghitung `pg_proc` untuk memastikan hanya ada satu versi.
+
+## Dua sabotase lolos — keduanya lubang di tes saya
+
+**`v_lampau` dihitung dari `created_at` alih-alih `sale_date`** tampak lolos. Sebabnya: §1 memundurkan **kedua** kolom sekaligus, jadi kedua rumus memberi jawaban sama. Kasus yang membedakan baru ditambahkan di §7b — penjualan bertanggal kemarin yang **baru diinput hari ini** (staff terlambat mencatat). Kalau penjagaannya berpatokan `created_at`, baris seperti itu lolos tanpa alasan padahal angkanya masuk rekap kemarin.
+
+**Harga dihitung ulang dari daftar harga sekarang** juga lolos — dan ini yang lebih memalukan. Komentar tes saya sendiri berbunyi *"sengaja diuji dengan MENAIKKAN daftar harga lebih dulu"*, padahal barisnya tidak pernah ada. Harga lama dan harga sekarang kebetulan sama, jadi kedua rumus menghasilkan angka identik. **Pemeriksaan yang tidak bisa membedakan dua perilaku bukan pemeriksaan** — dan komentar yang mengaku menguji sesuatu yang tidak diuji lebih buruk daripada tidak ada komentar sama sekali.
+
+Sesudah kedua lubang ditambal, dua belas sabotase merah.
+
+## Satu layar lain yang hampir rusak diam-diam
+
+`audit-embed-ambigu.cjs` menangkap sesuatu yang tidak saya sentuh: kolom `dikoreksi_by` membuat `sales` punya **dua** foreign key ke `user_profiles`, dan `listRecentSalesActivity()` masih memakai embed polos `user_profiles(full_name)`. PostgREST menolak **seluruh** query-nya kalau ambigu — jadi kartu "Aktivitas Penjualan Terbaru" di Dashboard Admin akan kosong total, di layar yang sama sekali tidak sedang dikerjakan.
+
+Menambah kolom yang menunjuk tabel yang **sudah** pernah di-embed di tempat lain adalah cara paling mudah merusak layar yang tidak sedang disentuh.
+
 - [x] **Order ke CK punya tahap draft** (`0111`) — disusun bersama lintas divisi, CK baru melihatnya saat ditekan Kirim, satu draft per pasangan outlet-tujuan dijamin unique index parsial, dan notifikasi Telegram berbunyi tepat sekali (saat berangkat, bukan saat dibuat)
+- [x] **Koreksi penjualan lewat Admin Portal** (`0112`) — tab Transaksi & Koreksi per baris, stok bahan ikut disesuaikan sesuai resep, harga tetap harga saat transaksi, alasan wajib untuk tanggal lampau, dan jumlah asli (`qty_awal`) tetap terbaca selamanya
 - [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal
 - [x] **Halaman Owner (`owner.html`)** — dibuka super admin, KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin

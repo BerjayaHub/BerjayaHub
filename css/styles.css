@@ -2764,3 +2764,15 @@ select.sc-cell.is-off {
   border-radius: 3px;
   transition: width 0.25s ease;
 }
+
+
+/* Jejak koreksi penjualan di Admin Portal. Kecil dan redup — ia keterangan,
+   bukan angka yang dibaca tiap baris. Tapi ADA di tempat angkanya dibaca,
+   supaya "kok omzet Selasa beda dari yang saya catat" bisa dijawab tanpa
+   membuka database. */
+.sr-jejak {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  line-height: 1.25;
+  margin-top: 2px;
+}
