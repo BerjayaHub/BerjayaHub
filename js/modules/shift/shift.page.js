@@ -1,6 +1,7 @@
 import {
   listOutletShifts,
   listSchedules,
+  listCutiDisetujui,
   listOutletStaff,
   weekRange,
   addDays,
@@ -14,6 +15,7 @@ import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
 import { getMyBaseScope } from '../../core/base-scope.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
 import { loadingHtml } from '../../core/loading.js';
+import { petaCuti, cutiPada, selJadwal } from './cuti-jadwal.js';
 
 /**
  * Jadwal Shift (Staff App): tabel jadwal satu minggu — baris staff, kolom tanggal.
@@ -104,14 +106,20 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
   async function draw() {
     grid.innerHTML = loadingHtml('Memuat…', { baris: 5 });
     const wk = weekRange(state.anchor);
-    let staff, shifts, schedules, policy, holidays;
+    let staff, shifts, schedules, policy, holidays, cuti;
     try {
-      [staff, shifts, schedules, policy, holidays] = await Promise.all([
+      [staff, shifts, schedules, policy, holidays, cuti] = await Promise.all([
         listOutletStaff(state.outletId),
         listOutletShifts(state.outletId),
         listSchedules({ outletId: state.outletId, from: wk.from, to: wk.to }),
         getHolidayPolicy(businessUnitId, state.outletId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] })),
-        listHolidays({ businessUnitId, outletId: state.outletId }).catch(() => [])
+        listHolidays({ businessUnitId, outletId: state.outletId }).catch(() => []),
+        // GAGAL MEMUAT CUTI TIDAK BOLEH MENGOSONGKAN JADWAL.
+        //
+        // Yang hilang kalau ini gagal cuma penandaan cuti; jadwal shiftnya
+        // sendiri tetap harus terbaca. Menaruhnya tanpa `.catch()` akan
+        // membuat satu RPC yang belum ter-deploy mematikan seluruh layar.
+        listCutiDisetujui({ outletId: state.outletId, from: wk.from, to: wk.to }).catch(() => [])
       ]);
     } catch (error) {
       grid.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
@@ -121,6 +129,7 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
     const autoOff = new Map(wk.days.map((d) => [d, resolveAutoOff(d, policy, holidayMap)]));
     const map = new Map();
     for (const s of schedules) map.set(`${s.user_id}|${s.work_date}`, s);
+    const cutiMap = petaCuti(cuti);
     // SEMUA staff outlet ini ditampilkan, bukan hanya yang sudah dijadwalkan —
     // justru baris kosonglah yang berguna: dari situ terlihat siapa yang belum
     // dapat jadwal minggu ini.
@@ -179,6 +188,29 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
                       .map((d) => {
                         const cur = map.get(`${st.user_id}|${d}`);
                         const auto = autoOff.get(d);
+
+                        // CUTI DIPERIKSA PALING DULU — sebelum libur otomatis
+                        // maupun jadwal shift.
+                        //
+                        // Kalau seseorang cuti DAN hari itu kebetulan libur
+                        // kebijakan, yang lebih berguna diketahui adalah
+                        // cutinya: libur berlaku untuk semua orang, cuti hanya
+                        // untuk dia — dan itu yang menentukan apakah timnya
+                        // kekurangan orang.
+                        const sel = selJadwal({ cuti: cutiPada(cutiMap, st.user_id, d), jadwal: cur });
+                        if (sel.mode === 'cuti') {
+                          const sh = sel.shift?.outlet_shifts;
+                          return `<td style="text-align:center"><span class="shift-chip shift-cuti">${esc(sel.jenis)}</span>
+                            ${
+                              // Shift yang TERTUTUP cuti tetap disebut. Tanpa
+                              // ini, rekan satu tim tidak tahu ada lubang di
+                              // pagi itu — yang terlihat cuma "Adhe cuti".
+                              sh
+                                ? `<div style="font-size:0.66rem;color:var(--color-text-muted)">jadwal ${esc(sh.name)} kosong</div>`
+                                : ''
+                            }</td>`;
+                        }
+
                         // Libur otomatis dari kebijakan BU — tidak perlu baris jadwal.
                         if (!cur && auto?.off)
                           return `<td style="text-align:center"><span class="shift-chip shift-off">Libur</span>

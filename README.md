@@ -4918,7 +4918,68 @@ Satu koreksi yang saya buat pada diri sendiri di tengah jalan: kalimat pengantar
 Lima sabotase, semuanya merah pada percobaan pertama — termasuk menyalakan peringatan di layar Order, dan mematikannya di panel draft.
 
 - [x] **Koreksi penjualan lewat Admin Portal** (`0112`) — tab Transaksi & Koreksi per baris, stok bahan ikut disesuaikan sesuai resep, harga tetap harga saat transaksi, alasan wajib untuk tanggal lampau, dan jumlah asli (`qty_awal`) tetap terbaca selamanya
+---
+
+# Cuti yang disetujui muncul di jadwal shift
+
+> *"staff yang mengajukan dan sudah disetujui, maka di shift otomatis tanggal yang disetujui cuti nya akan berstatus cuti / PH / sakit, tergantung yang diajukan"*
+
+## Cuti TIDAK disalin ke `shift_schedules`
+
+Godaan pertamanya adalah menulis baris shift bertanda cuti saat pengajuan disetujui. Ditolak, dan alasannya tiga:
+
+1. **`shift_schedules` cuma mengenal dua keadaan.** Constraint `shift_or_off` (`0034`) menuntut "ada `shift_id`" **atau** "`is_off`". Menambah keadaan ketiga berarti melonggarkan constraint yang menjaga seluruh modul shift sejak awal — constraint yang membuat "jadwal tanpa shift dan tanpa keterangan" mustahil ada.
+
+2. **Menyalin berarti menduplikasi kebenaran.** Kalau cutinya dibatalkan belakangan, baris shiftnya harus ikut dibersihkan — menuntut trigger, dan satu kegagalan trigger meninggalkan **"cuti hantu"** yang tidak pernah hilang, tanpa error dan tanpa satu pun tanda.
+
+3. **Jadwal aslinya hilang.** Orang yang sudah dijadwalkan shift pagi lalu cutinya disetujui akan kehilangan baris shiftnya; saat cutinya batal, tidak ada yang tahu shift apa yang tadinya ada.
+
+Jadi `0113` **tidak menyentuh `shift_schedules` sama sekali**. Pengajuan cuti tetap satu-satunya sumber kebenaran, dan layar shift membacanya saat menggambar. Cuti yang dibatalkan langsung lenyap dari jadwal dengan sendirinya, dan shift paginya muncul kembali apa adanya — §3 pada tesnya membuktikan itu dalam satu langkah: tampil, di-`cancel`, langsung hilang.
+
+## Rentang jadi satu baris per tanggal — dan tiga cara ia meleset
+
+`leave_requests` menyimpan `start_date`..`end_date`; jadwal butuh satu baris per tanggal. Diuraikan `generate_series` **di database**, dan ketiga cara gagalnya senyap:
+
+| kesalahan | akibatnya |
+|---|---|
+| syaratnya "termuat di dalam", bukan **bersinggungan** | cuti 28 Agu – 3 Sep **hilang total** dari tampilan September |
+| `generate_series` tidak dipotong pada rentang yang diminta | menghasilkan tanggal Agustus yang tidak dipakai siapa pun |
+| penyaring outlet `= p_outlet` yang ketat | pengajuan ber-`outlet_id` null (sah — `on delete set null` di `0013`) **dibuang seluruhnya** |
+
+`greatest`/`least` yang memotong, dan penyaring outletnya menerima yang null lewat keanggotaan orangnya. Ketiganya jadi kasus tes tersendiri, dan ketiga sabotasenya merah.
+
+## Cuti menang atas shift
+
+Kalau seseorang punya jadwal shift **dan** cutinya disetujui pada tanggal yang sama, yang ditampilkan adalah cutinya. Menampilkan shiftnya akan membuat rekan satu tim mengira ada yang menjaga pagi itu.
+
+Tapi shift yang tertutup itu **tetap disebut**: selnya berbunyi *"Cuti Tahunan — jadwal Pagi kosong"*. Tanpa keterangan itu, admin cuma tahu "Adhe cuti" dan tidak tahu ada lubang yang perlu ditutup.
+
+Cuti juga diperiksa **sebelum** libur otomatis kebijakan BU. Libur berlaku untuk semua orang; cuti hanya untuk satu orang — dan yang kedua itulah yang menentukan apakah timnya kekurangan orang. Dua keadaan yang akibatnya berbeda juga dibedakan warnanya di layar.
+
+## Selnya dikunci, bukan diperingatkan
+
+Di Admin Portal, sel tanggal yang cutinya sudah disetujui **tidak bisa diisi** dan berbunyi *"disetujui · tidak bisa dijadwalkan"*. Admin yang tetap mau menjadwalkan harus membatalkan cutinya dulu di modul Pengajuan Cuti — di situ pembatalannya tercatat, di sel jadwal tidak.
+
+Jadwal lama yang sudah ada **tidak dihapus**; ia cuma tidak bisa disentuh selama cutinya berlaku.
+
+## Jenis cutinya tidak pernah jadi daftar tetap
+
+`leave_types` dinamis per BU — Cuti Tahunan, Sakit, Izin, PH, dan apa pun yang ditambahkan nanti. Nama jenisnya dibawa apa adanya dari tabel itu, jadi menambah jenis baru tidak menuntut satu baris kode pun diubah. Tesnya memakai "PH" sebagai jenis buatan BU justru untuk membuktikan itu.
+
+## Kegagalan pemuatan tidak boleh mengosongkan jadwal
+
+Pengambilan cutinya dibungkus `.catch(() => [])` di kedua layar. Kalau RPC-nya belum ter-deploy atau gagal, yang hilang **cuma penandaan cuti** — jadwal shiftnya sendiri tetap terbaca. Tanpa itu, satu RPC yang belum dijalankan mematikan seluruh layar penyusunan jadwal.
+
+## Satu kesalahan saya sendiri, dan apa yang diajarkannya
+
+Tesnya merah di tiga tempat dengan nilai seperti `"Sat Sep 05"`. Penyebabnya bukan SQL-nya: **PGlite mengembalikan kolom `date` sebagai objek `Date`**, sedangkan PostgREST — yang dipakai aplikasi sungguhan — mengembalikannya sebagai string `'2026-09-05'`. `String(x).slice(0,10)` benar untuk yang kedua dan menghasilkan sampah untuk yang pertama.
+
+Itu memperlihatkan sesuatu yang layak dijaga di kodenya juga: kunci peta berbentuk `userId|tanggal`, dan kalau penyusun peta serta pembacanya memakai bentuk tanggal yang berbeda, **tidak satu pun kunci cocok** — gejalanya cuma "cuti tidak muncul", tanpa error dan tanpa petunjuk. `keTanggal()` sekarang menangani keduanya. Cabang `Date`-nya belum pernah terpakai di aplikasi, dan saya menuliskannya terus terang di komentarnya daripada mengaku ia penjaga.
+
+Dua belas sabotase, semuanya merah pada percobaan pertama.
+
 - [x] **CK bisa menambah barang di luar order outlet** — panel isi draft memakai item picker (pencarian + Tambah Produk), peringatan ⚠ melebihi stok yang **opt-in** supaya tidak menyala di layar Order tempat ia menyesatkan, dan ringkasan permintaan outlet sebagai pengingat; dijaga `audit-peringatan-stok.cjs`
+- [x] **Cuti terhubung ke jadwal shift** (`0113`) — cuti/sakit/PH yang disetujui muncul di Staff App maupun Admin Portal, dibaca dari pengajuan (bukan disalin, jadi pembatalan langsung terpantul), sel admin terkunci saat cuti disetujui, dan shift yang tertutup cuti tetap disebut supaya lubangnya terlihat
 - [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal
 - [x] **Halaman Owner (`owner.html`)** — dibuka super admin, KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin

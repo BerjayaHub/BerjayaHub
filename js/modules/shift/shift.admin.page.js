@@ -8,6 +8,7 @@ import {
   deleteOutletShift,
   setOutletShiftEnabled,
   listSchedules,
+  listCutiDisetujui,
   listOutletStaff,
   setSchedule,
   clearSchedule,
@@ -19,6 +20,7 @@ import {
   holidayMapOf,
   kelompokkanPerDivisi
 } from './shift.service.js';
+import { petaCuti, cutiPada } from './cuti-jadwal.js';
 import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
 import { listMyOutlets, listOutletsSayaKelola, PESAN_TANPA_OUTLET_KELOLA } from '../../core/my-outlets.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
@@ -125,9 +127,9 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
   async function draw() {
     grid.innerHTML = loadingHtml('Memuat jadwal…', { baris: 5 });
     const wk = weekRange(state.anchor);
-    let staff, shifts, schedules, policy, holidays;
+    let staff, shifts, schedules, policy, holidays, cuti;
     try {
-      [staff, shifts, schedules, policy, holidays] = await Promise.all([
+      [staff, shifts, schedules, policy, holidays, cuti] = await Promise.all([
         // BUKAN listBuStaff(): policy `membership_scopes_select_admin` memakai
         // is_bu_admin(), yang TIDAK mencakup outlet_admin. Admin outlet karena
         // itu hanya bisa membaca baris scope-nya SENDIRI, dan tabel jadwalnya
@@ -146,7 +148,10 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
         listOutletShifts(state.outletId),
         listSchedules({ outletId: state.outletId, from: wk.from, to: wk.to }),
         getHolidayPolicy(businessUnitId, state.outletId).catch(() => ({ holiday_policy: 'operational', weekly_off_days: [] })),
-        listHolidays({ businessUnitId, outletId: state.outletId }).catch(() => [])
+        listHolidays({ businessUnitId, outletId: state.outletId }).catch(() => []),
+        // `.catch()` supaya RPC yang belum ter-deploy tidak mematikan seluruh
+        // layar penyusunan jadwal. Yang hilang cuma penguncian selnya.
+        listCutiDisetujui({ outletId: state.outletId, from: wk.from, to: wk.to }).catch(() => [])
       ]);
     } catch (error) {
       grid.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
@@ -162,6 +167,7 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
     }
     const map = new Map(); // `${user}|${date}` -> row
     for (const s of schedules) map.set(`${s.user_id}|${s.work_date}`, s);
+    const cutiMap = petaCuti(cuti);
 
     // Staff nonaktif disembunyikan — kecuali dia sudah punya jadwal minggu ini.
     // Menyembunyikan baris yang PUNYA data berarti jadwalnya jadi tidak bisa
@@ -231,6 +237,29 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
                         const cur = map.get(`${st.user_id}|${d}`);
                         const sel = cur ? (cur.is_off ? 'off' : cur.shift_id) : '';
                         const auto = autoOff.get(d);
+
+                        // SEL DIKUNCI SAAT CUTINYA SUDAH DISETUJUI.
+                        //
+                        // Dikunci, bukan sekadar diperingatkan: menjadwalkan
+                        // orang yang cutinya sudah disetujui adalah keputusan
+                        // yang harus SADAR, dan satu-satunya jalannya adalah
+                        // membatalkan cutinya dulu di modul Pengajuan Cuti —
+                        // di situ pembatalannya tercatat, di sini tidak.
+                        //
+                        // `<select disabled>` TIDAK ikut terkirim saat form
+                        // dibaca, tapi penyimpanan di sini per-sel lewat
+                        // `change`, jadi yang penting: sel mati tidak pernah
+                        // memicu `change`. Jadwal lama yang sudah ada TIDAK
+                        // dihapus — ia cuma tidak bisa disentuh selama cutinya
+                        // berlaku, dan kembali bisa diubah kalau cutinya batal.
+                        const ct = cutiPada(cutiMap, st.user_id, d);
+                        if (ct) {
+                          return `<td style="text-align:center">
+                            <span class="shift-chip shift-cuti">${esc(ct.jenis)}</span>
+                            <div style="font-size:0.64rem;color:var(--color-text-muted)">disetujui · tidak bisa dijadwalkan</div>
+                          </td>`;
+                        }
+
                         // Libur otomatis hanya jadi *default tampilan*; admin
                         // tetap bisa menimpanya (mis. lembur di hari libur).
                         const hint = !cur && auto?.off ? `<div style="font-size:0.66rem;color:var(--color-text-muted)">Libur · ${esc(auto.reason)}</div>` : '';

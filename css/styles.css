@@ -724,6 +724,20 @@ button.primary:active { transform: translateY(1px); }
   border-color: var(--color-border);
 }
 
+/* Cuti / Sakit / PH — dibaca dari pengajuan cuti yang DISETUJUI, bukan dari
+   `shift_schedules`.
+
+   Sengaja dibedakan warnanya dari "Libur". Libur berlaku untuk semua orang
+   (kebijakan BU atau libur mingguan); cuti hanya untuk satu orang, dan itulah
+   yang menentukan apakah timnya kekurangan orang hari itu. Dua keadaan yang
+   akibatnya berbeda tidak boleh terlihat sama. */
+.shift-chip.shift-cuti {
+  background: var(--color-warning-bg, #fff4e0);
+  color: #8a5800;
+  border-color: #e6c893;
+  font-weight: 600;
+}
+
 select.sc-cell {
   min-width: 104px;
   padding: 6px 8px;

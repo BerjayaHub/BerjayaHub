@@ -179,6 +179,36 @@ export async function listSchedules({ outletId, from, to }) {
   return data ?? [];
 }
 
+/**
+ * Cuti yang DISETUJUI di sebuah outlet, diurai per tanggal.
+ *
+ * Lewat RPC (`0113`), bukan query biasa: `leave_requests` menyimpan RENTANG,
+ * dan menguraikannya di sisi layar berarti mengunduh seluruh pengajuan yang
+ * bersinggungan lalu menghitung tanggal sendiri. Bug perhitungan tanggal
+ * seperti itu tidak pernah menghasilkan error — hanya satu hari yang meleset
+ * di ujung rentang, dan tidak ada yang menyadarinya sampai ada yang tidak
+ * masuk.
+ *
+ * Kegagalan mengambilnya TIDAK boleh menggagalkan tampilan jadwal: yang hilang
+ * cuma penandaan cuti, dan jadwal shiftnya sendiri tetap harus terbaca.
+ */
+export async function listCutiDisetujui({ outletId, from, to }) {
+  const { data, error } = await supabase.rpc('cuti_disetujui_rentang', {
+    p_outlet: outletId,
+    p_from: from,
+    p_to: to
+  });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Cuti SAYA yang disetujui, diurai per tanggal. Tidak bergantung outlet. */
+export async function listCutiSaya({ from, to }) {
+  const { data, error } = await supabase.rpc('cuti_saya_rentang', { p_from: from, p_to: to });
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function setSchedule({ businessUnitId, outletId, userId, workDate, shiftId, isOff }) {
   const {
     data: { user }
