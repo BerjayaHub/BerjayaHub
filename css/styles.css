@@ -2776,3 +2776,34 @@ select.sc-cell.is-off {
   line-height: 1.25;
   margin-top: 2px;
 }
+
+
+/* =========================================================
+   PEMILIH PRODUK — penanda stok kurang & ringkasan permintaan
+   ========================================================= */
+
+/* Label stok yang jumlah kirimnya melebihi stok yang ada.
+
+   Merah, TAPI tidak menghalangi. Sistem ini memang mengizinkan stok menembus
+   nol (minus adalah kalimat jujur: "terpakai lebih banyak daripada yang pernah
+   tercatat masuk"). Yang tidak boleh adalah orangnya menekan Kirim tanpa tahu
+   barangnya tidak ada di rak. */
+.pf-stock.pf-kurang {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+/* Ringkasan barang yang DIMINTA outlet, di panel isi draft.
+
+   CK boleh menambah apa pun, jadi daftar ini bukan pembatas — ia pengingat.
+   Tanpa itu, CK yang menyunting draft panjang kehilangan jejak mana yang
+   permintaan outlet dan mana yang tambahannya sendiri. */
+.drf-ringkas-diminta {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--color-surface-alt, #f5f6f8);
+  border-left: 3px solid var(--color-primary);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}

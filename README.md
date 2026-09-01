@@ -4876,7 +4876,49 @@ Sesudah kedua lubang ditambal, dua belas sabotase merah.
 Menambah kolom yang menunjuk tabel yang **sudah** pernah di-embed di tempat lain adalah cara paling mudah merusak layar yang tidak sedang disentuh.
 
 - [x] **Order ke CK punya tahap draft** (`0111`) — disusun bersama lintas divisi, CK baru melihatnya saat ditekan Kirim, satu draft per pasangan outlet-tujuan dijamin unique index parsial, dan notifikasi Telegram berbunyi tepat sekali (saat berangkat, bukan saat dibuat)
+---
+
+# CK bisa menambah barang di luar yang diorder outlet
+
+> *"walaupun outlet sudah order, tapi CK juga bisa menambah produk diluar yang sudah di order oleh outlet"*
+
+**Sisi database sudah mengizinkannya sejak `0103`.** `ubah_draft_kiriman()` mengganti **seluruh** daftar isi — `delete` lalu tulis ulang apa pun yang dikirim. Tidak ada satu pun penjagaan yang membatasinya ke barang yang diorder.
+
+Yang menghalangi cuma layarnya: panel isi draft menggambar tabel dari `getDispatchItems()`, jadi hanya baris yang **sudah ada** yang bisa disentuh. Tidak ada cara menambah baris baru. Ini pola yang sama dengan tab Draft yang hilang (`0109`) dan tombol koreksi penjualan yang tidak ada (`0112`) — **kemampuannya ada di database, jalannya tidak ada di layar.** Ketiganya muncul dalam satu rangkaian pekerjaan yang sama.
+
+Tabel tetapnya diganti `createItemPicker` — komponen yang sudah dipakai layar Order dan Kirim, lengkap dengan pencarian, **+ Tambah Produk**, dan tampilan stok. Murni perubahan kode, tanpa migration.
+
+## Peringatan "melebihi stok" — dan kenapa ia harus opt-in
+
+Satu hal yang hilang saat berpindah ke picker: tabel lama menandai ⚠ kalau jumlah kirim melebihi stok CK. Itu berguna, jadi ditambahkan ke picker — **tapi tidak untuk semua pemakainya.**
+
+`createItemPicker` dipakai empat layar, dan arti `stockMap`-nya berbeda:
+
+| layar | `stockMap` | peringatan |
+|---|---|---|
+| Kirim / Transfer | stok **pengirim** | ✅ benar |
+| Isi Draft SJ | stok **pengirim** | ✅ benar |
+| Order ke CK | stok **pemesan** | ❌ menyesatkan |
+| Ubah Order ke CK | stok **pemesan** | ❌ menyesatkan |
+
+Orang **memesan justru karena stoknya menipis**. Menyalakan peringatan di layar order berarti ia menyala pada hampir setiap baris yang benar — dan peringatan yang menyala saat semuanya normal berhenti dibaca dalam hitungan hari. Sesudah itu ia tidak melindungi apa pun, **termasuk di dua layar yang membutuhkannya**. Bawaannya karena itu `false`, dan `audit-peringatan-stok.cjs` menuntutnya tetap begitu.
+
+Satu detail kecil di dalamnya: `stok == null` berarti produknya belum pernah punya pergerakan sama sekali — **bukan** berarti nol. Memperingatkan di situ akan menyala untuk setiap produk baru.
+
+Warnanya merah tapi **tidak menghalangi**. Sistem ini memang mengizinkan stok menembus nol; yang tidak boleh adalah orangnya menekan Kirim tanpa tahu barangnya tidak ada di rak.
+
+## Yang diminta outlet tetap terbaca
+
+Karena CK sekarang bebas menambah apa pun, "mana permintaan outlet dan mana tambahan saya" jadi mudah hilang di draft yang panjang. Kalau draftnya lahir dari sebuah order, di bawah pickernya muncul ringkasan **"Permintaan outlet: Ayam · Beras · Minyak"**.
+
+Itu **pengingat, bukan pembatas** — dan gagal memuatnya sengaja tidak menggagalkan penyuntingan draftnya; yang hilang cuma penandaannya.
+
+Satu koreksi yang saya buat pada diri sendiri di tengah jalan: kalimat pengantarnya sempat berbunyi *"yang diminta outlet ditandai `diminta` di daftar bawah"* — padahal penanda per-baris seperti itu tidak ada, dan memasangnya di dalam search-select akan janggal. Kalimat yang menjanjikan sesuatu yang tidak ada di layar membuat orang mencari-cari, lalu menyimpulkan aplikasinya rusak. Teksnya diganti supaya cocok dengan yang benar-benar tampil.
+
+Lima sabotase, semuanya merah pada percobaan pertama — termasuk menyalakan peringatan di layar Order, dan mematikannya di panel draft.
+
 - [x] **Koreksi penjualan lewat Admin Portal** (`0112`) — tab Transaksi & Koreksi per baris, stok bahan ikut disesuaikan sesuai resep, harga tetap harga saat transaksi, alasan wajib untuk tanggal lampau, dan jumlah asli (`qty_awal`) tetap terbaca selamanya
+- [x] **CK bisa menambah barang di luar order outlet** — panel isi draft memakai item picker (pencarian + Tambah Produk), peringatan ⚠ melebihi stok yang **opt-in** supaya tidak menyala di layar Order tempat ia menyesatkan, dan ringkasan permintaan outlet sebagai pengingat; dijaga `audit-peringatan-stok.cjs`
 - [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal
 - [x] **Halaman Owner (`owner.html`)** — dibuka super admin, KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin

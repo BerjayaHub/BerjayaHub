@@ -6,10 +6,28 @@ import { formatNum } from '../../core/format.js';
  * - Filter Kategori & Sub-kategori untuk mempersempit pilihan.
  * - Pencarian fuzzy pada tiap baris.
  * - Opsional menampilkan kolom "Stok Akhir" di outlet asal.
+ * - Opsional memperingatkan kalau jumlahnya MELEBIHI stok itu.
+ *
+ * ============ KENAPA PERINGATANNYA OPT-IN ============
+ *
+ * `peringatanKurang` sengaja bawaannya MATI, dan itu bukan kehati-hatian
+ * berlebihan — menyalakannya di mana-mana justru salah.
+ *
+ * Di layar Kirim/Transfer dan isi Draft SJ, `stockMap` adalah stok outlet
+ * PENGIRIM, jadi "jumlah melebihi stok" berarti barangnya memang tidak ada di
+ * rak. Itu perlu diketahui sekarang, bukan besok.
+ *
+ * Tapi di layar "Order ke CK", `stockMap` adalah stok outlet yang MEMESAN —
+ * dan orang memesan justru KARENA stoknya menipis. Peringatan di sana akan
+ * menyala pada hampir setiap baris yang benar, dan peringatan yang menyala
+ * saat semuanya normal berhenti dibaca dalam hitungan hari.
  *
  * @returns {{ getItems: () => Array<{product_id:string, qty:number}> }}
  */
-export function createItemPicker(mountEl, { products, stockMap = new Map(), showStock = true, initial = [] }) {
+export function createItemPicker(
+  mountEl,
+  { products, stockMap = new Map(), showStock = true, initial = [], peringatanKurang = false }
+) {
   const categories = [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
   const state = { category: '', subcategory: '' };
 
@@ -52,13 +70,32 @@ export function createItemPicker(mountEl, { products, stockMap = new Map(), show
     }));
   }
 
+  /** Apakah jumlah ini melebihi stok yang ada? Dipakai untuk menyalakan ⚠. */
+  function kurang(productId, qty) {
+    if (!peringatanKurang || !productId) return false;
+    const stok = stockMap.get(productId);
+    // `stok == null` berarti produknya belum pernah punya pergerakan sama
+    // sekali — bukan berarti nol. Memperingatkan di situ akan menyala untuk
+    // setiap produk baru, dan itu bising tanpa arti.
+    if (stok == null) return false;
+    const n = Number(qty);
+    return Number.isFinite(n) && n > Number(stok);
+  }
+
   function rowHtml(entry, opts) {
     const p = products.find((x) => x.id === entry.product_id);
     const stok = p ? stockMap.get(p.id) ?? 0 : null;
+    const kur = kurang(entry.product_id, entry.qty);
     return `
       <div class="picker-row">
         ${renderSearchSelect({ name: 'pp', options: opts, value: entry.product_id ?? '', placeholder: 'cari produk…' })}
-        ${showStock ? `<span class="pf-stock" title="Stok akhir di outlet ini">${p ? `${formatNum(stok)} ${esc(p.base_unit)}` : '–'}</span>` : ''}
+        ${
+          showStock
+            ? `<span class="pf-stock${kur ? ' pf-kurang' : ''}" title="Stok akhir di outlet ini">${
+                p ? `${formatNum(stok)} ${esc(p.base_unit)}${kur ? ' ⚠' : ''}` : '–'
+              }</span>`
+            : ''
+        }
         <input type="number" class="pf-qty" min="0" placeholder="jumlah" value="${entry.qty ?? ''}" />
         <button type="button" class="pf-remove" title="Hapus">✕</button>
       </div>`;
@@ -67,11 +104,23 @@ export function createItemPicker(mountEl, { products, stockMap = new Map(), show
   function wireRow(row, opts) {
     const widget = row.querySelector('.search-select');
     const stockEl = row.querySelector('.pf-stock');
-    wireSearchSelect(widget, opts, (val) => {
+    const qtyEl = row.querySelector('.pf-qty');
+    const idEl = () => widget.querySelector('input[type="hidden"]')?.value ?? '';
+
+    /** Gambar ulang label stok + tanda ⚠ untuk baris ini saja. */
+    const segarkanStok = () => {
       if (!stockEl) return;
-      const p = products.find((x) => x.id === val);
-      stockEl.textContent = p ? `${formatNum(stockMap.get(p.id) ?? 0)} ${p.base_unit}` : '–';
-    });
+      const p = products.find((x) => x.id === idEl());
+      const kur = kurang(idEl(), qtyEl.value);
+      stockEl.textContent = p ? `${formatNum(stockMap.get(p.id) ?? 0)} ${p.base_unit}${kur ? ' ⚠' : ''}` : '–';
+      stockEl.classList.toggle('pf-kurang', kur);
+    };
+
+    wireSearchSelect(widget, opts, segarkanStok);
+    // Diperbarui SAAT MENGETIK, bukan saat menyimpan. Peringatan yang baru
+    // muncul sesudah tombol ditekan datang terlambat: keputusannya sudah
+    // diambil.
+    qtyEl.addEventListener('input', segarkanStok);
     row.querySelector('.pf-remove').addEventListener('click', () => {
       row.remove();
       if (!rowsBox.querySelector('.picker-row')) addRow();

@@ -649,7 +649,10 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     const picker = createItemPicker(box.querySelector('#disp-picker'), {
       products: stockProducts,
       stockMap: state.stockMap,
-      showStock: true
+      showStock: true,
+      // Layar ini MENGIRIM dari outlet yang sedang dibuka, jadi `stockMap`
+      // memang stok pengirimnya — "melebihi stok" berarti barangnya tidak ada.
+      peringatanKurang: true
     });
 
     box.querySelector('#disp-send-btn').addEventListener('click', async (e) => {
@@ -767,10 +770,6 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
 
   /** Isi satu draft: bisa diperiksa, diubah jumlahnya, lalu dikirim atau dihapus. */
   async function gambarIsiDraft(body, draft) {
-    // Judul kolomnya menyebut outlet ASAL yang sebenarnya, bukan selalu "CK".
-    // Untuk retur, stok yang relevan justru stok outlet yang meretur.
-    const labelStok = `Stok ${outletsById.get(state.outletId)?.name ?? 'asal'}`;
-
     body.innerHTML = loadingHtml('Memuat isi draft…', { baris: 3 });
     let items;
     try {
@@ -780,34 +779,26 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       return;
     }
 
+    // BARANG YANG DIMINTA OUTLET, kalau draft ini memang lahir dari sebuah order.
+    //
+    // Dipakai untuk MENANDAI mana yang tambahan dari CK — bukan untuk membatasi.
+    // Outlet penerima perlu tahu bahwa sekarung tepung yang datang itu bukan
+    // permintaannya, supaya ia tidak mengira ordernya salah dicatat.
+    let diminta = new Set();
+    if (draft.stock_order_id) {
+      try {
+        diminta = new Set((await getOrderItems(draft.stock_order_id)).map((it) => it.product_id));
+      } catch {
+        // Gagal memuat daftar permintaan TIDAK boleh menggagalkan penyuntingan
+        // draftnya. Yang hilang cuma penandaan; isinya tetap bisa diubah.
+        diminta = new Set();
+      }
+    }
+
+    const namaAsal = outletsById.get(state.outletId)?.name ?? 'asal';
+
     body.innerHTML = `
-      <div class="table-scroll">
-        <table class="data-table baris-sejajar">
-          <thead><tr><th>Barang</th><th>${esc(labelStok)}</th><th>Jumlah kirim</th></tr></thead>
-          <tbody>
-            ${items
-              .map((i) => {
-                const stok = state.stockMap.get(i.product_id);
-                // Stok outlet ASAL ditampilkan di sebelah jumlah kirim supaya kekurangan
-                // ketahuan SEKARANG, saat masih draft — bukan besok saat
-                // barangnya ternyata tidak ada di rak.
-                const kurang = stok != null && Number(stok) < Number(i.sent_qty);
-                return `<tr>
-                  <td data-label="Barang">${esc(i.products?.name ?? '-')}</td>
-                  <td data-label="${esc(labelStok)}" style="text-align:right${kurang ? ';color:var(--color-danger)' : ''}">
-                    ${stok == null ? '-' : formatNum(stok)}${kurang ? ' ⚠' : ''}
-                  </td>
-                  <td data-label="Jumlah kirim">
-                    <input type="number" class="drf-qty isian-sempit" data-product="${i.product_id}" min="0" step="any"
-                      inputmode="decimal" value="${i.sent_qty}" />
-                    <span style="font-size:0.75rem;color:var(--color-text-muted)">${esc(i.products?.base_unit ?? '')}</span>
-                  </td>
-                </tr>`;
-              })
-              .join('')}
-          </tbody>
-        </table>
-      </div>
+      <div class="drf-picker"></div>
 
       <div class="field" style="margin:10px 0 0">
         <label style="font-size:0.72rem">Catatan surat jalan</label>
@@ -815,10 +806,23 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       </div>
 
       <p class="report-note" style="margin-top:10px">
-        Angka bertanda <strong>⚠</strong> melebihi stok ${esc(outletsById.get(state.outletId)?.name ?? 'asal')} saat ini.
-        Kiriman tetap bisa dibuat — sistem ini memang mengizinkan stok menembus nol — tapi selisihnya akan
-        muncul di opname.
+        Tekan <strong>+ Tambah Produk</strong> untuk mengirim barang <strong>di luar</strong> yang diminta outlet —
+        stok titipan, barang promo, atau pengganti yang kosong.
+        <br /><br />
+        Angka bertanda <strong>⚠</strong> melebihi stok ${esc(namaAsal)} saat ini. Kiriman tetap bisa dibuat —
+        sistem ini memang mengizinkan stok menembus nol — tapi selisihnya akan muncul di opname.
       </p>
+
+      ${
+        diminta.size
+          ? `<div class="drf-ringkas-diminta">
+               <strong>Permintaan outlet:</strong>
+               ${[...diminta]
+                 .map((id) => esc(stockProducts.find((p) => p.id === id)?.name ?? '?'))
+                 .join(' · ')}
+             </div>`
+          : ''
+      }
 
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
         <button class="drf-save" data-id="${draft.id}">Simpan perubahan</button>
@@ -826,10 +830,25 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         <button class="drf-del" data-id="${draft.id}">Hapus draft</button>
       </div>`;
 
-    const ambilItem = () =>
-      [...body.querySelectorAll('.drf-qty')]
-        .map((el) => ({ product_id: el.dataset.product, qty: Number(el.value) }))
-        .filter((i) => i.qty > 0);
+    // PICKER, BUKAN TABEL TETAP.
+    //
+    // Tabel sebelumnya digambar dari isi draft yang sudah ada, jadi hanya baris
+    // yang SUDAH di sana yang bisa disentuh — tidak ada cara menambah produk
+    // baru. Padahal `ubah_draft_kiriman()` sejak 0103 memang mengganti SELURUH
+    // daftar isinya: databasenya tidak pernah membatasi ke barang yang diorder.
+    // Yang membatasi cuma layarnya.
+    const picker = createItemPicker(body.querySelector('.drf-picker'), {
+      products: stockProducts,
+      stockMap: state.stockMap,
+      showStock: true,
+      // Di sini `stockMap` adalah stok outlet PENGIRIM, jadi "melebihi stok"
+      // memang berarti barangnya tidak ada di rak. Bandingkan dengan layar
+      // Order ke CK, yang sengaja TIDAK menyalakan ini.
+      peringatanKurang: true,
+      initial: items.map((i) => ({ product_id: i.product_id, qty: i.sent_qty }))
+    });
+
+    const ambilItem = () => picker.getItems();
 
     body.querySelector('.drf-save').addEventListener('click', sekaliJalan(async () => {
       const daftar = ambilItem();
