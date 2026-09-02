@@ -4979,7 +4979,56 @@ Itu memperlihatkan sesuatu yang layak dijaga di kodenya juga: kunci peta berbent
 Dua belas sabotase, semuanya merah pada percobaan pertama.
 
 - [x] **CK bisa menambah barang di luar order outlet** — panel isi draft memakai item picker (pencarian + Tambah Produk), peringatan ⚠ melebihi stok yang **opt-in** supaya tidak menyala di layar Order tempat ia menyesatkan, dan ringkasan permintaan outlet sebagai pengingat; dijaga `audit-peringatan-stok.cjs`
+---
+
+# Opname yang menambah alih-alih menyesuaikan
+
+> *"stock nanas ada 6000 sekian, lalu saya sesuaikan menjadi 4600 sekian, tetapi di jumlah stock di bahan malah menjadi 11000"*
+
+6.400 + 4.600 = 11.000. Penyesuaiannya ditulis **+4.600**, bukan **−1.800** — jadi `system_qty` yang tersimpan bernilai **nol**, bukan 6.400.
+
+## Layar yang jadi sumber angka
+
+`catat_hitungan_opname` (`0085`) menerima `p_system` **sebagai parameter**, dan layar mengirimnya dari peta stok yang dimuat **saat halaman dibuka**:
+
+```js
+isian.push({ pid, counted: Number(raw), sys: stockMap.get(pid) ?? 0 });
+```
+
+Peta itu bisa basi berjam-jam. Cukup halaman Bahan dibuka sebelum stoknya berubah — sebelum opname sebelumnya ditutup, atau sebelum nota penerimaan diinput — dan `stockMap` masih memegang angka lama. Untuk bahan yang saat itu belum punya pergerakan, yang terkirim adalah **nol**.
+
+Tidak ada error di mana pun. Layar menulis "hitungan tersimpan", sesi ditutup dengan sukses, dan angkanya baru terlihat salah saat seseorang membuka daftar stok.
+
+## Perbaikan sebelumnya benar tapi tidak cukup
+
+Beberapa hari lalu saya menutup lubang yang bentuknya mirip: panel opname menolak dibuka saat peta stoknya **hilang** (`null`). Itu benar — dan ternyata tidak cukup.
+
+**Peta yang basi tidak null.** Ia berisi angka, angka yang salah, dan tidak ada cara membedakannya dari yang segar. Saya menutup satu lubang dan menyangka telah menutup kelasnya.
+
+Satu-satunya perbaikan yang menutup seluruh kelasnya: **cabut suara layar dalam angka itu.** Sejak `0114`, `system_qty` dibaca server dari `stock_movements` pada detik hitungannya disimpan. Seberapa pun basinya peta di HP, ia tidak bisa merusak apa pun.
+
+Dan ini **lebih** sezaman daripada sebelumnya, bukan kurang: yang dulu dipakai adalah keadaan saat *halaman dibuka*; yang sekarang keadaan saat *tombol Simpan ditekan*. Kekhawatiran asli `0085` — barang masuk di tengah sesi — tetap tertangani, karena tiap penyimpanan menyegarkan potretnya. §3 pada tesnya membuktikan keduanya: nota yang masuk **sesudah** dihitung tidak terhapus, dan hitungan ulang **sesudah** nota masuk memakai potret segar.
+
+## Parameternya dipertahankan, tapi diabaikan
+
+`p_system` tetap ada di tanda tangan fungsinya. Membuangnya mengubah tanda tangan, dan PWA lama yang ter-cache di HP staff akan gagal dengan *"function does not exist"* — pesan yang tidak mengatakan apa pun kepada orang yang sedang berdiri di depan rak. Dengan dipertahankan-tapi-diabaikan, PWA lama tetap jalan **dan langsung ikut benar**.
+
+§2 pada tesnya mengirim `p_system` bernilai `0`, `-999`, `99999`, dan `null` — hasilnya harus sama semua. Yang diuji bukan "apakah tersimpan" (itu selalu berhasil, dan itulah yang membuat bugnya bertahan), melainkan **apakah angka salah dari layar masih bisa berpengaruh.**
+
+## Auditnya berbalik arah
+
+`audit-opname-potret.cjs` dulu **menuntut** layar membaca `stockMap.get(...)` langsung. Sekarang ia **melarang** layar menyentuh `stockMap` sama sekali di baris pengumpul isian. Auditnya sendiri harus dibalik saat rancangannya berubah — audit yang menjaga rancangan lama akan menghalangi perbaikannya, dan itu bentuk kegagalan yang mudah luput karena ia tampil sebagai "tes yang merah".
+
+Penjaga "panel menolak dibuka saat peta hilang" **tetap dipertahankan**, tapi alasannya berubah dan itu ditulis di tempatnya: ia bukan lagi penjaga keutuhan data — ia menjaga **penilaian orangnya**. Layar yang menulis "sistem 0" untuk semua bahan membuat kolom selisih berbohong, dan orang yang berdiri di depan rak memakai kolom itu untuk memutuskan apakah hitungannya masuk akal.
+
+## Satu sabotase lolos: tes bermata satu
+
+Sabotase yang menghitung saldo **lintas outlet** (membuang `where sm.outlet_id = v_outlet`) awalnya **lolos** — karena tes saya cuma punya satu outlet, jadi "per outlet" dan "lintas outlet" memberi angka yang sama persis.
+
+Ditambahkan outlet kedua yang memegang nanas 2.500. Sekarang saldo lintas outlet akan terbaca 8.900 alih-alih 6.400, dan sabotasenya merah. Pola yang sama dengan dua kesalahan tes saya sebelumnya: **pemeriksaan yang tidak bisa membedakan dua perilaku bukan pemeriksaan.**
+
 - [x] **Cuti terhubung ke jadwal shift** (`0113`) — cuti/sakit/PH yang disetujui muncul di Staff App maupun Admin Portal, dibaca dari pengajuan (bukan disalin, jadi pembatalan langsung terpantul), sel admin terkunci saat cuti disetujui, dan shift yang tertutup cuti tetap disebut supaya lubangnya terlihat
+- [x] **Opname: stok sistem dibaca server** (`0114`) — layar tidak lagi mengirim potretnya sendiri, jadi peta stok yang basi tidak bisa lagi mengubah penyesuaian jadi penambahan (nanas 6.400 dihitung 4.600 sempat jadi 11.000); ditambah `opname_potret_basi()` untuk memeriksa sesi lama sebelum ditutup
 - [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal
 - [x] **Halaman Owner (`owner.html`)** — dibuka super admin, KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin

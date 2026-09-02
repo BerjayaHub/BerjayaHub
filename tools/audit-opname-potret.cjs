@@ -1,30 +1,33 @@
 /**
- * AUDIT: opname tidak boleh mengirim potret sistem yang dikarang.
+ * AUDIT: layar opname tidak boleh jadi sumber angka STOK SISTEM.
  *
- * ============ KEGAGALAN YANG DIJAGA ============
+ * ============ SEJARAHNYA, KARENA ARTINYA BERUBAH ============
  *
- * Hitungan opname disimpan sebagai SELISIH: `counted_qty − system_qty`.
- * `system_qty` dikirim dari layar, diambil dari peta stok yang dimuat
- * `refresh()`. Dan `refresh()` mengembalikan `null` kalau pemuatannya gagal.
+ * Dulu `catat_hitungan_opname` menerima `p_system` DARI LAYAR, dan layar
+ * mengirimnya dari peta stok yang dimuat saat halaman dibuka. Audit versi
+ * pertama menuntut peta itu dibaca LANGSUNG (`stockMap.get`) dan menolak
+ * `stockMap?.get(...) ?? 0` yang menyembunyikan hilangnya peta.
  *
- * Dulu barisnya berbunyi `stockMap?.get(pid) ?? 0`. Ketika petanya null,
- * SETIAP potret sistem jadi 0 — dan selisihnya berubah dari `dihitung − 40`
- * menjadi `dihitung − 0`. Beras yang tercatat 40 lalu dihitung 38 tidak
- * menghasilkan −2 melainkan +38, dan saldonya melonjak ke 78.
+ * Itu menutup satu lubang tapi bukan kelasnya. Peta yang HILANG memang
+ * tertangkap; peta yang BASI tidak — ia berisi angka, angka yang salah, dan
+ * tidak ada cara membedakannya dari yang segar.
  *
- * Yang membuatnya berbahaya: layar menulis "sistem 0" untuk semua bahan, dan
- * itu terlihat MASUK AKAL buat orang yang memang sedang mengisi stok awal.
- * Tidak ada error di mana pun, dan salahnya baru ketahuan berbulan-bulan
- * kemudian sebagai angka opname yang tidak bisa dijelaskan siapa pun.
+ * Kasus nyatanya: nanas stok 6.400, dihitung 4.600, hasilnya 11.000. Peta di
+ * HP masih memegang keadaan sebelum opname sebelumnya ditutup, jadi yang
+ * terkirim NOL, dan penutupan menuliskan `4.600 - 0` sebagai penyesuaian
+ * POSITIF.
  *
- * Tiga hal yang dituntut audit ini, dan ketiganya harus ada bersama —
- * masing-masing sendirian bisa ditembus:
+ * `0114` mencabut suara layar sepenuhnya: `system_qty` dibaca SERVER pada
+ * detik hitungannya disimpan. Jadi yang dijaga audit ini sekarang KEBALIKAN
+ * dari yang dulu — layar harus BERHENTI mengirim angka itu.
  *
- *   1. panel opname MENOLAK dibuka saat peta stoknya tidak ada
- *   2. tombol Simpan memeriksa ULANG, karena panel bisa terbuka lama dan
- *      petanya bisa hilang di tengah jalan
- *   3. saat mengumpulkan isian, petanya dibaca LANGSUNG (`stockMap.get`),
- *      bukan lewat `?.` yang menyembunyikan hilangnya peta
+ * ============ YANG MASIH DIJAGA ============
+ *
+ *   1. `isian.push` TIDAK lagi menyertakan potret stok dari `stockMap`
+ *   2. `catatHitungan()` mengirim `p_system: null`
+ *   3. panel tetap menolak dibuka saat peta stok hilang — TAPI alasannya
+ *      sekarang berbeda, dan itu ditulis di tempatnya
+ *   4. hitungan yang sudah tersimpan wajib dimuat (bug terpisah, 0109-an)
  */
 const fs = require('fs');
 const path = require('path');
@@ -85,18 +88,40 @@ if (!pengumpul) {
   );
 } else {
   // ---------------------------------------------------------------
-  // 3. Peta dibaca langsung, bukan lewat `?.`
+  // 3. LAYAR TIDAK BOLEH MENGIRIM POTRET STOK SAMA SEKALI.
+  //
+  // Sejak 0114 server yang membacanya. Angka apa pun yang dikumpulkan di sini
+  // hanya bisa merusak — kalau ia dikirim, ia dipakai; kalau ia basi, hasilnya
+  // salah dan tidak ada error di mana pun.
   // ---------------------------------------------------------------
-  if (/stockMap\?\./.test(pengumpul[0])) {
+  if (/stockMap/.test(pengumpul[0])) {
     salah(
-      `${BERKAS}: potret sistem diambil dengan \`stockMap?.get(...)\`. ` +
-        'Saat peta stok gagal dimuat, seluruh potret jadi 0 dan penyesuaian opname dihitung dari nol — ' +
-        'stok melonjak sebesar seluruh hitungan, tanpa satu pun error. Pakai `stockMap.get(...)` dan tolak lebih dulu kalau petanya tidak ada.'
+      `${BERKAS}: \`isian.push\` masih mengumpulkan angka dari \`stockMap\`. ` +
+        'Sejak 0114, stok sistem dibaca SERVER saat menyimpan — peta di layar bisa basi berjam-jam, ' +
+        'dan potret basi menghasilkan penyesuaian yang salah tanpa satu pun error (nanas 6.400 dihitung 4.600 jadi 11.000).'
     );
   }
-  if (!/stockMap\.get\(/.test(pengumpul[0])) {
-    salah(`${BERKAS}: \`isian.push\` tidak lagi membaca \`stockMap.get(...)\` — dari mana potret sistemnya sekarang?`);
-  }
+}
+
+// ---------------------------------------------------------------
+// 3b. `catatHitungan()` mengirim `p_system: null`.
+//
+// Dikirim EKSPLISIT, bukan dihilangkan: bentuk panggilannya jadi cocok dengan
+// tanda tangan fungsinya dan tidak bergantung pada resolusi default PostgREST.
+// ---------------------------------------------------------------
+const svc = fs.readFileSync(path.join(AKAR, 'js/modules/inventory/opname.service.js'), 'utf8');
+if (!/p_system:\s*null/.test(svc)) {
+  salah(
+    'js/modules/inventory/opname.service.js: `catatHitungan()` tidak mengirim `p_system: null`. ' +
+      'Angka apa pun yang dikirim dari layar akan dipakai server versi lama — dan versi lama itu masih ada ' +
+      'di database sampai 0114 dijalankan.'
+  );
+}
+if (/p_system:\s*systemQty/.test(svc)) {
+  salah(
+    'js/modules/inventory/opname.service.js: `catatHitungan()` masih meneruskan `systemQty` dari layar. ' +
+      'Itu persis bug nanas.'
+  );
 }
 
 // ---------------------------------------------------------------

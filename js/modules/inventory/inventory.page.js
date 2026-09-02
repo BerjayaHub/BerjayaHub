@@ -746,11 +746,18 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       const isian = [];
       for (const [pid, raw] of draft.entries()) {
         if (raw === '') continue;
-        // `?? 0` DI SINI SAH, dan artinya berbeda dari kegagalan di atas:
-        // produk yang belum pernah punya pergerakan memang tidak muncul di
-        // `stock_balances`, dan stoknya memang nol. Yang tidak sah adalah
-        // SELURUH peta yang hilang — itu sudah ditolak dua penjaga di atas.
-        isian.push({ pid, counted: Number(raw), sys: stockMap.get(pid) ?? 0 });
+        // POTRET STOK TIDAK LAGI DIKIRIM DARI SINI.
+        //
+        // Sejak 0114, server yang membacanya saat menyimpan. `stockMap` di
+        // layar tetap dipakai untuk MENAMPILKAN angka sistem dan menghitung
+        // selisih di layar — dua hal yang boleh basi tanpa merusak apa pun —
+        // tapi tidak lagi menentukan penyesuaian stoknya.
+        //
+        // Bug yang ditutupnya: peta dimuat saat halaman dibuka, orangnya
+        // menghitung sejam, stoknya berubah di sela itu, dan yang terkirim
+        // adalah angka lama — atau NOL untuk bahan yang tadinya belum
+        // bergerak. Nanas 6.400 dihitung 4.600 menghasilkan 11.000.
+        isian.push({ pid, counted: Number(raw) });
       }
       if (!isian.length) {
         toast('Belum ada bahan yang diisi.', 'info');
@@ -767,7 +774,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       let terkirim = 0;
       try {
         for (const it of isian) {
-          await catatHitungan({ countId: sesi.id, productId: it.pid, counted: it.counted, systemQty: it.sys });
+          await catatHitungan({ countId: sesi.id, productId: it.pid, counted: it.counted });
           terkirim++;
         }
         // Sengaja TIDAK menyebut "stok dikoreksi": stok belum bergerak sama

@@ -80,6 +80,7 @@ pernah dijalankan.
 | 0111 | `0111_draft_order_ck.sql` | **Order ke CK punya tahap DRAFT.** Disusun bersama dulu (bar + kitchen), baru ditekan Kirim — sebelum itu CK tidak melihatnya sama sekali. Satu draft per pasangan outlet-tujuan (unique index parsial). Sesudah dikirim, isinya **terkunci**. ⚠️ **Perlu redeploy `notify-telegram`** supaya draft tidak diumumkan sebagai order baru. Jalur lama `create_stock_order` dicabut grant-nya |
 | 0112 | `0112_koreksi_penjualan_berjejak.sql` | **Admin bisa memperbaiki penjualan tanggal lampau.** Wewenangnya sudah ada sejak `0101`; yang baru adalah jejaknya (`qty_awal`, `dikoreksi_at/_by/_alasan`) dan **alasan wajib untuk tanggal lampau**. Stok bahan ikut dikoreksi sesuai resep; harga tetap harga saat transaksi dicatat. ⚠️ Mengandung `drop function ubah_penjualan(uuid, numeric)` — tanda tangannya bertambah satu parameter, dan tanpa drop versi lamanya tetap hidup sebagai overload tanpa penjagaan alasan |
 | 0113 | `0113_cuti_di_jadwal_shift.sql` | **Cuti yang disetujui terbaca di jadwal shift** (Staff App & Admin Portal). Dua RPC baca saja (`cuti_disetujui_rentang`, `cuti_saya_rentang`) yang menguraikan rentang pengajuan jadi satu baris per tanggal. **Tidak menulis apa pun** ke `shift_schedules` — cuti tetap satu-satunya sumber kebenaran, jadi cuti yang dibatalkan langsung hilang dari jadwal tanpa perlu disinkronkan |
+| 0114 | `0114_opname_stok_sistem_dari_server.sql` | ⚠️ **Perbaikan bug stok — jalankan segera.** Opname menerima `system_qty` **dari layar**, dan peta stok di layar bisa basi berjam-jam. Nanas stok 6.400 dihitung 4.600 menghasilkan **11.000** (penyesuaian +4.600, bukan −1.800). Sekarang server yang membacanya saat menyimpan. Menambah `opname_potret_basi(sesi)` untuk memeriksa sesi yang masih terbuka |
 
 
 > ⚠️ **Gejala setelah 0085: tab Opname kosong dengan pesan *"Could not find a relationship between 'stock_counts' and 'user_profiles'"*.**
@@ -371,6 +372,35 @@ Arah kegagalannya sengaja dipilih begitu: Edge Function basi **kehilangan**
 notifikasi, bukan mengumumkan draft yang belum jadi. CK yang tidak diberitahu
 akan bertanya; CK yang diberi tahu terlalu dini akan menyiapkan barang untuk
 daftar yang masih berubah.
+
+
+---
+
+## 5d. Sesi opname yang masih terbuka — periksa sebelum ditutup (setelah 0114)
+
+Baris yang tersimpan **sebelum** `0114` bisa memegang `system_qty` basi dari
+layar. Menutup sesinya akan menghasilkan penyesuaian yang salah, persis seperti
+kasus nanas.
+
+Untuk tiap sesi yang masih `open`:
+
+```sql
+-- 1. Cari sesinya
+select id, code, outlet_id from stock_counts where status = 'open';
+
+-- 2. Periksa barisnya
+select * from opname_potret_basi('<id sesi>');
+```
+
+Kolom `selisih_jika_ditutup_sekarang` vs `selisih_seharusnya` menunjukkan
+akibatnya. Kalau ada baris yang muncul, **jangan tutup sesinya dulu** —
+perbaikannya sederhana: buka layar opname, **muat ulang halamannya**, lalu
+**simpan ulang** hitungan bahan-bahan itu. Menyimpan ulang menyegarkan
+potretnya dari server, dan `opname_potret_basi` akan kosong.
+
+`opname_potret_basi` tidak memperbaiki apa pun sendiri — memperbaiki otomatis
+berarti menebak, dan tebakan pada angka stok adalah hal yang paling tidak boleh
+dikerjakan diam-diam.
 
 
 ## 6. Yang perlu diatur lewat UI setelah deploy
