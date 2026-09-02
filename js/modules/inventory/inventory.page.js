@@ -86,10 +86,10 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   `;
 
   const outletSelect = container.querySelector('#inv-outlet');
-  outletSelect.addEventListener('change', () => {
+  outletSelect.addEventListener('change', async () => {
     state.outletId = outletSelect.value;
 
-    // PANEL NOTA DITUTUP SAAT OUTLET BERGANTI.
+    // PANEL YANG MEMEGANG OUTLET DITUTUP SAAT OUTLETNYA BERGANTI.
     //
     // `renderNotaStaff` memegang `outletId` yang berlaku SAAT panelnya dibuka.
     // Tanpa baris ini, mengganti outlet sementara panelnya terbuka menghasilkan
@@ -108,7 +108,36 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       }
     }
 
-    refresh();
+    // PANEL OPNAME IKUT DITUTUP — dan ini sempat terlewat.
+    //
+    // Daftar di atas menutup nota dan bahan menipis, tapi opname tidak ikut,
+    // padahal ia memegang SESI milik outlet lama. Akibatnya lebih parah
+    // daripada nota: hitungan fisik yang diketik sesudah berganti outlet masuk
+    // ke sesi opname outlet SEBELUMNYA, dan saat sesi itu ditutup, stok outlet
+    // yang salah yang disesuaikan.
+    //
+    // Tidak ada error, dan layarnya bahkan terlihat benar — judul panelnya
+    // masih menampilkan nama outlet lama, yang justru mudah dikira sisa
+    // tampilan biasa.
+    if (opnameState.open) {
+      opnameState.open = false;
+      renderOpnamePanel();
+      toast('Panel opname ditutup karena outletnya berganti. Buka lagi untuk outlet yang baru.', 'info');
+    }
+
+    // HASILNYA HARUS DIPASANG KEMBALI KE `stockMap`.
+    //
+    // Sebelumnya baris ini cuma `refresh();` — petanya digambar ulang di layar,
+    // tapi variabel `stockMap` tetap memegang outlet LAMA. Gejalanya persis
+    // seperti yang dilaporkan: tabel stok tampak benar sesaat setelah berganti
+    // outlet, lalu KEMBALI ke angka outlet lama begitu kotak Cari atau saringan
+    // Kategori disentuh — karena keduanya memanggil `gambarStok(stockMap)`.
+    //
+    // Panel opname membacanya juga, jadi kolom "sistem" dan selisihnya
+    // menampilkan angka outlet lain. Itu yang membuat satu layar bisa menulis
+    // "sistem 155 gr" sementara tabel di bawahnya menulis 15.871 untuk bahan
+    // yang sama.
+    stockMap = (await refresh()) ?? stockMap;
   });
 
   const productOptions = activeProducts.map((p) => ({ value: p.id, label: `${p.name} (${p.base_unit})` }));
@@ -351,13 +380,39 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   // Hitungan yang SUDAH TERSIMPAN di server: produkId -> baris stock_count_items.
   let tersimpan = new Map();
 
+  /**
+   * Nomor urut penggambaran panel opname.
+   *
+   * `renderOpnamePanel()` menunggu DUA panggilan jaringan sebelum menggambar
+   * (`sesiTerbuka` lalu `itemOpname`). Selama menunggu, outletnya bisa sudah
+   * diganti — dan panggilan lama itu tetap berjalan sampai selesai, lalu
+   * menimpa panel dengan sesi outlet SEBELUMNYA.
+   *
+   * Hasilnya persis keluhan yang sedang diperbaiki: pemilih outlet menunjuk
+   * AB Sentul, panel opname menampilkan sesi AB Serpong. Tidak ada error, dan
+   * judul panelnya pun ikut menulis nama outlet yang lama, jadi tidak ada satu
+   * pun tanda bahwa yang terlihat sudah kedaluwarsa.
+   *
+   * Penjaganya sesederhana mungkin: tiap penggambaran mengambil nomor, dan
+   * sesudah tiap `await` nomornya diperiksa. Kalau sudah ada penggambaran yang
+   * lebih baru, yang lama berhenti diam-diam — ia memang tidak punya apa pun
+   * yang layak ditampilkan.
+   */
+  let opnameGiliran = 0;
+
   async function renderOpnamePanel() {
     const panel = container.querySelector('#inv-opname-panel');
     if (!opnameState.open) {
       panel.innerHTML = '';
       return;
     }
+    const giliran = ++opnameGiliran;
+    const outletSaat = state.outletId;
+    /** Benar kalau penggambaran ini sudah didahului yang lebih baru. */
+    const basi = () => giliran !== opnameGiliran || outletSaat !== state.outletId;
+
     sesi = await sesiTerbuka(state.outletId).catch(() => null);
+    if (basi()) return;
 
     // TANPA PETA STOK, OPNAME TIDAK BOLEH DIBUKA SAMA SEKALI.
     //
@@ -455,8 +510,13 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     // kebohongan yang sedang diperbaiki. Jadi ditolak terang-terangan.
     try {
       const isi = await itemOpname(sesi.id);
+      // Diperiksa SEBELUM `tersimpan` dipasang, bukan sesudahnya: peta ini
+      // dibaca seluruh daftar isian, dan memasangnya dengan data outlet lama
+      // membuat kotak-kotaknya terisi angka milik outlet yang salah.
+      if (basi()) return;
       tersimpan = new Map(isi.map((b) => [b.product_id, b]));
     } catch (error) {
+      if (basi()) return;
       panel.innerHTML = `
         <div class="inline-card fade-in" style="max-width:100%">
           <div class="page-header" style="margin-bottom:8px">

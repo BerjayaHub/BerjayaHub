@@ -5027,6 +5027,28 @@ Sabotase yang menghitung saldo **lintas outlet** (membuang `where sm.outlet_id =
 
 Ditambahkan outlet kedua yang memegang nanas 2.500. Sekarang saldo lintas outlet akan terbaca 8.900 alih-alih 6.400, dan sabotasenya merah. Pola yang sama dengan dua kesalahan tes saya sebelumnya: **pemeriksaan yang tidak bisa membedakan dua perilaku bukan pemeriksaan.**
 
+## Berganti outlet ternyata tidak mengganti semuanya
+
+Setelah `0114`, iko melaporkan dua gejala yang kelihatannya tidak berhubungan:
+
+> "outlet sudah saya ubah ke ab sentul tetapi di tabel, jumlah stock yang tampil masih di ab serpong"
+
+dan satu layar yang menulis **"sistem 155 gr"** di panel opname sementara tabel di bawahnya menulis **15.871** untuk bahan yang sama.
+
+Akarnya satu, dan letaknya di satu baris. Penangan ganti-outlet memanggil `refresh()` lalu **membuang hasilnya**. Layar tergambar ulang — jadi sesaat sesudah berganti outlet angkanya benar — tapi variabel `stockMap` tetap memegang outlet lama. Dan `stockMap` itulah yang dibaca saringan Kategori, kotak Cari, dan seluruh panel opname. Begitu ada yang mengetik di kotak cari, angkanya kembali ke outlet sebelumnya. Itu sebabnya laporannya berbunyi **"terkadang"**.
+
+**Yang ketiga paling merugikan dan tidak dilaporkan siapa pun.** Penangan itu menutup panel nota dan panel bahan-menipis, tapi **tidak** menutup panel opname — padahal panel opname memegang **sesi milik outlet lama**. Hitungan fisik yang diketik sesudah berganti outlet masuk ke sesi outlet SEBELUMNYA, dan saat sesi itu ditutup, stok outlet yang salah yang disesuaikan. Tidak ada error di mana pun, dan layarnya terlihat wajar.
+
+**Yang keempat ditemukan saat menutup ketiganya, bukan dari laporan.** `renderOpnamePanel()` menunggu dua panggilan jaringan sebelum menggambar. Outletnya bisa sudah diganti selama menunggu — dan panggilan lama tetap jalan sampai selesai, lalu menimpa panel dengan sesi outlet sebelumnya, judul dan semuanya. Menutup panel saja tidak menutup lubang ini, karena penggambaran yang sudah lewat pemeriksaan di awal tidak memeriksanya lagi sesudah `await`. Sekarang tiap penggambaran mengambil nomor giliran, dan sesudah tiap `await` nomor **dan** outletnya diperiksa; yang ketinggalan berhenti diam-diam.
+
+`audit-ganti-outlet.cjs` mengunci keempatnya. Delapan sabotase dijalankan; **dua lolos** dan keduanya cacat auditnya sendiri:
+
+- Jendela pemeriksaan 400 karakter sesudah `await` **menembus sampai ke blok `catch`**, jadi `basi()` milik penanganan error dihitung sebagai penjaga milik jalur suksesnya. Dua penjaga berbeda maksud, dianggap satu. Jendelanya sekarang dipotong di `} catch`.
+- Auditnya memeriksa bahwa nomor giliran **dibandingkan**, tapi tidak bahwa ia **dinaikkan**. Sabotase `const giliran = opnameGiliran` (tanpa `++`) meninggalkan perbandingan yang selalu sama — penjaga yang tampak utuh tapi tidak pernah menyala.
+
+Sapuan ke 40 penangan ganti-outlet di seluruh modul menemukan satu kandidat lain, `menipis.admin.js`, dan itu **bukan** bug: `products`/`recipes` di sana dikunci ke BU, bukan outlet, dan yang memang milik outlet (`saldo`, `batasManual`, `porsiMinimumOutlet`) sudah diambil ulang tiap kali. Pemindai sapuannya sendiri sempat hijau palsu karena regexnya tidak cocok dengan bentuk `container.querySelector('#as-outlet').addEventListener(...)` — **hijau karena sasarannya tidak ketemu**, pola kegagalan yang di repo ini sudah berulang kali muncul dan sekarang selalu dijawab dengan ambang minimum jumlah sasaran.
+
+- [x] **Ganti outlet mengganti semuanya** — `stockMap` dipasang ulang (bukan dibuang), panel opname ikut ditutup supaya hitungan tidak masuk ke sesi outlet lain, dan penggambaran panel yang ketinggalan berhenti sendiri alih-alih menimpa layar dengan sesi outlet lama
 - [x] **Cuti terhubung ke jadwal shift** (`0113`) — cuti/sakit/PH yang disetujui muncul di Staff App maupun Admin Portal, dibaca dari pengajuan (bukan disalin, jadi pembatalan langsung terpantul), sel admin terkunci saat cuti disetujui, dan shift yang tertutup cuti tetap disebut supaya lubangnya terlihat
 - [x] **Opname: stok sistem dibaca server** (`0114`) — layar tidak lagi mengirim potretnya sendiri, jadi peta stok yang basi tidak bisa lagi mengubah penyesuaian jadi penambahan (nanas 6.400 dihitung 4.600 sempat jadi 11.000); ditambah `opname_potret_basi()` untuk memeriksa sesi lama sebelum ditutup
 - [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal

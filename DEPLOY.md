@@ -402,6 +402,44 @@ potretnya dari server, dan `opname_potret_basi` akan kosong.
 berarti menebak, dan tebakan pada angka stok adalah hal yang paling tidak boleh
 dikerjakan diam-diam.
 
+---
+
+## 5e. Hitungan yang mungkin masuk ke outlet yang salah (build sebelum perbaikan ganti-outlet)
+
+**Tanpa SQL. Ini perbaikan sisi layar — cukup push code, lalu minta staff
+menutup dan membuka lagi aplikasinya** (PWA lama masih ter-cache di HP).
+
+Pada build sebelum perbaikan ini, mengganti outlet di halaman **Bahan** tidak
+menutup panel opname yang sedang terbuka. Panelnya tetap memegang **sesi milik
+outlet sebelumnya**, jadi hitungan yang diketik sesudah berganti outlet
+tersimpan ke sesi outlet yang salah — tanpa error, dan judul panelnya pun
+tetap menulis nama outlet lama.
+
+Kalau ada yang pernah berganti outlet sambil panel opname terbuka, periksa
+hitungan yang masuk ke sesi yang **outletnya tidak cocok dengan orang yang
+mengisi**:
+
+```sql
+select c.code,
+       o.name  as outlet_sesi,
+       p.name  as bahan,
+       i.counted_qty,
+       u.full_name as diisi_oleh,
+       i.counted_at
+  from stock_count_items i
+  join stock_counts c   on c.id = i.count_id
+  join outlets o        on o.id = c.outlet_id
+  join products p       on p.id = i.product_id
+  left join user_profiles u on u.id = i.counted_by
+ where c.status = 'open'
+ order by c.code, i.counted_at desc;
+```
+
+Baris yang jelas salah tempat cukup **dihitung ulang di outlet yang benar**;
+yang salah masuk bisa disimpan ulang dengan angka yang benar selama sesinya
+masih `open`. Yang penting: **jangan tutup sesi yang isinya masih diragukan** —
+penutupan sesi itulah yang menuliskan penyesuaian ke stok.
+
 
 ## 6. Yang perlu diatur lewat UI setelah deploy
 
