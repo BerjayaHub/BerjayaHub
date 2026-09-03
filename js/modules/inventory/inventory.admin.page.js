@@ -7,6 +7,7 @@ import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
 import { loadingHtml } from '../../core/loading.js';
 import { cocokNama } from '../../core/nama.js';
+import { namaUntukCari } from './riwayat-cari.js';
 import { daftarKategori, daftarSubKategori, TANPA_KATEGORI, TANPA_SUB } from '../product/saringan.js';
 import { renderOpnameAdmin } from './opname.admin.js';
 import { renderNotaAdmin } from './nota.admin.js';
@@ -269,6 +270,10 @@ async function renderHistoryTab(content, businessUnitId, outlets) {
       <div class="field" style="margin:0"><label>Sub kategori</label>
         <select id="hist-sub"><option value="">Semua</option></select>
       </div>
+      <div class="field" style="margin:0;max-width:240px">
+        <label>Cari nama</label>
+        <input type="search" id="hist-q" placeholder="ketik nama bahan…" autocomplete="off" />
+      </div>
       <div class="field" style="margin:0"><label>Dari</label><input type="date" id="hist-from" value="${range.from}" /></div>
       <div class="field" style="margin:0"><label>Sampai</label><input type="date" id="hist-to" value="${range.to}" /></div>
       <button class="primary" id="hist-go" style="max-width:120px">Tampilkan</button>
@@ -285,6 +290,10 @@ async function renderHistoryTab(content, businessUnitId, outlets) {
     gambarRiwayat(content);
   });
   content.querySelector('#hist-sub').addEventListener('change', () => gambarRiwayat(content));
+  // `input`, BUKAN `change`: kotak pencarian harus menyaring sambil diketik.
+  // Dengan `change` hasilnya baru berubah saat fokus berpindah, dan kotak yang
+  // tidak bereaksi terbaca sebagai "tidak ada datanya", bukan "belum disaring".
+  content.querySelector('#hist-q').addEventListener('input', () => gambarRiwayat(content));
   await go();
 }
 
@@ -340,10 +349,13 @@ function gambarRiwayat(content) {
   if (!result) return;
   const cat = content.querySelector('#hist-cat')?.value ?? '';
   const sub = content.querySelector('#hist-sub')?.value ?? '';
+  const q = content.querySelector('#hist-q')?.value ?? '';
   // Pergerakan produk yang sudah TIDAK ADA di master (terhapus) tetap
   // ditampilkan selama tidak ada saringan kategori — buku besar tidak boleh
   // menyembunyikan barisnya hanya karena produknya sudah dihapus.
-  const rows = barisRiwayat.filter((r) => (!cat && !sub) || cocokKategori(r.produk, cat, sub));
+  const rows = barisRiwayat.filter(
+    (r) => ((!cat && !sub) || cocokKategori(r.produk, cat, sub)) && cocokNama(namaUntukCari(r), q)
+  );
 
   result.innerHTML = `
     <table class="data-table" style="margin-top:16px">
