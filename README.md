@@ -5048,6 +5048,21 @@ Akarnya satu, dan letaknya di satu baris. Penangan ganti-outlet memanggil `refre
 
 Sapuan ke 40 penangan ganti-outlet di seluruh modul menemukan satu kandidat lain, `menipis.admin.js`, dan itu **bukan** bug: `products`/`recipes` di sana dikunci ke BU, bukan outlet, dan yang memang milik outlet (`saldo`, `batasManual`, `porsiMinimumOutlet`) sudah diambil ulang tiap kali. Pemindai sapuannya sendiri sempat hijau palsu karena regexnya tidak cocok dengan bentuk `container.querySelector('#as-outlet').addEventListener(...)` — **hijau karena sasarannya tidak ketemu**, pola kegagalan yang di repo ini sudah berulang kali muncul dan sekarang selalu dijawab dengan ambang minimum jumlah sasaran.
 
+## Order masuk yang sudah disiapkan tidak lagi menipu
+
+> "saat nomor order masuk sudah dibuat menjadi draft ... tidak ada staff yang mengisi di tab order masuk, padahal sudah jadi draft, walaupun memang saat di tap buat draft akan ditolak, tetapi ini akan jadi pekerjaan sia sia"
+
+`siapkan_order_jadi_draft` (`0103`) **sengaja** tidak menutup ordernya — draft belum berangkat, dan menutup order untuk barang yang masih di rak membuat outlet pemesan mengira pesanannya beres. Keputusan itu benar dan tidak diubah. Yang salah adalah layarnya: ordernya tetap tampil lengkap dengan kotak isian jumlah, staff CK bisa mengisi belasan baris, lalu baru **di detik terakhir** ditolak server.
+
+Penolakannya sendiri load-bearing — ia yang mencegah dua nomor SJ untuk satu order. Tapi penjagaan yang benar di tempat yang terlambat tetap membuang pekerjaan orang.
+
+Sekarang order yang sudah punya draft digambar sebagai **kartu yang sama sekali berbeda**: diredupkan, berlabel `SUDAH JADI DRAFT`, menyebut nomor SJ-nya dan siapa yang menyiapkan — dan **tanpa satu pun kotak isian**. Itu bagian yang menentukan: selama kotaknya masih ada, mengisinya tetap terasa seperti pekerjaan yang wajar. Satu-satunya jalan yang ditawarkan kartu itu adalah jalan yang benar, dan jalan itu **langsung membuka draftnya** — bukan sekadar memindahkan orang ke daftar draft yang harus ditelusuri lagi. Draft yang baru saja dibuat dari tombol "Siapkan & Buat Draft SJ" juga ikut terbuka sendiri.
+
+Satu keputusan yang mudah terlewat: kalau daftar draft **gagal dimuat**, peta kosong — dan peta kosong tidak bisa dibedakan dari "belum ada draft". Menyamakan keduanya berarti layar berkata "silakan kerjakan" dengan yakin pada order yang sudah disiapkan, mengulang persis pekerjaan sia-sia yang sedang diperbaiki. Jadi ada keadaan ketiga, `'tidak-tahu'`, yang mengaku di kepala daftar.
+
+Aturannya dipisah ke `order-draft.js` (9 pemeriksaan) dan kabelnya dikunci `audit-order-sudah-draft.cjs`; 9 sabotase, semuanya tertangkap. Auditnya sendiri sempat memarahi kode yang sudah benar — kata `return` yang ia temukan paling awal ada **di dalam komentar** yang menjelaskan penjaganya. Ini kali ketiga dalam beberapa putaran terakhir pemindai teks tersandung komentar; sekarang selalu dibuang lebih dulu.
+
+- [x] **Order masuk menunjukkan mana yang sudah jadi draft** — kartunya berbeda, tanpa kotak isian, dan mengetuknya langsung membuka draft surat jalannya
 - [x] **Cari nama produk di Riwayat Stok (Admin Portal)** — menyaring sambil diketik tanpa menyentuh jaringan, dan namanya diambil dari **baris pergerakannya**, bukan dari master: baris milik produk yang sudah dihapus tetap bisa ditemukan dengan mengetik nama yang tertulis di layar (`riwayat-cari.js`, 8 pemeriksaan, 3 sabotase)
 - [x] **Ganti outlet mengganti semuanya** — `stockMap` dipasang ulang (bukan dibuang), panel opname ikut ditutup supaya hitungan tidak masuk ke sesi outlet lain, dan penggambaran panel yang ketinggalan berhenti sendiri alih-alih menimpa layar dengan sesi outlet lama
 - [x] **Cuti terhubung ke jadwal shift** (`0113`) — cuti/sakit/PH yang disetujui muncul di Staff App maupun Admin Portal, dibaca dari pengajuan (bukan disalin, jadi pembatalan langsung terpantul), sel admin terkunci saat cuti disetujui, dan shift yang tertutup cuti tetap disebut supaya lubangnya terlihat

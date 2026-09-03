@@ -4,6 +4,7 @@ import { formatNum } from '../../core/format.js';
 import { listProducts } from '../product/product.service.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { createItemPicker } from './item-picker.js';
+import { petaDraftPerOrder, keadaanOrder, ringkasOrder } from './order-draft.js';
 import {
   buatDraftKiriman,
   ubahDraftKiriman,
@@ -70,7 +71,15 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     container.innerHTML = `<h1>Pengiriman</h1><p style="color:var(--color-text-muted)">${PESAN_TANPA_OUTLET}</p>`;
     return;
   }
-  const state = { outletId: myOutlets.some((o) => o.id === outletId) ? outletId : myOutlets[0].id, tab: null, stockMap: new Map() };
+  const state = {
+    outletId: myOutlets.some((o) => o.id === outletId) ? outletId : myOutlets[0].id,
+    tab: null,
+    stockMap: new Map(),
+    // Nomor draft yang harus langsung terbuka saat tab Draft digambar. Dititipkan
+    // lewat `state` karena yang menyalakannya (tab Order Masuk) dan yang
+    // memakainya (tab Draft) adalah dua penggambaran yang berbeda.
+    fokusDraft: null
+  };
 
   container.innerHTML = `
     <h1>Pengiriman</h1>
@@ -520,12 +529,85 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       box.innerHTML = `<p style="color:var(--color-text-muted)">Tidak ada order menunggu diproses.</p>`;
       return;
     }
-    const itemsByOrder = await Promise.all(orders.map((o) => getOrderItems(o.id).catch(() => [])));
 
-    box.innerHTML = orders
-      .map((o, idx) => {
-        const items = itemsByOrder[idx];
-        return `
+    // DRAFT IKUT DIMUAT DI SINI, DAN KEGAGALANNYA TIDAK DITELAN.
+    //
+    // Order yang sudah disiapkan jadi draft TETAP muncul di daftar ini —
+    // `siapkan_order_jadi_draft` sengaja tidak menutup ordernya (0103 §6).
+    // Tanpa penandaan, staff mengisi seluruh barisnya lalu baru ditolak server
+    // di detik terakhir: penjagaannya benar, tapi pekerjaannya sudah terlanjur.
+    //
+    // Kalau daftar draftnya sendiri gagal dimuat, layar TIDAK boleh diam-diam
+    // menganggap semuanya belum disiapkan — itu persis kebohongan yang sedang
+    // diperbaiki. Keadaannya dinyatakan apa adanya di kepala daftar.
+    let drafts = [];
+    let gagalMemuatDraft = false;
+    try {
+      drafts = await listDraftKiriman([state.outletId]);
+    } catch {
+      gagalMemuatDraft = true;
+    }
+    const petaDraft = petaDraftPerOrder(drafts);
+    const ringkas = ringkasOrder(orders, petaDraft, { gagalMemuatDraft });
+
+    // Isi order hanya diambil untuk yang MASIH perlu dikerjakan. Order yang
+    // sudah punya draft tidak menampilkan kotak isian sama sekali, jadi
+    // memuat isinya cuma menambah panggilan jaringan tanpa ada yang membacanya.
+    const perluIsi = orders.filter((o) => keadaanOrder(o, petaDraft, { gagalMemuatDraft }).mode !== 'sudah-draft');
+    const isiPerOrder = new Map(
+      (await Promise.all(perluIsi.map(async (o) => [o.id, await getOrderItems(o.id).catch(() => [])]))).map(([k, v]) => [k, v])
+    );
+
+    const kepala = gagalMemuatDraft
+      ? `<p class="report-note" style="margin-bottom:12px">
+           <strong>Status draft tidak bisa dicek</strong> — daftar draft surat jalan gagal dimuat.
+           Order di bawah ditampilkan apa adanya, jadi bisa saja ada yang sebenarnya sudah disiapkan.
+           Buka tab <strong>Draft Surat Jalan</strong> untuk memastikan sebelum menyiapkan ulang.
+         </p>`
+      : ringkas.sudah
+        ? `<p class="report-note" style="margin-bottom:12px">
+             <strong>${ringkas.belum} order</strong> perlu disiapkan.
+             ${ringkas.sudah} lainnya <strong>sudah jadi draft surat jalan</strong> — ketuk untuk membuka draftnya, jangan disiapkan ulang.
+           </p>`
+        : '';
+
+    box.innerHTML =
+      kepala +
+      orders
+        .map((o) => {
+          const keadaan = keadaanOrder(o, petaDraft, { gagalMemuatDraft });
+
+          // ---- Order yang SUDAH jadi draft: tidak ada form sama sekali ----
+          //
+          // Bukan sekadar diberi label. Selama kotak isiannya masih ada,
+          // mengisinya tetap terasa seperti pekerjaan yang wajar — dan
+          // pekerjaan itu tetap berakhir ditolak. Satu-satunya jalan yang
+          // ditawarkan kartu ini adalah jalan yang benar: buka draftnya.
+          if (keadaan.mode === 'sudah-draft') {
+            const d = keadaan.draft;
+            return `
+        <div class="inline-card ord-sudah-draft" style="max-width:620px" data-order="${o.id}">
+          <div class="ord-judul">
+            <strong>No. ${esc(o.code ?? o.id.slice(0, 6))}</strong> — dari ${esc(o.from_outlet?.name ?? '-')}
+            <span class="badge badge-pending" style="margin-left:6px">SUDAH JADI DRAFT</span>
+          </div>
+          <div style="font-size:0.78rem;color:var(--color-text-muted);margin-top:2px">
+            ${fmtDateTime(o.created_at)} · oleh ${esc(o.user_profiles?.full_name ?? '-')}${o.notes ? ' · ' + esc(o.notes) : ''}
+          </div>
+          <p style="font-size:0.82rem;margin:8px 0 0">
+            Sudah disiapkan jadi <strong>${esc(d.code ?? 'draft surat jalan')}</strong>
+            oleh ${esc(d.user_profiles?.full_name ?? '-')} · ${fmtDateTime(d.created_at)}.
+            Stoknya <strong>belum bergerak</strong> — isinya masih bisa diubah di draftnya.
+          </p>
+          <button class="primary btn-buka-draft" data-draft="${d.id}" style="max-width:280px;margin-top:10px">
+            Buka draft ${esc(d.code ?? '')} →
+          </button>
+        </div>`;
+          }
+
+          // ---- Order yang masih perlu dikerjakan ----
+          const items = isiPerOrder.get(o.id) ?? [];
+          return `
         <div class="inline-card" style="max-width:620px" data-order="${o.id}">
           <button class="ord-expand" style="border:none;background:none;cursor:pointer;text-align:left;width:100%;padding:0;font-size:0.92rem;color:var(--color-text)">
             <strong>No. ${esc(o.code ?? o.id.slice(0, 6))}</strong> — dari ${esc(o.from_outlet?.name ?? '-')}
@@ -555,13 +637,26 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
             </div>
           </div>
         </div>`;
-      })
-      .join('');
+        })
+        .join('');
 
     box.querySelectorAll('.ord-expand').forEach((btn) =>
       btn.addEventListener('click', () => {
         const body = btn.parentElement.querySelector('.ord-body');
         body.hidden = !body.hidden;
+      })
+    );
+
+    // Ketuk order yang sudah jadi draft -> langsung ke draftnya, terbuka.
+    box.querySelectorAll('.btn-buka-draft').forEach((btn) =>
+      btn.addEventListener('click', () => {
+        // Nomor draftnya dititipkan ke `state`, bukan dicari ulang di tab
+        // sebelah. Tab Draft bisa berisi belasan draft, dan mendarat di daftar
+        // panjang tanpa penunjuk hanya memindahkan pekerjaan mencari — bukan
+        // menghapusnya.
+        state.fokusDraft = btn.dataset.draft;
+        state.tab = 'drafts';
+        buildTabs();
       })
     );
 
@@ -577,7 +672,15 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         }
         btn.disabled = true;
         try {
-          await siapkanOrderJadiDraft({ orderId: btn.dataset.id, items, notes: card.querySelector('.ord-sj-notes').value });
+          // Nomor draftnya dipakai, bukan dibuang: sesudah menyiapkan, yang
+          // ingin dilihat orang adalah draft yang BARU SAJA ia buat — bukan
+          // daftar draft yang harus ditelusuri lagi dari atas.
+          const draftBaru = await siapkanOrderJadiDraft({
+            orderId: btn.dataset.id,
+            items,
+            notes: card.querySelector('.ord-sj-notes').value
+          });
+          state.fokusDraft = draftBaru ?? null;
           // TIDAK ada PDF & tidak ada share di sini. Draft belum berangkat, dan
           // surat jalan yang sudah tercetak untuk barang yang masih di rak CK
           // adalah dokumen yang menyesatkan siapa pun yang memegangnya.
@@ -702,6 +805,14 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     const namaAsal = outlet?.name ?? 'outlet ini';
     const asalnya = isCK ? 'Order Masuk' : 'Transfer / Retur';
 
+    // Penanda diambil & DIBUANG DI SINI, sebelum satu pun jalan keluar di
+    // bawah. Kalau pembuangannya ditaruh di akhir, tiap `return` lebih awal
+    // (daftar kosong, gagal memuat) meninggalkan penandanya menempel — dan
+    // draft yang sama akan memaksa dirinya terbuka pada penggambaran
+    // berikutnya, termasuk sesudah draft itu dikirim atau dihapus.
+    const fokus = state.fokusDraft;
+    state.fokusDraft = null;
+
     let drafts;
     try {
       drafts = await listDraftKiriman([state.outletId]);
@@ -766,6 +877,27 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         await gambarIsiDraft(body, drafts.find((d) => d.id === btn.dataset.id));
       })
     );
+
+    // DRAFT YANG DITUJU DARI TAB ORDER MASUK LANGSUNG DIBUKA.
+    //
+    // Tanpa ini, "buka draftnya" hanya memindahkan orang ke daftar panjang dan
+    // menyuruhnya mencari nomor yang tadi tertulis di kartu order. Itu masih
+    // pekerjaan sia-sia, cuma bentuknya berubah.
+    //
+    // Penandanya sudah dibuang di awal fungsi ini — lihat alasannya di sana.
+    if (fokus) {
+      const tombol = box.querySelector(`.drf-toggle[data-id="${fokus}"]`);
+      if (tombol) {
+        tombol.click();
+        tombol.closest('[data-draft]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else {
+        // Draftnya tidak ada di daftar — kemungkinan besar sudah dikirim orang
+        // lain sementara layar ini masih memegang nomornya. Dikatakan, bukan
+        // didiamkan: daftar yang terbuka tanpa penjelasan terbaca sebagai
+        // tombol yang tidak berfungsi.
+        toast('Draft itu sudah tidak ada di daftar — mungkin baru saja dikirim. Periksa Riwayat & Dokumen.', 'info');
+      }
+    }
   }
 
   /** Isi satu draft: bisa diperiksa, diubah jumlahnya, lalu dikirim atau dihapus. */

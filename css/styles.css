@@ -2821,3 +2821,25 @@ select.sc-cell.is-off {
   font-size: 0.78rem;
   line-height: 1.4;
 }
+
+/* Kartu order masuk yang SUDAH disiapkan jadi draft surat jalan.
+
+   Bedanya harus terlihat dari jauh, sebelum dibaca. Staff CK menelusuri daftar
+   ini sambil berdiri di depan rak; kalau perbedaannya cuma satu label kecil di
+   antara teks yang seragam, ia akan tetap membuka kartu yang salah dan mengisi
+   seluruh barisnya sebelum sadar.
+
+   Warnanya sengaja diredupkan, bukan disorot: kartu ini justru yang TIDAK perlu
+   dikerjakan. Yang harus menarik mata adalah order yang masih polos. */
+.ord-sudah-draft {
+  background: var(--color-surface-alt, #f5f6f8);
+  border-left: 4px solid #e0a800;
+  opacity: 0.92;
+}
+.ord-sudah-draft .ord-judul {
+  font-size: 0.92rem;
+  color: var(--color-text-muted);
+}
+.ord-sudah-draft .ord-judul strong {
+  color: var(--color-text);
+}
