@@ -1,7 +1,7 @@
 import { toast } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
 import { listProducts, listRecipesFull } from '../product/product.service.js';
-import { petaPerkiraan, labelPerkiraan } from './perkiraan.js';
+import { petaPerkiraan, labelPerkiraan, rincianBahanMenu } from './perkiraan.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { getMenuPlans, upsertMenuPlan, todayWIB } from './menu.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
@@ -215,7 +215,18 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
       // SELURUH menu, bukan `list`. Bahan yang dipakai menu yang sedang
       // tersaring keluar tetap harus ikut dipotong — kalau tidak, perkiraannya
       // terlalu optimis persis untuk menu yang paling sering diisi bersamaan.
-      const peta = petaPerkiraan({ menus, recipes, stok: state.stock, mode: modeOutlet(), rencana: rencanaSekarang() });
+      const peta = petaPerkiraan({
+        menus,
+        recipes,
+        stok: state.stock,
+        mode: modeOutlet(),
+        rencana: rencanaSekarang(),
+        // Rencana untuk menu yang TIDAK dijual di outlet ini tidak boleh ikut
+        // memotong stok. Sebelum penyaring ini, beras 17.280 gr dengan takaran
+        // 200 gr/porsi bisa berbunyi "bahan habis" — dan sesudah 0115 barisnya
+        // bahkan tidak tampil lagi, jadi penyebabnya tidak ada di layar mana pun.
+        aktif: menuAktif
+      });
       for (const span of tbody.querySelectorAll('.menu-perkiraan')) {
         const h = peta.get(span.dataset.id);
         span.textContent = labelPerkiraan(h) + (h?.dikurangi ? ' (sisa)' : '');
@@ -281,48 +292,85 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
       return;
     }
 
-    const yieldQty = Number(resep.yield_qty) > 0 ? Number(resep.yield_qty) : 1;
-    // Angka & pembatasnya diambil dari perhitungan yang SAMA dengan barisnya —
-    // termasuk pengurangan oleh menu lain yang sudah diisi. Menghitungnya
-    // ulang di sini dengan stok penuh akan menampilkan dua angka berbeda untuk
-    // satu menu, di layar yang sama, tanpa ada yang salah kelihatannya.
-    const hasil = petaPerkiraan({
+    // Angka, pembatas, DAN sisanya diambil dari perhitungan yang SAMA dengan
+    // barisnya — termasuk pengurangan oleh menu lain yang sudah diisi.
+    // Menghitungnya ulang di sini dengan stok penuh akan menampilkan dua angka
+    // berbeda untuk satu menu, di layar yang sama, tanpa ada yang salah
+    // kelihatannya. Itu persis keadaan yang dilaporkan sebagai bug.
+    const { hasil, baris, pemakan } = rincianBahanMenu({
       menus: menus.map((x) => ({ id: x.id })),
       recipes,
       stok: state.stock,
       mode,
-      rencana: rencanaSekarang()
-    }).get(menu.id) ?? { bisa: null, sebab: 'tanpa-resep', pembatas: [] };
+      rencana: rencanaSekarang(),
+      aktif: menuAktif,
+      menuId: menu.id
+    });
 
-    const rows = resep.items.map((it) => {
-      const p = produkById.get(it.ingredient_product_id);
-      const butuh = Number(it.qty) / yieldQty;
-      const ada = Number(state.stock.get(it.ingredient_product_id) ?? 0);
+    const rows = baris.map((b) => {
+      const p = produkById.get(b.bahanId);
       const satuan = esc(p?.base_unit ?? '');
-      // Bahan PEMBATAS ditandai: itu satu-satunya yang perlu ditambah supaya
-      // angkanya naik. Tanpa penanda, staff harus membandingkan sendiri tiap
-      // baris — dan yang paling sering terjadi adalah membeli yang salah.
-      // SEMUA bahan yang sama-sama mepet ditandai, bukan cuma yang pertama.
-      // Menambah satu dari dua yang seri tidak menaikkan angkanya sama sekali,
-      // dan penanda yang menyuruh membeli hal yang tidak menyelesaikan apa pun
-      // lebih buruk daripada tidak ada penanda.
-      const batas = (hasil.pembatas ?? []).includes(it.ingredient_product_id);
-      return `<tr${batas ? ' class="menu-bahan-batas"' : ''}>
-        <td data-label="Bahan">${esc(p?.name ?? '(produk terhapus)')}${batas ? ' <span class="menu-tag-batas">pembatas</span>' : ''}</td>
-        <td data-label="Per menu">${formatNum(butuh)} ${satuan}</td>
-        <td data-label="Stok">${formatNum(ada)} ${satuan}</td>
+      // KOLOM SISA ADA KARENA KOLOM STOK SAJA BERBOHONG.
+      //
+      // Vonis "bahan habis" dan tanda "pembatas" dihitung dari SISA, sementara
+      // kolom Stok menampilkan angka MENTAH. Dua angka untuk satu hal, di layar
+      // yang sama, dan yang menentukan justru tidak pernah ditampilkan —
+      // sehingga "beras 17.280 gr, takaran 200 gr, tapi bahan habis" menjadi
+      // pertanyaan yang mustahil dijawab pembacanya.
+      //
+      // Sisanya hanya ditulis kalau memang BERBEDA. Menampilkan dua angka
+      // kembar di tiap baris cuma menambah bacaan tanpa menambah keterangan,
+      // dan kolom yang biasanya mengulang dirinya sendiri berhenti diperhatikan
+      // justru saat ia berbeda.
+      const beda = b.dipakaiMenuLain > 0;
+      return `<tr${b.pembatas ? ' class="menu-bahan-batas"' : ''}>
+        <td data-label="Bahan">${esc(p?.name ?? '(produk terhapus)')}${b.pembatas ? ' <span class="menu-tag-batas">pembatas</span>' : ''}</td>
+        <td data-label="Per menu">${formatNum(b.butuh)} ${satuan}</td>
+        <td data-label="Stok">${formatNum(b.stok)} ${satuan}</td>
+        <td data-label="Sisa">${
+          beda
+            ? `<strong>${formatNum(b.sisa)} ${satuan}</strong><div class="menu-sisa-ket">−${formatNum(
+                b.dipakaiMenuLain
+              )} dipakai menu lain</div>`
+            : `<span style="color:var(--color-text-muted)">${formatNum(b.sisa)} ${satuan}</span>`
+        }</td>
       </tr>`;
     });
 
+    // SIAPA YANG MEMAKANNYA — untuk bahan pembatas saja.
+    //
+    // "Sisa 120 gr" masih menyisakan pertanyaan berikutnya, dan sebelum ini
+    // pertanyaan itu tidak punya jawaban di layar mana pun. Dibatasi ke bahan
+    // pembatas karena hanya bahan itu yang menahan angkanya; menyebut pemakan
+    // seluruh bahan akan mengubur keterangan yang berguna di antara yang tidak.
+    const dijelaskan = baris.filter((b) => b.pembatas && b.dipakaiMenuLain > 0);
+    const ketPemakan = dijelaskan
+      .map((b) => {
+        const daftar = (pemakan.get(b.bahanId) ?? [])
+          .slice(0, 4)
+          .map((x) => `${esc(produkById.get(x.menuId)?.name ?? 'menu lain')} (${formatNum(x.qty)})`)
+          .join(', ');
+        const sisanya = Math.max(0, (pemakan.get(b.bahanId) ?? []).length - 4);
+        return `<div><strong>${esc(produkById.get(b.bahanId)?.name ?? 'bahan')}</strong> dipakai ${daftar}${
+          sisanya ? ` dan ${sisanya} menu lain` : ''
+        }</div>`;
+      })
+      .join('');
+
     body.innerHTML = `
       <div style="font-size:0.82rem;color:var(--color-text-muted);margin-bottom:6px">
-        Resep ${esc(namaVarian)} · ${esc(labelPerkiraan(hasil))}${
+        Resep ${esc(namaVarian)} · ${esc(labelPerkiraan(hasil))}${hasil.dikurangi ? ' (sisa)' : ''}${
           (hasil.pembatas ?? []).length > 1
             ? ` · <strong>${hasil.pembatas.length} bahan sama-sama mepet</strong> — menambah salah satu saja belum menaikkan angkanya`
             : ''
         }
       </div>
-      <table class="data-table baris-sejajar"><thead><tr><th>Bahan</th><th>Per menu</th><th>Stok</th></tr></thead><tbody>${rows.join('')}</tbody></table>
+      <table class="data-table baris-sejajar"><thead><tr><th>Bahan</th><th>Per menu</th><th>Stok</th><th>Sisa</th></tr></thead><tbody>${rows.join('')}</tbody></table>
+      ${
+        ketPemakan
+          ? `<div class="menu-pemakan">Kenapa sisanya berkurang — rencana yang sudah diisi hari ini:${ketPemakan}</div>`
+          : ''
+      }
     `;
   }
 

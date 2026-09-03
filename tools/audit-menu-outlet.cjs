@@ -190,7 +190,56 @@ if (svc) {
   }
 }
 
+
+// ---------------------------------------------------------------
+// 5. Perkiraan "bisa dibuat" tidak boleh dipotong rencana menu yang
+//    TIDAK dijual di outlet itu (0116).
+// ---------------------------------------------------------------
+const halMenu = baca('js/modules/menu/menu.page.js');
+if (halMenu) {
+  const kode = tanpaKomentar(halMenu);
+
+  if (!/aktif:\s*menuAktif/.test(kode)) {
+    salah(
+      'js/modules/menu/menu.page.js: `petaPerkiraan`/`rincianBahanMenu` dipanggil tanpa `aktif: menuAktif`. ' +
+        'Rencana untuk menu yang outlet ini TIDAK jual akan tetap memotong stok — beras 17.280 gr dengan ' +
+        'takaran 200 gr/porsi bisa berbunyi "bahan habis", dan sesudah 0115 barisnya bahkan tidak tampil ' +
+        'lagi sehingga penyebabnya tidak ada di layar mana pun.'
+    );
+  }
+
+  // Panel rincian harus menampilkan SISA, bukan cuma stok mentah.
+  if (!/rincianBahanMenu\s*\(/.test(kode)) {
+    salah(
+      'js/modules/menu/menu.page.js: panel bahan tidak memakai `rincianBahanMenu`. ' +
+        'Kolom Stok menampilkan angka MENTAH sementara vonis "bahan habis" dihitung dari SISA — ' +
+        'dua angka untuk satu hal di layar yang sama, dan yang menentukan tidak pernah ditampilkan.'
+    );
+  }
+  if (!/<th>Sisa<\/th>/.test(kode)) {
+    salah(
+      'js/modules/menu/menu.page.js: panel bahan tidak punya kolom Sisa. ' +
+        'Tanpa kolom itu, "beras 17.280 gr, takaran 200 gr, tapi bahan habis" adalah pertanyaan ' +
+        'yang mustahil dijawab pembacanya.'
+    );
+  }
+}
+
+// ---------------------------------------------------------------
+// 6. Modul perkiraan: `aktif` tidak boleh menyaring saat BELUM dimuat.
+// ---------------------------------------------------------------
+const perkiraan = baca('js/modules/menu/perkiraan.js');
+if (perkiraan) {
+  if (!/!aktif\s*\|\|\s*aktif\.has\?\.\(/.test(tanpaKomentar(perkiraan))) {
+    salah(
+      'js/modules/menu/perkiraan.js: penyaring `aktif` tidak berjaga terhadap daftar yang belum/gagal dimuat. ' +
+        'Menyaring dengan himpunan kosong membuat SELURUH rencana lenyap dan tiap menu terlihat lebih longgar ' +
+        'daripada sebenarnya — terlalu optimis, arah kesalahan yang paling merugikan di layar ini.'
+    );
+  }
+}
+
 if (gagal === 0) {
-  console.log('Menu aktif per outlet: tersaring di Staff App, dijaga di admin, dan tabnya bisa dibuka. ✅');
+  console.log('Menu aktif per outlet: tersaring di Staff App, dijaga di admin, tabnya bisa dibuka, dan perkiraan stok tidak dipotong menu yang tidak dijual. ✅');
 }
 process.exit(gagal === 0 ? 0 : 1);

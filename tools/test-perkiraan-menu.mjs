@@ -15,7 +15,7 @@
  *    memang harus membentang sampai bahan baku.)
  *  - Takaran 0 tidak boleh berubah jadi Infinity yang terbaca "tak terbatas".
  */
-import { perkiraanMenu, petaPerkiraan, labelPerkiraan } from '../js/modules/menu/perkiraan.js';
+import { perkiraanMenu, petaPerkiraan, labelPerkiraan, rincianBahanMenu } from '../js/modules/menu/perkiraan.js';
 
 let gagal = 0;
 const cek = (nama, dapat, harap) => {
@@ -288,8 +288,137 @@ const terpisah = petaPerkiraan({
 cek('menu tanpa bahan bersama tidak terpengaruh', terpisah.get('esteh2').bisa, 20);
 cek('  dan tidak ditandai dikurangi', terpisah.get('esteh2').dikurangi, false);
 
+
+// =====================================================================
+// MENU YANG TIDAK DIJUAL DI OUTLET INI TIDAK IKUT MEMAKAN STOK (0116)
+//
+// Kasus nyata yang melahirkan bagian ini: beras 17.280 gr, takaran 200 gr per
+// porsi — 86 porsi. Menunya tetap berbunyi "bahan habis", karena rencana untuk
+// menu-menu lain yang outletnya TIDAK jual ikut dihitung memotong stok.
+//
+// Sesudah 0115 barisnya bahkan tidak muncul lagi di layar, jadi tidak ada cara
+// apa pun bagi staff melihat — apalagi mengosongkan — penyebabnya.
+// =====================================================================
+const BERAS = 'beras';
+const menuBeras = [{ id: 'ayambakar' }, { id: 'nasgor' }, { id: 'liwet' }];
+const resepBeras = menuBeras.map((m) => ({
+  product_id: m.id,
+  mode: 'served_by_ck',
+  yield_qty: 1,
+  items: [{ ingredient_product_id: BERAS, qty: 200 }]
+}));
+const stokBeras = new Map([[BERAS, 17280]]);
+const rencanaBeras = new Map([['nasgor', 40], ['liwet', 46]]);
+
+const kasusBeras = (aktif) =>
+  petaPerkiraan({
+    menus: menuBeras,
+    recipes: resepBeras,
+    stok: stokBeras,
+    mode: 'served_by_ck',
+    rencana: rencanaBeras,
+    aktif
+  }).get('ayambakar');
+
+cek('tanpa penyaring: rencana menu lain menghabiskan beras', kasusBeras(null).bisa, 0);
+cek(
+  'INTI: menu yang tidak dijual di outlet ini tidak memakan beras',
+  kasusBeras(new Set(['ayambakar'])).bisa,
+  86
+);
+cek('  dan tidak ditandai (sisa)', kasusBeras(new Set(['ayambakar'])).dikurangi, false);
+cek(
+  'menu lain yang MEMANG dijual di sini tetap memotong',
+  kasusBeras(new Set(['ayambakar', 'nasgor'])).bisa,
+  46
+);
+
+// `aktif` null berarti daftarnya belum/gagal dimuat -> jangan menyaring.
+// Menyaring dengan himpunan KOSONG akan membuat semua rencana lenyap dan tiap
+// menu terlihat lebih longgar daripada sebenarnya — terlalu optimis, arah
+// kesalahan yang paling merugikan di layar ini.
+cek('aktif=null tidak menyaring apa pun', kasusBeras(null).bisa, kasusBeras(undefined).bisa);
+
+// =====================================================================
+// RINCIAN UNTUK PANEL: stok mentah vs sisa, dan siapa pemakannya.
+// =====================================================================
+const rincian = rincianBahanMenu({
+  menus: menuBeras,
+  recipes: resepBeras,
+  stok: stokBeras,
+  mode: 'served_by_ck',
+  rencana: rencanaBeras,
+  aktif: null,
+  menuId: 'ayambakar'
+});
+
+cek('rincian: satu baris bahan', rincian.baris.length, 1);
+cek('rincian: stok MENTAH apa adanya', rincian.baris[0].stok, 17280);
+cek('rincian: sisa sesudah menu lain', rincian.baris[0].sisa, 17280 - 86 * 200);
+cek('rincian: selisihnya disebut sendiri', rincian.baris[0].dipakaiMenuLain, 86 * 200);
+cek('rincian: bahannya ditandai pembatas', rincian.baris[0].pembatas, true);
+cek('rincian: vonisnya sama dengan petaPerkiraan', rincian.hasil.bisa, 0);
+
+const pemakan = rincian.pemakan.get(BERAS) ?? [];
+cek('rincian: dua menu lain disebut sebagai pemakan', pemakan.length, 2);
+cek('rincian: yang paling banyak makan disebut duluan', pemakan[0].menuId, 'liwet');
+cek('rincian: jumlahnya benar', pemakan[0].qty, 46 * 200);
+// MENU ITU SENDIRI HARUS PUNYA RENCANA supaya penjaganya benar-benar diuji.
+//
+// Percobaan pertama memakai `rencanaBeras` yang tidak menyebut 'ayambakar'
+// sama sekali. Pemakaian menu itu jadi 0, barisnya tidak pernah sampai ke
+// penjaga `mid === menuId`, dan sabotase yang MENCABUT penjaga itu lolos —
+// pemeriksaan yang hijau karena sasarannya tidak pernah dilewati.
+const rincianDiriSendiri = rincianBahanMenu({
+  menus: menuBeras,
+  recipes: resepBeras,
+  stok: stokBeras,
+  mode: 'served_by_ck',
+  rencana: new Map([['ayambakar', 10], ['nasgor', 40], ['liwet', 46]]),
+  aktif: null,
+  menuId: 'ayambakar'
+});
+const pemakanDiri = rincianDiriSendiri.pemakan.get(BERAS) ?? [];
+cek(
+  'rincian: menu itu sendiri TIDAK disebut sebagai pemakan',
+  pemakanDiri.some((x) => x.menuId === 'ayambakar'),
+  false
+);
+cek('rincian: yang lain tetap disebut', pemakanDiri.length, 2);
+// Dan sisanya pun tidak ikut dipotong oleh dirinya sendiri — kalau ikut,
+// mengetik 10 akan langsung menurunkan angka menu itu sendiri, dan tidak ada
+// cara membedakan "sudah saya pakai" dari "ternyata tidak cukup".
+cek('rincian: sisa tidak dipotong oleh rencana dirinya sendiri', rincianDiriSendiri.baris[0].sisa, 17280 - 86 * 200);
+
+// Dengan penyaring, pemakannya ikut menyusut — kalau tidak, layar akan menyebut
+// menu yang outletnya tidak jual sebagai penyebab, dan orangnya akan mencari
+// baris yang tidak ada.
+const rincianSaring = rincianBahanMenu({
+  menus: menuBeras,
+  recipes: resepBeras,
+  stok: stokBeras,
+  mode: 'served_by_ck',
+  rencana: rencanaBeras,
+  aktif: new Set(['ayambakar', 'nasgor']),
+  menuId: 'ayambakar'
+});
+cek('rincian tersaring: hanya menu yang dijual di sini yang disebut', (rincianSaring.pemakan.get(BERAS) ?? []).length, 1);
+cek('rincian tersaring: sisanya ikut benar', rincianSaring.baris[0].sisa, 17280 - 40 * 200);
+
+// Menu tanpa resep tidak melempar.
+const kosong = rincianBahanMenu({
+  menus: menuBeras,
+  recipes: [],
+  stok: stokBeras,
+  mode: 'served_by_ck',
+  rencana: new Map(),
+  menuId: 'ayambakar'
+});
+cek('rincian tanpa resep: tidak ada baris', kosong.baris.length, 0);
+cek('rincian tanpa resep: sebabnya disebut', kosong.hasil.sebab, 'tanpa-resep');
+
 if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Perkiraan menu benar untuk 67 kasus — pembatas, pembulatan ke bawah, takaran 0, dan varian per peran outlet. ✅');
+console.log('Perkiraan menu benar untuk 91 kasus — pembatas, pembulatan ke bawah, takaran 0, dan varian per peran outlet. ✅');

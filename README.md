@@ -5048,6 +5048,34 @@ Akarnya satu, dan letaknya di satu baris. Penangan ganti-outlet memanggil `refre
 
 Sapuan ke 40 penangan ganti-outlet di seluruh modul menemukan satu kandidat lain, `menipis.admin.js`, dan itu **bukan** bug: `products`/`recipes` di sana dikunci ke BU, bukan outlet, dan yang memang milik outlet (`saldo`, `batasManual`, `porsiMinimumOutlet`) sudah diambil ulang tiap kali. Pemindai sapuannya sendiri sempat hijau palsu karena regexnya tidak cocok dengan bentuk `container.querySelector('#as-outlet').addEventListener(...)` — **hijau karena sasarannya tidak ketemu**, pola kegagalan yang di repo ini sudah berulang kali muncul dan sekarang selalu dijawab dengan ambang minimum jumlah sasaran.
 
+## "Beras 17.280 gr, takaran 200 gr, tapi bahan habis"
+
+> "kenapa di menu, bahan yang ada stock nya ... yaitu beras, tetapi dia jadi pembatas untuk menjadi menu ini dihitung sebagai bahan habis"
+
+Dugaan awal iko — bahan itu dibagi ke resep menu yang tidak dijual di outlet ini — **tidak benar dalam bentuk yang ia sebut**, dan modul hitungnya dijalankan langsung untuk membuktikannya, bukan disimpulkan dari membaca:
+
+| Keadaan | Hasil |
+|---|---|
+| Beras dipakai 3 menu, **tidak ada rencana** diisi | bisa **86** |
+| Menu lain punya rencana 0 | bisa **86** |
+| Menu lain diisi rencana 40 + 46 porsi | bisa **0** |
+
+Berbagi resep tidak memakan stok sama sekali; yang memakan adalah **angka rencana yang diisi**. Tapi kekhawatirannya benar dalam bentuk yang lebih buruk: `rencana` diambil dari `menu_plans` **outlet ini, hari ini** — dan sebelum `0115`, seluruh 162 menu tampil di setiap outlet, jadi rencana untuk menu yang outletnya tidak jual sangat mudah terisi. Rencana itu tetap memotong stok setiap kali layar dibuka.
+
+**Dan `0115` justru memperburuknya.** Setelah pembatasan outlet aktif, baris menu itu tidak muncul lagi — stoknya tetap termakan sementara penyebabnya tidak ada di layar mana pun untuk dilihat, apalagi dikosongkan. Pola yang sama yang berulang di repo ini, kali ini saya sendiri yang membuatnya.
+
+### Tiga perbaikan, dan ketiganya diperlukan
+
+1. **`petaPerkiraan` menerima `aktif`** — rencana menu yang tidak dijual di outlet itu berhenti dipotong. Ini yang membuat angkanya benar *sekarang*, tanpa menunggu apa pun. `aktif = null` (belum/gagal dimuat) sengaja **tidak menyaring**: menyaring dengan himpunan kosong membuat semua rencana lenyap dan tiap menu terlihat lebih longgar dari sebenarnya — terlalu optimis, arah kesalahan yang paling merugikan di layar ini.
+2. **Panel bahan dapat kolom Sisa** (`rincianBahanMenu`). Sebelumnya kolom Stok menampilkan angka **mentah** sementara vonis "bahan habis" dan tanda "pembatas" dihitung dari **sisa** — dua angka untuk satu hal di layar yang sama, dan yang menentukan tidak pernah ditampilkan. Ditambah satu blok "Kenapa sisanya berkurang" yang menyebut **menu mana** yang memakannya, karena "sisa 120 gr" masih menyisakan pertanyaan yang tidak punya jawaban di layar mana pun.
+3. **`0116` membersihkan datanya** — `set_menu_outlet` dan versi massalnya menghapus `menu_plans` yang sudah tidak berlaku, **hari ini dan ke depan saja**. Rencana tanggal lampau adalah catatan, dan pengaturan tampilan tidak boleh menulis ulang masa lalu (aturan yang sama seperti penjualan di `0115`).
+
+Pembersihannya dipanggil **sesudah** pembatasannya tersimpan, dan menyapu **seluruh** outlet BU: yang perlu dibersihkan justru outlet yang baru saja *dikeluarkan* dari daftar, dan outlet itu menurut definisinya tidak ada di daftar yang dikirim.
+
+Satu sabotase lolos di percobaan pertama, dan lagi-lagi cacat tesnya: pemeriksaan "menu itu sendiri tidak disebut sebagai pemakan" hijau karena menu itu **rencananya 0**, jadi barisnya tidak pernah sampai ke penjaga yang diuji. Data tesnya diperbaiki, bukan penjaganya.
+
+- [x] **Perkiraan "bisa dibuat" tidak lagi dipotong menu yang tidak dijual di outlet itu** (`0116`) — plus kolom **Sisa** dan keterangan menu mana yang memakan bahan pembatasnya
+
 ## Menu bisa dibatasi ke outlet tertentu — tanpa mengubah apa pun yang sudah ada
 
 > "di menu apakah bisa dipilih menu ini aktif di outlet mana saja, tetapi defaultnya aktif di semua outlet ... karena ada outlet yang tidak jual menu A dan outlet lain jual, agar staff tidak bingung"

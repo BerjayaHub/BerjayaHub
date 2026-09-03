@@ -61,6 +61,12 @@ await db.exec(`
     is_active boolean default true
   );
   create table membership_scopes (user_id uuid, business_unit_id uuid, outlet_id uuid, role text);
+  create table menu_plans (
+    id uuid primary key default gen_random_uuid(),
+    business_unit_id uuid, outlet_id uuid, product_id uuid,
+    plan_date date not null, qty numeric not null default 0,
+    unique (outlet_id, product_id, plan_date)
+  );
 
   create role authenticated;
 
@@ -76,8 +82,9 @@ const jalankan = async (b) =>
   db.exec(fs.readFileSync(path.join(AKAR, 'supabase/migrations', b), 'utf8').replace(/notify pgrst[^;]*;/g, ''));
 
 await jalankan('0115_menu_aktif_per_outlet.sql');
-console.log('  0115 terpasang.');
-await jalankan('0115_menu_aktif_per_outlet.sql');
+await jalankan('0116_bersihkan_rencana_menu_nonaktif.sql');
+console.log('  0115 -> 0116 terpasang.');
+await jalankan('0116_bersihkan_rencana_menu_nonaktif.sql');
 console.log('  dijalankan ulang: aman.');
 
 // =====================================================================
@@ -297,5 +304,85 @@ const MENU_BU_LAIN = (
 ).id;
 benar('§10 menu BU lain tidak muncul', !(await aktifDi(SERPONG)).includes(MENU_BU_LAIN));
 
-if (gagal === 0) console.log('Migration 0115: semua pemeriksaan lulus. ✅');
+
+// =====================================================================
+// §11. 0116 — RENCANA MENU YANG SUDAH TIDAK DIJUAL IKUT DIBERSIHKAN.
+//
+// Ini akar keluhan "beras 17.280 gr tapi bahan habis": rencana untuk menu yang
+// outletnya tidak jual tetap memotong stok, dan sesudah 0115 barisnya bahkan
+// tidak tampil lagi — jadi penyebabnya tidak ada di layar mana pun.
+// =====================================================================
+await sebagai(ADMIN);
+// Kembalikan semuanya ke "semua outlet" supaya §11 berdiri sendiri.
+for (const m of [KOPI, NASGOR, SPESIAL, MENU_BARU]) {
+  await q(`select set_menu_outlet($1, $2::uuid[])`, [m, []]);
+}
+
+const HARI_INI = `(now() at time zone 'Asia/Jakarta')::date`;
+const isiRencana = (outlet, menu, hari, qty) =>
+  q(
+    `insert into menu_plans (business_unit_id, outlet_id, product_id, plan_date, qty)
+     values ($1,$2,$3, ${HARI_INI} + $4::int, $5)
+     on conflict (outlet_id, product_id, plan_date) do update set qty = excluded.qty`,
+    [BU, outlet, menu, hari, qty]
+  );
+const rencanaAda = async (outlet, menu, hari) =>
+  Number(
+    (
+      await satu(
+        `select count(*)::int n from menu_plans
+          where outlet_id = $1 and product_id = $2 and plan_date = ${HARI_INI} + $3::int`,
+        [outlet, menu, hari]
+      )
+    ).n
+  ) > 0;
+
+await isiRencana(SERPONG, NASGOR, -3, 40); // KEMARIN — catatan, tidak boleh disentuh
+await isiRencana(SERPONG, NASGOR, 0, 40); // hari ini
+await isiRencana(SERPONG, NASGOR, 2, 25); // lusa
+await isiRencana(SERPONG, KOPI, 0, 10); // menu yang TETAP dijual di Serpong
+await isiRencana(SENTUL, NASGOR, 0, 15); // outlet LAIN, tidak boleh ikut terhapus
+
+// Nasi Goreng dibatasi ke Sentul saja -> tidak lagi dijual di Serpong.
+await q(`select set_menu_outlet($1, $2::uuid[])`, [NASGOR, [SENTUL]]);
+
+benar('§11 rencana hari ini di Serpong terhapus', !(await rencanaAda(SERPONG, NASGOR, 0)));
+benar('§11 rencana lusa di Serpong terhapus', !(await rencanaAda(SERPONG, NASGOR, 2)));
+benar(
+  '§11 INTI: rencana tanggal LAMPAU tidak disentuh',
+  await rencanaAda(SERPONG, NASGOR, -3),
+  'itu catatan tentang apa yang direncanakan hari itu, dan sudah tidak memengaruhi perhitungan mana pun'
+);
+benar(
+  '§11 menu yang tetap dijual rencananya utuh',
+  await rencanaAda(SERPONG, KOPI, 0),
+  'pembersihan yang terlalu rakus menghapus pekerjaan orang yang tidak salah apa-apa'
+);
+benar(
+  '§11 rencana di outlet LAIN tidak ikut terhapus',
+  await rencanaAda(SENTUL, NASGOR, 0),
+  'Sentul justru outlet yang masih menjualnya'
+);
+
+// Melonggarkan pembatasan TIDAK boleh menghapus apa pun.
+await isiRencana(SERPONG, SPESIAL, 0, 7);
+await q(`select set_menu_outlet($1, $2::uuid[])`, [SPESIAL, []]); // kembali ke semua outlet
+benar(
+  '§11 melonggarkan pembatasan tidak menghapus rencana',
+  await rencanaAda(SERPONG, SPESIAL, 0),
+  'kalau pembersihannya dijalankan SEBELUM pembatasan tersimpan, ia memakai aturan lama dan menghapus yang seharusnya tetap berlaku'
+);
+
+// Jalur MASSAL juga membersihkan.
+await isiRencana(HAMPTON, KOPI, 0, 12);
+const menuHampton = (await aktifDi(HAMPTON)).filter((m) => m !== KOPI);
+await q(`select set_menu_outlet_massal($1, $2::uuid[])`, [HAMPTON, menuHampton]);
+benar('§11 jalur massal ikut membersihkan', !(await rencanaAda(HAMPTON, KOPI, 0)));
+benar(
+  '§11 …tanpa menyentuh outlet lain',
+  await rencanaAda(SERPONG, KOPI, 0),
+  'Serpong tidak disebut sama sekali dalam pemanggilan itu'
+);
+
+if (gagal === 0) console.log('Migration 0115 + 0116: semua pemeriksaan lulus. ✅');
 process.exit(gagal === 0 ? 0 : 1);

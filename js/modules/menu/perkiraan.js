@@ -151,55 +151,149 @@ function pemakaianMenu(resep, jumlah) {
  * @param {Map<string, number>} [rencana] menuId → jumlah yang sudah diisi
  * @returns {Map<string, {bisa, sebab, pembatas, dikurangi: boolean}>}
  */
-export function petaPerkiraan({ menus, recipes, stok, mode, rencana = new Map() }) {
+export function petaPerkiraan({ menus, recipes, stok, mode, rencana = new Map(), aktif = null }) {
+  const { daftar, perMenu, total } = kumpulkanPemakaian({ menus, recipes, mode, rencana, aktif });
   const perKunci = new Map((recipes ?? []).map((r) => [`${r.product_id}|${r.mode}`, r]));
-  const daftar = menus ?? [];
-
-  // Pemakaian tiap menu menurut jumlah yang sudah diisi, lalu totalnya.
-  const perMenu = new Map();
-  const total = new Map();
-  for (const m of daftar) {
-    const pakai = pemakaianMenu(perKunci.get(`${m.id}|${mode}`) ?? null, Number(rencana?.get(m.id) ?? 0));
-    perMenu.set(m.id, pakai);
-    for (const [bid, q] of pakai) total.set(bid, (total.get(bid) ?? 0) + q);
-  }
 
   const out = new Map();
   for (const m of daftar) {
     const resep = perKunci.get(`${m.id}|${mode}`) ?? null;
-    const milikSendiri = perMenu.get(m.id) ?? new Map();
-    // Bahan yang BENAR-BENAR dipakai menu ini. Dipakai menentukan apakah
-    // pengurangannya berarti untuk baris ini.
-    const bahanku = new Set((resep?.items ?? []).map((it) => it.ingredient_product_id));
-    let dikurangi = false;
-
-    // Stok yang tersisa untuk menu ini = stok − pemakaian menu LAIN.
-    const sisa = new Map(stok ?? []);
-    for (const [bid, q] of total) {
-      const lain = q - (milikSendiri.get(bid) ?? 0);
-      if (lain <= EPS) continue;
-      // Penandanya hanya menyala kalau bahan itu memang dipakai menu ini.
-      //
-      // Versi pertama menyalakannya untuk SETIAP bahan yang berkurang di mana
-      // pun — jadi Es Teh ikut ditandai "dikurangi" hanya karena ada orang
-      // mengisi Nasi Ayam, padahal keduanya tidak berbagi satu bahan pun.
-      // Penanda yang menyala tanpa sebab mengajari orang mengabaikannya, dan
-      // sesudah itu ia tidak berguna justru saat benar-benar berarti.
-      if (bahanku.has(bid)) dikurangi = true;
-      // Tidak pernah minus: stok yang sudah dijanjikan berlebih berarti nol
-      // tersisa, bukan utang.
-      //
-      // PERLU DICATAT JUJUR bahwa penjepitan ini BUKAN penjaganya — sabotase
-      // yang membuangnya tidak membuat satu pun tes merah, karena
-      // `perkiraanMenu()` sudah menjepit hasil akhirnya di `Math.max(0, …)`.
-      // Ini pertahanan berlapis, dan gunanya cuma satu: peta `sisa` tetap
-      // masuk akal kalau suatu saat ia dibaca untuk keperluan lain.
-      sisa.set(bid, Math.max(0, Number(sisa.get(bid) ?? 0) - lain));
-    }
-
+    const { sisa, dikurangi } = sisaUntuk({ resep, stok, total, milikSendiri: perMenu.get(m.id) ?? new Map() });
     out.set(m.id, { ...perkiraanMenu(resep, sisa), dikurangi });
   }
   return out;
+}
+
+/**
+ * Pemakaian bahan menurut rencana yang sudah diisi — total dan per menu.
+ *
+ * =====================================================================
+ * MENU YANG TIDAK DIJUAL DI OUTLET INI TIDAK IKUT MEMAKAN STOK
+ * =====================================================================
+ *
+ * `aktif` datang dari `menu_aktif_outlet()` (0115). Sebelum ada penyaring ini,
+ * rencana untuk menu yang outletnya TIDAK jual tetap memotong stok — dan
+ * sesudah 0115 barisnya bahkan tidak muncul lagi di layar, jadi tidak ada cara
+ * apa pun bagi staff melihat, apalagi mengosongkan, penyebabnya.
+ *
+ * Gejalanya persis yang dilaporkan: beras 17.280 gr, takaran 200 gr/porsi,
+ * tapi menunya berbunyi "bahan habis". Angkanya benar menurut hitungannya
+ * sendiri; yang salah adalah ikut menghitung rencana yang seharusnya sudah
+ * tidak berlaku di outlet itu.
+ *
+ * `aktif === null` berarti daftarnya BELUM/GAGAL dimuat -> tidak menyaring apa
+ * pun. Menyaring dengan himpunan kosong akan membuat seluruh rencana lenyap
+ * dan tiap menu terlihat lebih longgar daripada yang sebenarnya — terlalu
+ * optimis, dan itu arah kesalahan yang paling merugikan di layar ini.
+ */
+function kumpulkanPemakaian({ menus, recipes, mode, rencana, aktif }) {
+  const perKunci = new Map((recipes ?? []).map((r) => [`${r.product_id}|${r.mode}`, r]));
+  const daftar = menus ?? [];
+  const perMenu = new Map();
+  const total = new Map();
+
+  for (const m of daftar) {
+    const ikut = !aktif || aktif.has?.(m.id);
+    const pakai = ikut
+      ? pemakaianMenu(perKunci.get(`${m.id}|${mode}`) ?? null, Number(rencana?.get(m.id) ?? 0))
+      : new Map();
+    perMenu.set(m.id, pakai);
+    for (const [bid, q] of pakai) total.set(bid, (total.get(bid) ?? 0) + q);
+  }
+  return { daftar, perMenu, total, perKunci };
+}
+
+/** Stok yang tersisa untuk satu menu = stok − pemakaian menu LAIN. */
+function sisaUntuk({ resep, stok, total, milikSendiri }) {
+  const bahanku = new Set((resep?.items ?? []).map((it) => it.ingredient_product_id));
+  const sisa = new Map(stok ?? []);
+  let dikurangi = false;
+
+  for (const [bid, q] of total) {
+    const lain = q - (milikSendiri.get(bid) ?? 0);
+    if (lain <= EPS) continue;
+    // Penandanya hanya menyala kalau bahan itu memang dipakai menu ini.
+    //
+    // Versi pertama menyalakannya untuk SETIAP bahan yang berkurang di mana
+    // pun — jadi Es Teh ikut ditandai "dikurangi" hanya karena ada orang
+    // mengisi Nasi Ayam, padahal keduanya tidak berbagi satu bahan pun.
+    // Penanda yang menyala tanpa sebab mengajari orang mengabaikannya, dan
+    // sesudah itu ia tidak berguna justru saat benar-benar berarti.
+    if (bahanku.has(bid)) dikurangi = true;
+    // Tidak pernah minus: stok yang sudah dijanjikan berlebih berarti nol
+    // tersisa, bukan utang.
+    //
+    // PERLU DICATAT JUJUR bahwa penjepitan ini BUKAN penjaganya — sabotase
+    // yang membuangnya tidak membuat satu pun tes merah, karena
+    // `perkiraanMenu()` sudah menjepit hasil akhirnya di `Math.max(0, …)`.
+    // Ini pertahanan berlapis, dan gunanya cuma satu: peta `sisa` tetap
+    // masuk akal kalau suatu saat ia dibaca untuk keperluan lain.
+    sisa.set(bid, Math.max(0, Number(sisa.get(bid) ?? 0) - lain));
+  }
+  return { sisa, dikurangi };
+}
+
+/**
+ * Rincian satu menu untuk panel bahan: stok mentah, SISA, dan siapa pemakannya.
+ *
+ * =====================================================================
+ * KENAPA "SISA" HARUS IKUT DITAMPILKAN
+ * =====================================================================
+ *
+ * Panel bahan dulu menulis kolom "Stok" dari stok MENTAH, sementara vonis
+ * "bahan habis" dan tanda "pembatas" dihitung dari SISA. Dua angka untuk satu
+ * hal, di layar yang sama, dan yang satu tidak pernah ditampilkan.
+ *
+ * Hasilnya pertanyaan yang mustahil dijawab pembacanya: beras tertulis 17.280
+ * gr, takarannya 200 gr, tapi menunya "bahan habis". Tidak ada yang salah
+ * kelihatannya — dan justru itu yang membuatnya melelahkan.
+ *
+ * `pemakan` menyebut MENU MANA yang memakannya, karena "sisa 120 gr" saja
+ * masih menyisakan pertanyaan berikutnya, dan pertanyaan itu tidak punya
+ * jawaban di layar mana pun.
+ *
+ * @returns {{hasil:object, baris:Array, pemakan:Map<string, Array<{menuId:string, qty:number}>>}}
+ */
+export function rincianBahanMenu({ menus, recipes, stok, mode, rencana = new Map(), aktif = null, menuId }) {
+  const { perMenu, total, perKunci } = kumpulkanPemakaian({ menus, recipes, mode, rencana, aktif });
+  const resep = perKunci.get(`${menuId}|${mode}`) ?? null;
+  const milikSendiri = perMenu.get(menuId) ?? new Map();
+  const { sisa, dikurangi } = sisaUntuk({ resep, stok, total, milikSendiri });
+  const hasil = { ...perkiraanMenu(resep, sisa), dikurangi };
+
+  const yieldQty = Number(resep?.yield_qty) > 0 ? Number(resep.yield_qty) : 1;
+  const baris = (resep?.items ?? []).map((it) => {
+    const bid = it.ingredient_product_id;
+    const butuh = Number(it.qty) / yieldQty;
+    const mentah = Number(stok?.get(bid) ?? 0);
+    const tersisa = Number(sisa.get(bid) ?? 0);
+    return {
+      bahanId: bid,
+      butuh,
+      stok: Number.isFinite(mentah) ? mentah : 0,
+      sisa: tersisa,
+      // Selisihnya disebut sendiri supaya layar tidak perlu menghitung ulang —
+      // dua tempat yang menghitung hal yang sama selalu berakhir menyimpang.
+      dipakaiMenuLain: Math.max(0, (Number.isFinite(mentah) ? mentah : 0) - tersisa),
+      pembatas: (hasil.pembatas ?? []).includes(bid)
+    };
+  });
+
+  // Siapa yang memakan tiap bahan — hanya menu LAIN, dan hanya yang benar-benar
+  // memakai bahan itu.
+  const pemakan = new Map();
+  for (const b of baris) {
+    const daftarPemakan = [];
+    for (const [mid, pakai] of perMenu) {
+      if (mid === menuId) continue;
+      const q = pakai.get(b.bahanId) ?? 0;
+      if (q > EPS) daftarPemakan.push({ menuId: mid, qty: q });
+    }
+    daftarPemakan.sort((x, y) => y.qty - x.qty);
+    if (daftarPemakan.length) pemakan.set(b.bahanId, daftarPemakan);
+  }
+
+  return { hasil, baris, pemakan };
 }
 
 /** Label pendek untuk ditaruh di sebelah kotak isian. */
