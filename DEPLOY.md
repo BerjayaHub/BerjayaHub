@@ -80,6 +80,7 @@ pernah dijalankan.
 | 0111 | `0111_draft_order_ck.sql` | **Order ke CK punya tahap DRAFT.** Disusun bersama dulu (bar + kitchen), baru ditekan Kirim — sebelum itu CK tidak melihatnya sama sekali. Satu draft per pasangan outlet-tujuan (unique index parsial). Sesudah dikirim, isinya **terkunci**. ⚠️ **Perlu redeploy `notify-telegram`** supaya draft tidak diumumkan sebagai order baru. Jalur lama `create_stock_order` dicabut grant-nya |
 | 0112 | `0112_koreksi_penjualan_berjejak.sql` | **Admin bisa memperbaiki penjualan tanggal lampau.** Wewenangnya sudah ada sejak `0101`; yang baru adalah jejaknya (`qty_awal`, `dikoreksi_at/_by/_alasan`) dan **alasan wajib untuk tanggal lampau**. Stok bahan ikut dikoreksi sesuai resep; harga tetap harga saat transaksi dicatat. ⚠️ Mengandung `drop function ubah_penjualan(uuid, numeric)` — tanda tangannya bertambah satu parameter, dan tanpa drop versi lamanya tetap hidup sebagai overload tanpa penjagaan alasan |
 | 0113 | `0113_cuti_di_jadwal_shift.sql` | **Cuti yang disetujui terbaca di jadwal shift** (Staff App & Admin Portal). Dua RPC baca saja (`cuti_disetujui_rentang`, `cuti_saya_rentang`) yang menguraikan rentang pengajuan jadi satu baris per tanggal. **Tidak menulis apa pun** ke `shift_schedules` — cuti tetap satu-satunya sumber kebenaran, jadi cuti yang dibatalkan langsung hilang dari jadwal tanpa perlu disinkronkan |
+| 0115 | `0115_menu_aktif_per_outlet.sql` | **Menu bisa dibatasi ke outlet tertentu.** Tabel `menu_outlet_aktif` sebagai **daftar izin**: menu tanpa satu baris pun aktif di **semua** outlet, jadi setelah migration ini **tidak ada satu pun perilaku yang berubah** sampai admin benar-benar mengaturnya. Tiga RPC: `menu_aktif_outlet(outlet)` (baca), `set_menu_outlet(menu, outlet[])` dan `set_menu_outlet_massal(outlet, menu[])` (tulis, `is_bu_admin`). Tabelnya **tidak punya kebijakan tulis** sama sekali — seluruh penulisan lewat RPC. Tidak menyentuh `sales`, `record_sales`, atau laporan mana pun: penjualan yang sudah tercatat tidak terpengaruh |
 | 0114 | `0114_opname_stok_sistem_dari_server.sql` | ⚠️ **Perbaikan bug stok — jalankan segera.** Opname menerima `system_qty` **dari layar**, dan peta stok di layar bisa basi berjam-jam. Nanas stok 6.400 dihitung 4.600 menghasilkan **11.000** (penyesuaian +4.600, bukan −1.800). Sekarang server yang membacanya saat menyimpan. Menambah `opname_potret_basi(sesi)` untuk memeriksa sesi yang masih terbuka |
 
 
@@ -440,6 +441,39 @@ yang salah masuk bisa disimpan ulang dengan angka yang benar selama sesinya
 masih `open`. Yang penting: **jangan tutup sesi yang isinya masih diragukan** —
 penutupan sesi itulah yang menuliskan penyesuaian ke stok.
 
+
+## 5f. Menu per outlet — cara memakainya (setelah 0115)
+
+**Setelah migration ini dijalankan, tidak ada yang berubah.** Semua menu tetap
+aktif di semua outlet sampai kamu benar-benar mengaturnya. Itu disengaja: tidak
+ada backfill, jadi tidak ada yang bisa salah diam-diam.
+
+Dua jalan, keduanya di **Admin Portal → Inventory**:
+
+- **Tab Menu → buka satu baris menu** → blok *"Dijual di outlet mana"*.
+  Cocok untuk satu-dua menu yang khusus.
+- **Tab Menu per Outlet** → pilih outlet → centang menu mana saja yang dijual
+  di sana. **Ini yang dipakai untuk penyiapan awal** — 162 menu tidak masuk
+  akal dibuka satu per satu. Ada tombol *Centang semua yang tampil* /
+  *Kosongkan yang tampil* yang bekerja pada hasil saringan kategori & pencarian.
+
+Dua hal yang akan ditolak, dan keduanya disengaja:
+
+1. **"Hanya outlet terpilih" tanpa satu pun outlet.** Nol outlet tersimpan
+   sebagai nol baris, dan nol baris berarti *aktif di semua outlet* — kebalikan
+   dari maksudmu. Pilih "Aktif di semua outlet" kalau memang itu yang dimaksud.
+2. **Mencabut outlet terakhir sebuah menu di layar massal.** Kalau menu X hanya
+   dijual di Sentul, mencabutnya dari layar Sentul berarti tidak dijual di mana
+   pun — dan itu bukan hal yang bisa disimpan di sini. Pesannya menyebut menu
+   mana saja. Jalan keluarnya: **nonaktifkan menunya di Master Produk**, atau
+   centang dulu outlet lain yang menjualnya.
+
+Sesudah diatur, staff di outlet yang tidak menjual menu itu **tidak akan
+melihatnya sama sekali** di layar Penjualan maupun modul Menu. Penjualan yang
+sudah pernah tercatat di outlet mana pun **tidak berubah sedikit pun** —
+pengaturan ini hanya menyaring pilihan di layar.
+
+---
 
 ## 6. Yang perlu diatur lewat UI setelah deploy
 

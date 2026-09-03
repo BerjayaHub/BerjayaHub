@@ -5048,6 +5048,36 @@ Akarnya satu, dan letaknya di satu baris. Penangan ganti-outlet memanggil `refre
 
 Sapuan ke 40 penangan ganti-outlet di seluruh modul menemukan satu kandidat lain, `menipis.admin.js`, dan itu **bukan** bug: `products`/`recipes` di sana dikunci ke BU, bukan outlet, dan yang memang milik outlet (`saldo`, `batasManual`, `porsiMinimumOutlet`) sudah diambil ulang tiap kali. Pemindai sapuannya sendiri sempat hijau palsu karena regexnya tidak cocok dengan bentuk `container.querySelector('#as-outlet').addEventListener(...)` — **hijau karena sasarannya tidak ketemu**, pola kegagalan yang di repo ini sudah berulang kali muncul dan sekarang selalu dijawab dengan ambang minimum jumlah sasaran.
 
+## Menu bisa dibatasi ke outlet tertentu — tanpa mengubah apa pun yang sudah ada
+
+> "di menu apakah bisa dipilih menu ini aktif di outlet mana saja, tetapi defaultnya aktif di semua outlet ... karena ada outlet yang tidak jual menu A dan outlet lain jual, agar staff tidak bingung"
+
+Layar Penjualan menampilkan **seluruh 162 menu** milik BU, apa pun outletnya. Staff outlet yang tidak menjual sebagian besar di antaranya harus menyaringnya sendiri dengan ingatan, tiap hari.
+
+### Daftar izin, bukan daftar larangan
+
+`menu_outlet_aktif` (`0115`) menyimpan "menu M dijual di outlet O". Menu **tanpa satu baris pun** aktif di semua outlet. Bentuk ini dipilih karena tiga hal langsung didapat tanpa menulis satu baris data pun: 162 menu lama berperilaku persis seperti sebelumnya (tidak ada backfill — tempat kesalahan diam-diam paling sering lahir), menu **baru** otomatis muncul di mana-mana, dan outlet **baru** otomatis mendapat seluruh menu yang tidak dibatasi. Dengan daftar larangan, ketiganya harus didaftarkan manual, dan yang terlupa hilang tanpa jejak.
+
+### Sisi tajamnya, dan di mana dijaga
+
+"Kosong berarti semua" punya satu jebakan: **mencabut centang terakhir** membalik arti dari "hanya AB Sentul" jadi "semua outlet" — kebalikan persis dari maksud orang yang baru saja mencabutnya.
+
+Penjagaannya sengaja **di layar, bukan di data**. Di tingkat data, "tidak ada baris" memang harus berarti "tidak dibatasi", kalau tidak ketiga keuntungan di atas runtuh. Layarnya yang menanyakan maksud secara terpisah — dua tombol, "Aktif di semua outlet" vs "Hanya outlet terpilih" — dan menolak menyimpan pilihan kedua tanpa satu pun outlet, dengan alasan yang menyebut akibatnya.
+
+### Dua bug ditemukan oleh tesnya sendiri, bukan oleh saya
+
+**Yang pertama, di `set_menu_outlet_massal`.** Menu yang hanya dijual di Sentul, lalu dicabut dari layar Sentul, saya ubah jadi "di semua outlet **kecuali** Sentul". Terbalik total: menu yang seharusnya berhenti dijual justru muncul di seluruh outlet yang tidak pernah menjualnya. Akarnya: ada satu keadaan yang model ini **tidak bisa nyatakan** — "tidak dijual di mana pun". Sekarang ditolak dengan menyebut nama menunya, sebelum satu baris pun berubah, bukan ditebak. Menonaktifkan menu sepenuhnya keputusan berbeda, dan tempatnya di Master Produk.
+
+**Yang kedua tidak terlihat oleh `audit-syntax`.** `menu-outlet.admin.js` mengimpor `sayaAdminBu` dari berkas yang tidak mengekspornya. Sintaksnya sah, jadi 162 berkas lulus — ledakannya baru terjadi di browser saat tab itu dibuka, sebagai layar kosong tanpa penjelasan. Modul layar hanya dimuat ketika tabnya dibuka, jadi kesalahan seperti ini bisa duduk berminggu-minggu. `audit-import-ekspor.cjs` sekarang memeriksa 1.442 nama impor.
+
+### Satu keputusan yang mudah dikira kelalaian
+
+Layar admin per menu memakai `listOutletsForBu` — **seluruh** outlet BU, bukan `listOutletsSayaKelola`. Bukan karena mengabaikan `audit-outlet-tulis`: `set_menu_outlet` mengganti **seluruh** daftar dalam satu langkah, jadi kotak centang yang tidak lengkap akan **menghapus** outlet yang tidak terlihat dari daftar izin menu itu. Daftar tidak lengkap pada layar "ganti semuanya" bukan pembatasan izin — ia penghapusan data yang tidak terlihat siapa pun. Wewenangnya dijaga di tempat yang benar: `sayaAdminBu()` di layar, `is_bu_admin()` di dalam RPC.
+
+Kalau daftar pembatasan gagal dimuat, kolom Outlet menulis `?` dan blok pengaturannya tidak ditampilkan sama sekali — menampilkan "Semua outlet" untuk menu yang sebenarnya dibatasi akan membuat admin menghapus pembatasan yang tidak pernah ia lihat. Di sisi Staff App kebalikannya: gagal memuat berarti daftar tampil **utuh**, karena layar penjualan yang kosong terbaca sebagai aplikasi rusak oleh orang yang sedang menutup shift.
+
+- [x] **Menu aktif per outlet** (`0115`) — bawaannya semua outlet; bisa diatur per menu di tab Menu atau massal per outlet di tab **Menu per Outlet**; menu yang tidak aktif hilang dari Penjualan & modul Menu di Staff App, dan **penjualan yang sudah tercatat tidak tersentuh sama sekali**
+
 ## Order masuk yang sudah disiapkan tidak lagi menipu
 
 > "saat nomor order masuk sudah dibuat menjadi draft ... tidak ada staff yang mengisi di tab order masuk, padahal sudah jadi draft, walaupun memang saat di tap buat draft akan ditolak, tetapi ini akan jadi pekerjaan sia sia"

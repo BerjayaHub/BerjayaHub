@@ -4,6 +4,9 @@ import { createProduct, listProducts, listRecipesFull, costForMode, sebabHppKoso
 import { openRecipeEditor, MODE_LABEL } from '../product/recipe-editor.js';
 import { downloadMenuTemplate } from '../product/product-import.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
+import { listMenuOutlet, setMenuOutlet } from './menu-outlet.service.js';
+import { petaMenuOutlet, keadaanMenu, validasiSimpan, ringkasMenu, SEMUA, TERPILIH } from './menu-outlet.js';
+import { listOutletsForBu } from '../organization/organization.service.js';
 import { sayaAdminBu } from '../../core/base-scope.js';
 import { bakukanNama } from '../../core/nama.js';
 import { pemakaiResep } from '../product/recipe-graph.js';
@@ -34,11 +37,38 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
   let products;
   let recipes;
   let bolehUbah = false;
+  let outletsBU = [];
+  let barisMenuOutlet;
   try {
-    [products, recipes, bolehUbah] = await Promise.all([
+    [products, recipes, bolehUbah, outletsBU, barisMenuOutlet] = await Promise.all([
       listProducts(businessUnitId),
       listRecipesFull(businessUnitId),
-      sayaAdminBu(businessUnitId).catch(() => false)
+      sayaAdminBu(businessUnitId).catch(() => false),
+      // SELURUH OUTLET BU, bukan "outlet yang saya kelola" — dan ini bukan
+      // kelalaian terhadap audit-outlet-tulis.
+      //
+      // `set_menu_outlet` mengganti SELURUH daftar outlet menu itu dalam satu
+      // langkah. Kalau kotak centangnya cuma berisi sebagian outlet, menekan
+      // Simpan akan MENGHAPUS outlet yang tidak terlihat dari daftar izinnya —
+      // menu yang tadinya dijual di lima outlet mendadak hanya di tiga, dan
+      // yang menekan Simpan tidak pernah melihat dua yang hilang.
+      //
+      // Daftar yang tidak lengkap pada layar "ganti semuanya" bukan pembatasan
+      // izin; ia penghapusan data yang tidak terlihat. Wewenangnya sendiri
+      // dijaga di tempat yang benar: `sayaAdminBu()` di layar (tombolnya tidak
+      // digambar) dan `is_bu_admin()` di dalam RPC-nya.
+      listOutletsForBu(businessUnitId).catch(() => []),
+      // KEGAGALANNYA TIDAK DITELAN JADI PETA KOSONG.
+      //
+      // Peta kosong berarti "tidak ada menu yang dibatasi" — tidak bisa
+      // dibedakan dari "gagal dimuat". Kalau ditelan, kolom Outlet akan
+      // menulis "Semua outlet" dengan yakin untuk menu yang sebenarnya
+      // dibatasi, dan admin yang menekan Simpan di sana akan MENGHAPUS
+      // pembatasan yang sudah ada tanpa pernah melihatnya.
+      listMenuOutlet(businessUnitId).then(
+        (r) => ({ ok: true, baris: r }),
+        (e) => ({ ok: false, pesan: e.message ?? String(e) })
+      )
     ]);
   } catch (error) {
     container.innerHTML = `<h1>Menu</h1><p class="error-text">${esc(error.message ?? error)}</p>`;
@@ -50,6 +80,11 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
   const subKategori = [...new Set(menus.map((m) => m.subcategory).filter(Boolean))].sort();
   let resepPer = new Map(recipes.map((r) => [`${r.product_id}|${r.mode}`, r]));
   const state = { category: '', subcategory: '', q: '', terbuka: new Set() };
+
+  // Outlet yang boleh dicentang, dan pembatasan yang sedang berlaku.
+  const outletAktifBU = (outletsBU ?? []).filter((o) => o.is_active !== false);
+  const moGagal = barisMenuOutlet?.ok === false;
+  let petaMO = petaMenuOutlet(moGagal ? [] : (barisMenuOutlet?.baris ?? []));
 
   container.innerHTML = `
     <div class="page-header">
@@ -131,7 +166,7 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
     tableBox.innerHTML = `
       <div class="table-scroll"><table class="data-table table-freeze-1">
         <thead>
-          <tr><th>Menu</th><th>Kategori</th><th>Satuan</th><th>Harga Jual</th><th>HPP Standalone</th><th>HPP Dilayani CK</th><th>Margin</th></tr>
+          <tr><th>Menu</th><th>Kategori</th><th>Outlet</th><th>Satuan</th><th>Harga Jual</th><th>HPP Standalone</th><th>HPP Dilayani CK</th><th>Margin</th></tr>
         </thead>
         <tbody>
           ${
@@ -162,15 +197,16 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
                              placeholder="kategori" style="min-width:110px;margin:0;font-size:0.85rem" />`
                         : esc(m.category ?? '-')
                     }${m.subcategory ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${esc(m.subcategory)}</div>` : ''}</td>
+                    <td data-outlet="${m.id}" style="font-size:0.82rem">${selOutlet(m.id)}</td>
                     <td>${esc(m.base_unit)}</td>
                     <td data-harga>${harga}</td>
                     <td>${cStand != null ? formatRupiah(cStand) : '<span style="color:var(--color-text-muted)">-</span>'}</td>
                     <td>${cCk != null ? formatRupiah(cCk) : '<span style="color:var(--color-text-muted)">-</span>'}</td>
                     <td>${margin}</td>
                   </tr>
-                  <tr class="mn-detail" data-for="${m.id}"${buka ? '' : ' hidden'}><td colspan="7" style="background:var(--color-surface-alt,#fafafa)"></td></tr>`;
+                  <tr class="mn-detail" data-for="${m.id}"${buka ? '' : ' hidden'}><td colspan="8" style="background:var(--color-surface-alt,#fafafa)"></td></tr>`;
               })
-              .join('') || '<tr><td colspan="7">Tidak ada menu.</td></tr>'
+              .join('') || '<tr><td colspan="8">Tidak ada menu.</td></tr>'
           }
         </tbody>
       </table></div>
@@ -182,12 +218,99 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
     wireBaris();
   }
 
+  /**
+   * Isi kolom "Outlet" pada satu baris.
+   *
+   * Saat daftar pembatasan GAGAL dimuat, kolomnya menulis "?" — bukan
+   * "Semua outlet". Menulis "Semua outlet" untuk menu yang sebenarnya dibatasi
+   * bukan sekadar keliru: admin yang membuka menu itu akan melihat pilihan
+   * "Semua outlet" tercentang, dan menekan Simpan MENGHAPUS pembatasan yang
+   * tidak pernah ia lihat.
+   */
+  function selOutlet(menuId) {
+    if (moGagal) return '<span style="color:var(--color-danger)" title="Pengaturan outlet gagal dimuat">?</span>';
+    const r = ringkasMenu(petaMO, menuId, outletAktifBU.length);
+    return r.dibatasi
+      ? `<strong style="color:var(--color-warning,#8a5800)">${esc(r.teks)}</strong>`
+      : `<span style="color:var(--color-text-muted)">${esc(r.teks)}</span>`;
+  }
+
+  /**
+   * Blok "Dijual di outlet mana" di dalam panel detail satu menu.
+   *
+   * PILIHANNYA DINYATAKAN, BUKAN DISIMPULKAN DARI JUMLAH CENTANG.
+   *
+   * Di tingkat data, nol baris berarti "semua outlet" — itu yang membuat 162
+   * menu lama dan setiap menu baru langsung wajar tanpa backfill. Tapi kalau
+   * layar ikut menyimpulkan maksud dari jumlah centang, orang yang mencabut
+   * centang terakhir dari "hanya AB Sentul" justru MENGAKTIFKAN menunya di
+   * seluruh outlet — kebalikan persis dari yang ia maksud, tanpa satu pun
+   * error, dan baru ketahuan saat outlet lain menjual menu yang bukan miliknya.
+   *
+   * Jadi ada dua tombol yang menyatakan maksudnya, dan "hanya outlet terpilih"
+   * dengan nol centang ditolak dengan alasan yang menyebutkan akibatnya.
+   */
+  function blokOutlet(menuId) {
+    if (moGagal) {
+      return `<div style="padding:10px 4px;border-top:1px solid var(--color-border,#e5e5e5)">
+          <div style="font-weight:600;margin-bottom:4px">Dijual di outlet mana</div>
+          <p class="error-text" style="margin:0;font-size:0.82rem">
+            Pengaturannya gagal dimuat, jadi tidak ditampilkan sama sekali —
+            menampilkan pilihan yang mungkin salah lebih berbahaya daripada tidak menampilkannya:
+            menekan Simpan di atas tebakan akan menghapus pembatasan yang sedang berlaku.
+            Muat ulang halaman untuk mencoba lagi.
+          </p>
+        </div>`;
+    }
+    const k = keadaanMenu(petaMO, menuId);
+    const kotak = outletAktifBU
+      .map(
+        (o) => `<label style="display:flex;gap:6px;align-items:center;font-size:0.85rem;font-weight:400;margin:0">
+            <input type="checkbox" class="mo-out" data-id="${menuId}" value="${o.id}"${
+              k.outlets.includes(o.id) ? ' checked' : ''
+            }${k.mode === SEMUA ? ' disabled' : ''} style="margin:0" />
+            ${esc(o.name)}
+          </label>`
+      )
+      .join('');
+
+    return `<div style="padding:10px 4px;border-top:1px solid var(--color-border,#e5e5e5)" data-mo="${menuId}">
+        <div style="font-weight:600;margin-bottom:4px">Dijual di outlet mana</div>
+        <p style="font-size:0.78rem;color:var(--color-text-muted);margin:0 0 8px;max-width:520px">
+          Bawaannya <strong>semua outlet</strong>. Batasi hanya kalau memang ada outlet yang tidak menjual menu ini —
+          staff di outlet lain tidak akan melihatnya lagi di layar Penjualan.
+          Penjualan yang <strong>sudah tercatat</strong> tidak terpengaruh sama sekali.
+        </p>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:8px">
+          <label style="display:flex;gap:6px;align-items:center;font-size:0.86rem;font-weight:400;margin:0">
+            <input type="radio" name="mo-mode-${menuId}" class="mo-mode" data-id="${menuId}" value="${SEMUA}"${
+              k.mode === SEMUA ? ' checked' : ''
+            } style="margin:0" /> Aktif di semua outlet
+          </label>
+          <label style="display:flex;gap:6px;align-items:center;font-size:0.86rem;font-weight:400;margin:0">
+            <input type="radio" name="mo-mode-${menuId}" class="mo-mode" data-id="${menuId}" value="${TERPILIH}"${
+              k.mode === TERPILIH ? ' checked' : ''
+            } style="margin:0" /> Hanya outlet terpilih
+          </label>
+        </div>
+        <div class="mo-daftar" style="display:flex;gap:8px 18px;flex-wrap:wrap;margin-bottom:8px">${
+          kotak || '<span style="font-size:0.82rem;color:var(--color-text-muted)">Belum ada outlet aktif di BU ini.</span>'
+        }</div>
+        ${
+          bolehUbah
+            ? `<button class="primary mo-simpan" data-id="${menuId}" style="max-width:220px">Simpan outlet</button>
+               <p class="error-text mo-error" data-id="${menuId}" style="margin:6px 0 0;font-size:0.8rem"></p>`
+            : '<p style="font-size:0.78rem;color:var(--color-text-muted);margin:0">Hanya admin BU yang bisa mengubahnya.</p>'
+        }
+      </div>`;
+  }
+
   /** Panel bahan per varian — bentuknya sengaja sama dengan tab Resep. */
   function gambarRincian(menuId) {
     const sel = tableBox.querySelector(`.mn-detail[data-for="${menuId}"] td`);
     if (!sel) return;
     const menu = namaProduk.get(menuId);
-    sel.innerHTML = MENU_MODES.map((mode) => {
+    sel.innerHTML = blokOutlet(menuId) + MENU_MODES.map((mode) => {
       const r = resepPer.get(`${menuId}|${mode}`);
       const baris = (r?.items ?? [])
         .map((it) => {
@@ -242,6 +365,63 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
           }
         </div>`;
     }).join('');
+
+    // ---- Blok "Dijual di outlet mana" ----
+    const errEl = sel.querySelector(`.mo-error[data-id="${menuId}"]`);
+    const setErr = (t) => {
+      if (errEl) errEl.textContent = t ?? '';
+    };
+    const modeTerpilih = () => sel.querySelector(`.mo-mode[data-id="${menuId}"]:checked`)?.value ?? SEMUA;
+
+    sel.querySelectorAll(`.mo-mode[data-id="${menuId}"]`).forEach((r) =>
+      r.addEventListener('change', (e) => {
+        e.stopPropagation();
+        // Kotak centang dimatikan saat "semua outlet" dipilih. Membiarkannya
+        // hidup akan menampilkan centang yang tidak berpengaruh apa-apa pada
+        // yang tersimpan — dan kontrol yang bergerak tapi tidak berarti membuat
+        // orang yakin telah mengatur sesuatu yang sebenarnya tidak tersimpan.
+        const semua = modeTerpilih() === SEMUA;
+        sel.querySelectorAll(`.mo-out[data-id="${menuId}"]`).forEach((c) => (c.disabled = semua));
+        setErr('');
+      })
+    );
+    sel.querySelectorAll(`.mo-out[data-id="${menuId}"]`).forEach((c) =>
+      c.addEventListener('click', (e) => e.stopPropagation())
+    );
+
+    sel.querySelector(`.mo-simpan[data-id="${menuId}"]`)?.addEventListener(
+      'click',
+      sekaliJalan(async (e) => {
+        e.stopPropagation();
+        setErr('');
+        const dipilih = [...sel.querySelectorAll(`.mo-out[data-id="${menuId}"]:checked`)].map((c) => c.value);
+        const v = validasiSimpan({ mode: modeTerpilih(), outlets: dipilih });
+        if (!v.boleh) {
+          setErr(v.alasan);
+          return;
+        }
+        try {
+          await setMenuOutlet(menuId, v.outlets);
+        } catch (error) {
+          setErr(error.message ?? 'Gagal menyimpan.');
+          return;
+        }
+        // Peta di layar diperbarui SESUDAH server menerima, bukan sebelumnya.
+        // Memperbaruinya lebih dulu membuat kolom "Outlet" menunjukkan keadaan
+        // yang belum tentu tersimpan — dan itu tidak bisa dibedakan dari
+        // keadaan yang benar-benar tersimpan.
+        petaMO.delete(menuId);
+        if (v.outlets.length) petaMO.set(menuId, new Set(v.outlets));
+        const kolom = tableBox.querySelector(`td[data-outlet="${menuId}"]`);
+        if (kolom) kolom.innerHTML = selOutlet(menuId);
+        toast(
+          v.outlets.length
+            ? `Menu ini sekarang hanya dijual di ${v.outlets.length} outlet.`
+            : 'Menu ini aktif di semua outlet.',
+          'success'
+        );
+      })
+    );
 
     // Menu punya DUA varian yang berdiri sendiri: menghapus "Standalone" tidak
     // menyentuh "Dilayani CK". Keduanya menjawab cara produksi yang berbeda dan

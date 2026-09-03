@@ -1,6 +1,7 @@
 import { toast, shareDialog, confirmDialog, formDialog } from '../../core/ui.js';
 import { formatNum, formatRupiah } from '../../core/format.js';
 import { listProducts } from '../product/product.service.js';
+import { listMenuAktifOutlet } from '../menu/menu-outlet.service.js';
 import {
   recordSales,
   getSalesSummary,
@@ -108,7 +109,29 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
   const catSel = container.querySelector('#sl-cat');
   const cariInput = container.querySelector('#sl-q');
 
-  const menuTersaring = () => saringMenu(menus, { kategori: state.category, q: state.q });
+  /**
+   * Menu yang aktif di outlet yang sedang dipilih (0115).
+   *
+   * `null` berarti BELUM/GAGAL dimuat — dan dalam keadaan itu daftarnya
+   * ditampilkan UTUH, bukan dikosongkan. Layar penjualan yang tiba-tiba kosong
+   * terbaca sebagai "aplikasinya rusak", dan staff yang sedang menutup shift
+   * tidak punya jalan lain. Menampilkan menu yang seharusnya tersembunyi jauh
+   * lebih murah daripada menghalangi penjualan yang harus tercatat hari itu.
+   */
+  let menuAktif = null;
+
+  async function loadMenuAktif() {
+    try {
+      menuAktif = await listMenuAktifOutlet(state.outletId);
+    } catch {
+      menuAktif = null;
+    }
+  }
+
+  /** Menu milik outlet ini, sebelum saringan kategori & pencarian. */
+  const menuOutlet = () => (menuAktif ? menus.filter((m) => menuAktif.has(m.id)) : menus);
+
+  const menuTersaring = () => saringMenu(menuOutlet(), { kategori: state.category, q: state.q });
 
   /**
    * Beri tahu kalau ada isian yang sedang TERSEMBUNYI oleh saringan.
@@ -386,6 +409,13 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
     }
 
     state.outletId = outletSel.value;
+    // DAFTAR MENUNYA IKUT BERGANTI, bukan cuma harganya.
+    //
+    // Menu bisa dibatasi ke outlet tertentu (0115). Tanpa baris ini, layarnya
+    // tetap menampilkan menu milik outlet sebelumnya — dan karena harganya
+    // ikut berubah, hasilnya adalah menu outlet lama dengan harga outlet baru:
+    // tampilan yang tidak pernah benar untuk outlet mana pun.
+    await loadMenuAktif();
     // Harga menempel pada OUTLET, jadi berganti outlet berarti seluruh kolom
     // harga berubah. Tanpa ini, layarnya menampilkan harga outlet sebelumnya.
     await loadHarga();
@@ -545,6 +575,7 @@ export async function renderSalesPage(container, { businessUnitId, outletId }) {
     }
   });
 
+  await loadMenuAktif();
   await loadHarga();
   renderRows();
   await loadSummary();

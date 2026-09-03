@@ -6,6 +6,7 @@ import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { getMenuPlans, upsertMenuPlan, todayWIB } from './menu.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
 import { saringMenu, ringkasIsian } from '../sales/saring-menu.js';
+import { listMenuAktifOutlet } from './menu-outlet.service.js';
 import { loadingHtml } from '../../core/loading.js';
 
 export async function renderMenuPage(container, { businessUnitId, outletId }) {
@@ -77,12 +78,32 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
   const outletSel = container.querySelector('#menu-outlet');
   const catSel = container.querySelector('#menu-cat');
 
+  /**
+   * Menu yang aktif di outlet ini (0115).
+   *
+   * `null` = belum/gagal dimuat -> daftarnya ditampilkan UTUH. Sama seperti di
+   * layar Penjualan: menu yang terlanjur tampil jauh lebih murah daripada
+   * layar kosong yang terbaca sebagai aplikasi rusak.
+   */
+  let menuAktif = null;
+
+  /** Menu milik outlet ini, sebelum saringan kategori & pencarian. */
+  const menuOutlet = () => (menuAktif ? menus.filter((m) => menuAktif.has(m.id)) : menus);
+
   async function reload() {
     try {
-      [state.plans, state.stock] = await Promise.all([getMenuPlans(state.outletId, date), getOutletStockMap(businessUnitId, state.outletId)]);
+      // Ketiganya bergantung pada OUTLET, jadi ketiganya dimuat ulang bersama.
+      // Menyisakan salah satunya memakai outlet lama menghasilkan layar yang
+      // separuh benar — dan separuh yang salah tidak menandai dirinya sendiri.
+      [state.plans, state.stock, menuAktif] = await Promise.all([
+        getMenuPlans(state.outletId, date),
+        getOutletStockMap(businessUnitId, state.outletId),
+        listMenuAktifOutlet(state.outletId).catch(() => null)
+      ]);
     } catch {
       state.plans = new Map();
       state.stock = new Map();
+      menuAktif = null;
     }
     renderRows();
   }
@@ -111,7 +132,7 @@ export async function renderMenuPage(container, { businessUnitId, outletId }) {
   }
 
   /** Menu yang lolos saringan kategori DAN pencarian nama. */
-  const menuTersaring = () => saringMenu(menus, { kategori: state.category, q: state.q });
+  const menuTersaring = () => saringMenu(menuOutlet(), { kategori: state.category, q: state.q });
 
   /**
    * Beri tahu kalau ada isian yang sedang TERSEMBUNYI oleh saringan.
