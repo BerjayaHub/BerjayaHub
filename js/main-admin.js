@@ -335,13 +335,13 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
         <header class="admin-topbar">
           <div class="admin-topbar-title">${escapeHtml(activeBu?.name ?? 'Admin Portal')}</div>
           <div class="app-switch" role="tablist" aria-label="Mode aplikasi">
-            <button id="btn-to-staff"><span>📱</span> Staff App</button>
+            <a id="btn-to-staff" href="./index.html"><span>📱</span> Staff App</a>
             <button class="active" aria-current="page"><span>🛠️</span> Admin Portal</button>
             ${
               // Halaman Owner hanya untuk super admin, dan tombolnya pun hanya
               // muncul untuknya. Tombol yang tampak lalu menolak saat ditekan
               // membuat orang mengira ada yang rusak dengan akunnya.
-              isSuperAdmin ? '<button id="btn-to-owner"><span>📊</span> Owner</button>' : ''
+              isSuperAdmin ? '<a id="btn-to-owner" href="./owner.html"><span>📊</span> Owner</a>' : ''
             }
           </div>
         </header>
@@ -358,13 +358,16 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
 
   document.getElementById('btn-logout').addEventListener('click', signOut);
 
-  document.getElementById('btn-to-staff').addEventListener('click', () => {
-    window.location.href = './index.html';
-  });
-
-  document.getElementById('btn-to-owner')?.addEventListener('click', () => {
-    window.location.href = './owner.html';
-  });
+  // TIDAK ADA PENANGAN KLIK untuk pintasan antar-aplikasi — itu maksudnya.
+  //
+  // Dulu keduanya `<button>` + `window.location.href`, dan akibatnya klik kanan
+  // "buka di tab baru" tidak berbuat apa-apa: menu itu memang tidak muncul
+  // untuk tombol. Begitu juga klik tengah dan Ctrl/Cmd+klik.
+  //
+  // Sebagai `<a href>`, ketiganya bekerja tanpa satu baris JavaScript pun — dan
+  // menambahkan penangan klik justru akan MERUSAKNYA lagi: penangan itu
+  // berjalan juga saat Ctrl+klik, sehingga tab lama ikut berpindah halaman
+  // sementara tab barunya terbuka.
 
   document.getElementById('bu-switcher')?.addEventListener('change', (e) => {
     const newBu = e.target.value;

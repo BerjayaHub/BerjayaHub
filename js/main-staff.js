@@ -257,8 +257,8 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
         isAdmin
           ? `<div class="app-switch app-switch-on-primary" role="tablist" aria-label="Mode aplikasi">
               <button class="active" aria-current="page"><span>📱</span> Staff App</button>
-              <button id="btn-to-admin"><span>🛠️</span> Admin Portal</button>
-              ${isSuperAdmin ? '<button id="btn-to-owner"><span>📊</span> Owner</button>' : ''}
+              <a id="btn-to-admin" href="./admin.html"><span>🛠️</span> Admin Portal</a>
+              ${isSuperAdmin ? '<a id="btn-to-owner" href="./owner.html"><span>📊</span> Owner</a>' : ''}
             </div>`
           : ''
       }
@@ -266,13 +266,10 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
     <main class="staff-main" id="module-content"></main>
   `;
 
-  document.getElementById('btn-to-owner')?.addEventListener('click', () => {
-    window.location.href = './owner.html';
-  });
-
-  document.getElementById('btn-to-admin')?.addEventListener('click', () => {
-    window.location.href = './admin.html';
-  });
+  // Pintasan antar-aplikasi adalah `<a href>`, jadi TIDAK punya penangan klik.
+  // Lihat alasan lengkapnya di main-admin.js — intinya: klik kanan "buka di tab
+  // baru", klik tengah, dan Ctrl/Cmd+klik hanya bekerja pada tautan sungguhan,
+  // dan penangan klik apa pun justru merusaknya lagi.
 
   document.getElementById('bu-switcher-staff')?.addEventListener('change', (e) => {
     try {

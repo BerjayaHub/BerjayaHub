@@ -178,14 +178,12 @@ async function renderShell() {
         <h2 style="margin-top:0">Halaman ini khusus Super Admin</h2>
         <p>Akun kamu tidak punya akses super admin. Kalau kamu admin BU atau staff, gunakan halaman berikut.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">
-          <button id="btn-ke-staff">📱 Staff App</button>
-          <button id="btn-ke-admin">🛠️ Admin Portal</button>
+          <a class="tombol-tautan" id="btn-ke-staff" href="./index.html">📱 Staff App</a>
+          <a class="tombol-tautan" id="btn-ke-admin" href="./admin.html">🛠️ Admin Portal</a>
           <button class="primary" id="btn-logout">Keluar</button>
         </div>
       </div>
     `;
-    document.getElementById('btn-ke-staff').addEventListener('click', () => (window.location.href = './index.html'));
-    document.getElementById('btn-ke-admin').addEventListener('click', () => (window.location.href = './admin.html'));
     document.getElementById('btn-logout').addEventListener('click', signOut);
     return;
   }
@@ -228,8 +226,8 @@ function gambarKerangka(context, daftarBu, buAktifId) {
           </div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <div class="app-switch" role="tablist" aria-label="Mode aplikasi">
-              <button id="btn-ke-staff"><span>📱</span> Staff App</button>
-              <button id="btn-ke-admin"><span>🛠️</span> Admin Portal</button>
+              <a id="btn-ke-staff" href="./index.html"><span>📱</span> Staff App</a>
+              <a id="btn-ke-admin" href="./admin.html"><span>🛠️</span> Admin Portal</a>
               <button class="active" aria-current="page"><span>📊</span> Owner</button>
             </div>
             <button id="btn-akun" aria-label="Akun" title="${escapeHtml(context.profile.full_name)}" style="min-height:38px">⋯</button>
@@ -252,8 +250,6 @@ function gambarKerangka(context, daftarBu, buAktifId) {
     gambarKerangka(context, daftarBu, e.target.value);
   });
 
-  document.getElementById('btn-ke-staff').addEventListener('click', () => (window.location.href = './index.html'));
-  document.getElementById('btn-ke-admin').addEventListener('click', () => (window.location.href = './admin.html'));
   document.getElementById('btn-akun').addEventListener('click', () => bukaPanelAkun());
 
   document.querySelectorAll('[data-tab]').forEach((btn) => {

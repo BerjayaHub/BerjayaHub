@@ -157,6 +157,36 @@ h4 { font-size: var(--teks-sm); line-height: 1.4; }
 }
 .app-content button:active, .staff-main button:active { transform: translateY(1px); }
 
+/* Tautan yang tampil sebagai tombol sekunder.
+
+   Dipakai untuk perpindahan ANTAR HALAMAN (Staff App ↔ Admin Portal ↔ Owner)
+   yang berada di luar `.app-switch`. Bentuknya tombol karena di situlah orang
+   mengharapkannya; jenisnya tautan karena hanya <a href> yang bisa diklik-kanan
+   "buka di tab baru", diklik tengah, atau Ctrl/Cmd+klik.
+
+   Tombol + `location.href` terlihat sama persis dan kehilangan ketiganya —
+   tanpa satu pun tanda bahwa ada yang hilang. */
+.tombol-tautan {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: 9px;
+  padding: 8px 13px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+.tombol-tautan:hover {
+  background: var(--color-bg);
+  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+}
+.tombol-tautan:active { transform: translateY(1px); }
+
 button.primary {
   width: 100%;
   padding: 12px;
@@ -998,7 +1028,17 @@ select.sc-cell.is-off {
   flex-shrink: 0;
 }
 
-.app-switch button {
+/* `button` DAN `a`.
+
+   Pintasan antar-aplikasi ini sekarang TAUTAN sungguhan, bukan tombol yang
+   memanggil `location.href`. Bedanya bukan soal kerapian: hanya <a href> yang
+   bisa diklik-kanan "buka di tab baru", diklik tengah, atau Ctrl/Cmd+klik —
+   dan itu satu-satunya cara membuka Admin Portal & Staff App berdampingan.
+
+   Yang sedang aktif tetap <button>: ia memang tidak menuju ke mana-mana. */
+.app-switch button,
+.app-switch a {
+  text-decoration: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1014,11 +1054,15 @@ select.sc-cell.is-off {
   white-space: nowrap;
   transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease, transform 0.1s ease;
 }
-.app-switch button span { font-size: 0.95rem; line-height: 1; }
-.app-switch button:hover { color: var(--color-text); }
-.app-switch button:active { transform: scale(0.97); }
+.app-switch button span,
+.app-switch a span { font-size: 0.95rem; line-height: 1; }
+.app-switch button:hover,
+.app-switch a:hover { color: var(--color-text); }
+.app-switch button:active,
+.app-switch a:active { transform: scale(0.97); }
 
-.app-switch button.active {
+.app-switch button.active,
+.app-switch a.active {
   background: var(--color-surface);
   color: var(--color-primary);
   box-shadow: var(--shadow-sm);
@@ -1030,9 +1074,12 @@ select.sc-cell.is-off {
   background: rgba(255, 255, 255, 0.16);
   border-color: rgba(255, 255, 255, 0.22);
 }
-.app-switch-on-primary button { color: rgba(255, 255, 255, 0.82); }
-.app-switch-on-primary button:hover { color: #fff; }
-.app-switch-on-primary button.active {
+.app-switch-on-primary button,
+.app-switch-on-primary a { color: rgba(255, 255, 255, 0.82); }
+.app-switch-on-primary button:hover,
+.app-switch-on-primary a:hover { color: #fff; }
+.app-switch-on-primary button.active,
+.app-switch-on-primary a.active {
   background: #fff;
   color: var(--color-primary);
 }

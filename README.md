@@ -5048,6 +5048,20 @@ Akarnya satu, dan letaknya di satu baris. Penangan ganti-outlet memanggil `refre
 
 Sapuan ke 40 penangan ganti-outlet di seluruh modul menemukan satu kandidat lain, `menipis.admin.js`, dan itu **bukan** bug: `products`/`recipes` di sana dikunci ke BU, bukan outlet, dan yang memang milik outlet (`saldo`, `batasManual`, `porsiMinimumOutlet`) sudah diambil ulang tiap kali. Pemindai sapuannya sendiri sempat hijau palsu karena regexnya tidak cocok dengan bentuk `container.querySelector('#as-outlet').addEventListener(...)` — **hijau karena sasarannya tidak ketemu**, pola kegagalan yang di repo ini sudah berulang kali muncul dan sekarang selalu dijawab dengan ambang minimum jumlah sasaran.
 
+## Pintasan antar aplikasi jadi tautan sungguhan
+
+> "saat saya klik kanan untuk buka di tab baru tidak bisa ... saya klik kanan tombol staff app untuk membuka staff app di tab baru, agar ada 2 yang terbuka sekaligus"
+
+Pintasan Staff App ↔ Admin Portal ↔ Owner adalah `<button>` yang memanggil `window.location.href`. Untuk klik biasa ia bekerja sempurna, jadi tidak ada yang terasa salah — sampai seseorang mencoba membuka dua aplikasi berdampingan.
+
+Yang hilang diam-diam pada `<button>`: klik kanan → "Buka tautan di tab baru" (menunya tidak muncul sama sekali), klik tengah, Ctrl/Cmd+klik, seret ke bilah tab, dan salin alamat tautan. Kelimanya didapat gratis dari `<a href>`, **tanpa satu baris JavaScript**.
+
+Kedelapan pintasan sekarang `<a href>`, dan penangan kliknya **dibuang** — bukan sekadar dibiarkan. Menjadikannya tautan tapi tetap memasang `addEventListener('click', … location.href)` justru merusaknya lagi dengan cara yang lebih membingungkan daripada bug aslinya: penangan itu berjalan juga saat Ctrl/Cmd+klik, jadi tab **lama** ikut berpindah halaman sementara tab barunya terbuka — orangnya kehilangan layar yang sedang ia kerjakan.
+
+Dua sabotase lolos di percobaan pertama, keduanya kelemahan substring yang sudah beberapa kali muncul di repo ini: `.app-switch a` masih cocok dengan `.app-switch a span` yang tetap ada walau aturan dasarnya dihapus, dan `\b` sesudah `.tombol-tautan` adalah batas kata **sebelum** tanda hubung — sehingga ia cocok dengan `.tombol-tautan-x` yang sudah tidak dipakai siapa pun. Auditnya sekarang menuntut selektornya diikuti `{` atau `,`, artinya benar-benar kepala sebuah aturan.
+
+- [x] **Staff App / Admin Portal / Owner bisa dibuka di tab baru** — `<a href>` tanpa penangan klik, dikunci `audit-pindah-aplikasi.cjs`
+
 ## "Beras 17.280 gr, takaran 200 gr, tapi bahan habis"
 
 > "kenapa di menu, bahan yang ada stock nya ... yaitu beras, tetapi dia jadi pembatas untuk menjadi menu ini dihitung sebagai bahan habis"
