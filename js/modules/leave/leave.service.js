@@ -153,7 +153,7 @@ export async function listMyLeaveRequests() {
   if (!uid) return [];
   const { data, error } = await supabase
     .from('leave_requests')
-    .select('id, start_date, end_date, day_count, reason, status, review_note, attachment_path, created_at, leave_types(name)')
+    .select('id, start_date, end_date, day_count, reason, status, review_note, attachment_path, created_at, start_date_awal, end_date_awal, day_count_awal, leave_types(name)')
     .eq('user_id', uid)
     .order('created_at', { ascending: false });
   if (error) throw error;
@@ -216,7 +216,13 @@ export async function listLeaveRequestsForAdmin({ businessUnitId, status }) {
   let query = supabase
     .from('leave_requests')
     .select(
-      'id, start_date, end_date, day_count, reason, status, review_note, attachment_path, created_at, user_id, user_profiles!user_id(full_name), leave_types(name, deducts_quota), outlets!outlet_id(name)'
+      'id, start_date, end_date, day_count, reason, status, review_note, attachment_path, created_at, user_id, ' +
+        // Jejak 0117: tanggal yang DIAJUKAN, kalau admin mempersempitnya.
+        'start_date_awal, end_date_awal, day_count_awal, ' +
+        // `reviewer` dinamai eksplisit lewat kolom FK-nya. `sales` pernah kena
+        // masalah ini: begitu sebuah tabel punya DUA FK ke `user_profiles`,
+        // embed polos jadi ambigu dan PostgREST menolak SELURUH query.
+        'user_profiles!user_id(full_name), reviewer:user_profiles!reviewed_by(full_name), leave_types(name, deducts_quota), outlets!outlet_id(name)'
     )
     .eq('business_unit_id', businessUnitId)
     .order('created_at', { ascending: false })
@@ -243,17 +249,32 @@ export async function listRecentLeaveActivity({ limit = 25, before = null } = {}
   return data ?? [];
 }
 
-export async function reviewLeaveRequest(id, { status, reviewNote }) {
-  const uid = await currentUserId();
-  const { error } = await supabase
-    .from('leave_requests')
-    .update({
-      status,
-      review_note: reviewNote || null,
-      reviewed_by: uid,
-      reviewed_at: new Date().toISOString()
-    })
-    .eq('id', id);
+/**
+ * Setujui / tolak cuti. Saat MENYETUJUI, tanggalnya boleh dipersempit.
+ *
+ * LEWAT RPC, bukan `.update()` langsung — dan itu bukan sekadar kerapian.
+ *
+ * Aturan "hanya boleh dipersempit", perhitungan ulang `day_count`, dan
+ * penyalinan tanggal asli ke kolom `*_awal` semuanya ada di server (0117).
+ * Kalau layar menulis langsung ke tabelnya, ketiganya harus ditirukan di sisi
+ * klien — dan tiruan aturan selalu menyimpang dari aslinya, biasanya pada
+ * kasus yang paling jarang dicoba.
+ *
+ * Yang paling merugikan dari ketiganya adalah `day_count`: kalau ia tertinggal
+ * di angka pengajuan, jatah cuti orangnya terpotong sebesar hari yang tidak
+ * jadi ia pakai — dan baris tanggalnya sendiri sudah benar, jadi tidak ada
+ * yang terlihat janggal sampai jatahnya habis lebih cepat dari seharusnya.
+ *
+ * `startDate`/`endDate` boleh null = pakai tanggal pengajuan apa adanya.
+ */
+export async function reviewLeaveRequest(id, { status, reviewNote, startDate = null, endDate = null }) {
+  const { error } = await supabase.rpc('setujui_cuti', {
+    p_id: id,
+    p_status: status,
+    p_note: reviewNote || null,
+    p_start: startDate || null,
+    p_end: endDate || null
+  });
   if (error) throw error;
 }
 

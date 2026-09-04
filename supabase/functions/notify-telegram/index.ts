@@ -148,12 +148,35 @@ async function pesanCutiDireview(r: any) {
     namaUser(r.reviewed_by),
     admin.from('leave_types').select('name').eq('id', r.leave_type_id).maybeSingle().then((x) => x.data?.name ?? 'Cuti')
   ]);
+
+  // TANGGAL YANG DIPAKAI ADALAH YANG DISETUJUI (0117).
+  //
+  // Sejak admin bisa mempersempit rentangnya, `start_date`/`end_date` berisi
+  // yang BERLAKU, dan tanggal yang diajukan disalin ke `*_awal`. Menyebut
+  // hanya hasil akhirnya membuat staff yang mengajukan 4–8 lalu membaca 6–8
+  // mengira ia salah mengetik pengajuannya sendiri.
+  //
+  // Susunan baris di sini SENGAJA sama persis dengan `js/modules/leave/
+  // pesan-cuti.js`, yang dipakai tombol Bagikan ke WhatsApp. Dua saluran yang
+  // menceritakan peristiwa yang sama tidak boleh bercerita berbeda — dan yang
+  // menyimpang duluan selalu yang lebih jarang dibaca pengembangnya.
+  const dipersempit =
+    disetujui &&
+    r.start_date_awal &&
+    r.end_date_awal &&
+    (r.start_date_awal !== r.start_date || r.end_date_awal !== r.end_date);
+
   return [
     disetujui ? '✅ <b>Cuti Disetujui</b>' : '❌ <b>Cuti Ditolak</b>',
     '',
     `👤 <b>${esc(nama)}</b>`,
     `🗂 Jenis: ${esc(jenis)}`,
     `📅 ${fmtDate(r.start_date)} – ${fmtDate(r.end_date)} (<b>${r.day_count} hari</b>)`,
+    dipersempit
+      ? `✏️ Diajukan ${fmtDate(r.start_date_awal)} – ${fmtDate(r.end_date_awal)}` +
+        (r.day_count_awal ? ` (${r.day_count_awal} hari)` : '') +
+        ' — dipersempit oleh admin'
+      : '',
     `🧑‍💼 Diputuskan oleh: ${esc(reviewer)}`,
     r.review_note ? `💬 ${esc(r.review_note)}` : ''
   ]

@@ -80,6 +80,7 @@ pernah dijalankan.
 | 0111 | `0111_draft_order_ck.sql` | **Order ke CK punya tahap DRAFT.** Disusun bersama dulu (bar + kitchen), baru ditekan Kirim — sebelum itu CK tidak melihatnya sama sekali. Satu draft per pasangan outlet-tujuan (unique index parsial). Sesudah dikirim, isinya **terkunci**. ⚠️ **Perlu redeploy `notify-telegram`** supaya draft tidak diumumkan sebagai order baru. Jalur lama `create_stock_order` dicabut grant-nya |
 | 0112 | `0112_koreksi_penjualan_berjejak.sql` | **Admin bisa memperbaiki penjualan tanggal lampau.** Wewenangnya sudah ada sejak `0101`; yang baru adalah jejaknya (`qty_awal`, `dikoreksi_at/_by/_alasan`) dan **alasan wajib untuk tanggal lampau**. Stok bahan ikut dikoreksi sesuai resep; harga tetap harga saat transaksi dicatat. ⚠️ Mengandung `drop function ubah_penjualan(uuid, numeric)` — tanda tangannya bertambah satu parameter, dan tanpa drop versi lamanya tetap hidup sebagai overload tanpa penjagaan alasan |
 | 0113 | `0113_cuti_di_jadwal_shift.sql` | **Cuti yang disetujui terbaca di jadwal shift** (Staff App & Admin Portal). Dua RPC baca saja (`cuti_disetujui_rentang`, `cuti_saya_rentang`) yang menguraikan rentang pengajuan jadi satu baris per tanggal. **Tidak menulis apa pun** ke `shift_schedules` — cuti tetap satu-satunya sumber kebenaran, jadi cuti yang dibatalkan langsung hilang dari jadwal tanpa perlu disinkronkan |
+| 0117 | `0117_admin_ubah_tanggal_cuti.sql` | **Admin bisa menyetujui cuti SEBAGIAN.** Menambah kolom `start_date_awal` / `end_date_awal` / `day_count_awal` dan RPC `setujui_cuti(id, status, catatan, mulai, selesai)`. Rentang yang disetujui **wajib di dalam** yang diajukan; `day_count` dihitung ulang; tanggal asli disalin sebelum ditimpa. Kebijakan RLS lama **sengaja tidak dicabut** supaya PWA lama di HP admin tetap bisa menyetujui (hanya tanpa ubah tanggal). ⚠️ **Perlu redeploy `notify-telegram`** supaya pesan grup menyebut tanggal yang diajukan saat dipersempit |
 | 0116 | `0116_bersihkan_rencana_menu_nonaktif.sql` | ⚠️ **Jalankan bersama 0115.** Menonaktifkan menu di sebuah outlet ikut menghapus `menu_plans`-nya di sana — **hari ini & ke depan saja**, tanggal lampau tidak disentuh. Tanpa ini, rencana yang sudah tidak berlaku terus memotong perkiraan "bisa dibuat" sementara barisnya tidak tampil lagi di layar: beras 17.280 gr dengan takaran 200 gr/porsi berbunyi *"bahan habis"* tanpa penyebab yang bisa dilihat. Menulis ulang `set_menu_outlet` & `set_menu_outlet_massal` (versi 0115-nya digantikan utuh) |
 | 0115 | `0115_menu_aktif_per_outlet.sql` | **Menu bisa dibatasi ke outlet tertentu.** Tabel `menu_outlet_aktif` sebagai **daftar izin**: menu tanpa satu baris pun aktif di **semua** outlet, jadi setelah migration ini **tidak ada satu pun perilaku yang berubah** sampai admin benar-benar mengaturnya. Tiga RPC: `menu_aktif_outlet(outlet)` (baca), `set_menu_outlet(menu, outlet[])` dan `set_menu_outlet_massal(outlet, menu[])` (tulis, `is_bu_admin`). Tabelnya **tidak punya kebijakan tulis** sama sekali — seluruh penulisan lewat RPC. Tidak menyentuh `sales`, `record_sales`, atau laporan mana pun: penjualan yang sudah tercatat tidak terpengaruh |
 | 0114 | `0114_opname_stok_sistem_dari_server.sql` | ⚠️ **Perbaikan bug stok — jalankan segera.** Opname menerima `system_qty` **dari layar**, dan peta stok di layar bisa basi berjam-jam. Nanas stok 6.400 dihitung 4.600 menghasilkan **11.000** (penyesuaian +4.600, bukan −1.800). Sekarang server yang membacanya saat menyimpan. Menambah `opname_potret_basi(sesi)` untuk memeriksa sesi yang masih terbuka |
@@ -115,11 +116,18 @@ pernah dijalankan.
 ### WAJIB — isinya berubah di sesi ini
 
 ```bash
+supabase functions deploy notify-telegram
 supabase functions deploy notify-reservation
 supabase functions deploy send-reservation-digest
 supabase functions deploy submit-reservation
 supabase functions deploy purge-old-selfies
 ```
+
+> `notify-telegram` sempat terdaftar di bagian **OPSIONAL** ("hanya baris import
+> yang berubah") — dan itu sudah tidak benar sejak `0117`: isi pesannya berubah,
+> bukan cuma importnya. Keterangan yang sudah basi lebih berbahaya daripada
+> tidak ada: yang membacanya akan melewatinya dengan yakin, lalu pesan cuti di
+> grup tetap memakai bentuk lama tanpa satu pun error yang menandainya.
 
 ### WAJIB juga — pesan error sesi diperbaiki
 
@@ -151,7 +159,6 @@ supabase functions deploy send-shift-gap-alerts
 ```bash
 supabase functions deploy send-fleet-reminders
 supabase functions deploy send-test-push
-supabase functions deploy notify-telegram
 ```
 
 Yang sudah ter-deploy **tetap jalan normal** — dependensinya ikut ter-bundle

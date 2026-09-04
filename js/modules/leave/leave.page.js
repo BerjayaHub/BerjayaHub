@@ -1,4 +1,5 @@
 import { toast, confirmDialog, formDialog, shareDialog } from '../../core/ui.js';
+import { fmtRentang, diubahAdmin } from './pesan-cuti.js';
 import {
   getMyEntitlementSummary,
   listAllowedLeaveTypes,
@@ -103,12 +104,23 @@ export async function renderLeavePage(container, { userId, businessUnitId, outle
 
 function rowHtml(r) {
   const badge = STATUS_BADGE[r.status] ?? { label: r.status, cls: '' };
-  const range = r.start_date === r.end_date ? fmt(r.start_date) : `${fmt(r.start_date)} – ${fmt(r.end_date)}`;
+  const range = fmtRentang(r.start_date, r.end_date);
   const canCancel = r.status === 'pending';
+
+  // KALAU ADMIN MEMPERSEMPITNYA, ORANGNYA HARUS TAHU DI SINI JUGA.
+  //
+  // Pesan WhatsApp bisa terlewat, terhapus, atau tidak pernah dikirim sama
+  // sekali — membagikannya adalah langkah TERPISAH yang bisa dibatalkan admin.
+  // Kalau layar ini cuma menulis "6–8 disetujui", staff yang mengajukan 4–8
+  // akan mengira ia sendiri yang salah mengetik, dan tidak punya tempat untuk
+  // memastikan.
+  const jejakUbah = diubahAdmin(r)
+    ? `<div class="cuti-jejak-ubah">kamu ajukan ${escapeHtml(fmtRentang(r.start_date_awal, r.end_date_awal))} — disetujui sebagian</div>`
+    : '';
   return `
     <tr>
       <td data-label="Jenis">${escapeHtml(r.leave_types?.name ?? '-')}</td>
-      <td data-label="Tanggal">${range}</td>
+      <td data-label="Tanggal">${range}${jejakUbah}</td>
       <td data-label="Hari">${r.day_count}</td>
       <td data-label="Status">
         <span class="badge ${badge.cls}">${escapeHtml(badge.label)}</span>

@@ -1,4 +1,5 @@
 import { toast, confirmDialog, formDialog, shareDialog } from '../../core/ui.js';
+import { pesanCutiWa, fmtRentang, diubahAdmin } from './pesan-cuti.js';
 import {
   listLeaveRequestsForAdmin,
   reviewLeaveRequest,
@@ -92,14 +93,26 @@ async function renderRequestsTab(content, businessUnitId) {
 
 function reqRowHtml(r) {
   const badge = STATUS_BADGE[r.status] ?? { label: r.status, cls: '' };
-  const range = r.start_date === r.end_date ? fmt(r.start_date) : `${fmt(r.start_date)} – ${fmt(r.end_date)}`;
+  const range = fmtRentang(r.start_date, r.end_date);
   const isPending = r.status === 'pending';
+
+  // JEJAK PERSEMPITAN DITAMPILKAN DI SINI, bukan hanya di pesan yang dikirim.
+  //
+  // Admin lain yang membuka daftar ini beberapa hari kemudian hanya melihat
+  // "6–8 disetujui" dan tidak punya cara tahu bahwa yang diminta 4–8. Ia bisa
+  // menyimpulkan staffnya memang cuma minta tiga hari — dan kalau ada
+  // pertanyaan belakangan, jawabannya keliru tanpa ada yang menyadarinya.
+  const jejakUbah = diubahAdmin(r)
+    ? `<div class="cuti-jejak-ubah">diajukan ${escapeHtml(fmtRentang(r.start_date_awal, r.end_date_awal))}${
+        r.day_count_awal ? ` (${r.day_count_awal} hari)` : ''
+      }</div>`
+    : '';
   return `
     <tr>
       <td>${escapeHtml(r.user_profiles?.full_name ?? '-')}</td>
       <td style="font-size:0.82rem;color:var(--color-text-muted)">${r.created_at ? fmtDateTime(r.created_at) : '-'}</td>
       <td>${escapeHtml(r.leave_types?.name ?? '-')}${r.leave_types?.deducts_quota ? ' <span style="font-size:0.7rem;color:var(--color-text-muted)">(potong jatah)</span>' : ''}</td>
-      <td>${range}</td>
+      <td>${range}${jejakUbah}</td>
       <td>${r.day_count}</td>
       <td>${escapeHtml(r.reason ?? '-')}${r.review_note ? `<div style="font-size:0.72rem;color:var(--color-text-muted)">Catatan: ${escapeHtml(r.review_note)}</div>` : ''}</td>
       <td><span class="badge ${badge.cls}">${escapeHtml(badge.label)}</span></td>
@@ -112,14 +125,27 @@ function reqRowHtml(r) {
   `;
 }
 
-function decisionMsg(r, statusOverride, noteOverride) {
-  const status = statusOverride ?? r.status;
-  const note = noteOverride ?? r.review_note;
-  const range = r.start_date === r.end_date ? fmt(r.start_date) : `${fmt(r.start_date)} s/d ${fmt(r.end_date)}`;
-  const verdict = status === 'approved' ? 'DISETUJUI' : 'DITOLAK';
-  let m = `Pengajuan cuti Anda (${r.leave_types?.name ?? 'cuti'}) tanggal ${range} telah ${verdict}.`;
-  if (note) m += ` Catatan: ${note}.`;
-  return m;
+/**
+ * Teks yang dibagikan lewat WhatsApp.
+ *
+ * ISINYA SAMA PERSIS DENGAN TELEGRAM — lihat `pesan-cuti.js`.
+ *
+ * Versi lama satu kalimat: "Pengajuan cuti Anda (…) tanggal … telah DISETUJUI."
+ * Yang menerimanya justru orang yang paling berkepentingan, dan dia yang
+ * mendapat versi paling miskin: tidak ada jenis cuti, tidak ada jumlah hari,
+ * tidak ada siapa yang memutuskan — dan sejak 0117, tidak ada keterangan kalau
+ * tanggalnya ternyata dipersempit.
+ *
+ * `statusOverride`/`noteOverride` dipakai TEPAT SESUDAH menyetujui, ketika
+ * data di layar belum sempat dimuat ulang dari server.
+ */
+function decisionMsg(r, statusOverride, noteOverride, tanggalOverride) {
+  return pesanCutiWa({
+    ...r,
+    status: statusOverride ?? r.status,
+    review_note: noteOverride ?? r.review_note,
+    ...(tanggalOverride ?? {})
+  });
 }
 
 function wireReqActions(root, requests, refresh) {
@@ -152,24 +178,104 @@ function wireReqActions(root, requests, refresh) {
 async function reviewDialog(record, status, refresh) {
   if (!record) return;
   const isApprove = status === 'approved';
+
+  // TANGGAL HANYA DITANYAKAN SAAT MENYETUJUI.
+  //
+  // "Ditolak, tapi tanggalnya 6–8" bukan keadaan yang punya arti, dan kotak
+  // yang muncul lalu diabaikan mengajari orang bahwa isian di dialog ini
+  // kadang tidak berpengaruh — pelajaran yang akan terbawa ke kotak yang
+  // berpengaruh.
+  const fields = [
+    { name: 'note', label: 'Catatan (opsional)', type: 'text', placeholder: isApprove ? 'mis. disetujui' : 'mis. jadwal padat' }
+  ];
+  if (isApprove) {
+    fields.unshift(
+      {
+        name: 'start',
+        label: 'Mulai disetujui',
+        type: 'date',
+        value: record.start_date,
+        required: true,
+        // `min`/`max` memandu pemilih tanggal di HP, TAPI bukan penjaganya —
+        // orang tetap bisa mengetik di luar rentang, dan browser lama
+        // mengabaikannya. Penjagaan yang sesungguhnya ada di `setujui_cuti`
+        // (0117), yang menolak dengan menyebutkan rentang yang berlaku.
+        min: record.start_date,
+        max: record.end_date
+      },
+      {
+        name: 'end',
+        label: 'Sampai disetujui',
+        type: 'date',
+        value: record.end_date,
+        required: true,
+        min: record.start_date,
+        max: record.end_date,
+        help: `Diajukan ${fmtRentang(record.start_date, record.end_date)}. Boleh dipersempit, tidak boleh diperluas — kalau tanggalnya harus digeser keluar, tolak dan minta staff mengajukan ulang.`
+      }
+    );
+  }
+
   const values = await formDialog({
     title: isApprove ? 'Setujui Cuti' : 'Tolak Cuti',
-    fields: [{ name: 'note', label: 'Catatan (opsional)', type: 'text', placeholder: isApprove ? 'mis. disetujui' : 'mis. jadwal padat' }],
+    description: isApprove
+      ? `${record.user_profiles?.full_name ?? 'Staff'} mengajukan ${fmtRentang(record.start_date, record.end_date)} (${record.day_count} hari).`
+      : '',
+    fields,
     submitText: isApprove ? 'Setujui' : 'Tolak'
   });
   if (!values) return;
+
   try {
-    await reviewLeaveRequest(record.id, { status, reviewNote: values.note });
-    toast(isApprove ? 'Cuti disetujui.' : 'Cuti ditolak.', 'success');
-    await refresh();
-    await shareDialog({
-      title: 'Bagikan keputusan ke staff',
-      helper: 'Kirim ke staff bersangkutan lewat WhatsApp/chat.',
-      defaultMessage: decisionMsg(record, status, values.note)
+    await reviewLeaveRequest(record.id, {
+      status,
+      reviewNote: values.note,
+      startDate: isApprove ? values.start : null,
+      endDate: isApprove ? values.end : null
     });
   } catch (error) {
+    // Pesan server sudah menyebut rentang yang diajukan dan apa jalan
+    // keluarnya. Diteruskan apa adanya — menggantinya dengan "Gagal memproses"
+    // membuang satu-satunya keterangan yang berguna.
     toast(error.message ?? 'Gagal memproses.', 'error');
+    return;
   }
+
+  const dipersempit = isApprove && (values.start !== record.start_date || values.end !== record.end_date);
+  toast(
+    isApprove ? (dipersempit ? 'Cuti disetujui sebagian.' : 'Cuti disetujui.') : 'Cuti ditolak.',
+    'success'
+  );
+  await refresh();
+
+  // Tanggal yang BARU dititipkan ke pesannya, karena `record` di tangan kita
+  // masih memegang keadaan sebelum penyimpanan. Tanpa ini, staff menerima
+  // pesan berisi tanggal yang justru tidak jadi disetujui — kebalikan dari
+  // yang ingin diberitahukan.
+  const tanggalBaru = isApprove
+    ? {
+        start_date: values.start,
+        end_date: values.end,
+        day_count: hitungHari(values.start, values.end),
+        start_date_awal: dipersempit ? record.start_date : null,
+        end_date_awal: dipersempit ? record.end_date : null,
+        day_count_awal: dipersempit ? record.day_count : null
+      }
+    : {};
+
+  await shareDialog({
+    title: 'Bagikan keputusan ke staff',
+    helper: 'Kirim ke staff bersangkutan lewat WhatsApp/chat.',
+    defaultMessage: decisionMsg(record, status, values.note, tanggalBaru)
+  });
+}
+
+/** Jumlah hari kalender inklusif — cerminan `(end - start) + 1` di 0117. */
+function hitungHari(mulai, selesai) {
+  const a = new Date(`${mulai}T00:00:00`);
+  const b = new Date(`${selesai}T00:00:00`);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
+  return Math.round((b - a) / 86400000) + 1;
 }
 
 // ---- Tab: Jenis Cuti ----

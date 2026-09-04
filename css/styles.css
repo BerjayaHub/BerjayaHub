@@ -2492,6 +2492,16 @@ select.sc-cell.is-off {
    Kolom Stok dan kolom Sisa bisa berbeda jauh, dan tanpa satu baris kecil yang
    menjelaskan selisihnya, dua angka berdampingan itu justru menambah
    pertanyaan — bukan menjawabnya. */
+/* "diajukan 4–8 Sep" di bawah rentang yang disetujui.
+
+   Muncul HANYA kalau admin benar-benar mempersempitnya. Keterangan yang selalu
+   ada berhenti diperhatikan justru pada baris yang berbeda dari yang lain. */
+.cuti-jejak-ubah {
+  font-size: 0.72rem;
+  color: var(--color-warning, #8a5800);
+  margin-top: 2px;
+}
+
 .menu-sisa-ket {
   font-size: 0.7rem;
   color: var(--color-text-muted);

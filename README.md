@@ -5048,6 +5048,37 @@ Akarnya satu, dan letaknya di satu baris. Penangan ganti-outlet memanggil `refre
 
 Sapuan ke 40 penangan ganti-outlet di seluruh modul menemukan satu kandidat lain, `menipis.admin.js`, dan itu **bukan** bug: `products`/`recipes` di sana dikunci ke BU, bukan outlet, dan yang memang milik outlet (`saldo`, `batasManual`, `porsiMinimumOutlet`) sudah diambil ulang tiap kali. Pemindai sapuannya sendiri sempat hijau palsu karena regexnya tidak cocok dengan bentuk `container.querySelector('#as-outlet').addEventListener(...)` — **hijau karena sasarannya tidak ketemu**, pola kegagalan yang di repo ini sudah berulang kali muncul dan sekarang selalu dijawab dengan ambang minimum jumlah sasaran.
 
+## Cuti: WhatsApp seisi Telegram, dan admin bisa mempersempit tanggalnya
+
+Dua permintaan yang ternyata saling menyambung.
+
+### WhatsApp dapat isi yang sama dengan Telegram
+
+Telegram sudah mengirim nama, jenis cuti, rentang, jumlah hari, siapa yang memutuskan, dan catatannya. WhatsApp mengirim **satu kalimat**: *"Pengajuan cuti Anda (…) tanggal … telah DISETUJUI."*
+
+Yang menerima WhatsApp adalah orang yang paling berkepentingan — staff yang mengajukan — dan justru dia yang mendapat versi paling miskin. Sekarang keduanya lahir dari satu modul (`pesan-cuti.js`); bedanya hanya penanda tebal (`<b>` vs `*`). Ditulis dua kali, keduanya akan menyimpang perlahan, dan yang menyimpang duluan selalu yang lebih jarang dibaca pengembangnya.
+
+### Admin bisa menyetujui sebagian
+
+> "rifki mengajukan tanggal 4 sampai 8, lalu yang di acc 6 sampai 8"
+
+Sebelumnya persetujuan hanya punya dua jawaban. Kenyataannya sering di antara keduanya — dan tanpa jalan tengah, yang terjadi adalah admin menyetujui 4–8 lalu berpesan lisan "tanggal 4–5 kamu masuk ya". Kesepakatan itu tidak ada di mana pun: jadwal shift (`0113`) tetap memblokir 4–5, dan jatah cutinya terpotong 5 hari padahal yang dipakai 3.
+
+**Hanya boleh dipersempit** (`0117`) — rentang yang disetujui wajib di dalam yang diajukan. Memperluas berarti memberi seseorang cuti pada tanggal yang tidak pernah ia minta, dan ia baru mengetahuinya dari pesan keputusan. Kalau tanggalnya harus digeser keluar: tolak, staff mengajukan ulang.
+
+`day_count` **dihitung ulang** dari tanggal yang berlaku. Kalau ia tertinggal di angka pengajuan, jatah cuti terpotong sebesar hari yang tidak dipakai — dan baris tanggalnya sendiri sudah benar, jadi tidak ada yang terlihat janggal sampai jatahnya habis lebih cepat dari seharusnya.
+
+Tanggal yang diajukan disalin ke kolom `*_awal` sebelum ditimpa, dan ditampilkan di **empat** tempat: daftar admin, riwayat staff, pesan WhatsApp, dan pesan Telegram. Bukan berlebihan — pesan WhatsApp bisa terlewat, terhapus, atau tidak pernah dikirim (membagikannya langkah terpisah yang bisa dibatalkan admin). Kalau layarnya sendiri cuma menulis "6–8 disetujui", staff yang mengajukan 4–8 akan mengira ia salah mengetik pengajuannya sendiri.
+
+### Dua audit saya sendiri yang cacat
+
+Auditnya sempat **melarang hal yang benar**: setiap `.update()` yang menyebut `status` ditolak, dan yang tertangkap adalah staff membatalkan pengajuannya sendiri — jalur sah yang tidak melewati penjagaan apa pun. Audit yang melarang hal benar akan dimatikan orang, dan audit yang dimatikan sama saja dengan tidak ada. Penandanya diganti `reviewed_by`, yang hanya ada di jalur persetujuan.
+
+Dan dua sabotase lolos karena polanya cuma mencari kata `jejakUbah` — yang tetap ada **di deklarasinya** walau `${jejakUbah}` dibuang dari templat barisnya. Nilainya dihitung dengan benar lalu dibuang. Ironisnya komentar audit itu sudah menyebut "dihitung lalu dibuang" sebagai hal yang dijaganya.
+
+- [x] **Teks WhatsApp = teks Telegram** untuk keputusan cuti (`pesan-cuti.js`, 13 pemeriksaan)
+- [x] **Admin bisa menyetujui sebagian** (`0117`) — hanya boleh dipersempit, `day_count` dihitung ulang, tanggal asli tetap terbaca di semua layar
+
 ## Pintasan antar aplikasi jadi tautan sungguhan
 
 > "saat saya klik kanan untuk buka di tab baru tidak bisa ... saya klik kanan tombol staff app untuk membuka staff app di tab baru, agar ada 2 yang terbuka sekaligus"
