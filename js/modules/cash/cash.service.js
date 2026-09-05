@@ -121,7 +121,7 @@ export async function listMyCashAccounts(onlyActive = true) {
   if (!uid) return [];
   let q = supabase
     .from('cash_accounts')
-    .select('id, name, sort_order, is_active')
+    .select('id, name, sort_order, is_active, outlet_id, outlets!outlet_id(name)')
     .eq('holder_id', uid)
     .order('sort_order')
     .order('name');
@@ -129,6 +129,52 @@ export async function listMyCashAccounts(onlyActive = true) {
   const { data, error } = await q;
   if (error) throw error;
   return data ?? [];
+}
+
+/**
+ * Kantong kas yang boleh KUBEBANI — punya sendiri, plus kantong outlet tempat
+ * aku bertugas (0120).
+ *
+ * Dipakai layar yang mencatat pengeluaran atas nama orang lain, mis. nota
+ * penerimaan. Daftarnya dibaca dari `cash_accounts` langsung; RLS-nya
+ * mengizinkan membaca kantong milik siapa pun di outlet yang sama, dan
+ * `boleh_membebani_kas()` di server yang memutuskan boleh-tidaknya menulis.
+ */
+export async function listKantongBisaKubebani(outletId) {
+  if (!outletId) return [];
+  const uid = await currentUserId();
+  const { data, error } = await supabase
+    .from('cash_accounts')
+    .select('id, name, holder_id, outlet_id, user_profiles!holder_id(full_name)')
+    .eq('is_active', true)
+    .or(`holder_id.eq.${uid},outlet_id.eq.${outletId}`)
+    .order('name');
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Catat entri kas pada kantong TERTENTU — boleh milik orang lain (0120).
+ *
+ * Lewat RPC, bukan `.insert()`: aturan siapa-boleh-membebani-apa, tanda
+ * nominal, dan kewajiban outlet/bukti untuk kas keluar semuanya ada di server.
+ * Menulis langsung ke tabel berarti menirukan keempatnya di klien.
+ */
+export async function catatKasDi({ accountId, type, amount, categoryId, outletId, notes, proofPath, date, qty, unit }) {
+  const { data, error } = await supabase.rpc('catat_kas_di', {
+    p_account: accountId,
+    p_type: type,
+    p_amount: amount,
+    p_category: categoryId ?? null,
+    p_outlet: outletId ?? null,
+    p_notes: notes ?? null,
+    p_proof: proofPath ?? null,
+    p_date: date ?? null,
+    p_qty: qty ?? null,
+    p_unit: unit ?? null
+  });
+  if (error) throw error;
+  return data;
 }
 
 /** Berapa kantong yang boleh dia punya (diatur admin). 1 = kas tunggal. */
@@ -140,10 +186,20 @@ export async function getMyCashAccountLimit() {
   return Number(data?.cash_account_limit ?? 1);
 }
 
-export async function saveCashAccount({ id, name, sort_order, is_active }) {
+export async function saveCashAccount({ id, name, sort_order, is_active, outletId }) {
   const uid = await currentUserId();
   if (!uid) throw new Error('Sesi tidak ditemukan.');
-  const baris = { holder_id: uid, name: String(name ?? '').trim(), sort_order: Number(sort_order) || 0, is_active: is_active !== false };
+  const baris = {
+    holder_id: uid,
+    name: String(name ?? '').trim(),
+    sort_order: Number(sort_order) || 0,
+    is_active: is_active !== false,
+    // `undefined` berarti "jangan sentuh"; string kosong berarti "lepaskan
+    // outletnya". Dibedakan karena mengganti NAMA kantong tidak boleh
+    // diam-diam mencabut izin staff outlet untuk membebaninya — bug yang
+    // bentuknya persis sama dengan "+ Foto menghapus supplier" (0119).
+    ...(outletId === undefined ? {} : { outlet_id: outletId || null })
+  };
   if (id) {
     const { data, error } = await supabase.from('cash_accounts').update(baris).eq('id', id).select('id');
     if (error) throw error;

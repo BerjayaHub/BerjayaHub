@@ -466,8 +466,22 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
                 const saldo = saldoKantong.find((x) => x.account_id === a.id)?.balance ?? 0;
                 return `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                   <span style="flex:1;min-width:120px;font-size:0.86rem">${escapeHtml(a.name)}
-                    <span style="color:var(--color-text-muted)">· ${formatRupiah(Number(saldo) || 0)}</span></span>
-                  <button class="kk-edit" data-id="${escapeHtml(a.id)}" title="Ubah nama kantong">✎</button>
+                    <span style="color:var(--color-text-muted)">· ${formatRupiah(Number(saldo) || 0)}</span>
+                    ${
+                      // KANTONG YANG TERBUKA HARUS TERLIHAT TERBUKA.
+                      //
+                      // Pemegang kas menanggung selisihnya, jadi ia berhak tahu
+                      // sekilas kantong mana yang bisa dibebani orang lain —
+                      // tanpa membuka dialog satu per satu. Kantong pribadi
+                      // TIDAK diberi penanda apa pun: menandai keadaan yang
+                      // berlaku untuk hampir semua baris cuma menambah bacaan.
+                      a.outlet_id
+                        ? `<span class="kk-terbuka" title="Staff outlet ini juga bisa mencatat pengeluaran dari kantong ini">🏪 ${escapeHtml(
+                            a.outlets?.name ?? 'outlet'
+                          )}</span>`
+                        : ''
+                    }</span>
+                  <button class="kk-edit" data-id="${escapeHtml(a.id)}" title="Ubah nama & outlet kantong">✎</button>
                   <button class="kk-del" data-id="${escapeHtml(a.id)}" title="Hapus kantong">🗑</button>
                 </div>`;
               })
@@ -502,16 +516,43 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     await refresh();
   }
 
+
+  /**
+   * Pilihan outlet untuk kantong kas.
+   *
+   * Kosong = kantong pribadi, hanya pemegangnya yang bisa membebani. Itu
+   * perilaku lama dan tetap jadi bawaannya — memilih outlet adalah keputusan
+   * sadar untuk MEMBUKA kantong ini kepada staff outlet tersebut.
+   */
+  const opsiOutletKantong = () => [
+    { value: '', label: 'Pribadi — hanya saya' },
+    ...outlets.map((o) => ({ value: o.id, label: `Kas outlet ${o.name}` }))
+  ];
+
+  const KET_OUTLET_KANTONG =
+    'Kalau kantong ini diberi outlet, SIAPA PUN yang bertugas di outlet itu bisa mencatat pengeluaran dari kantongmu — ' +
+    'mis. staff yang menginput nota dari supplier. Uangnya tetap kasmu, saldonya tetap tanggung jawabmu, ' +
+    'dan setiap entri mencatat siapa yang membuatnya.';
+
   async function tambahKantong() {
     const values = await formDialog({
       title: 'Tambah Kantong Kas',
       description: 'Namai sesuai peruntukannya, mis. "Kas Owner" atau "Kas Operasional".',
-      fields: [{ name: 'name', label: 'Nama kantong', type: 'text', required: true, placeholder: 'mis. Kas Operasional' }],
+      fields: [
+        { name: 'name', label: 'Nama kantong', type: 'text', required: true, placeholder: 'mis. Kas Operasional' },
+        {
+          name: 'outlet',
+          label: 'Dipakai untuk outlet',
+          type: 'select',
+          options: opsiOutletKantong(),
+          help: KET_OUTLET_KANTONG
+        }
+      ],
       submitText: 'Tambah'
     });
     if (!values) return;
     try {
-      await saveCashAccount({ name: values.name, sort_order: accounts.length });
+      await saveCashAccount({ name: values.name, sort_order: accounts.length, outletId: values.outlet });
       toast('Kantong kas ditambahkan.', 'success');
       await muatUlangKantong();
     } catch (error) {
@@ -526,13 +567,37 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       description:
         'Nama baru langsung berlaku di seluruh riwayat dan laporan, termasuk transaksi lama — ' +
         'nama kantong tidak disalin ke tiap transaksi, melainkan dibaca dari sini.',
-      fields: [{ name: 'name', label: 'Nama kantong', type: 'text', required: true, value: a.name }],
+      fields: [
+        { name: 'name', label: 'Nama kantong', type: 'text', required: true, value: a.name },
+        {
+          name: 'outlet',
+          label: 'Dipakai untuk outlet',
+          type: 'select',
+          value: a.outlet_id ?? '',
+          options: opsiOutletKantong(),
+          help: KET_OUTLET_KANTONG
+        }
+      ],
       submitText: 'Simpan'
     });
     if (!values) return;
+
+    // MENCABUT OUTLET DIKONFIRMASI, karena akibatnya tidak terlihat di layar
+    // ini: staff yang selama ini bisa mencatat nota dari kantong ini akan
+    // berhenti bisa — dan yang ia lihat cuma pilihan kasnya menghilang, tanpa
+    // sebab yang bisa ia telusuri.
+    if (a.outlet_id && !values.outlet) {
+      const ok = await confirmDialog({
+        title: 'Jadikan kantong pribadi?',
+        message: `Staff di outlet ${escapeHtml(a.outlets?.name ?? 'itu')} tidak akan bisa lagi mencatat pengeluaran dari "${escapeHtml(a.name)}". Riwayat yang sudah ada tidak berubah.`,
+        confirmText: 'Jadikan pribadi'
+      });
+      if (!ok) return;
+    }
+
     try {
-      await saveCashAccount({ id: a.id, name: values.name, sort_order: a.sort_order });
-      toast('Nama kantong diperbarui.', 'success');
+      await saveCashAccount({ id: a.id, name: values.name, sort_order: a.sort_order, outletId: values.outlet });
+      toast('Kantong kas diperbarui.', 'success');
       await muatUlangKantong();
     } catch (error) {
       toast(error.message ?? 'Gagal mengubah nama.', 'error');

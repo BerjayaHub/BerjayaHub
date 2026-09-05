@@ -2578,6 +2578,21 @@ select.sc-cell.is-off {
 .harga-banding-naik { color: var(--color-danger); }
 .harga-banding-turun { color: var(--color-success, #1a7f37); }
 
+/* Penanda kantong kas yang boleh dibebani staff outlet (0120).
+
+   Hanya muncul pada kantong yang MEMANG terbuka. Pemegang kas menanggung
+   selisihnya, jadi ia berhak tahu sekilas mana yang bisa disentuh orang lain. */
+.kk-terbuka {
+  display: inline-block;
+  font-size: 0.7rem;
+  color: var(--color-warning, #8a5800);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 6px;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
 .cuti-jejak-ubah {
   font-size: 0.72rem;
   color: var(--color-warning, #8a5800);

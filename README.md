@@ -5048,6 +5048,38 @@ Akarnya satu, dan letaknya di satu baris. Penangan ganti-outlet memanggil `refre
 
 Sapuan ke 40 penangan ganti-outlet di seluruh modul menemukan satu kandidat lain, `menipis.admin.js`, dan itu **bukan** bug: `products`/`recipes` di sana dikunci ke BU, bukan outlet, dan yang memang milik outlet (`saldo`, `batasManual`, `porsiMinimumOutlet`) sudah diambil ulang tiap kali. Pemindai sapuannya sendiri sempat hijau palsu karena regexnya tidak cocok dengan bentuk `container.querySelector('#as-outlet').addEventListener(...)` — **hijau karena sasarannya tidak ketemu**, pola kegagalan yang di repo ini sudah berulang kali muncul dan sekarang selalu dijawab dengan ambang minimum jumlah sasaran.
 
+## Kas: Shenda input nota, kas Risma yang berkurang
+
+> "yang pegang kas user risma, tetapi user shenda boleh input terima dari supplier ... bila user yang tidak pegang kas input terima dari supplier maka kasnya akan mines, sedangkan kas user yang pegang kas tidak berkurang"
+
+Sejak `0040` kas mengikuti USER, dan RLS-nya hanya mengizinkan `holder_id = auth.uid()`. Jadi apa pun yang Shenda catat mendarat di kas Shenda — satu-satunya kas yang boleh ia tulis.
+
+### Pertanyaannya bukan "kas menempel di mana"
+
+iko mengusulkan dua bentuk: kas menempel di outlet, atau opsi kas-menempel-di-outlet-atau-user per BU. Saya sarankan keduanya tidak.
+
+Yang sebenarnya hilang adalah satu fakta transaksi: **siapa yang membayar**. Shenda *menginput* ≠ Shenda *membayar*. Memindahkan kas ke outlet juga menebak, cuma tebakan yang berbeda. Dan dua model kepemilikan dalam satu ledger berarti setiap laporan, setiap kebijakan RLS, dan setiap query saldo menangani dua bentuk selamanya — "berapa saldo kas total" berhenti punya jawaban tunggal.
+
+**Kas tetap milik ORANG.** Risma tetap pemegangnya dan tetap yang bertanggung jawab kalau uangnya kurang. Kas milik "outlet" terdengar rapi, tapi saat selisih muncul tidak ada seorang pun yang bisa ditanya — kerugian yang tidak terlihat di skema mana pun.
+
+Yang ditambahkan `0120` cuma satu: **kantong kas boleh menyebut outlet**. Kosong = seperti sekarang, hanya pemegangnya. Terisi = pemegang **plus** siapa pun yang bertugas di outlet itu. Opt-in per kantong; BU dan outlet yang tidak punya kasus ini tidak berubah sedikit pun, dan tidak ada satu baris data pun yang dipindahkan.
+
+### Yang hampir membuat fiturnya tidak pernah muncul
+
+Kebijakan `cash_accounts` dari `0063` hanya mengizinkan `holder_id = auth.uid()`. Artinya daftar "kas mana yang boleh kubebani" milik Shenda akan **selalu kosong** — tombolnya ada, RPC-nya ada, izinnya ada, dan tidak ada satu pun pilihan yang bisa dipilih. `0120` membuka baca untuk kantong yang **menyebut outlet tempat ia bertugas**; kantong pribadi orang lain tetap tak terlihat, termasuk namanya.
+
+Dan satu penjagaan yang paling mudah terlewat: RLS `cash_entries` hanya mengizinkan pemegang melihat. Tanpa kebijakan tambahan, Shenda mencatat, penyimpanannya berhasil, lalu entrinya **tidak muncul di layar mana pun yang bisa ia buka** — dan yang terjadi berikutnya bisa ditebak: ia mengira gagal lalu mencatatnya lagi. Kas Risma terpotong dua kali, tanpa satu pun error di sepanjang jalan itu.
+
+### Dua pemeriksaan yang hijau tanpa menguji apa pun
+
+PGlite menjalankan query sebagai **pemilik tabel**, dan Postgres tidak menerapkan RLS pada pemilik. Percobaan pertama menguji "Shenda tidak melihat entri Risma" sambil berjalan sebagai pemilik — merah pada kebijakan yang benar. Yang lebih berbahaya: pemeriksaan sebaliknya ("Shenda **melihat** entri buatannya") **hijau tanpa menguji apa pun**, karena pemilik memang melihat semuanya. Tesnya sekarang memakai peran `authenticated` yang sama dengan produksi.
+
+Satu sabotase lolos dengan jujur: `is_active` di `boleh_membebani_kas` **bukan** penjaga untuk `catat_kas_di` (fungsi itu memeriksanya sendiri, dengan pesan lebih tepat). Ia load-bearing bagi pemanggil lain yang menanyakan izin tanpa menulis — jadi kontraknya diuji langsung, bukan hanya lewat satu pintu.
+
+Backtick di dalam template literal menggigit untuk **keempat kalinya**, kali ini di komentar tes yang menyebut `to authenticated`.
+
+- [x] **Kantong kas boleh menyebut outlet** (`0120`) — pemegang tetap pemilik & penanggung jawab, staff outlet itu boleh membebani; opt-in per kantong, ditandai di daftar, dan mencabutnya dikonfirmasi
+
 ## Nota bisa diedit, harganya berformat Rupiah — dan satu bug yang menghapus supplier
 
 Tiga revisi yang diminta, plus satu temuan di jalan.
