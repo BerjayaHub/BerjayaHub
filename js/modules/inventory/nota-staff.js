@@ -92,8 +92,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
           <label>Pembayaran</label>
           <select id="nota-bayar-cara">
             <option value="tempo">Tempo — bayar nanti</option>
-            <option value="tunai">Tunai — langsung dari kas</option>
-            <option value="pusat">Dibayar Pusat — tidak menyentuh kas</option>
+            <option value="tunai">Tunai — langsung dari kas outlet</option>
           </select>
         </div>
         <div class="field" id="nota-tempo-box" style="margin:0;min-width:150px;flex:1 1 150px">
@@ -173,13 +172,41 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
 
   const KET_TEMPO =
     'Stok bertambah sekarang, kas belum berkurang. Notanya masuk ke tab Hutang Supplier di bawah, ' +
-    'dan bisa dilunasi bersama nota lain dari supplier yang sama.';
+    'dan nanti bisa dilunasi dari kantong kas mana pun ATAU atas nama Pusat — bersama nota lain dari supplier yang sama.';
+  /**
+   * Penanda "Pusat" di dalam daftar kantong kas.
+   *
+   * BUKAN string kosong. `formDialog` menganggap nilai kosong sebagai "belum
+   * diisi", jadi pilihan yang sah akan ditolak dengan pesan "wajib diisi"
+   * padahal sudah terpilih di layar — jebakan yang sama sudah menggigit pada
+   * `KAS_UTAMA` di layar Kas (0063).
+   */
+  const BAYAR_PUSAT = '__pusat__';
+
+  /**
+   * Satu daftar "Dibayar oleh": seluruh kantong kas, plus Pusat.
+   *
+   * Sebelumnya dua kotak — "sumber" (kas/pusat) lalu "bayar dari kas" — dan
+   * yang terjadi persis seperti yang dilaporkan: orang membuka daftar kasnya,
+   * mencari Pusat di situ, dan menyimpulkan fiturnya tidak ada. Pertanyaannya
+   * memang satu ("siapa yang membayar"), jadi kotaknya juga satu.
+   */
+  const opsiPembayar = (kantong) => [
+    ...kantong.map((k) => ({ value: k.id, label: `${k.name}${k.outlets?.name ? ` — ${k.outlets.name}` : ''}` })),
+    { value: BAYAR_PUSAT, label: 'Pusat — tidak menyentuh kas' }
+  ];
+
+  /** Terjemahkan pilihan itu jadi argumen `bayarNota`. */
+  const bacaPembayar = (nilai) =>
+    nilai === BAYAR_PUSAT ? { accountId: null, sumber: 'pusat' } : { accountId: nilai, sumber: 'kas' };
+
   const KET_PUSAT =
     'Dibayar Pusat: notanya ditandai lunas dan hilang dari daftar hutang, tapi TIDAK ada baris yang masuk ke buku kas mana pun. ' +
     'Nominalnya tidak akan muncul di laporan kas — total belanja bahan harus dibaca dari notanya.';
   const KET_TUNAI =
-    'Kas berkurang begitu nota disimpan. Semua barang harus sudah ada harganya — kalau ada yang kosong, ' +
-    'kas cuma berkurang sebesar sebagian isinya dan selisihnya tidak akan muncul sebagai error.';
+    'Kas outlet berkurang begitu nota disimpan. Semua barang harus sudah ada harganya — kalau ada yang kosong, ' +
+    'kas cuma berkurang sebesar sebagian isinya dan selisihnya tidak akan muncul sebagai error. ' +
+    'Kalau yang membayar Pusat, simpan sebagai Tempo lalu lunasi atas nama Pusat dari tab Hutang Supplier.';
 
   async function muatKantong() {
     if (kantongSiap) return;
@@ -195,12 +222,22 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
     }
   }
 
+  // TUNAI SELALU DARI KAS OUTLET, dan Pusat TIDAK ada di layar ini.
+  //
+  // "Dibayar Pusat" bukan cara membayar tunai — ia jawaban atas pertanyaan
+  // SIAPA yang melunasi, dan pertanyaan itu baru muncul saat notanya benar-
+  // benar dilunasi. Menaruhnya di sini memaksa orang memutuskan pembayar
+  // sebelum tagihannya jatuh tempo, dan keputusan itu tidak punya tempat
+  // untuk diperbaiki kalau ternyata meleset.
+  //
+  // Nota yang langsung dibayar pusat tetap bisa: simpan sebagai Tempo, lalu
+  // lunasi atas nama Pusat dari tab Hutang Supplier.
   function gambarCara() {
-    const cara = caraEl.value;
-    kasBox.hidden = cara !== 'tunai';
-    tempoBox.hidden = cara !== 'tempo';
-    ketBayar.textContent = cara === 'tunai' ? KET_TUNAI : cara === 'pusat' ? KET_PUSAT : KET_TEMPO;
-    if (cara === 'tunai') muatKantong();
+    const tunai = caraEl.value === 'tunai';
+    kasBox.hidden = !tunai;
+    tempoBox.hidden = tunai;
+    ketBayar.textContent = tunai ? KET_TUNAI : KET_TEMPO;
+    if (tunai) muatKantong();
   }
   caraEl.addEventListener('change', gambarCara);
   gambarCara();
@@ -232,9 +269,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
         return;
       }
 
-      const cara = caraEl.value;
-      const tunai = cara === 'tunai';
-      const pusat = cara === 'pusat';
+      const tunai = caraEl.value === 'tunai';
       const akun = tunai ? kasEl.value : '';
       if (tunai && !akun) {
         errorEl.textContent = 'Pilih dulu kas yang membayarnya, atau ubah pembayarannya jadi Tempo.';
@@ -246,7 +281,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
       // Berlaku untuk PUSAT juga. Alasannya berbeda tapi sama pentingnya:
       // menandai lunas menghapus notanya dari daftar hutang, dan kalau
       // harganya belum lengkap biayanya tidak pernah tercatat oleh siapa pun.
-      if ((tunai || pusat) && items.some((i) => i.line_total === null || i.line_total === undefined || i.line_total === '')) {
+      if (tunai && items.some((i) => i.line_total === null || i.line_total === undefined || i.line_total === '')) {
         errorEl.textContent =
           'Masih ada barang tanpa harga. Isi harganya dulu, atau simpan sebagai Tempo lalu lunasi setelah harganya lengkap.';
         return;
@@ -274,10 +309,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
       // "gagal menyimpan nota" — notanya tersimpan, stoknya sudah bertambah,
       // dan orang yang mengira gagal akan menginputnya untuk kedua kalinya.
       try {
-        if (pusat) {
-          await bayarNota({ notaIds: [notaId], accountId: null, date: todayWIB(), sumber: 'pusat' });
-          toast(`Nota tersimpan & ditandai lunas oleh Pusat — kas tidak berubah.`, 'success');
-        } else if (tunai) {
+        if (tunai) {
           await bayarNota({ notaIds: [notaId], accountId: akun, date: todayWIB() });
           toast(`Nota tersimpan & dibayar — stok ${items.length} barang bertambah.`, 'success');
         } else {
@@ -287,7 +319,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
         }
       } catch (e) {
         toast(
-          `Nota TERSIMPAN dan stoknya sudah bertambah, tapi ${tunai || pusat ? 'pembayarannya' : 'jatuh temponya'} gagal: ` +
+          `Nota TERSIMPAN dan stoknya sudah bertambah, tapi ${tunai ? 'pembayarannya' : 'jatuh temponya'} gagal: ` +
             `${e.message ?? e}. Jangan input ulang — selesaikan dari tab Hutang Supplier.`,
           'warning'
         );
@@ -431,18 +463,17 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
     const nilai = await formDialog({
       title: `Cara bayar nota ${nota.code}`,
       description:
-        'Tempo: notanya masuk hutang supplier dan kas belum berkurang. ' +
-        'Tunai: kas langsung berkurang sekarang, dan setelah itu isi notanya terkunci sampai pembayarannya dibatalkan.',
+        'Belum dibayar: notanya tetap di daftar hutang supplier, dan jatuh temponya bisa diatur di sini. ' +
+        'Lunasi sekarang: pilih siapa yang membayar — kantong kas mana pun, atau Pusat.',
       fields: [
         {
           name: 'cara',
-          label: 'Pembayaran',
+          label: 'Status',
           type: 'select',
           value: 'tempo',
           options: [
-            { value: 'tempo', label: 'Tempo — bayar nanti' },
-            { value: 'tunai', label: 'Tunai — bayar sekarang dari kas' },
-            { value: 'pusat', label: 'Dibayar Pusat — tidak menyentuh kas' }
+            { value: 'tempo', label: 'Belum dibayar — atur jatuh tempo' },
+            { value: 'bayar', label: 'Lunasi sekarang' }
           ]
         },
         {
@@ -453,34 +484,52 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
         },
         {
           name: 'kas',
-          label: 'Kalau Tunai, bayar dari kas',
+          label: 'Dibayar oleh',
           type: 'select',
           options: kantong.length
-            ? kantong.map((k) => ({ value: k.id, label: `${k.name}${k.outlets?.name ? ` — ${k.outlets.name}` : ''}` }))
-            : [{ value: '', label: 'tidak ada kas yang bisa kamu bebani' }],
-          help: 'Diabaikan kalau kamu memilih Tempo.'
+            ? opsiPembayar(kantong)
+            : [{ value: BAYAR_PUSAT, label: 'Pusat — tidak menyentuh kas' }],
+          help: KET_PUSAT
         },
-        { name: 'tanggal', label: 'Kalau Tunai, tanggal bayar', type: 'date', value: todayWIB() },
-        { name: 'ket', label: '', type: 'html', html: `<p class="field-help" style="margin:0">${KET_PUSAT}</p>` }
+        { name: 'tanggal', label: 'Tanggal bayar', type: 'date', value: todayWIB() }
       ],
-      submitText: 'Simpan'
+      submitText: 'Simpan',
+      onReady: (form) => {
+        // FIELD YANG TIDAK RELEVAN DISEMBUNYIKAN, bukan diberi label
+        // "Kalau Tunai, …". Kotak yang tampil tapi diabaikan membuat orangnya
+        // yakin isinya dipakai — dan yang dilaporkan persis itu: ia membuka
+        // daftar kas di bawah pilihan Tempo lalu mencari Pusat di sana.
+        const bagian = (nama) => form.querySelector(`#f-${nama}`)?.closest('.field');
+        const caraSel = form.querySelector('#f-cara');
+        const atur = () => {
+          const bayar = caraSel?.value === 'bayar';
+          const tempoEl = bagian('tempo');
+          const kasEl2 = bagian('kas');
+          const tglEl = bagian('tanggal');
+          if (tempoEl) tempoEl.hidden = bayar;
+          if (kasEl2) kasEl2.hidden = !bayar;
+          if (tglEl) tglEl.hidden = !bayar;
+        };
+        caraSel?.addEventListener('change', atur);
+        atur();
+      }
     });
     if (!nilai) return;
 
     try {
-      if (nilai.cara === 'pusat') {
-        await bayarNota({ notaIds: [nota.id], accountId: null, date: nilai.tanggal, sumber: 'pusat' });
-        toast(`Nota ${nota.code} ditandai lunas oleh Pusat — kas tidak berubah.`, 'success');
-        sesudah();
-        return;
-      }
-      if (nilai.cara === 'tunai') {
-        if (!nilai.kas) {
-          toast('Tidak ada kas yang bisa kamu bebani. Minta admin memberi outlet pada kantong kas pemegangnya.', 'error');
+      if (nilai.cara === 'bayar') {
+        const { accountId, sumber } = bacaPembayar(nilai.kas);
+        if (sumber === 'kas' && !accountId) {
+          toast('Tidak ada kas yang bisa kamu bebani. Pilih Pusat, atau minta admin memberi outlet pada kantong kas pemegangnya.', 'error');
           return;
         }
-        await bayarNota({ notaIds: [nota.id], accountId: nilai.kas, date: nilai.tanggal });
-        toast(`Nota ${nota.code} ditandai lunas, kas berkurang.`, 'success');
+        await bayarNota({ notaIds: [nota.id], accountId, date: nilai.tanggal, sumber });
+        toast(
+          sumber === 'pusat'
+            ? `Nota ${nota.code} ditandai lunas oleh Pusat — kas tidak berubah.`
+            : `Nota ${nota.code} ditandai lunas, kas berkurang.`,
+          'success'
+        );
       } else {
         await setJatuhTempoNota(nota.id, nilai.tempo || null);
         toast(nilai.tempo ? `Jatuh tempo nota ${nota.code} disetel.` : `Jatuh tempo nota ${nota.code} dikosongkan.`, 'success');
@@ -593,20 +642,11 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
         )
         .join('')}
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:6px">
-        <div class="field" style="margin:0;min-width:170px;flex:0 1 170px">
+        <div class="field" style="margin:0;min-width:220px;flex:1 1 220px">
           <label>Dibayar oleh</label>
-          <select id="hutang-sumber">
-            <option value="kas">Kas outlet</option>
-            <option value="pusat">Pusat</option>
-          </select>
-        </div>
-        <div class="field" id="hutang-kas-box" style="margin:0;min-width:190px;flex:1 1 190px">
-          <label>Bayar dari kas</label>
-          <select id="hutang-kas">${
-            kantong.length
-              ? kantong.map((k) => `<option value="${k.id}">${esc(k.name)}${k.outlets?.name ? ` — ${esc(k.outlets.name)}` : ''}</option>`).join('')
-              : '<option value="">tidak ada kas yang bisa kamu bebani</option>'
-          }</select>
+          <select id="hutang-kas">${opsiPembayar(kantong)
+            .map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`)
+            .join('')}</select>
         </div>
         <div class="field" style="margin:0;min-width:150px;flex:0 1 150px">
           <label>Tanggal bayar</label>
@@ -617,18 +657,22 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
       <p class="field-help" id="hutang-ket-sumber" style="margin:4px 0 0"></p>
       <p class="error-text" id="hutang-error"></p>`;
 
-    // Kantong kas disembunyikan saat sumbernya Pusat — bukan dibiarkan tampil
-    // lalu diabaikan. Kotak yang terisi tapi tidak dipakai membuat orangnya
-    // yakin uangnya keluar dari kas itu.
-    const sumberEl = box.querySelector('#hutang-sumber');
-    const kasBoxEl = box.querySelector('#hutang-kas-box');
+    // Keterangan Pusat muncul HANYA saat Pusat yang dipilih. Ditampilkan
+    // terus-menerus, ia jadi paragraf yang dilewati mata; ditampilkan tepat
+    // saat relevan, ia dibaca.
+    const kasSel = box.querySelector('#hutang-kas');
     const ketSumber = box.querySelector('#hutang-ket-sumber');
     const gambarSumber = () => {
-      const pusat = sumberEl.value === 'pusat';
-      kasBoxEl.hidden = pusat;
-      ketSumber.textContent = pusat ? KET_PUSAT : '';
+      ketSumber.textContent = kasSel.value === BAYAR_PUSAT ? KET_PUSAT : '';
     };
-    sumberEl.addEventListener('change', gambarSumber);
+    kasSel.addEventListener('change', () => {
+      gambarSumber();
+      // Aturan lintas-outlet ikut berubah begitu pembayarnya berganti, jadi
+      // pesan kesalahannya harus dihitung ulang — kalau tidak, orang melihat
+      // "berasal dari 2 outlet berbeda" padahal ia sudah memilih Pusat.
+      const p = bolehDibayar(terpilih(), { lintasOutlet: kasSel.value === BAYAR_PUSAT });
+      errBox.textContent = p.boleh || !terpilih().length ? '' : p.alasan;
+    });
     gambarSumber();
 
     const errBox = box.querySelector('#hutang-error');
@@ -653,7 +697,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
 
     box.querySelectorAll('.hutang-pilih').forEach((c) =>
       c.addEventListener('change', () => {
-        const p = bolehDibayar(terpilih(), { lintasOutlet: sumberEl.value === 'pusat' });
+        const p = bolehDibayar(terpilih(), { lintasOutlet: kasSel.value === BAYAR_PUSAT });
         errBox.textContent = p.boleh || !terpilih().length ? '' : p.alasan;
       })
     );
@@ -663,15 +707,15 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
       sekaliJalan(async () => {
         errBox.textContent = '';
         const pilih = terpilih();
-        const p = bolehDibayar(pilih, { lintasOutlet: sumberEl.value === 'pusat' });
+        const { accountId, sumber } = bacaPembayar(kasSel.value);
+        const p = bolehDibayar(pilih, { lintasOutlet: sumber === 'pusat' });
         if (!p.boleh) {
           errBox.textContent = p.alasan;
           return;
         }
-        const sumber = sumberEl.value;
-        const akun = sumber === 'pusat' ? null : box.querySelector('#hutang-kas').value;
-        if (sumber === 'kas' && !akun) {
-          errBox.textContent = 'Tidak ada kas yang bisa kamu bebani. Minta admin memberi outlet pada kantong kas pemegangnya.';
+        if (sumber === 'kas' && !accountId) {
+          errBox.textContent =
+            'Tidak ada kas yang bisa kamu bebani. Pilih Pusat, atau minta admin memberi outlet pada kantong kas pemegangnya.';
           return;
         }
         const ok = await confirmDialog({
@@ -689,7 +733,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
         try {
           await bayarNota({
             notaIds: pilih.map((n) => n.id),
-            accountId: akun,
+            accountId,
             date: box.querySelector('#hutang-tgl').value,
             sumber
           });

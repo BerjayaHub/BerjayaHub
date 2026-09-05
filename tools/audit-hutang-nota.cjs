@@ -303,11 +303,39 @@ if (hal) {
     );
   }
 
-  // ---- SUMBER PEMBAYARAN, DAN AKIBATNYA, HARUS TERLIHAT ----
-  if (!/id="hutang-sumber"/.test(kode) || !/value="pusat"/.test(kode)) {
+  // ---- SIAPA YANG MEMBAYAR: SATU DAFTAR, KANTONG KAS + PUSAT ----
+  //
+  // Percobaan pertama memakai DUA kotak — "sumber" (kas/pusat) lalu "bayar
+  // dari kas". Yang dilaporkan persis akibatnya: orang membuka daftar kasnya,
+  // mencari Pusat di situ, dan menyimpulkan fiturnya tidak ada. Pertanyaannya
+  // memang satu, jadi kotaknya juga satu.
+  if (!/const BAYAR_PUSAT = '__pusat__'/.test(kode) || !/opsiPembayar\(/.test(kode)) {
     salah(
-      'js/modules/inventory/nota-staff.js: tidak ada pilihan sumber pembayaran (kas vs pusat). ' +
-        'RPC-nya menerima `p_sumber` sejak 0125 dan tidak bisa dicapai siapa pun.'
+      'js/modules/inventory/nota-staff.js: daftar "Dibayar oleh" tidak memuat Pusat bersama kantong kas. ' +
+        'RPC-nya menerima `p_sumber` sejak 0125; kalau Pusat tidak ada di daftar yang dibuka orangnya, ' +
+        'fiturnya tidak bisa dicapai siapa pun.'
+    );
+  }
+  // Penandanya TIDAK boleh string kosong: `formDialog` membaca nilai kosong
+  // sebagai "belum diisi" dan menolak pilihan yang sebenarnya sah — jebakan
+  // yang sama sudah menggigit pada `KAS_UTAMA` di layar Kas (0063).
+  if (/BAYAR_PUSAT = ''/.test(kode)) {
+    salah("js/modules/inventory/nota-staff.js: penanda Pusat berupa string kosong — akan ditolak `formDialog` sebagai \"wajib diisi\".");
+  }
+  // Pilihan itu harus benar-benar diterjemahkan jadi argumen RPC.
+  if (!/bacaPembayar\(/.test(kode) || !/sumber: 'pusat'/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: pilihan Pusat tidak diterjemahkan jadi `sumber: pusat`. ' +
+        'Yang terkirim akan tetap "bayar dari kas", dan kas seseorang berkurang untuk uang yang tidak pernah ' +
+        'keluar dari tangannya.'
+    );
+  }
+  // Layar input nota TIDAK boleh menawarkan Pusat: tunai selalu dari kas outlet.
+  if (/<option value="pusat">/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: layar input nota menawarkan "Dibayar Pusat". ' +
+        'Tunai selalu dari kas outlet; siapa yang membayar baru ditentukan saat notanya dilunasi, dan keputusan ' +
+        'yang diambil terlalu awal tidak punya tempat untuk diperbaiki kalau meleset.'
     );
   }
   if (!/KET_PUSAT/.test(kode) || !/buku kas mana pun/.test(kode)) {
@@ -317,11 +345,19 @@ if (hal) {
         'tidak diberi tahu akan mencarinya di sana dan menyimpulkan ada yang hilang.'
     );
   }
-  // Kantong kas disembunyikan saat sumbernya pusat, bukan dibiarkan tampil.
-  if (!/kasBoxEl\.hidden = pusat/.test(kode)) {
+  // Dialog cara-bayar: field yang tidak relevan DISEMBUNYIKAN, bukan diberi
+  // label "Kalau Tunai, …". Kotak yang tampil tapi diabaikan membuat orangnya
+  // yakin isinya dipakai — dan itu persis yang terjadi: ia membuka daftar kas
+  // di bawah pilihan Tempo lalu mencari Pusat di sana.
+  if (/Kalau Tunai/.test(kode)) {
     salah(
-      'js/modules/inventory/nota-staff.js: pilihan kantong kas tetap tampil saat sumbernya Pusat. ' +
-        'Kotak yang terisi tapi tidak dipakai membuat orangnya yakin uangnya keluar dari kas itu.'
+      'js/modules/inventory/nota-staff.js: dialog cara bayar kembali memakai label "Kalau Tunai, …". ' +
+        'Kotak yang tampil tapi diabaikan dibaca orang sebagai kotak yang dipakai.'
+    );
+  }
+  if (!/kasEl2\.hidden = !bayar/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: dialog cara bayar tidak menyembunyikan field yang tidak relevan.'
     );
   }
   // Status "lunas" harus menyebut sumbernya.

@@ -119,9 +119,19 @@ sabotase('pusat tetap ditahan batas outlet', ATURAN, 'if (!lintasOutlet && outle
 
 console.log('\nSABOTASE YANG HANYA AUDIT YANG BISA MENANGKAP (jalur layar):');
 
-sabotase('pilihan sumber pembayaran dihapus', HAL, /id="hutang-sumber"/g, 'id="hutang-x"', AUDIT);
+sabotase('Pusat hilang dari daftar "Dibayar oleh"', HAL, /opsiPembayar\(/g, 'opsiKasSaja(', AUDIT);
+sabotase(
+  'penanda Pusat jadi string kosong (ditolak formDialog sebagai "wajib diisi")',
+  HAL,
+  "const BAYAR_PUSAT = '__pusat__'",
+  "const BAYAR_PUSAT = ''",
+  AUDIT
+);
+sabotase('pilihan Pusat tidak diterjemahkan jadi sumber pusat', HAL, /sumber: 'pusat'/g, "sumber: 'kas'", AUDIT);
+sabotase('layar input nota kembali menawarkan Dibayar Pusat', HAL, '<option value="tunai">', '<option value="pusat">Dibayar Pusat</option>\n            <option value="tunai">', AUDIT);
 sabotase('akibat memilih Pusat tidak dijelaskan', HAL, /buku kas mana pun/g, 'kas', AUDIT);
-sabotase('kantong kas tetap tampil saat sumbernya Pusat', HAL, 'kasBoxEl.hidden = pusat;', '', AUDIT);
+sabotase('dialog kembali memakai label "Kalau Tunai, …"', HAL, "label: 'Dibayar oleh'", "label: 'Kalau Tunai, bayar dari kas'", AUDIT);
+sabotase('dialog berhenti menyembunyikan field yang tak relevan', HAL, 'if (kasEl2) kasEl2.hidden = !bayar;', '', AUDIT);
 sabotase('penanda lunas tidak lagi membedakan pusat', HAL, /payment_source === 'pusat'/g, 'false', AUDIT);
 sabotase('service berhenti mengirim p_sumber', SVC, /p_sumber:/g, 'p_x:', AUDIT);
 

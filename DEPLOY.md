@@ -596,12 +596,16 @@ siapa pun.
   supplier, pilih **Dibayar oleh** (Kas outlet / Pusat), tekan Bayar. Beberapa
   nota yang dibayar dari kas menghasilkan **satu** baris di buku kas. Nota yang
   masih punya barang tanpa harga tidak bisa dicentang.
-- **Dibayar Pusat** → pilihan ketiga di **Pembayaran** (saat menyimpan nota),
-  di tombol **Tunai/Tempo**, dan di **Dibayar oleh** pada tab hutang. Notanya
-  ditandai lunas dan hilang dari daftar hutang, tapi **tidak ada baris yang
-  masuk ke buku kas mana pun** — jadi nominalnya tidak akan muncul di laporan
-  kas, dan total belanja bahan harus dibaca dari nota. Pembayaran pusat boleh
-  mencakup **beberapa outlet sekaligus**; pembayaran kas tetap per outlet.
+- **Dibayar Pusat** → **bukan** pilihan saat menyimpan nota. Saat input hanya
+  ada **Tunai** (selalu dari kas outlet) dan **Tempo**. Siapa yang membayar baru
+  ditentukan ketika notanya dilunasi: dropdown **Dibayar oleh** — di tombol
+  **Tunai/Tempo** maupun di tab Hutang Supplier — memuat seluruh kantong kas
+  **plus "Pusat — tidak menyentuh kas"**. Nota yang langsung dibayar pusat:
+  simpan sebagai Tempo, lalu lunasi atas nama Pusat.
+  Notanya ditandai lunas dan hilang dari daftar hutang, tapi **tidak ada baris
+  yang masuk ke buku kas mana pun** — jadi nominalnya tidak akan muncul di
+  laporan kas, dan total belanja bahan harus dibaca dari nota. Pembayaran pusat
+  boleh mencakup **beberapa outlet sekaligus**; pembayaran kas tetap per outlet.
 - **Membatalkan pembayaran** → tombolnya menggantikan *Edit* pada nota lunas.
   Pembatalan berlaku untuk **seluruh** pembayaran (semua nota yang dibayar
   bersama), dan uangnya kembali lewat baris **baru** di buku kas — baris

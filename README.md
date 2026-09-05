@@ -5272,7 +5272,18 @@ Alternatif yang **tidak** dipilih: membuat kantong "Kas Pusat". Bukunya jadi kon
 
 Dan di sisi klien, `bayarNota` mengirim `p_account: null` untuk pembayaran pusat — lewat `argumenRpc`, karena kunci yang hilang justru akan membuat PostgREST memilih pembungkus 4-argumen, yang artinya "bayar dari kas". Bug yang baru saja diperbaiki, tepat menunggu di jalur baru.
 
+### Dua kotak untuk satu pertanyaan
+
+Versi pertama memasang **dua** kotak: "Dibayar oleh" (kas / pusat), lalu "Bayar dari kas". Yang dilaporkan persis akibatnya — orang membuka daftar kasnya, mencari Pusat di situ, dan menyimpulkan fiturnya tidak ada. Pertanyaannya memang satu: *siapa yang membayar*. Jadi kotaknya juga satu, berisi seluruh kantong kas **plus "Pusat — tidak menyentuh kas"**.
+
+Penandanya `'__pusat__'`, bukan string kosong: `formDialog` membaca nilai kosong sebagai "belum diisi" dan menolak pilihan yang sebenarnya sah — jebakan yang sudah menggigit pada `KAS_UTAMA` di layar Kas (`0063`).
+
+Dan **Pusat dikeluarkan dari layar input nota.** Saat menyimpan hanya ada Tunai (selalu dari kas outlet) dan Tempo; siapa yang membayar baru ditentukan ketika notanya dilunasi. Keputusan yang diambil terlalu awal tidak punya tempat untuk diperbaiki kalau meleset — dan nota yang memang langsung dibayar pusat cukup disimpan sebagai Tempo lalu segera dilunasi atas nama Pusat.
+
+Dialog cara-bayarnya juga berhenti memakai label **"Kalau Tunai, …"**. Kotak yang tampil tapi diabaikan dibaca orang sebagai kotak yang dipakai; yang tidak relevan sekarang disembunyikan.
+
 - [x] **Nota bisa dilunasi Pusat** (`0125`) — tanpa menyentuh kas mana pun, boleh lintas outlet, dan sumbernya tercatat supaya bisa dibedakan dari nota bertotal nol
+- [x] **Satu dropdown "Dibayar oleh"** — kantong kas + Pusat; Pusat tidak lagi muncul di layar input nota
 
 ## Kolom baru yang menyandera seluruh layar
 
