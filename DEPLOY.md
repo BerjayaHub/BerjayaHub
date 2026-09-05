@@ -80,6 +80,7 @@ pernah dijalankan.
 | 0111 | `0111_draft_order_ck.sql` | **Order ke CK punya tahap DRAFT.** Disusun bersama dulu (bar + kitchen), baru ditekan Kirim — sebelum itu CK tidak melihatnya sama sekali. Satu draft per pasangan outlet-tujuan (unique index parsial). Sesudah dikirim, isinya **terkunci**. ⚠️ **Perlu redeploy `notify-telegram`** supaya draft tidak diumumkan sebagai order baru. Jalur lama `create_stock_order` dicabut grant-nya |
 | 0112 | `0112_koreksi_penjualan_berjejak.sql` | **Admin bisa memperbaiki penjualan tanggal lampau.** Wewenangnya sudah ada sejak `0101`; yang baru adalah jejaknya (`qty_awal`, `dikoreksi_at/_by/_alasan`) dan **alasan wajib untuk tanggal lampau**. Stok bahan ikut dikoreksi sesuai resep; harga tetap harga saat transaksi dicatat. ⚠️ Mengandung `drop function ubah_penjualan(uuid, numeric)` — tanda tangannya bertambah satu parameter, dan tanpa drop versi lamanya tetap hidup sebagai overload tanpa penjagaan alasan |
 | 0113 | `0113_cuti_di_jadwal_shift.sql` | **Cuti yang disetujui terbaca di jadwal shift** (Staff App & Admin Portal). Dua RPC baca saja (`cuti_disetujui_rentang`, `cuti_saya_rentang`) yang menguraikan rentang pengajuan jadi satu baris per tanggal. **Tidak menulis apa pun** ke `shift_schedules` — cuti tetap satu-satunya sumber kebenaran, jadi cuti yang dibatalkan langsung hilang dari jadwal tanpa perlu disinkronkan |
+| 0124 | `0124_geser_harga_ke_harga_beli.sql` | **Menggeser harga nota lama dari arti "per satuan" ke harga beli baris.** `0123` sengaja tidak menebak data lama; ini alatnya, dipakai per nota setelah orangnya melihat total sekarang vs total sesudahnya. Menambah `goods_receipts.harga_digeser_at` (sekali saja) dan RPC `geser_harga_nota(daftar)` — `line_total := unit_cost lama`, `unit_cost := lama / qty`, dalam **satu** `update`, plus `stock_movements` supaya biaya rata-rata ikut terkoreksi. **Tidak ada konversi massal otomatis**: nota yang harganya sudah benar akan rusak kalau ikut digeser. Nota **lunas ditolak** — nominal kasnya dihitung dari harga lama |
 | 0123 | `0123_harga_beli_per_baris.sql` | ⚠️ **Perbaikan salah paham yang menggandakan angka ribuan kali.** Kotak harga di nota berlabel "harga/gr" dan disimpan sebagai `unit_cost`, sementara orang mengetik angka yang tertulis di kertas notanya: beras 5.000 gr seharga Rp180.000 tersimpan sebagai Rp180.000/gram = **Rp900.000.000**. Menambah `goods_receipt_items.line_total` (harga beli seluruh baris — angka yang diketik orang), fungsi `harga_baris_nota()`, dan **menulis ulang `simpan_nota_terima` + `ubah_nota_terima`** supaya `unit_cost` jadi turunan (`line_total / qty`). `nota_ringkas` & `bayar_nota` memakai `line_total`. Bentuk lama (`unit_cost`) tetap diterima untuk PWA yang belum memperbarui diri. **Baris lama diisi `line_total = qty * unit_cost`** — arti yang dinyatakan kolom itu selama ini; baris yang terlanjur diisi sebagai total **tetap salah** dan harus dibetulkan lewat Edit |
 | 0122 | `0122_nota_status_bayar.sql` | **Nota punya status bayar; hutang supplier bisa dilihat & dilunasi.** Menambah `payment_status` / `due_date` / `paid_at` / `paid_by` / `payment_entry_id` pada `goods_receipts`, kolom `cash_entries.untuk_nota`, view `nota_ringkas`, serta RPC `bayar_nota` (beberapa nota → **satu** entri kas), `batalkan_pembayaran_nota` (entri **balik**, yang asli tidak dihapus) dan `set_jatuh_tempo_nota`. ⚠️ **Mengganti batasan `cash_entries_nota_wajib`** jadi pelonggaran sempit: kas keluar boleh tanpa foto **hanya** kalau `untuk_nota`, dan itu diverifikasi saat commit oleh constraint trigger. Trigger baru menolak perubahan isi nota yang sudah lunas. **Nota lama semuanya berstatus `belum`** — menebak "lunas" akan menyembunyikan hutang yang nyata |
 | 0121 | `0121_kelola_kantong_kas_dari_admin.sql` | ⚠️ **Wajib, kalau tidak `0120` tidak bisa dinyalakan oleh siapa pun.** `0120` membuat kantong kas bisa diberi outlet, tapi tidak ada satu orang pun yang bisa mengisinya: layarnya cuma ada di Staff App di balik jatah kantong > 1, pemegang berjatah 1 bahkan tidak punya baris kantong sama sekali (kasnya `account_id` NULL), Admin Portal → User → Kas hanya baca, dan RLS `0063` melarang super admin menulis kantong orang lain. Menambah RPC `daftar_kantong_kas()` (semua kantong + baris semu **Kas Utama** untuk uang tanpa kantong) dan `atur_kantong_kas(id, holder, nama, outlet, aktif)` — **tulis penuh, semua parameter wajib, tanpa default**. Kebijakan `cash_accounts_own` **sengaja tidak disentuh** |
@@ -568,6 +569,12 @@ siapa pun.
     tempat user punya peran, dengan nama BU tertulis di depannya.
 - **Kantong kas (sub-kas)** → **Master User → Edit** pada staff yang bersangkutan →
   isian *Jumlah kantong kas*.
+- **Memperbaiki harga nota lama yang kebalik** → **Staff App → Bahan → Terima
+  dari Supplier → ⇄ Perbaiki harga kebalik**. Dialognya menampilkan tiap nota
+  dengan **total sekarang** dan **total sesudah digeser**; centang yang angkanya
+  memang harga beli, bukan harga per satuan. Sekali digeser, nota itu tidak
+  ditawarkan lagi. Nota yang sudah **lunas** tidak ikut muncul — batalkan
+  pembayarannya dulu, karena nominal kasnya dihitung dari harga yang lama.
 - **Tunai atau tempo saat menerima barang** → **Staff App → Bahan → Terima dari
   Supplier**, isian *Pembayaran*. Defaultnya **Tempo**: stok bertambah, kas belum
   berkurang, notanya masuk ke tab **Hutang Supplier** di layar yang sama.
@@ -843,7 +850,7 @@ node tools/test-koneksi.mjs
 node tools/test-slot-fleksibel.mjs
 ```
 
-Atau semuanya sekaligus (40 audit + 82 tes):
+Atau semuanya sekaligus (41 audit + 83 tes):
 
 ```bash
 node --experimental-vm-modules tools/audit-syntax.cjs

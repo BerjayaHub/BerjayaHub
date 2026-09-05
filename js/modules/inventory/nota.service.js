@@ -182,6 +182,22 @@ export async function batalkanPembayaranNota(notaId) {
   return Number(data) || 0;
 }
 
+/**
+ * Geser harga nota dari arti lama (per satuan) ke harga beli baris (0124).
+ *
+ * Hanya menyentuh nota yang DISEBUT. Nota yang harganya sudah benar akan rusak
+ * kalau ikut digeser — `line_total` yang benar jadi dibagi jumlahnya — jadi
+ * tidak ada jalur "geser semua" di sini; daftarnya selalu datang dari layar
+ * yang sudah menampilkan sebelum/sesudahnya.
+ *
+ * @returns {Promise<number>} jumlah BARIS yang berubah
+ */
+export async function geserHargaNota(notaIds) {
+  const { data, error } = await supabase.rpc('geser_harga_nota', { p_notas: notaIds });
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data) || 0;
+}
+
 /** Pasang/ubah jatuh tempo nota yang belum lunas (0122). */
 export async function setJatuhTempoNota(notaId, dueDate) {
   const { error } = await supabase.rpc('set_jatuh_tempo_nota', { p_nota: notaId, p_due: dueDate || null });

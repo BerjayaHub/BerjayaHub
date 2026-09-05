@@ -94,8 +94,18 @@ export function kelompokPerSupplier(notas, hariIni) {
   for (const n of Array.isArray(notas) ? notas : []) {
     if (n?.payment_status === 'lunas') continue;
     const nama = String(n?.supplier ?? '').trim() || TANPA_SUPPLIER;
-    if (!peta.has(nama)) peta.set(nama, { supplier: nama, notas: [], total: 0, terlambat: 0, tempoTerdekat: null });
-    const g = peta.get(nama);
+    // DIKELOMPOKKAN TANPA MEMBEDAKAN HURUF BESAR-KECIL.
+    //
+    // "Mitra Plastik" dan "Mitra plastik" tampil sebagai DUA supplier dengan
+    // dua total terpisah — dan orang yang menagih ke supplier itu membawa
+    // angka yang kurang, tanpa satu pun tanda bahwa ada sisanya di kartu lain
+    // beberapa baris di bawah.
+    //
+    // Ejaan yang DITAMPILKAN adalah yang pertama ditemui; yang dipakai
+    // menggabungkan cuma kuncinya.
+    const kunci = nama.toLowerCase();
+    if (!peta.has(kunci)) peta.set(kunci, { supplier: nama, notas: [], total: 0, terlambat: 0, tempoTerdekat: null });
+    const g = peta.get(kunci);
     g.notas.push(n);
     g.total += angka(n.total);
     if (statusTempo(n, hariIni) === 'terlambat') g.terlambat++;

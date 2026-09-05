@@ -92,6 +92,23 @@ cek(
   2
 );
 cek('3 supplier kosong diberi nama yang bisa dibaca', grup.some((g) => g.supplier === TANPA_SUPPLIER), true);
+
+// BEDA HURUF BESAR-KECIL BUKAN DUA SUPPLIER.
+//
+// Terlihat di layar: "Mitra Plastik" dan "Mitra plastik" jadi dua kartu dengan
+// dua total terpisah, dan orang yang menagih membawa angka yang kurang tanpa
+// satu pun tanda bahwa sisanya ada beberapa baris di bawah.
+const ejaan = kelompokPerSupplier(
+  [
+    nota({ code: 'X1', supplier: 'Mitra Plastik', total: 100000 }),
+    nota({ code: 'X2', supplier: 'Mitra plastik', total: 25000 }),
+    nota({ code: 'X3', supplier: '  mitra plastik  ', total: 5000 })
+  ],
+  HARI
+);
+cek('3 beda huruf besar-kecil & spasi tetap satu supplier', ejaan.length, 1);
+cek('3 totalnya digabung', ejaan[0].total, 130000);
+cek('3 ejaan yang ditampilkan yang pertama ditemui', ejaan[0].supplier, 'Mitra Plastik');
 cek(
   '3 tempo terdekat per supplier, bukan yang terakhir dilihat',
   grup.find((g) => g.supplier === 'Pasar Modern').tempoTerdekat,

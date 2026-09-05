@@ -30,7 +30,8 @@ import {
   ringkasanNota,
   bayarNota,
   batalkanPembayaranNota,
-  setJatuhTempoNota
+  setJatuhTempoNota,
+  geserHargaNota
 } from './nota.service.js';
 import { listKantongBisaKubebani } from '../cash/cash.service.js';
 import { statusTempo, bolehDibayar, kelompokPerSupplier } from './hutang-nota.js';
@@ -111,6 +112,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
       <div class="tab-bar" style="margin-top:18px">
         <button class="tab-btn active" data-nota-tab="riwayat">Nota terakhir</button>
         <button class="tab-btn" data-nota-tab="hutang">Hutang Supplier</button>
+        <button class="tab-btn" id="nota-geser-harga" title="Untuk nota yang diinput sebelum kotak harganya berganti arti">⇄ Perbaiki harga kebalik</button>
       </div>
       <div id="nota-riwayat">${loadingHtml('Memuat riwayat…', { baris: 2 })}</div>
     </div>`;
@@ -282,7 +284,13 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
     })
   );
 
+  // Keadaan daftar riwayat. Di luar `gambarRiwayat` supaya tidak ikut hilang
+  // setiap kali daftarnya digambar ulang.
+  let batasRiwayat = 15;
+  let kataCari = '';
+
   // ---- DUA TAMPILAN: riwayat & hutang ----
+  wadah.querySelector('#nota-geser-harga').addEventListener('click', sekaliJalan(bukaGeserHarga));
   wadah.querySelectorAll('[data-nota-tab]').forEach((b) =>
     b.addEventListener('click', () => {
       wadah.querySelectorAll('[data-nota-tab]').forEach((x) => x.classList.toggle('active', x === b));
@@ -292,6 +300,176 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
   );
 
   gambarRiwayat();
+
+  /**
+   * PERBAIKI HARGA YANG KEBALIK (0124).
+   *
+   * Nota yang diinput sebelum `0123` menyimpan angka yang diketik orang
+   * sebagai harga PER SATUAN. Akibatnya terlihat di layar: satu nota berisi
+   * tiga sayur berjumlah Rp84.260.000, dan angka itu sudah masuk ke biaya
+   * rata-rata bahan.
+   *
+   * Tidak ada tombol "geser semua" tanpa melihat. Nota yang harganya SUDAH
+   * benar akan rusak kalau ikut digeser, dan kerusakannya tetap terlihat
+   * seperti angka — jadi tiap nota ditampilkan dengan total sekarang dan total
+   * sesudahnya, lalu orangnya yang memutuskan.
+   */
+  async function bukaGeserHarga() {
+    let daftar = [];
+    try {
+      daftar = await ringkasanNota(businessUnitId, { outletId });
+    } catch (e) {
+      toast(e.message ?? 'Daftar nota gagal dimuat.', 'error');
+      return;
+    }
+    const calon = daftar.filter(
+      (n) => !n.harga_digeser_at && Number(n.baris_berharga) > 0 && n.payment_status !== 'lunas'
+    );
+    if (!calon.length) {
+      await infoDialog({
+        title: 'Tidak ada yang perlu digeser',
+        bodyHtml:
+          '<p>Semua nota berharga di outlet ini sudah memakai arti yang benar, atau sudah pernah digeser.</p>' +
+          '<p style="font-size:0.85rem;color:var(--color-text-muted)">Nota yang sudah <strong>lunas</strong> tidak ikut ditawarkan: nominal kasnya dihitung dari harga yang lama, jadi pembayarannya harus dibatalkan dulu.</p>'
+      });
+      return;
+    }
+
+    const nilai = await formDialog({
+      title: 'Perbaiki harga yang kebalik',
+      description:
+        'Sebelum pembaruan ini, angka di kotak harga tersimpan sebagai harga PER SATUAN. ' +
+        'Centang nota yang angkanya sebenarnya harga beli seluruh baris — periksa kolom "jadi" dulu, ' +
+        'karena nota yang harganya sudah benar akan rusak kalau ikut digeser.',
+      fields: [
+        {
+          name: 'daftar',
+          label: 'Nota',
+          type: 'html',
+          html: `<div class="table-scroll"><table class="data-table kartu-sempit">
+            <thead><tr><th></th><th>Nomor</th><th>Sekarang</th><th>Jadi</th></tr></thead>
+            <tbody>${calon
+              .map(
+                (n) => `<tr>
+                  <td><input type="checkbox" class="gh-pilih" data-id="${n.id}" checked /></td>
+                  <td data-label="Nomor" style="font-family:ui-monospace,Menlo,monospace;font-size:0.8rem">${esc(n.code)}</td>
+                  <td data-label="Sekarang" style="color:var(--color-danger)">${formatRupiah(n.total)}</td>
+                  <td data-label="Jadi" style="font-weight:600">${formatRupiah(n.total_jika_digeser)}</td>
+                </tr>`
+              )
+              .join('')}</tbody>
+          </table></div>`
+        }
+      ],
+      submitText: 'Geser yang dicentang',
+      onReady: (form, { kumpulkan, setError }) => {
+        // Titik tanamnya diperiksa dulu — `type: 'html'` dan `kumpulkan` tidak
+        // ada di `ui.js` versi lama, dan lemparan di dalam `onReady` tidak
+        // terlihat di mana pun kecuali console: dialognya tetap berdiri,
+        // terlihat wajar, dan tombolnya tetap bisa ditekan.
+        if (!form.querySelector('.gh-pilih') || typeof kumpulkan !== 'function') {
+          setError?.(
+            'Aplikasi di perangkat ini masih versi lama, jadi daftarnya tidak bisa ditampilkan. ' +
+              'Tutup lalu buka lagi aplikasinya, atau muat ulang halamannya.'
+          );
+          return;
+        }
+        kumpulkan(() => {
+          const ids = [...form.querySelectorAll('.gh-pilih:checked')].map((c) => c.dataset.id);
+          if (!ids.length) return 'Belum ada nota yang dicentang.';
+          return { ids };
+        });
+      }
+    });
+    if (!nilai) return;
+
+    try {
+      const n = await geserHargaNota(nilai.ids);
+      toast(`${n} baris harga digeser di ${nilai.ids.length} nota.`, 'success');
+      gambarRiwayat();
+    } catch (e) {
+      toast(e.message ?? 'Gagal menggeser harga.', 'error');
+    }
+  }
+
+  /**
+   * UBAH CARA BAYAR sebuah nota yang belum lunas — Tunai atau Tempo.
+   *
+   * `set_jatuh_tempo_nota` ada di database sejak `0122` dan sampai sekarang
+   * tidak punya satu pun pemanggil di layar: nota yang terlanjur disimpan
+   * sebagai tempo tidak bisa diubah jatuh temponya, dan yang ternyata dibayar
+   * tunai harus dicari sendiri di tab sebelah. Kemampuannya ada di database,
+   * jalannya tidak ada di layar — bentuk kegagalan yang berulang di repo ini.
+   *
+   * Arah sebaliknya (lunas -> hutang lagi) memang sudah punya tombolnya
+   * sendiri, "Batalkan pembayaran", karena ia menyentuh buku kas dan tidak
+   * boleh disamarkan sebagai penyuntingan biasa.
+   *
+   * @param {{id: string, code: string, due_date?: string|null}} nota
+   * @param {() => void} sesudah penggambar ulang tampilan yang memanggilnya
+   */
+  async function bukaCaraBayar(nota, sesudah) {
+    let kantong = [];
+    try {
+      kantong = await listKantongBisaKubebani(outletId);
+    } catch {
+      kantong = [];
+    }
+
+    const nilai = await formDialog({
+      title: `Cara bayar nota ${nota.code}`,
+      description:
+        'Tempo: notanya masuk hutang supplier dan kas belum berkurang. ' +
+        'Tunai: kas langsung berkurang sekarang, dan setelah itu isi notanya terkunci sampai pembayarannya dibatalkan.',
+      fields: [
+        {
+          name: 'cara',
+          label: 'Pembayaran',
+          type: 'select',
+          value: 'tempo',
+          options: [
+            { value: 'tempo', label: 'Tempo — bayar nanti' },
+            { value: 'tunai', label: 'Tunai — bayar sekarang dari kas' }
+          ]
+        },
+        {
+          name: 'tempo',
+          label: 'Jatuh tempo (kosongkan kalau tanpa tenggat)',
+          type: 'date',
+          value: nota.due_date ?? ''
+        },
+        {
+          name: 'kas',
+          label: 'Kalau Tunai, bayar dari kas',
+          type: 'select',
+          options: kantong.length
+            ? kantong.map((k) => ({ value: k.id, label: `${k.name}${k.outlets?.name ? ` — ${k.outlets.name}` : ''}` }))
+            : [{ value: '', label: 'tidak ada kas yang bisa kamu bebani' }],
+          help: 'Diabaikan kalau kamu memilih Tempo.'
+        },
+        { name: 'tanggal', label: 'Kalau Tunai, tanggal bayar', type: 'date', value: todayWIB() }
+      ],
+      submitText: 'Simpan'
+    });
+    if (!nilai) return;
+
+    try {
+      if (nilai.cara === 'tunai') {
+        if (!nilai.kas) {
+          toast('Tidak ada kas yang bisa kamu bebani. Minta admin memberi outlet pada kantong kas pemegangnya.', 'error');
+          return;
+        }
+        await bayarNota({ notaIds: [nota.id], accountId: nilai.kas, date: nilai.tanggal });
+        toast(`Nota ${nota.code} ditandai lunas, kas berkurang.`, 'success');
+      } else {
+        await setJatuhTempoNota(nota.id, nilai.tempo || null);
+        toast(nilai.tempo ? `Jatuh tempo nota ${nota.code} disetel.` : `Jatuh tempo nota ${nota.code} dikosongkan.`, 'success');
+      }
+      sesudah();
+    } catch (e) {
+      toast(e.message ?? 'Gagal menyimpan.', 'error');
+    }
+  }
 
   /** Penanda status bayar, dipakai riwayat maupun daftar hutang. */
   function lencanaStatus(n) {
@@ -460,8 +638,33 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
       box.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
       return;
     }
-    const tampil = daftar.slice(0, 15);
-    box.innerHTML = tampil.length
+    // DAFTAR YANG DIPOTONG TANPA JALAN KE SISANYA.
+    //
+    // Versi pertama menampilkan 15 baris teratas dan berhenti di situ. Nota
+    // Mitra Plastik tanggal 1 September ADA di database, muncul di tab Hutang
+    // Supplier, dan tombol Edit-nya tidak bisa dicapai dari mana pun — jadi
+    // harganya tidak bisa diisi. Yang terlihat cuma "notanya tidak ada".
+    //
+    // Batas itu sendiri masuk akal: daftar ratusan baris di HP tidak berguna.
+    // Yang tidak boleh adalah batas TANPA pintu — pencarian dan "muat lebih
+    // banyak" itulah pintunya.
+    const cari = kataCari.trim().toLowerCase();
+    const cocok = cari
+      ? daftar.filter((n) =>
+          `${n.code ?? ''} ${n.supplier ?? ''} ${n.invoice_no ?? ''} ${n.receipt_date ?? ''}`.toLowerCase().includes(cari)
+        )
+      : daftar;
+    const tampil = cocok.slice(0, batasRiwayat);
+
+    box.innerHTML = `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+        <input type="search" id="nota-cari" placeholder="Cari nomor, supplier, atau tanggal…"
+               value="${esc(kataCari)}" style="flex:1 1 220px;min-width:180px" />
+        <span style="font-size:0.78rem;color:var(--color-text-muted)">${tampil.length} dari ${cocok.length} nota${
+          cari ? ` (dari ${daftar.length} total)` : ''
+        }</span>
+      </div>` +
+      (tampil.length
       ? `<div class="table-scroll"><table class="data-table kartu-sempit">
           <thead><tr><th>Nomor</th><th>Tanggal</th><th>Supplier</th><th>Bayar</th><th>Nota</th><th>Aksi</th></tr></thead>
           <tbody>${tampil
@@ -485,15 +688,45 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
                     // sendiri apa yang harus dilakukan lebih dulu.
                     n.payment_status === 'lunas'
                       ? `<button class="nota-batal" data-id="${n.id}" data-code="${esc(n.code)}">Batalkan pembayaran</button>`
-                      : `<button class="nota-edit" data-id="${n.id}" data-code="${esc(n.code)}">Edit</button>`
+                      : `<button class="nota-edit" data-id="${n.id}" data-code="${esc(n.code)}">Edit</button>
+                         <button class="nota-cara-bayar" data-id="${n.id}" data-code="${esc(n.code)}">Tunai/Tempo</button>`
                   }
                   <button class="nota-tambah-foto" data-id="${n.id}" data-code="${esc(n.code)}">${n.photo_path ? 'Ganti foto' : '+ Foto'}</button>
                 </td>
               </tr>`
             )
             .join('')}</tbody>
-        </table></div>`
-      : '<p style="color:var(--color-text-muted);font-size:0.88rem">Belum ada nota di outlet ini.</p>';
+        </table></div>` +
+        (cocok.length > tampil.length
+          ? `<button id="nota-lagi" style="max-width:220px;margin-top:8px">Muat ${Math.min(25, cocok.length - tampil.length)} nota lagi</button>`
+          : '')
+      : `<p style="color:var(--color-text-muted);font-size:0.88rem">${
+          cari ? 'Tidak ada nota yang cocok dengan pencarianmu.' : 'Belum ada nota di outlet ini.'
+        }</p>`);
+
+    // Pencariannya menyaring daftar yang SUDAH diambil, bukan meminta ulang ke
+    // server. `riwayatNota` memang mengambil semuanya (lewat `ambilSemua`),
+    // jadi menambah permintaan per ketikan cuma memperlambat tanpa menemukan
+    // apa pun yang baru.
+    const cariEl = box.querySelector('#nota-cari');
+    cariEl?.addEventListener('input', () => {
+      kataCari = cariEl.value;
+      batasRiwayat = 15;
+      const posisi = cariEl.selectionStart;
+      gambarRiwayat().then(() => {
+        const baru = wadah.querySelector('#nota-cari');
+        // Fokus & posisi kursor dikembalikan: tanpa ini, mengetik huruf kedua
+        // mustahil karena kotaknya baru saja digambar ulang dan kehilangan fokus.
+        if (baru) {
+          baru.focus();
+          baru.setSelectionRange(posisi, posisi);
+        }
+      });
+    });
+    box.querySelector('#nota-lagi')?.addEventListener('click', () => {
+      batasRiwayat += 25;
+      gambarRiwayat();
+    });
 
     box.querySelectorAll('.nota-foto-lihat').forEach((b) =>
       b.addEventListener('click', async () => {
@@ -600,13 +833,30 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
     // yang tercatat, dan itu nota baru — bukan koreksi. Menyamarkannya sebagai
     // edit membuat satu nomor nota memuat dua kiriman yang berbeda.
     box.querySelectorAll('.nota-edit').forEach((b) =>
-      b.addEventListener(
-        'click',
-        sekaliJalan(async () => {
-          const nota = daftar.find((n) => n.id === b.dataset.id);
+      b.addEventListener('click', sekaliJalan(() => bukaEditNota(daftar.find((n) => n.id === b.dataset.id) ?? { id: b.dataset.id, code: b.dataset.code }, gambarRiwayat)))
+    );
+
+    box.querySelectorAll('.nota-cara-bayar').forEach((b) =>
+      b.addEventListener('click', sekaliJalan(() => bukaCaraBayar(daftar.find((n) => n.id === b.dataset.id) ?? { id: b.dataset.id, code: b.dataset.code }, gambarRiwayat)))
+    );
+  }
+
+  /**
+   * EDIT ISI NOTA — dipanggil dari riwayat MAUPUN dari tab Hutang Supplier.
+   *
+   * Dulu terikat langsung ke tombol di riwayat. Tab Hutang adalah tempat nota
+   * tanpa harga justru terlihat ("6 barang belum berharga"), dan memaksa
+   * orangnya pindah tab lalu mencari nomor yang sama adalah pekerjaan yang
+   * tidak perlu ada — apalagi ketika daftar riwayatnya sendiri memotong 15
+   * baris teratas.
+   *
+   * @param {{id: string, code: string, supplier?: string, invoice_no?: string}} nota
+   * @param {() => void} sesudah
+   */
+  async function bukaEditNota(nota, sesudah) {
           let isi;
           try {
-            isi = await itemNota(b.dataset.id);
+            isi = await itemNota(nota.id);
           } catch (e) {
             toast(e.message ?? 'Isi nota gagal dimuat.', 'error');
             return;

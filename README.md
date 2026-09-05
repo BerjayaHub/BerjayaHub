@@ -1499,6 +1499,7 @@ node tools/audit-embed-ambigu.cjs                      # embed PostgREST tanpa n
 node tools/audit-kelola-kantong-admin.cjs               # fitur DB yang tidak bisa dinyalakan dari layar mana pun
 node tools/audit-hutang-nota.cjs                        # status bayar nota & pelonggaran bukti kas
 node tools/audit-harga-baris-nota.cjs                   # arti angka harga di nota (baris vs satuan)
+node tools/audit-geser-harga.cjs                        # penulisan ulang angka uang yang sudah tersimpan
 node tools/test-youtube-parser.mjs                      # parser link YouTube
 node tools/test-image-compress.mjs                      # skala & format kompresi foto
 ```
@@ -5180,6 +5181,27 @@ Tes yang memeriksa presisi tidak boleh membuang presisinya lebih dulu. Perbandin
 `0084` → `0118` → `0119` → `0123`. Risiko terbesarnya bukan bug baru melainkan penjagaan lama yang hilang tanpa suara, jadi tesnya menguji ulang ketiganya di rantai yang memuat `0123`: penyelarasan `unit_cost` ke `stock_movements` (`0118`), aturan "NULL = jangan sentuh" untuk keempat kolom kepala nota (`0119`), dan pembatalan barang yang hilang dari daftar (`0084`). Empat sabotase membuang penjagaan itu satu per satu; keempatnya merah.
 
 - [x] **Harga di nota = harga beli baris** (`0123`) — angka yang diketik disimpan apa adanya, harga per satuan jadi turunannya; bentuk lama tetap diterima untuk PWA yang belum memperbarui diri
+
+### Menggeser data lama — satu-satunya fungsi yang menulis ulang angka uang
+
+`0123` sengaja tidak menebak data lama: tidak ada apa pun di dalam `unit_cost = 9000` yang membedakan "Rp9.000 per gram" dari "Rp9.000 untuk seluruh barisnya". Lalu orang yang menginputnya sendiri yang menyatakannya — *"wortel itu harga beli 9000 diinput oleh user"* — dan layarnya menunjukkan satu nota berisi tiga sayur berjumlah **Rp84.260.000**.
+
+`0124` menggesernya:
+
+```
+line_total := unit_cost lama          (angka yang diketik orang)
+unit_cost  := unit_cost lama / qty
+```
+
+Keduanya di **satu** pernyataan `update`. Di SQL seluruh sisi kanan memakai nilai lama barisnya, jadi tidak ada urutan yang bisa salah; dua pernyataan terpisah akan membaca `unit_cost` yang sudah berubah dan membaginya untuk kedua kalinya.
+
+Tiga hal membuatnya aman dipakai, dan ketiganya tak terlihat dari layar kalau hilang: **hanya nota yang disebut** (nota yang harganya sudah benar akan rusak kalau ikut digeser), **sekali saja** (`harga_digeser_at`), dan **`stock_movements` ikut** — itu satu-satunya sumber biaya rata-rata bahan, jadi tanpa itu layar nota benar sementara laporan biayanya tetap puluhan juta.
+
+Tidak ada tombol "geser semua tanpa melihat". Dialognya menampilkan **total sekarang** dan **total sesudahnya** untuk tiap nota, dan `total_jika_digeser` dihitung server di view yang sama — kalau klien menghitungnya sendiri, yang dilihat orang sebelum menekan tombol bisa berbeda dari yang terjadi.
+
+Satu sabotase lolos dengan jujur: membuang pemeriksaan "nota lunas" **tetap** ditolak, oleh trigger `trg_tolak_ubah_nota_lunas` dari `0122`. Yang benar-benar milik `0124` adalah **sebabnya** — "nominal kasnya dihitung dari harga yang lama" — jadi itu yang diuji, bukan penolakannya.
+
+- [x] **Geser harga nota lama ke harga beli** (`0124`) — per nota, dengan pratinjau sebelum/sesudah, sekali saja, dan biaya rata-rata ikut terkoreksi
 
 ## Kolom baru yang menyandera seluruh layar
 
