@@ -214,18 +214,47 @@ if (notaStaff) {
         'memperbaiki salah ketik adalah membuat nota baru — yang menghitung stoknya dua kali.'
     );
   }
-  if (!/type:\s*'rupiah'/.test(kode)) {
+  // Dialog editnya memakai ITEM PICKER, bukan deretan field menurun.
+  //
+  // Bentuk lama membuat sepasang field per barang ("Telur — jumlah", "Telur —
+  // harga per gr"). Untuk nota berisi enam barang itu dua belas kotak
+  // bertumpuk, dan — yang lebih menentukan — jumlah fieldnya ditetapkan saat
+  // dialog dibuka, jadi barang BARU tidak bisa ditambahkan sama sekali.
+  if (!/createItemPicker\(form\./.test(kode)) {
     salah(
-      "js/modules/inventory/nota-staff.js: dialog edit tidak memakai field `type: 'rupiah'`. " +
-        "`money` membuang desimalnya — harga Rp13,80/gram tersimpan sebagai Rp1.380, seratus kali lipat."
+      'js/modules/inventory/nota-staff.js: dialog edit tidak menanam `createItemPicker`. ' +
+        'Tanpa itu jumlah & harga kembali berderet menurun satu per satu, dan barang baru tidak bisa ' +
+        'ditambahkan ke nota yang sudah tersimpan.'
     );
   }
-  // Baris berjumlah 0 harus DIBUANG dari daftar, bukan dikirim sebagai 0.
-  if (!/\.filter\(\(i\) => i\.qty > 0\)/.test(kode)) {
+  // `initial` HARUS BERISI, bukan sekadar disebut.
+  //
+  // Percobaan pertama cuma menuntut kata `initial:` ada — dan sabotase
+  // `initial: []` memenuhinya. Membuka Edit lalu menampilkan nota KOSONG
+  // terlihat seperti nota yang memang tidak berisi apa-apa; menekan Simpan di
+  // situ MEMBATALKAN seluruh barang yang sebenarnya ada, lengkap dengan
+  // pergerakan stok penyeimbangnya.
+  if (!/initial:\s*isi\.map\(/.test(kode)) {
     salah(
-      'js/modules/inventory/nota-staff.js: baris berjumlah 0 tidak dibuang sebelum dikirim. ' +
-        'Server MELEWATI item berjumlah 0 tanpa efek apa pun (0084), jadi barangnya tetap ada ' +
-        'sementara orangnya mengira sudah membatalkannya. Yang membatalkan adalah KETIADAANNYA di daftar.'
+      'js/modules/inventory/nota-staff.js: picker di dialog edit tidak diisi dari `isi` nota yang ada. ' +
+        'Dialog yang terbuka kosong terlihat seperti nota tanpa barang — dan menyimpannya membatalkan ' +
+        'seluruh isinya beserta stoknya.'
+    );
+  }
+  if (!/hargaSatuan:\s*true[\s\S]{0,200}initial:/.test(kode) && !/initial:[\s\S]{0,200}hargaSatuan:\s*true/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: picker di dialog edit tidak menyalakan `hargaSatuan` — ' +
+        'kotak harganya tidak akan muncul sama sekali, dan tombol Edit jadi tidak bisa dipakai untuk ' +
+        'hal yang justru paling sering: mengisi harga yang menyusul.'
+    );
+  }
+  // Isi picker dibaca lewat `kumpulkan`, bukan sesudah dialognya ditutup.
+  if (!/kumpulkan\(\(\) =>/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: isi picker tidak dibaca lewat `kumpulkan()`. ' +
+        'Membacanya sesudah `await` KEBETULAN masih berhasil karena `close()` menunda pembongkaran ' +
+        'DOM 200 ms untuk animasi — ketergantungan pada jeda animasi tidak terlihat di kode mana pun, ' +
+        'dan patahnya berupa data yang hilang tanpa pesan.'
     );
   }
 }

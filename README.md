@@ -5064,7 +5064,15 @@ Dan `bacaRupiah('')` mengembalikan **`null`, bukan 0**. Nol berarti barangnya gr
 
 Tombol **Edit** di riwayat, dialognya sebentuk dengan "Isi". Bisa mengubah jumlah, harga, supplier, dan no. invoice. Panel "Isi" sekarang juga menampilkan harga, subtotal, dan total notanya.
 
-Satu batas yang disengaja: **barang tidak bisa ditambah di situ**, hanya diubah atau dinolkan. Menambah barang berarti nota fisiknya berbeda dari yang tercatat — itu nota baru, bukan koreksi. Dan jumlah 0 **dibuang dari daftar**, bukan dikirim sebagai 0: server melewati item berjumlah 0 tanpa efek apa pun (`0084`), jadi mengirimnya berarti barangnya tetap ada sementara orangnya mengira sudah membatalkannya. Yang membatalkan adalah *ketiadaannya* di daftar.
+**Bentuk pertamanya salah, dan iko yang menunjukkannya.** Versi awal membuat sepasang field per barang lewat `formDialog` — "Telur Ayam — jumlah", "Telur Ayam — harga per gr", menurun. Untuk nota berisi enam barang itu dua belas kotak bertumpuk, judulnya mengulang nama bahan yang sama dua kali, dan di HP orangnya menggulir jauh hanya untuk memastikan sudah mengisi semuanya. Lebih menentukan lagi: jumlah fieldnya ditetapkan saat dialog dibuka, jadi **barang baru tidak bisa ditambahkan sama sekali** — batas yang sempat saya sebut "disengaja", padahal ia akibat dari bentuk yang saya pilih.
+
+Sekarang dialognya menanam `createItemPicker` — komponen yang **sama** dengan layar buat nota. Satu langkah menjawab ketiganya: nama, jumlah, dan harga berjajar dalam satu baris; ada tombol "+ Tambah Produk"; dan barisnya membungkus sendiri di ruang sempit.
+
+Dua tambahan kecil di `formDialog` yang memungkinkannya: field bertipe `html` (tempat menanam komponen di dalam form) dan `kumpulkan()` — cara komponen tertanam menyumbang nilai **saat Simpan ditekan**. Membacanya sesudah `await` sebenarnya *kebetulan* masih berhasil, karena `close()` menunda pembongkaran DOM 200 ms untuk animasi keluar. Bergantung pada jeda animasi adalah ketergantungan yang tidak terlihat di kode mana pun, dan patahnya berupa data yang hilang tanpa pesan.
+
+Barang yang dihapus dari picker tidak ikut terkirim, dan **ketiadaannya** itulah yang dibaca server sebagai "dibatalkan" (`0084`). Mengirimnya sebagai jumlah 0 justru dilewati server tanpa efek apa pun: barangnya tetap ada, sementara orangnya sudah melihatnya hilang dari layar.
+
+Di dalam dialog, nama bahan **selalu** dapat barisnya sendiri. Aturan `@media` yang sudah ada melihat lebar **layar**, bukan lebar wadahnya — di dalam dialog 420px pada monitor 1440px ia tidak menyala, dan nama bahan tersisa ~110px setelah jumlah, harga, dan tombol hapus mengambil bagiannya. Yang menentukan di sini ruang wadahnya.
 
 ### Bug yang ditemukan di jalan: "+ Foto" menghapus nama supplier
 
@@ -5077,7 +5085,8 @@ Aturannya sudah ada dan sudah benar untuk `photo_path` sejak `0084`. Yang salah:
 Dua sabotase awalnya lolos, keduanya lubang di data tes saya: §4 memakai bahan yang sudah dibeli tiga kali di §1–§3 (jadi 33,75 justru benar, harapan tesnya yang salah), dan aturan `photo_path` **tidak pernah diuji sama sekali** — tidak ada satu kasus pun yang punya foto lalu diedit tanpa menyebut foto. Aturannya sudah benar sejak `0084`; yang tidak ada adalah tesnya.
 
 - [x] **Kotak harga berformat Rupiah** dengan desimal koma — `type: 'rupiah'` di `formDialog`, dan `attachRupiahInput` di item picker
-- [x] **Nota bisa diedit lewat pop up** — jumlah, harga, supplier, no. invoice; koreksi harga langsung menggeser biaya rata-rata
+- [x] **Nota bisa diedit lewat pop up** — jumlah, harga, supplier, no. invoice, **dan barang baru bisa ditambahkan**; koreksi harga langsung menggeser biaya rata-rata
+- [x] **`formDialog` bisa menanam komponen** — field `type: 'html'` + `kumpulkan()`, jadi layar tidak perlu menyalin dialognya sendiri
 - [x] **"+ Foto" berhenti menghapus supplier/invoice/catatan** (`0119`)
 
 ## Harga beli dari nota, dan biaya rata-rata bahan per outlet

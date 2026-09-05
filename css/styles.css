@@ -1392,6 +1392,46 @@ select.sc-cell.is-off {
   .picker-row .pf-stock { text-align: left; }
 }
 
+/* PICKER DI DALAM DIALOG: nama bahan SELALU satu baris sendiri.
+
+   Aturan @media di atas melihat lebar LAYAR, bukan lebar wadahnya. Di dalam
+   dialog selebar 420px pada monitor 1440px, media query-nya tidak menyala dan
+   baris pickernya berdesakan: nama bahan tersisa ~110px sesudah jumlah, harga,
+   dan tombol hapus mengambil bagiannya.
+
+   Yang menentukan di sini ruang wadahnya, bukan ruang layarnya. Dibuat pasti
+   alih-alih bergantung lebar layar: nama di baris pertama, lalu jumlah + harga
+   + hapus di bawahnya. Bentuk yang sama di HP maupun desktop, jadi tidak ada
+   yang perlu dipelajari dua kali. */
+.modal-card .picker-row {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.modal-card .picker-row .search-select {
+  flex-basis: 100%;
+}
+.modal-card .picker-row .pf-qty {
+  flex: 1;
+  min-width: 80px;
+  width: auto;
+}
+.modal-card .picker-row .pf-harga {
+  flex: 1.3;
+  min-width: 96px;
+  max-width: none;
+}
+
+/* Tiap baris diberi pemisah tipis. Tanpa itu, enam baris berisi dua kotak
+   masing-masing terbaca sebagai dua belas kotak yang berderet tanpa kelompok —
+   dan orang kehilangan jejak kotak mana milik bahan mana. */
+.modal-card .picker-rows .picker-row + .picker-row {
+  border-top: 1px dashed var(--color-border);
+  padding-top: 8px;
+}
+
+/* Dialog yang memuat komponen tertanam (item picker) diberi ruang lebih. */
+.modal-card.modal-lebar { max-width: 560px; }
+
 .line-rows { display: flex; flex-direction: column; gap: 8px; }
 .line-row { display: flex; gap: 8px; align-items: center; }
 .line-row .search-select { flex: 1; min-width: 0; }

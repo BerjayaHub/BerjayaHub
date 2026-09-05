@@ -277,66 +277,70 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
             return;
           }
 
-          // Nama field memakai INDEKS, bukan product_id.
+          // PICKER YANG SAMA DENGAN LAYAR BUAT NOTA — bukan salinan.
           //
-          // `form.elements[nama]` memperlakukan nama yang mengandung karakter
-          // aneh dengan caranya sendiri, dan UUID berisi tanda hubung. Indeks
-          // membuat nama fieldnya pasti, dan pemetaan kembali ke produknya
-          // dikerjakan dari array yang sama yang dipakai menggambarnya.
-          const fields = [
-            { name: 'supplier', label: 'Supplier', type: 'text', value: nota?.supplier ?? '' },
-            { name: 'invoice', label: 'No. Invoice', type: 'text', value: nota?.invoice_no ?? '' }
-          ];
-          isi.forEach((i, idx) => {
-            const satuan = i.products?.base_unit ?? '';
-            fields.push({
-              name: `qty${idx}`,
-              label: `${i.products?.name ?? 'Barang'} — jumlah (${satuan})`,
-              type: 'qty',
-              value: i.qty
-            });
-            fields.push({
-              name: `harga${idx}`,
-              label: `${i.products?.name ?? 'Barang'} — harga per ${satuan}`,
-              type: 'rupiah',
-              value: i.unit_cost ?? '',
-              placeholder: 'kosongkan kalau belum tahu'
-            });
-          });
-
+          // Percobaan pertama membuat satu pasang field per barang lewat
+          // `formDialog`: "Telur Ayam — jumlah", "Telur Ayam — harga per gr",
+          // dan seterusnya, menurun. Untuk nota berisi enam barang itu dua
+          // belas kotak bertumpuk, judulnya mengulang nama bahan yang sama dua
+          // kali, dan di HP orangnya menggulir jauh hanya untuk memastikan
+          // sudah mengisi semuanya.
+          //
+          // Dan bentuk itu tidak bisa MENAMBAH barang sama sekali — jumlah
+          // fieldnya ditentukan saat dialog dibuka.
+          //
+          // `createItemPicker` sudah menjawab ketiganya: nama, jumlah, dan
+          // harga berjajar dalam satu baris; ada "+ Tambah Produk"; dan pada
+          // layar sempit barisnya membungkus sendiri (`@media 560px`) alih-alih
+          // memaksa gulir ke samping.
+          let picker = null;
           const nilai = await formDialog({
             title: `Edit Nota ${b.dataset.code}`,
             description:
-              'Jumlah 0 berarti barang itu dibatalkan dari nota ini — stoknya ikut dikembalikan. ' +
-              'Harga boleh dikosongkan kalau memang belum tahu; yang kosong tidak ikut menghitung biaya rata-rata bahan.',
-            fields,
-            submitText: 'Simpan Perubahan'
+              'Barang boleh ditambah, jumlahnya diubah, atau dihapus dengan tombol ✕. ' +
+              'Harga boleh dikosongkan kalau memang belum tahu — yang kosong tidak ikut menghitung biaya rata-rata bahan.',
+            fields: [
+              { name: 'supplier', label: 'Supplier', type: 'text', value: nota?.supplier ?? '' },
+              { name: 'invoice', label: 'No. Invoice', type: 'text', value: nota?.invoice_no ?? '' },
+              { name: 'barang', label: 'Barang', type: 'html', html: '<div id="nota-edit-picker"></div>' }
+            ],
+            submitText: 'Simpan Perubahan',
+            onReady: (form, { kumpulkan }) => {
+              picker = createItemPicker(form.querySelector('#nota-edit-picker'), {
+                products,
+                showStock: false,
+                hargaSatuan: true,
+                initial: isi.map((i) => ({ product_id: i.product_id, qty: i.qty, unit_cost: i.unit_cost ?? '' }))
+              });
+
+              // Isinya dibaca SAAT SIMPAN DITEKAN, selagi dialognya masih
+              // berdiri. Membacanya sesudah `await` kebetulan masih berhasil —
+              // `close()` menunda pembongkaran DOM 200 ms untuk animasi — dan
+              // bergantung pada jeda animasi adalah ketergantungan yang tidak
+              // terlihat di kode mana pun.
+              kumpulkan(() => {
+                const items = picker.getItems();
+                if (!items.length) {
+                  return 'Nota harus berisi minimal satu barang. Kalau seluruhnya salah, hapus barangnya satu per satu lalu buat nota baru.';
+                }
+                // BARANG YANG DIHAPUS dari picker tidak ikut terkirim — dan
+                // ketiadaannya itulah yang dibaca server sebagai "dibatalkan",
+                // lalu dibuatkan pergerakan penyeimbang negatif (0084).
+                //
+                // Mengirimnya sebagai jumlah 0 justru DILEWATI server tanpa
+                // efek apa pun: barangnya tetap ada, sementara orangnya sudah
+                // melihatnya hilang dari layar.
+                return { items };
+              });
+            }
           });
           if (!nilai) return;
-
-          const items = isi
-            .map((i, idx) => ({
-              product_id: i.product_id,
-              qty: Number(nilai[`qty${idx}`] ?? 0),
-              unit_cost: nilai[`harga${idx}`]
-            }))
-            // Jumlah 0 dibuang dari daftar, dan servernya membaca ketiadaannya
-            // sebagai "dibatalkan" lalu membuat pergerakan penyeimbang negatif
-            // (0084). Mengirimnya sebagai qty 0 justru DILEWATI server tanpa
-            // efek apa pun — barangnya tetap ada, dan orangnya mengira sudah
-            // membatalkannya.
-            .filter((i) => i.qty > 0);
-
-          if (!items.length) {
-            toast('Nota harus menyisakan minimal satu barang. Kalau seluruhnya salah, buat nota baru.', 'warning');
-            return;
-          }
 
           try {
             await ubahNota(b.dataset.id, {
               supplier: nilai.supplier,
               invoiceNo: nilai.invoice,
-              items
+              items: nilai.items
             });
           } catch (e) {
             toast(e.message ?? 'Gagal menyimpan perubahan.', 'error');

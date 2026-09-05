@@ -168,7 +168,11 @@ export function formDialog({
   return new Promise((resolve) => {
     const overlay = buildOverlay();
     overlay.innerHTML = `
-      <div class="modal-card modal-form" role="dialog" aria-modal="true">
+      <div class="modal-card modal-form${
+        // Dialog yang memuat komponen tertanam butuh ruang lebih: isinya bukan
+        // deretan kotak sebaris-satu, melainkan baris berisi beberapa isian.
+        fields.some((f) => f.type === 'html') ? ' modal-lebar' : ''
+      }" role="dialog" aria-modal="true">
         <h3 class="modal-title">${escapeHtml(title)}</h3>
         ${description ? `<p class="modal-text">${escapeHtml(description)}</p>` : ''}
         <form class="modal-body"></form>
@@ -209,6 +213,8 @@ export function formDialog({
     fields.filter((f) => f.type === 'photo').forEach((f) => bacaFoto.set(f.name, wirePhotoInput(form, f.name)));
 
     const errorEl = overlay.querySelector('.modal-error');
+    /** Fungsi-fungsi yang menyumbang nilai tambahan saat submit. */
+    const pengumpul = [];
     let lepasLapis = () => {};
     const close = (result) => {
       lepasLapis();
@@ -262,6 +268,21 @@ export function formDialog({
           return;
         }
       }
+
+      // Nilai dari komponen tertanam disatukan DI SINI, sementara dialognya
+      // masih berdiri. Kalau salah satunya mengembalikan pesan kesalahan
+      // (string), penyimpanannya dibatalkan dan pesan itu ditampilkan apa
+      // adanya — komponen tertanam tahu aturannya sendiri jauh lebih baik
+      // daripada dialog yang cuma menampungnya.
+      for (const fn of pengumpul) {
+        const hasil = fn();
+        if (typeof hasil === 'string') {
+          errorEl.textContent = hasil;
+          return;
+        }
+        Object.assign(values, hasil ?? {});
+      }
+
       close(values);
     };
 
@@ -279,7 +300,19 @@ export function formDialog({
     });
 
     if (typeof onReady === 'function') {
-      onReady(form, { close, setError: (m) => (errorEl.textContent = m || '') });
+      onReady(form, {
+        close,
+        setError: (m) => (errorEl.textContent = m || ''),
+        // Daftarkan fungsi yang menyumbang nilai saat Simpan ditekan.
+        //
+        // KENAPA BUKAN "baca saja sesudah dialognya ditutup": `close()`
+        // menjadwalkan `overlay.remove()` 200 ms kemudian (animasi keluar),
+        // jadi membaca DOM sesudah `await` KEBETULAN masih berhasil. Bergantung
+        // pada jeda animasi adalah ketergantungan yang tidak terlihat di kode
+        // mana pun — ia akan patah pada hari seseorang mempercepat animasinya,
+        // dan patahnya berupa data yang hilang tanpa pesan.
+        kumpulkan: (fn) => pengumpul.push(fn)
+      });
     }
   });
 }
@@ -573,6 +606,18 @@ function fieldHtml(f) {
         </div>
         ${help}
       </div>`;
+  }
+
+  if (f.type === 'html') {
+    // Tempat menanam komponen yang sudah ada (mis. item picker) DI DALAM form.
+    //
+    // Tanpa ini, layar yang butuh isian berulang harus menyalin dialognya
+    // sendiri — dan salinan dialog selalu menyimpang dari yang asli, biasanya
+    // pada hal yang paling jarang dilihat: tombol Back, penguncian lapis, dan
+    // perilaku Escape.
+    return `<div class="field" data-html-field="${escapeAttr(f.name)}">${
+      f.label ? `<label>${escapeHtml(f.label)}</label>` : ''
+    }${f.html ?? ''}${help}</div>`;
   }
 
   if (f.type === 'rupiah') {
