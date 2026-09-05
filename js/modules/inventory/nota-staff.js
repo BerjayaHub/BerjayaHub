@@ -540,7 +540,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
               <strong style="font-size:0.92rem">${formatRupiah(g.total)}</strong>
             </div>
             <div class="table-scroll"><table class="data-table kartu-sempit">
-              <thead><tr><th></th><th>Nomor</th><th>Tanggal</th><th>Status</th><th>Total</th></tr></thead>
+              <thead><tr><th></th><th>Nomor</th><th>Tanggal</th><th>Status</th><th>Total</th><th>Aksi</th></tr></thead>
               <tbody>${g.notas
                 .map(
                   (n) => `<tr>
@@ -549,10 +549,14 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
                     <td data-label="Tanggal">${esc(n.receipt_date)}</td>
                     <td data-label="Status">${lencanaStatus(n)}${
                       Number(n.baris_tanpa_harga) > 0
-                        ? `<div class="nota-total-kurang">${n.baris_tanpa_harga} barang belum berharga — lengkapi lewat Edit sebelum bisa dibayar</div>`
+                        ? `<div class="nota-total-kurang">${n.baris_tanpa_harga} barang belum berharga — isi harganya dulu sebelum bisa dibayar</div>`
                         : ''
                     }</td>
                     <td data-label="Total">${formatRupiah(n.total)}</td>
+                    <td data-label="Aksi">
+                      <button class="hutang-edit" data-id="${n.id}" data-code="${esc(n.code)}">Isi harga</button>
+                      <button class="hutang-tempo" data-id="${n.id}" data-code="${esc(n.code)}">Tunai/Tempo</button>
+                    </td>
                   </tr>`
                 )
                 .join('')}</tbody>
@@ -582,6 +586,20 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
       const ids = [...box.querySelectorAll('.hutang-pilih:checked')].map((c) => c.dataset.id);
       return daftar.filter((n) => ids.includes(n.id));
     };
+
+    // ISI HARGA DARI SINI JUGA.
+    //
+    // Di tab inilah nota tanpa harga justru terlihat ("6 barang belum
+    // berharga"). Memaksa orangnya pindah ke tab sebelah lalu mencari nomor
+    // yang sama adalah pekerjaan yang tidak perlu ada — apalagi karena daftar
+    // riwayatnya memotong 15 baris teratas, sehingga nota lama seperti
+    // TRM-260902-02A3 tidak bisa dijangkau dari sana sama sekali.
+    box.querySelectorAll('.hutang-edit').forEach((b) =>
+      b.addEventListener('click', sekaliJalan(() => bukaEditNota(daftar.find((n) => n.id === b.dataset.id) ?? { id: b.dataset.id, code: b.dataset.code }, gambarHutang)))
+    );
+    box.querySelectorAll('.hutang-tempo').forEach((b) =>
+      b.addEventListener('click', sekaliJalan(() => bukaCaraBayar(daftar.find((n) => n.id === b.dataset.id) ?? { id: b.dataset.id, code: b.dataset.code }, gambarHutang)))
+    );
 
     box.querySelectorAll('.hutang-pilih').forEach((c) =>
       c.addEventListener('change', () => {
@@ -839,6 +857,35 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
     box.querySelectorAll('.nota-cara-bayar').forEach((b) =>
       b.addEventListener('click', sekaliJalan(() => bukaCaraBayar(daftar.find((n) => n.id === b.dataset.id) ?? { id: b.dataset.id, code: b.dataset.code }, gambarRiwayat)))
     );
+ 
+    // MENAMBAH FOTO YANG MENYUSUL — jalur yang paling sering dipakai, dan
+    // sengaja TIDAK menyentuh barangnya sama sekali (`items: null`). Mengirim
+    // ulang daftar barang di sini akan menghasilkan pergerakan penyeimbang
+    // untuk perubahan yang tidak pernah diminta siapa pun.
+    box.querySelectorAll('.nota-tambah-foto').forEach((b) =>
+      b.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = 'image/*';
+          input.capture = 'environment';
+          input.addEventListener('change', async () => {
+            const f = input.files?.[0];
+            if (!f) return;
+            try {
+              const path = await unggahFotoNota(outletId, f);
+              await ubahNota(b.dataset.id, { photoPath: path, items: null });
+              toast(`Foto nota ${b.dataset.code} tersimpan.`, 'success');
+              gambarRiwayat();
+            } catch (e) {
+              toast(e.message ?? 'Gagal menyimpan foto.', 'error');
+            }
+          });
+          input.click();
+        })
+      )
+    );
   }
 
   /**
@@ -884,7 +931,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
           // memaksa gulir ke samping.
           let picker = null;
           const nilai = await formDialog({
-            title: `Edit Nota ${b.dataset.code}`,
+            title: `Edit Nota ${nota.code}`,
             description:
               'Barang boleh ditambah, jumlahnya diubah, atau dihapus dengan tombol ✕. ' +
               'Harga boleh dikosongkan kalau memang belum tahu — yang kosong tidak ikut menghitung biaya rata-rata bahan.',
@@ -946,7 +993,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
           if (!nilai) return;
 
           try {
-            await ubahNota(b.dataset.id, {
+            await ubahNota(nota.id, {
               supplier: nilai.supplier,
               invoiceNo: nilai.invoice,
               items: nilai.items
@@ -955,40 +1002,8 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
             toast(e.message ?? 'Gagal menyimpan perubahan.', 'error');
             return;
           }
-          toast(`Nota ${b.dataset.code} diperbarui.`, 'success');
-          gambarRiwayat();
-        })
-      )
-    );
-
-    // MENAMBAH FOTO YANG MENYUSUL — jalur yang paling sering dipakai, dan
-    // sengaja TIDAK menyentuh barangnya sama sekali (`items: null`). Mengirim
-    // ulang daftar barang di sini akan menghasilkan pergerakan penyeimbang
-    // untuk perubahan yang tidak pernah diminta siapa pun.
-    box.querySelectorAll('.nota-tambah-foto').forEach((b) =>
-      b.addEventListener(
-        'click',
-        sekaliJalan(async () => {
-          const input = document.createElement('input');
-          input.type = 'file';
-          input.accept = 'image/*';
-          input.capture = 'environment';
-          input.addEventListener('change', async () => {
-            const f = input.files?.[0];
-            if (!f) return;
-            try {
-              const path = await unggahFotoNota(outletId, f);
-              await ubahNota(b.dataset.id, { photoPath: path, items: null });
-              toast(`Foto nota ${b.dataset.code} tersimpan.`, 'success');
-              gambarRiwayat();
-            } catch (e) {
-              toast(e.message ?? 'Gagal menyimpan foto.', 'error');
-            }
-          });
-          input.click();
-        })
-      )
-    );
+          toast(`Nota ${nota.code} diperbarui.`, 'success');
+          sesudah();
   }
 }
 

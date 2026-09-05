@@ -569,6 +569,17 @@ siapa pun.
     tempat user punya peran, dengan nama BU tertulis di depannya.
 - **Kantong kas (sub-kas)** → **Master User → Edit** pada staff yang bersangkutan →
   isian *Jumlah kantong kas*.
+- **Mencari nota lama** → **Terima dari Supplier → Nota terakhir** punya kotak
+  cari (nomor / supplier / tanggal) dan tombol **Muat … nota lagi**. Sebelumnya
+  daftarnya berhenti di 15 baris teratas, jadi nota yang lebih tua tidak bisa
+  dijangkau dari layar mana pun — termasuk tombol Edit-nya.
+- **Mengubah cara bayar nota yang sudah tersimpan** → tombol **Tunai/Tempo** di
+  baris notanya (ada di kedua tab). Tempo → isi/kosongkan jatuh temponya;
+  Tunai → pilih kas, dan notanya langsung ditandai lunas. Arah sebaliknya
+  (lunas → hutang lagi) tetap lewat **Batalkan pembayaran**, karena itu
+  menyentuh buku kas.
+- **Isi harga dari tab Hutang Supplier** → tombol **Isi harga** di baris
+  notanya, tanpa perlu pindah tab.
 - **Memperbaiki harga nota lama yang kebalik** → **Staff App → Bahan → Terima
   dari Supplier → ⇄ Perbaiki harga kebalik**. Dialognya menampilkan tiap nota
   dengan **total sekarang** dan **total sesudah digeser**; centang yang angkanya

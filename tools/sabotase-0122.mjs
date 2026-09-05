@@ -131,7 +131,18 @@ sabotase(
 );
 sabotase('penjelasan biaya-vs-kas lintas bulan dihapus', HAL, 'tanggal pembayaran', 'nanti', AUDIT);
 sabotase('pembatalan tidak menyebut nota lain yang ikut terbawa', HAL, /nota lain/g, 'catatan', AUDIT);
-sabotase('status bayar tidak diambil di riwayat', SVC, 'payment_status, due_date, payment_entry_id, ', '', AUDIT);
+sabotase(
+  'status bayar tidak diambil di riwayat',
+  SVC,
+  "const bayar = ', payment_status, due_date, payment_entry_id';",
+  "const bayar = '';",
+  AUDIT
+);
+sabotase('daftar nota dipotong tanpa kotak pencarian', HAL, /id="nota-cari"/g, 'id="nota-x"', AUDIT);
+sabotase('daftar nota dipotong tanpa tombol muat lebih banyak', HAL, /id="nota-lagi"/g, 'id="nota-y"', AUDIT);
+sabotase('jatuh tempo tidak bisa diubah setelah nota tersimpan', HAL, 'setJatuhTempoNota(nota.id', 'noop(nota.id', AUDIT);
+sabotase('tombol Tunai/Tempo hilang dari tab hutang', HAL, /class="hutang-tempo"/g, 'class="x"', AUDIT);
+sabotase('nota di tab hutang tidak bisa diisi harganya', HAL, /class="hutang-edit"/g, 'class="y"', AUDIT);
 sabotase('aturan hutang membaca jam sistem sendiri', ATURAN, 'export function statusTempo(nota, hariIni) {', 'export function statusTempo(nota, hariIni = new Date()) {', AUDIT);
 
 console.log('');

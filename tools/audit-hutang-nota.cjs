@@ -212,6 +212,56 @@ if (hal) {
   if (!/bolehDibayar\(/.test(kode) || !/kelompokPerSupplier\(/.test(kode)) {
     salah('js/modules/inventory/nota-staff.js: aturan hutang ditulis ulang di layar alih-alih memakai modulnya.');
   }
+
+  // ---- DAFTAR YANG DIPOTONG WAJIB PUNYA PINTU KE SISANYA ----
+  //
+  // Terjadi sungguhan: riwayat nota menampilkan 15 baris teratas dan berhenti.
+  // Nota tanggal 1 September ADA di database, muncul di tab Hutang Supplier,
+  // dan tombol Edit-nya tidak bisa dicapai dari mana pun — jadi harganya tidak
+  // bisa diisi. Yang dilaporkan: "di tab nota terakhir tidak ada".
+  //
+  // Batasnya sendiri masuk akal; batas TANPA pintu yang tidak.
+  if (/\.slice\(0, batasRiwayat\)/.test(kode)) {
+    if (!/id="nota-cari"/.test(kode)) {
+      salah(
+        'js/modules/inventory/nota-staff.js: daftar nota dipotong tanpa kotak pencarian. ' +
+          'Nota di luar potongan itu tidak bisa dijangkau dari layar mana pun, dan yang terlihat cuma "notanya tidak ada".'
+      );
+    }
+    if (!/id="nota-lagi"/.test(kode)) {
+      salah(
+        'js/modules/inventory/nota-staff.js: daftar nota dipotong tanpa tombol "muat lebih banyak". ' +
+          'Pencarian saja tidak cukup untuk orang yang tidak tahu apa yang dicarinya.'
+      );
+    }
+  }
+
+  // ---- CARA BAYAR BISA DIUBAH SETELAH NOTA TERSIMPAN ----
+  //
+  // `set_jatuh_tempo_nota` ada di database sejak 0122 dan sempat TIDAK punya
+  // satu pun pemanggil di layar: nota yang terlanjur disimpan sebagai tempo
+  // tidak bisa diperbaiki dari mana pun.
+  if (!/setJatuhTempoNota\(nota\.id/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: jatuh tempo nota yang sudah tersimpan tidak bisa diubah. ' +
+        'RPC-nya ada di database sejak 0122 — kemampuannya ada, jalannya tidak ada di layar.'
+    );
+  }
+  if (!/class="nota-cara-bayar"/.test(kode) || !/class="hutang-tempo"/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: tombol Tunai/Tempo tidak ada di kedua tab. ' +
+        'Nota yang terlanjur ditandai tempo padahal dibayar tunai harus bisa diperbaiki dari tempat ia terlihat.'
+    );
+  }
+
+  // Isi harga bisa dari tab Hutang — di situlah nota tanpa harga terlihat.
+  if (!/class="hutang-edit"/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: nota di tab Hutang Supplier tidak bisa langsung diisi harganya. ' +
+        'Justru di tab itulah "6 barang belum berharga" terbaca, dan memaksa orangnya mencari nomor yang sama ' +
+        'di tab sebelah adalah pekerjaan yang tidak perlu ada.'
+    );
+  }
 }
 
 if (gagal === 0) {

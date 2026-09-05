@@ -5203,6 +5203,23 @@ Satu sabotase lolos dengan jujur: membuang pemeriksaan "nota lunas" **tetap** di
 
 - [x] **Geser harga nota lama ke harga beli** (`0124`) — per nota, dengan pratinjau sebelum/sesudah, sekali saja, dan biaya rata-rata ikut terkoreksi
 
+## Batas tanpa pintu
+
+> "di tab nota terakhir mitra plastik tidak ada, sedangkan di tab hutang supplier ada"
+
+Riwayat nota menampilkan **15 baris teratas** dan berhenti di situ. Nota tanggal 1 September ada di database, muncul di tab Hutang Supplier lengkap dengan "6 barang belum berharga" — dan tombol Edit-nya tidak bisa dicapai dari mana pun. Harganya tidak bisa diisi, dan yang terbaca di layar cuma *"notanya tidak ada"*.
+
+Batas 15 baris itu sendiri masuk akal: daftar ratusan baris di HP tidak berguna. Yang tidak boleh adalah **batas tanpa pintu**. Sekarang ada kotak cari (nomor / supplier / tanggal) dan tombol "Muat … nota lagi", dan auditnya menuntut keduanya ada selama daftarnya masih dipotong.
+
+Dua hal lain yang datang dari laporan yang sama:
+
+- **Isi harga langsung dari tab Hutang Supplier.** Di situlah nota tanpa harga justru terlihat; memaksa orangnya pindah tab lalu mencari nomor yang sama adalah pekerjaan yang tidak perlu ada — apalagi ketika daftar di tab sebelah memotongnya.
+- **`set_jatuh_tempo_nota` tidak punya satu pun pemanggil di layar.** Ada di database sejak `0122`, dan nota yang terlanjur disimpan sebagai tempo tidak bisa diperbaiki dari mana pun. Tombol **Tunai/Tempo** sekarang ada di kedua tab. Arah sebaliknya tetap lewat "Batalkan pembayaran", karena itu menyentuh buku kas dan tidak boleh disamarkan sebagai penyuntingan biasa.
+
+Dan satu papercut yang terlihat di tangkapan layarnya: **"Mitra Plastik" dan "Mitra plastik" tampil sebagai dua supplier** dengan dua total terpisah. Orang yang menagih membawa angka yang kurang, tanpa satu pun tanda bahwa sisanya ada beberapa kartu di bawah. Pengelompokannya sekarang mengabaikan huruf besar-kecil; ejaan yang ditampilkan yang pertama ditemui.
+
+- [x] **Daftar nota bisa dicari & dimuat lebih banyak**, harga bisa diisi dari tab hutang, cara bayar bisa diubah setelah tersimpan, dan supplier beda ejaan tidak lagi terpecah
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.
