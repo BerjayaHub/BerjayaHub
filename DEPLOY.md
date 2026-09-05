@@ -509,6 +509,46 @@ select p.name as menu, mp.qty as rencana, ri.qty as per_porsi,
 
 ---
 
+
+---
+
+## 5g. HP menampilkan layar yang berbeda dari desktop — versi lama di cache
+
+**Gejalanya khas:** satu layar benar di desktop dan salah di HP, tanpa satu pun
+error. Contoh nyata: dialog **Edit Nota** menampilkan daftar barang lengkap di
+desktop, tapi di HP hanya kotak kosong berlabel "Barang".
+
+**Sebabnya:** berkas JS di repo ini **tidak punya penanda versi** (`js/core/ui.js`,
+bukan `js/core/ui.js?v=12`). Browser boleh menyimpannya di cache HTTP, dan
+setelah push code sebagian berkas bisa sudah baru sementara sebagian masih lama.
+Modul lama yang tidak mengenal isian baru akan menggambarnya sebagai kotak teks
+biasa — dan kotak teks biasa terlihat sempurna wajar.
+
+Service worker di repo ini **tidak** menyimpan cache (tidak ada handler `fetch`),
+jadi ini murni cache browser.
+
+**Cara membereskannya di HP:**
+
+1. Kalau dipasang sebagai aplikasi (Add to Home Screen): **tutup penuh** aplikasinya
+   dari daftar aplikasi berjalan, lalu buka lagi.
+2. Kalau lewat browser: buka menu → **Muat ulang paksa**, atau Setelan → Privasi →
+   hapus cache untuk situs ini.
+3. Kalau masih sama: buka lewat mode penyamaran sekali untuk memastikan versinya
+   memang sudah yang terbaru di server.
+
+**Sejak perbaikan ini, gejalanya tidak lagi diam.** Isian bertipe tak dikenal
+menolak menggambar dirinya dan menampilkan pesan yang menyebut sebabnya, dan
+tombol Simpan menolak menyimpan dari dialog yang separuh tergambar — supaya
+tidak ada perubahan yang terkirim berdasarkan keadaan yang tidak pernah dilihat
+siapa pun.
+
+> Kalau ini sering mengganggu, langkah berikutnya yang masuk akal: satu berkas
+> `version.json` yang dibaca saat aplikasi dibuka (`cache: 'no-store'`) dan
+> dibandingkan dengan versi yang tertanam di kode — kalau berbeda, tampilkan
+> "Versi baru tersedia, muat ulang". Belum dikerjakan karena butuh menaikkan
+> nomor versinya tiap deploy, dan langkah manual yang mudah terlupa akan
+> menghasilkan peringatan yang salah.
+
 ## 6. Yang perlu diatur lewat UI setelah deploy
 
 - **BU & Outlet → Edit Outlet → Mode Reservasi** → pilih *Hotel* untuk outlet hotel.

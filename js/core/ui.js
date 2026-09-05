@@ -269,6 +269,21 @@ export function formDialog({
         }
       }
 
+      // Field yang tidak tergambar berarti dialognya TIDAK UTUH.
+      //
+      // Menyimpan dari dialog yang separuh tergambar berarti mengirim keadaan
+      // yang tidak pernah dilihat siapa pun. Untuk edit nota, "barang" yang
+      // tidak tergambar akan terkirim sebagai `undefined` — kebetulan aman
+      // sekarang (server membacanya sebagai "jangan sentuh"), tapi bergantung
+      // pada kebetulan itu adalah cara paling mudah kehilangan data besok.
+      const takTergambar = form.querySelector('[data-tipe-tak-dikenal]');
+      if (takTergambar) {
+        errorEl.textContent =
+          'Sebagian isian tidak bisa ditampilkan, jadi perubahan ini tidak disimpan. ' +
+          'Tutup lalu buka lagi aplikasinya (versinya masih lama di perangkat ini).';
+        return;
+      }
+
       // Nilai dari komponen tertanam disatukan DI SINI, sementara dialognya
       // masih berdiri. Kalau salah satunya mengembalikan pesan kesalahan
       // (string), penyimpanannya dibatalkan dan pesan itu ditampilkan apa
@@ -538,6 +553,29 @@ export function activateSearchSelects(container, options, onChange) {
   container.querySelectorAll('.search-select').forEach((w) => wireSearchSelect(w, options, onChange));
 }
 
+/**
+ * Tipe yang dilayani `<input type="...">` bawaan browser.
+ *
+ * Sengaja daftar TERTUTUP. Lihat penjelasannya di ujung `fieldHtml()`.
+ */
+const TIPE_INPUT_BIASA = new Set([
+  undefined,
+  null,
+  '',
+  'text',
+  'password',
+  'email',
+  'tel',
+  'number',
+  'color',
+  'date',
+  'time',
+  'datetime-local',
+  'search',
+  'url',
+  'file'
+]);
+
 function fieldHtml(f) {
   const id = `f-${f.name}`;
   const req = f.required ? 'required' : '';
@@ -642,6 +680,40 @@ function fieldHtml(f) {
           value="${escapeAttr(formatThousands(f.value ?? ''))}" ${f.required ? 'required' : ''}
           ${f.placeholder ? `placeholder="${escapeAttr(f.placeholder)}"` : ''} />
         ${help}
+      </div>`;
+  }
+
+  // ============ TIPE YANG TIDAK DIKENAL HARUS BERTERIAK ============
+  //
+  // Sebelumnya apa pun yang tidak cocok dengan cabang di atas jatuh ke sini dan
+  // menjadi `<input type="html">` — yang oleh browser diperlakukan sebagai
+  // `type="text"`. Hasilnya kotak teks yang tampak sempurna wajar.
+  //
+  // Itu bukan kemungkinan teoretis. Ia BENAR-BENAR TERJADI: HP yang masih
+  // memegang `ui.js` versi lama di cache HTTP (berkasnya tidak punya penanda
+  // versi) bertemu `nota-staff.js` versi baru yang meminta `type: 'html'`.
+  // Layar edit nota menampilkan kotak kosong berlabel "Barang" — tanpa daftar
+  // barang, tanpa tombol tambah, tanpa satu pun error. Di desktop, yang
+  // cache-nya sudah segar, layarnya benar. Dua perangkat, dua perilaku, dan
+  // tidak ada apa pun yang menunjuk sebabnya.
+  //
+  // Sekarang ia menolak menggambar dan mengatakan alasannya. Dialog yang rusak
+  // dan terlihat rusak jauh lebih murah daripada dialog yang rusak dan terlihat
+  // baik-baik saja.
+  if (!TIPE_INPUT_BIASA.has(f.type)) {
+    console.error(
+      `[formDialog] tipe field "${f.type}" tidak dikenal (field "${f.name}"). ` +
+        'Kalau ini terjadi di HP tapi tidak di desktop, kemungkinan besar berkas js/core/ui.js ' +
+        'masih versi lama di cache browser — muat ulang paksa.'
+    );
+    return `
+      <div class="field" data-tipe-tak-dikenal="${escapeAttr(f.name)}">
+        <label>${escapeHtml(f.label ?? f.name)}</label>
+        <p class="error-text" style="margin:0;font-size:0.82rem">
+          Bagian ini tidak bisa ditampilkan (tipe "${escapeHtml(String(f.type))}" tidak dikenal).
+          Biasanya karena aplikasinya masih versi lama di HP ini — tutup lalu buka lagi aplikasinya,
+          atau muat ulang halamannya.
+        </p>
       </div>`;
   }
 

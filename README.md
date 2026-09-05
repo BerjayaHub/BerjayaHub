@@ -5072,6 +5072,22 @@ Dua tambahan kecil di `formDialog` yang memungkinkannya: field bertipe `html` (t
 
 Barang yang dihapus dari picker tidak ikut terkirim, dan **ketiadaannya** itulah yang dibaca server sebagai "dibatalkan" (`0084`). Mengirimnya sebagai jumlah 0 justru dilewati server tanpa efek apa pun: barangnya tetap ada, sementara orangnya sudah melihatnya hilang dari layar.
 
+### Satu layar benar di desktop, salah di HP
+
+iko membandingkan keduanya: dialog Edit Nota menampilkan daftar barang lengkap di desktop, tapi di HP hanya kotak kosong berlabel "Barang".
+
+Bukan salah paham — dan bukan bug di layar itu. HP-nya masih memegang `js/core/ui.js` **versi lama** di cache HTTP (berkas di repo ini tidak punya penanda versi), sementara `nota-staff.js`-nya sudah baru dan meminta `type: 'html'`. `ui.js` lama tidak mengenal tipe itu, jatuh ke cabang terakhir, dan menggambarnya sebagai `<input type="html">` — yang browser perlakukan persis seperti `type="text"`.
+
+Hasilnya kotak teks yang **terlihat sempurna wajar**. Tidak ada error di console, tidak ada baris merah, tidak ada apa pun yang menunjuk sebabnya. Dua perangkat, dua perilaku.
+
+Yang saya kendalikan bukan cache-nya, melainkan **kediamannya**. Sekarang tipe yang tidak dikenal menolak menggambar dan menyebutkan alasannya, tombol Simpan menolak menyimpan dari dialog yang separuh tergambar (supaya tidak ada perubahan terkirim berdasarkan keadaan yang tidak pernah dilihat siapa pun), dan `onReady` memeriksa lebih dulu apakah wadah pickernya ada — karena lemparan di dalam `onReady` tidak terlihat di mana pun kecuali console, sementara dialognya tetap berdiri dan tombolnya tetap bisa ditekan.
+
+Dua sabotase lolos di percobaan pertama, keduanya cacat yang sama: polanya cuma menuntut nama `TIPE_INPUT_BIASA` **ada** di berkas. Mengganti penjaganya jadi `if (false)` menyisakan namanya di deklarasi; mengganti nama deklarasinya menyisakan namanya di `.has()` yang kini menunjuk variabel yang tidak pernah ada. Keduanya mematikan penjaganya sepenuhnya.
+
+Langkahnya di HP ada di DEPLOY.md §5g.
+
+### Bentuk barisnya
+
 Di dalam dialog, nama bahan **selalu** dapat barisnya sendiri. Aturan `@media` yang sudah ada melihat lebar **layar**, bukan lebar wadahnya — di dalam dialog 420px pada monitor 1440px ia tidak menyala, dan nama bahan tersisa ~110px setelah jumlah, harga, dan tombol hapus mengambil bagiannya. Yang menentukan di sini ruang wadahnya.
 
 ### Bug yang ditemukan di jalan: "+ Foto" menghapus nama supplier
@@ -5087,6 +5103,7 @@ Dua sabotase awalnya lolos, keduanya lubang di data tes saya: §4 memakai bahan 
 - [x] **Kotak harga berformat Rupiah** dengan desimal koma — `type: 'rupiah'` di `formDialog`, dan `attachRupiahInput` di item picker
 - [x] **Nota bisa diedit lewat pop up** — jumlah, harga, supplier, no. invoice, **dan barang baru bisa ditambahkan**; koreksi harga langsung menggeser biaya rata-rata
 - [x] **`formDialog` bisa menanam komponen** — field `type: 'html'` + `kumpulkan()`, jadi layar tidak perlu menyalin dialognya sendiri
+- [x] **Tipe isian yang tidak dikenal berteriak, bukan menyamar jadi kotak teks** — gejalanya muncul nyata: HP dengan `ui.js` lama di cache menampilkan dialog Edit Nota tanpa daftar barang, sementara desktop benar
 - [x] **"+ Foto" berhenti menghapus supplier/invoice/catatan** (`0119`)
 
 ## Harga beli dari nota, dan biaya rata-rata bahan per outlet

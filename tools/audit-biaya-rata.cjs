@@ -220,7 +220,12 @@ if (notaStaff) {
   // harga per gr"). Untuk nota berisi enam barang itu dua belas kotak
   // bertumpuk, dan — yang lebih menentukan — jumlah fieldnya ditetapkan saat
   // dialog dibuka, jadi barang BARU tidak bisa ditambahkan sama sekali.
-  if (!/createItemPicker\(form\./.test(kode)) {
+  // `createItemPicker(wadah, …)` — bukan lagi `createItemPicker(form.…)`.
+  //
+  // Wadahnya sekarang diambil ke variabel lebih dulu supaya bisa diperiksa
+  // (lihat §7). Pola audit yang menuntut bentuk lama akan merah pada perbaikan
+  // yang benar — dan audit yang menghalangi perbaikan akan dimatikan orang.
+  if (!/createItemPicker\(\s*(form\.|wadah)/.test(kode)) {
     salah(
       'js/modules/inventory/nota-staff.js: dialog edit tidak menanam `createItemPicker`. ' +
         'Tanpa itu jumlah & harga kembali berderet menurun satu per satu, dan barang baru tidak bisa ' +
@@ -278,6 +283,64 @@ if (notaSvc) {
           'Itu persis bug "+ Foto menghapus nama supplier".'
       );
     }
+  }
+}
+
+
+// ---------------------------------------------------------------
+// 7. Dialog yang separuh tergambar harus BERTERIAK, bukan diam.
+//
+// Kejadian nyata: HP yang masih memegang `js/core/ui.js` versi lama di cache
+// HTTP bertemu `nota-staff.js` versi baru. `type: 'html'` tidak dikenal, jatuh
+// ke `<input type="html">` — yang browser perlakukan sebagai kotak teks biasa.
+// Layar edit menampilkan kotak kosong berlabel "Barang", tanpa satu pun error.
+// Di desktop, cache-nya segar, layarnya benar. Dua perangkat, dua perilaku.
+// ---------------------------------------------------------------
+const ui = baca('js/core/ui.js');
+if (ui) {
+  const kode = tanpaKomentar(ui);
+  // DUA HAL TERPISAH: daftarnya ADA, dan daftarnya DIPAKAI sebagai penjaga.
+  //
+  // Percobaan pertama cuma mencari kata `TIPE_INPUT_BIASA`. Dua sabotase lolos:
+  // mengganti penjaganya jadi `if (false)` (namanya masih ada di deklarasi),
+  // dan mengganti nama deklarasinya (namanya masih ada di `.has()` yang kini
+  // menunjuk variabel yang tidak pernah didefinisikan). Keduanya mematikan
+  // penjaganya sepenuhnya sambil menyisakan namanya di berkas.
+  if (!/const TIPE_INPUT_BIASA = new Set\(/.test(kode)) {
+    salah(
+      'js/core/ui.js: daftar tertutup `TIPE_INPUT_BIASA` tidak dideklarasikan. ' +
+        'Tipe yang tidak dikenal akan jatuh ke `<input type="...">` dan tampil sebagai kotak teks ' +
+        'yang terlihat sempurna wajar — seluruh komponen yang seharusnya ada lenyap tanpa tanda.'
+    );
+  }
+  if (!/if\s*\(!TIPE_INPUT_BIASA\.has\(f\.type\)\)/.test(kode)) {
+    salah(
+      'js/core/ui.js: `TIPE_INPUT_BIASA` tidak dipakai sebagai penjaga. ' +
+        'Daftarnya ada tapi tidak menghalangi apa pun — dan daftar yang tidak dipakai sama saja ' +
+        'dengan tidak ada.'
+    );
+  }
+  if (!/data-tipe-tak-dikenal/.test(kode)) {
+    salah('js/core/ui.js: field bertipe tak dikenal tidak ditandai, jadi submit tidak bisa menolaknya.');
+  }
+  if (!/querySelector\('\[data-tipe-tak-dikenal\]'\)/.test(kode)) {
+    salah(
+      'js/core/ui.js: submit tidak memeriksa apakah ada field yang gagal digambar. ' +
+        'Menyimpan dari dialog yang separuh tergambar berarti mengirim keadaan yang tidak pernah ' +
+        'dilihat siapa pun.'
+    );
+  }
+}
+
+if (notaStaff) {
+  const kode = tanpaKomentar(notaStaff);
+  if (!/typeof kumpulkan !== 'function'/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: `onReady` tidak memeriksa wadah picker & `kumpulkan`. ' +
+        'Pada perangkat dengan `ui.js` lama, `createItemPicker(null, …)` melempar DI DALAM `onReady` — ' +
+        'lemparan di situ tidak terlihat di mana pun kecuali console, sementara dialognya tetap ' +
+        'berdiri dan tombol Simpan tetap bisa ditekan.'
+    );
   }
 }
 

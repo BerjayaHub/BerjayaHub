@@ -305,8 +305,28 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
               { name: 'barang', label: 'Barang', type: 'html', html: '<div id="nota-edit-picker"></div>' }
             ],
             submitText: 'Simpan Perubahan',
-            onReady: (form, { kumpulkan }) => {
-              picker = createItemPicker(form.querySelector('#nota-edit-picker'), {
+            onReady: (form, { kumpulkan, setError }) => {
+              // TITIK TANAMNYA DIPERIKSA DULU.
+              //
+              // Kalau `ui.js` di perangkat ini masih versi lama, `type: 'html'`
+              // tidak dikenal dan wadahnya tidak pernah ada. Memanggil
+              // `createItemPicker(null, …)` akan melempar di dalam `onReady`,
+              // dan lemparan di situ tidak terlihat di mana pun kecuali console
+              // — dialognya tetap berdiri, terlihat wajar, dan tombol Simpan
+              // tetap bisa ditekan.
+              //
+              // `kumpulkan` juga tidak ada di `ui.js` lama; memanggilnya akan
+              // melempar sebelum sempat mendaftarkan apa pun.
+              const wadah = form.querySelector('#nota-edit-picker');
+              if (!wadah || typeof kumpulkan !== 'function') {
+                setError?.(
+                  'Aplikasi di perangkat ini masih versi lama, jadi daftar barangnya tidak bisa ditampilkan. ' +
+                    'Tutup lalu buka lagi aplikasinya, atau muat ulang halamannya.'
+                );
+                return;
+              }
+
+              picker = createItemPicker(wadah, {
                 products,
                 showStock: false,
                 hargaSatuan: true,
