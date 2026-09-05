@@ -70,7 +70,7 @@ export function createItemPicker(
       // Ikut disimpan walau `hargaSatuan` mati — nilainya cuma `undefined` di
       // situ, dan menyalinnya apa adanya jauh lebih aman daripada dua bentuk
       // snapshot yang berbeda tergantung opsi.
-      unit_cost: row.querySelector('.pf-harga')?.value
+      line_total: row.querySelector('.pf-harga')?.value
     }));
   }
 
@@ -118,11 +118,22 @@ export function createItemPicker(
               //
               // `inputmode="decimal"` tetap memunculkan papan angka di HP, yang
               // memang satu-satunya alasan `type="number"` menggoda di sini.
-              `<span class="pf-rp">Rp</span><input type="text" inputmode="decimal" class="pf-harga" placeholder="harga/${esc(
+              // ISINYA HARGA BELI SELURUH BARIS, BUKAN HARGA PER SATUAN.
+              //
+              // Versi pertama berlabel "harga/gr" dan disimpan sebagai
+              // `unit_cost`. Orang yang memegang nota supplier membaca SATU
+              // angka di kertas itu — Rp180.000 untuk 5 kg beras — lalu
+              // mengetiknya. Itu perilaku yang wajar; labelnya yang menuntut
+              // pembagian yang tidak pernah diminta siapa pun.
+              //
+              // Akibatnya bukan selisih kecil: 5.000 gr x 180.000 =
+              // Rp900.000.000, lima ribu kali lipat, tanpa satu pun error.
+              // Pembagiannya sekarang dikerjakan server (`harga_baris_nota`).
+              `<span class="pf-rp">Rp</span><input type="text" inputmode="decimal" class="pf-harga" placeholder="harga beli" value="${esc(
+                formatRibuanDesimal(entry.line_total ?? '')
+              )}" title="Harga beli SELURUH baris ini menurut nota supplier — bukan harga per ${esc(
                 p?.base_unit ?? 'satuan'
-              )}" value="${esc(formatRibuanDesimal(entry.unit_cost ?? ''))}" title="Harga per ${esc(
-                p?.base_unit ?? 'satuan'
-              )} menurut nota supplier — boleh dikosongkan kalau belum tahu" />`
+              )}. Boleh dikosongkan kalau belum tahu." />`
             : ''
         }
         <button type="button" class="pf-remove" title="Hapus">✕</button>
@@ -187,7 +198,7 @@ export function createItemPicker(
   mountEl.querySelector('.pf-add').addEventListener('click', addRow);
 
   refreshSubOptions();
-  renderRows(initial.map((i) => ({ product_id: i.product_id, qty: i.qty, unit_cost: i.unit_cost })));
+  renderRows(initial.map((i) => ({ product_id: i.product_id, qty: i.qty, line_total: i.line_total })));
 
   return {
     getItems: () =>
@@ -201,7 +212,7 @@ export function createItemPicker(
           // 0, harga yang belum diisi tersimpan sebagai "gratis" — dan biaya
           // rata-rata bahan itu anjlok tanpa satu pun tanda bahwa ada yang
           // salah. Jebakan yang sama sudah beberapa kali menggigit di repo ini.
-          unit_cost: bacaRupiah(e.unit_cost)
+          line_total: bacaRupiah(e.line_total)
         }))
         .filter((i) => i.product_id && i.qty > 0),
     /** Dipanggil layar untuk menggambar ulang totalnya saat harga diketik. */

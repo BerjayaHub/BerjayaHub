@@ -74,9 +74,12 @@ if (picker) {
   }
   // Kosong tetap kosong, bukan nol — dan itu dijamin `bacaRupiah`, yang
   // mengembalikan `null` untuk isian kosong (lihat test-rupiah-desimal.mjs).
-  if (!/unit_cost:\s*bacaRupiah\(/.test(kode)) {
+  // Sejak 0123 isinya `line_total` (harga beli seluruh baris), bukan
+  // `unit_cost` — pembagiannya dikerjakan server. Yang dijaga di sini tetap
+  // sama: cara MEMBACA kotaknya.
+  if (!/line_total:\s*bacaRupiah\(/.test(kode)) {
     salah(
-      "js/modules/dispatch/item-picker.js: `unit_cost` tidak dibaca lewat `bacaRupiah`. " +
+      "js/modules/dispatch/item-picker.js: `line_total` tidak dibaca lewat `bacaRupiah`. " +
         'Isiannya sekarang teks berformat ("13.800,5"), jadi `Number()` langsung menghasilkan NaN — ' +
         'dan untuk isian KOSONG, `Number("")` menghasilkan 0, yang tersimpan sebagai "barangnya gratis" ' +
         'lalu ikut menimbang biaya rata-rata.'

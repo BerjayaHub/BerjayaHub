@@ -1498,6 +1498,7 @@ node tools/audit-outlet-scope.cjs                       # dropdown outlet menemb
 node tools/audit-embed-ambigu.cjs                      # embed PostgREST tanpa nama FK
 node tools/audit-kelola-kantong-admin.cjs               # fitur DB yang tidak bisa dinyalakan dari layar mana pun
 node tools/audit-hutang-nota.cjs                        # status bayar nota & pelonggaran bukti kas
+node tools/audit-harga-baris-nota.cjs                   # arti angka harga di nota (baris vs satuan)
 node tools/test-youtube-parser.mjs                      # parser link YouTube
 node tools/test-image-compress.mjs                      # skala & format kompresi foto
 ```
@@ -5149,6 +5150,42 @@ Satu sabotase lolos dengan jujur: mengganti `initially deferred` jadi `immediate
 Dan satu tes yang lulus karena alasan yang salah: pemeriksaan "pembayaran lintas outlet ditolak" memakai user yang **tidak berhak** di outlet kedua, jadi penolakannya datang dari pemeriksaan wewenang dan sabotase yang membuang pemeriksaan lintas-outlet lolos utuh. Sekarang pembayarnya berhak di kedua outlet, dan tesnya juga membuktikan ia memang berhasil kalau dipisah.
 
 - [x] **Status bayar nota & hutang supplier** (`0122`) — Tunai/Tempo saat menerima, tab Hutang Supplier per supplier, pelunasan gabungan dengan satu entri kas, pembatalan lewat entri balik
+
+## Satu label yang salah, dan angkanya lima ribu kali lipat
+
+> "harga yang diinput di nota itu bukan harga satuan melainkan harga beli, contoh: beras, qty 5000 gr, harga 180.000, maka yang dimaksud adalah harga 5000 gr itu 180.000 bukan harga per gram nya 180.000"
+
+Kotaknya berlabel **"harga/gr"** dan disimpan sebagai `unit_cost`. Orang yang memegang nota supplier membaca satu angka di kertas itu — Rp180.000 — lalu mengetiknya. Itu perilaku yang wajar; **labelnya** yang menuntut pembagian yang tidak pernah diminta siapa pun.
+
+```
+benar : 5.000 gr seharga  180.000        -> Rp36 / gram
+salah : 5.000 gr × 180.000 = 900.000.000
+```
+
+Dan tidak ada satu pun error di sepanjang jalan itu: notanya tersimpan, biaya rata-rata bahannya terisi, HPP menunya ikut terhitung, dan seluruh angkanya terlihat seperti angka. Kodenya tidak pernah salah — auditnya sekarang menolak label per-satuan kembali muncul, karena label itulah seluruh sebabnya.
+
+`0123` menyimpan **keduanya**: `line_total` (angka yang diketik, harus sama persis dengan kertas notanya) dan `unit_cost` (turunannya, tetap satu-satunya yang dibaca `biaya_rata_bahan`). Menyimpan `unit_cost` saja lalu mengalikannya kembali tidak cukup: 175.000 untuk 3.000 gram adalah 58,3333… per gram, dan 3.000 × 58,3333… bukan 175.000. Selisihnya recehan, tapi ia muncul di **nominal kas** — dan angka kas yang tidak bisa dicocokkan dengan kertas notanya adalah persis hal yang membuat orang berhenti mempercayai laporannya.
+
+### Dua sabotase lolos karena tesnya membuang presisi lebih dulu
+
+Sabotase yang mengembalikan rumus `qty * unit_cost` **lolos** dari tes. Dua sebab, dan keduanya milik tesnya:
+
+1. Data ujinya memakai 180.000 / 5.000 = 36 **tepat**, jadi `qty * unit_cost` kebetulan sama persis dengan `line_total`.
+2. Untuk data yang tidak habis dibagi, tesnya membaca `Number(entri.amount)` — dan JavaScript membulatkan −264.999,99999999999999999 jadi −265.000.
+
+Tes yang memeriksa presisi tidak boleh membuang presisinya lebih dulu. Perbandingannya sekarang dikerjakan Postgres dengan `numeric` penuh.
+
+### Penulisan ulang KEEMPAT `ubah_nota_terima`
+
+`0084` → `0118` → `0119` → `0123`. Risiko terbesarnya bukan bug baru melainkan penjagaan lama yang hilang tanpa suara, jadi tesnya menguji ulang ketiganya di rantai yang memuat `0123`: penyelarasan `unit_cost` ke `stock_movements` (`0118`), aturan "NULL = jangan sentuh" untuk keempat kolom kepala nota (`0119`), dan pembatalan barang yang hilang dari daftar (`0084`). Empat sabotase membuang penjagaan itu satu per satu; keempatnya merah.
+
+- [x] **Harga di nota = harga beli baris** (`0123`) — angka yang diketik disimpan apa adanya, harga per satuan jadi turunannya; bentuk lama tetap diterima untuk PWA yang belum memperbarui diri
+
+## Kolom baru yang menyandera seluruh layar
+
+Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.
+
+Jeda antara push dan menjalankan migration itu wajar dan akan terjadi lagi. `riwayatNota` sekarang mencoba dengan kolom barunya, dan kalau ditolak justru karena kolom itu, mengulang tanpa mereka — notanya tetap tampil, cuma tanpa status bayar. Tab Hutang Supplier memang mati total sebelum `0122` (view-nya belum ada), jadi yang diperbaiki di sana adalah **pesannya**: "migration 0122 belum dijalankan", bukan `relation nota_ringkas does not exist`.
 
 ## Nota bisa diedit, harganya berformat Rupiah — dan satu bug yang menghapus supplier
 

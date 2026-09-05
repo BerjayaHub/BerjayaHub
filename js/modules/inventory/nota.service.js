@@ -29,7 +29,11 @@ export async function simpanNota({ outletId, receiptDate, supplier, invoiceNo, p
     p_invoice_no: invoiceNo || null,
     p_photo_path: photoPath || null,
     p_notes: notes || null,
-    p_items: (items ?? []).map((i) => ({ product_id: i.product_id, qty: i.qty, unit_cost: i.unit_cost ?? null }))
+    // `line_total` = harga beli SELURUH baris, angka yang diketik orang.
+    // Pembagiannya jadi harga per satuan dikerjakan server (`harga_baris_nota`,
+    // 0123) supaya menyimpan dan mengedit tidak pernah memakai dua pembulatan
+    // yang berbeda.
+    p_items: (items ?? []).map((i) => ({ product_id: i.product_id, qty: i.qty, line_total: i.line_total ?? null }))
   });
   if (error) throw new Error(error.message ?? String(error));
   return data;
@@ -59,7 +63,7 @@ export async function ubahNota(id, { receiptDate, supplier, invoiceNo, photoPath
     p_invoice_no: invoiceNo ?? null,
     p_photo_path: photoPath,
     p_notes: notes ?? null,
-    p_items: items === null ? null : items.map((i) => ({ product_id: i.product_id, qty: i.qty, unit_cost: i.unit_cost ?? null }))
+    p_items: items === null ? null : items.map((i) => ({ product_id: i.product_id, qty: i.qty, line_total: i.line_total ?? null }))
   });
   if (error) throw new Error(error.message ?? String(error));
 }
@@ -80,27 +84,43 @@ export async function riwayatNota(
   businessUnitId,
   { outletId = null, dateFrom = null, dateTo = null, denganPembuat = false } = {}
 ) {
-  const kolom =
-    'id, code, receipt_date, supplier, invoice_no, photo_path, notes, outlet_id, created_at, ' +
-    // Status bayarnya ikut sejak 0122. Diambil dari tabelnya sendiri, bukan
-    // dari view `nota_ringkas`: kolom ini tidak butuh penjumlahan item, dan
-    // menukar sumber tabel di sini akan mematikan embed `outlets!outlet_id`
-    // yang sudah dipakai layar ini.
-    'payment_status, due_date, payment_entry_id, outlets!outlet_id(name)' +
+  const dasar =
+    'id, code, receipt_date, supplier, invoice_no, photo_path, notes, outlet_id, created_at, outlets!outlet_id(name)' +
     (denganPembuat ? ', pembuat:user_profiles!created_by(full_name)' : '');
+  // Status bayarnya ikut sejak 0122.
+  const bayar = ', payment_status, due_date, payment_entry_id';
 
-  return ambilSemua((dari, sampai) => {
-    let q = supabase
-      .from('goods_receipts')
-      .select(kolom, { count: 'exact' })
-      .eq('business_unit_id', businessUnitId)
-      .order('receipt_date', { ascending: false })
-      .order('created_at', { ascending: false });
-    if (outletId) q = q.eq('outlet_id', outletId);
-    if (dateFrom) q = q.gte('receipt_date', dateFrom);
-    if (dateTo) q = q.lte('receipt_date', dateTo);
-    return q.range(dari, sampai);
-  });
+  const ambil = (kolom) =>
+    ambilSemua((dari, sampai) => {
+      let q = supabase
+        .from('goods_receipts')
+        .select(kolom, { count: 'exact' })
+        .eq('business_unit_id', businessUnitId)
+        .order('receipt_date', { ascending: false })
+        .order('created_at', { ascending: false });
+      if (outletId) q = q.eq('outlet_id', outletId);
+      if (dateFrom) q = q.gte('receipt_date', dateFrom);
+      if (dateTo) q = q.lte('receipt_date', dateTo);
+      return q.range(dari, sampai);
+    });
+
+  try {
+    return await ambil(dasar + bayar);
+  } catch (e) {
+    // MIGRATION 0122 BELUM DIJALANKAN -> SELURUH RIWAYAT NOTA MENGHILANG.
+    //
+    // Ini terjadi sungguhan. Kode yang meminta `payment_status` di-push lebih
+    // dulu daripada migrationnya dijalankan; PostgREST menolak seluruh
+    // permintaan karena satu kolom tidak dikenal, dan layarnya kehilangan
+    // BUKAN kolom status — melainkan seluruh daftar notanya, berikut tombol
+    // Lihat, Edit, dan + Foto. Yang tersisa cuma satu baris merah.
+    //
+    // Jeda antara push dan menjalankan migration itu wajar dan akan terjadi
+    // lagi. Kolom baru tidak boleh menyandera fungsi yang sudah jalan: kalau
+    // ia tidak ada, notanya tetap tampil tanpa status bayar.
+    if (!/payment_status|due_date|payment_entry_id/.test(String(e?.message ?? ''))) throw e;
+    return await ambil(dasar);
+  }
 }
 
 /**
@@ -174,7 +194,7 @@ export async function itemNota(receiptId) {
   const { data, error } = await supabase
     // baris-terbatas: item SATU nota.
     .from('goods_receipt_items')
-    .select('product_id, qty, unit_cost, notes, products(name, base_unit)')
+    .select('product_id, qty, unit_cost, line_total, notes, products(name, base_unit)')
     .eq('receipt_id', receiptId);
   if (error) throw error;
   return data ?? [];

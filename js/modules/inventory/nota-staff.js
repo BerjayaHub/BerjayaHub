@@ -18,7 +18,7 @@ import { formatNum } from '../../core/format.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { todayWIB } from '../../core/dates.js';
 import { createItemPicker } from '../dispatch/item-picker.js';
-import { ringkasNota } from './biaya-rata.js';
+import { ringkasNota, hargaBaris } from './biaya-rata.js';
 import { formatRupiah } from '../../core/format.js';
 import {
   simpanNota,
@@ -118,8 +118,9 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
   const picker = createItemPicker(wadah.querySelector('#nota-picker'), {
     products,
     showStock: false,
-    // Harga satuan menurut nota supplier. Dari sinilah biaya rata-rata bahan
-    // per outlet dihitung (0118). Layar lain yang memakai picker ini —
+    // Harga beli per baris menurut nota supplier — angka yang tertulis di
+    // kertasnya, bukan hasil bagi per satuan. Dari sinilah biaya rata-rata
+    // bahan per outlet dihitung (0118/0123). Layar lain yang memakai picker —
     // order ke CK, transfer, retur — TIDAK menyalakannya: barangnya berpindah
     // antar outlet, bukan dibeli, dan harga yang ditebak di sana akan masuk ke
     // rata-rata seolah-olah pembelian sungguhan.
@@ -234,7 +235,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
       // Diperiksa DI SINI, sebelum notanya lahir. Kalau dibiarkan sampai
       // server, notanya sudah tersimpan sementara pembayarannya ditolak — dan
       // orangnya menghadapi setengah pekerjaan yang tidak ia minta.
-      if (tunai && items.some((i) => i.unit_cost === null || i.unit_cost === undefined || i.unit_cost === '')) {
+      if (tunai && items.some((i) => i.line_total === null || i.line_total === undefined || i.line_total === '')) {
         errorEl.textContent =
           'Masih ada barang tanpa harga. Isi harganya dulu, atau simpan sebagai Tempo lalu lunasi setelah harganya lengkap.';
         return;
@@ -323,7 +324,17 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
         listKantongBisaKubebani(outletId).catch(() => [])
       ]);
     } catch (e) {
-      box.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
+      // Tab ini memang MATI TOTAL sebelum 0122 dijalankan — view-nya belum
+      // ada. Bedanya dengan riwayat: di sini tidak ada yang bisa diselamatkan,
+      // jadi yang penting pesannya menyebut sebabnya. "relation nota_ringkas
+      // does not exist" tidak bisa ditindaklanjuti oleh siapa pun yang berdiri
+      // di depan layar ini.
+      const pesan = String(e?.message ?? e);
+      box.innerHTML = `<p class="error-text">${
+        /nota_ringkas/.test(pesan)
+          ? 'Fitur hutang supplier belum aktif di database ini — migration 0122 belum dijalankan. Riwayat nota di tab sebelah tetap bisa dipakai seperti biasa.'
+          : esc(pesan)
+      }</p>`;
       return;
     }
 
@@ -500,18 +511,23 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
           await infoDialog({
             title: `Nota ${b.dataset.code}`,
             bodyHtml: isi.length
-              ? `<table class="data-table kartu-sempit"><thead><tr><th>Barang</th><th>Jumlah</th><th>Harga/satuan</th><th>Subtotal</th></tr></thead><tbody>${isi
+              ? `<table class="data-table kartu-sempit"><thead><tr><th>Barang</th><th>Jumlah</th><th>Harga beli</th><th>Per satuan</th></tr></thead><tbody>${isi
                   .map(
                     (i) =>
                       `<tr><td data-label="Barang">${esc(i.products?.name ?? '-')}</td>` +
                       `<td data-label="Jumlah">${formatNum(i.qty)} ${esc(i.products?.base_unit ?? '')}</td>` +
-                      `<td data-label="Harga/satuan">${
-                        i.unit_cost == null
+                      `<td data-label="Harga beli">${
+                        hargaBaris(i) == null
                           ? '<span style="color:var(--color-danger)">belum diisi</span>'
-                          : formatRupiah(i.unit_cost)
+                          : formatRupiah(hargaBaris(i))
                       }</td>` +
-                      `<td data-label="Subtotal">${
-                        i.unit_cost == null ? '-' : formatRupiah(Number(i.qty) * Number(i.unit_cost))
+                      // Turunan per-satuannya ditampilkan supaya orang bisa
+                      // memeriksa dirinya sendiri: Rp180.000 untuk 5.000 gr
+                      // adalah Rp36/gr, dan angka itu yang masuk ke biaya
+                      // rata-rata bahan. Kalau yang muncul Rp180.000/gr,
+                      // berarti kolomnya salah diisi.
+                      `<td data-label="Per satuan">${
+                        i.unit_cost == null ? '-' : `${formatRupiah(i.unit_cost)}/${esc(i.products?.base_unit ?? '')}`
                       }</td></tr>`
                   )
                   .join('')}</tbody></table>` +
@@ -653,7 +669,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
                 products,
                 showStock: false,
                 hargaSatuan: true,
-                initial: isi.map((i) => ({ product_id: i.product_id, qty: i.qty, unit_cost: i.unit_cost ?? '' }))
+                initial: isi.map((i) => ({ product_id: i.product_id, qty: i.qty, line_total: i.line_total ?? '' }))
               });
 
               // Isinya dibaca SAAT SIMPAN DITEKAN, selagi dialognya masih

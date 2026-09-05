@@ -10,7 +10,7 @@
  *   - perbandingan menolak menebak kalau salah satu sisinya belum ada.
  */
 import assert from 'node:assert/strict';
-import { rataTertimbang, hargaMaster, bandingHarga, perluDitinjau, ringkasNota } from '../js/modules/inventory/biaya-rata.js';
+import { rataTertimbang, hargaMaster, bandingHarga, perluDitinjau, ringkasNota, hargaBaris } from '../js/modules/inventory/biaya-rata.js';
 
 let lulus = 0;
 const uji = (nama, fn) => {
@@ -166,6 +166,48 @@ uji('ringkasan nota yang semuanya berharga ditandai lengkap', () => {
   const r = ringkasNota([{ qty: 2, unit_cost: 10000 }]);
   assert.equal(r.lengkap, true);
   assert.equal(r.tanpaHarga, 0);
+});
+
+// ---- 0123: angkanya HARGA BELI BARIS, bukan harga per satuan ----
+//
+// Contoh yang dilaporkan: beras 5.000 gr seharga Rp180.000. Dikali jumlahnya
+// lagi, angkanya jadi Rp900.000.000 — lima ribu kali lipat, dan tetap terlihat
+// seperti angka.
+uji('INTI 0123: line_total TIDAK dikalikan jumlahnya lagi', () => {
+  const r = ringkasNota([{ qty: 5000, line_total: 180000 }]);
+  assert.equal(r.total, 180000, 'beras 5 kg seharga 180.000 tetap 180.000, bukan 900.000.000');
+});
+
+uji('0123: line_total menang atas unit_cost kalau keduanya ada', () => {
+  const r = ringkasNota([{ qty: 5000, line_total: 180000, unit_cost: 36 }]);
+  assert.equal(r.total, 180000);
+});
+
+uji('0123: baris lama tanpa line_total tetap memakai qty x unit_cost', () => {
+  const r = ringkasNota([{ qty: 3, unit_cost: 5000 }]);
+  assert.equal(r.total, 15000, 'nota yang dibuat sebelum 0123 tidak boleh berubah totalnya');
+});
+
+uji('0123: line_total nol SAH, bukan dianggap kosong', () => {
+  // Barang bonus/sampel memang bernilai nol. `Number('')` dan `Number(null)`
+  // sama-sama 0, jadi membedakan "gratis" dari "belum diisi" adalah inti
+  // aturan ini.
+  const r = ringkasNota([{ qty: 10, line_total: 0 }]);
+  assert.equal(r.total, 0);
+  assert.equal(r.tanpaHarga, 0);
+  assert.equal(r.berharga, 1);
+});
+
+uji('0123: line_total kosong dihitung sebagai belum diisi', () => {
+  const r = ringkasNota([{ qty: 10, line_total: null }]);
+  assert.equal(r.tanpaHarga, 1);
+  assert.equal(r.berharga, 0);
+});
+
+uji('0123: hargaBaris mengembalikan null, bukan 0, saat belum diisi', () => {
+  assert.equal(hargaBaris({ qty: 10 }), null);
+  assert.equal(hargaBaris({ qty: 10, line_total: '' }), null);
+  assert.equal(hargaBaris({ qty: 10, line_total: 0 }), 0);
 });
 
 uji('masukan rusak tidak melempar', () => {

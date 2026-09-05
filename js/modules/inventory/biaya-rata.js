@@ -165,6 +165,26 @@ export function perluDitinjau(banding, ambangPersen = 10) {
 }
 
 /**
+ * Harga beli SATU baris nota (0123).
+ *
+ * `line_total` adalah angka yang diketik orang — harga beli seluruh baris,
+ * bukan per satuan. `qty * unit_cost` hanya cadangan untuk baris yang dibuat
+ * sebelum 0123.
+ *
+ * Mengembalikan `null` (bukan 0) kalau harganya belum diisi: `Number('')` dan
+ * `Number(null)` sama-sama 0, dan harga kosong yang dianggap nol tersimpan
+ * sebagai "gratis" — jebakan yang sudah beberapa kali menggigit di repo ini.
+ */
+export function hargaBaris(i) {
+  const t = angka(i?.line_total ?? i?.lineTotal);
+  if (t != null) return t;
+  const qty = angka(i?.qty);
+  const s = angka(i?.unit_cost ?? i?.unitCost);
+  if (qty == null || s == null) return null;
+  return qty * s;
+}
+
+/**
  * Ringkasan satu nota: total rupiah, dan berapa baris yang harganya kosong.
  *
  * Jumlah yang kosong disebut TERPISAH, bukan diam-diam dianggap nol. Total yang
@@ -179,13 +199,16 @@ export function ringkasNota(items) {
 
   for (const i of daftar) {
     const qty = angka(i?.qty);
-    const h = angka(i?.unit_cost ?? i?.unitCost);
     if (qty == null || qty <= 0) continue;
+    // TIDAK LAGI `qty * harga`. Sejak 0123 angkanya SUDAH harga seluruh baris;
+    // mengalikannya lagi dengan jumlah menghasilkan Rp900.000.000 untuk beras
+    // seharga Rp180.000 — dan angka itu tetap terlihat seperti angka.
+    const h = hargaBaris(i);
     if (h == null) {
       tanpaHarga++;
       continue;
     }
-    total += qty * h;
+    total += h;
     berharga++;
   }
   return { total: bulatkan(total), berharga, tanpaHarga, lengkap: tanpaHarga === 0 && berharga > 0 };
