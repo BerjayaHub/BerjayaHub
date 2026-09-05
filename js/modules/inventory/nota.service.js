@@ -17,12 +17,13 @@
 
 import { supabase } from '../../config/supabase-client.js';
 import { ambilSemua } from '../../core/ambil-semua.js';
+import { argumenRpc } from '../../core/rpc-args.js';
 
 const BUCKET = 'receipt-photos';
 
 /** Simpan nota baru. Mengembalikan id-nya; nomornya dibuat server. */
 export async function simpanNota({ outletId, receiptDate, supplier, invoiceNo, photoPath, notes, items }) {
-  const { data, error } = await supabase.rpc('simpan_nota_terima', {
+  const { data, error } = await supabase.rpc('simpan_nota_terima', argumenRpc({
     p_outlet: outletId,
     p_receipt_date: receiptDate || null,
     p_supplier: supplier || null,
@@ -34,7 +35,7 @@ export async function simpanNota({ outletId, receiptDate, supplier, invoiceNo, p
     // 0123) supaya menyimpan dan mengedit tidak pernah memakai dua pembulatan
     // yang berbeda.
     p_items: (items ?? []).map((i) => ({ product_id: i.product_id, qty: i.qty, line_total: i.line_total ?? null }))
-  });
+  }));
   if (error) throw new Error(error.message ?? String(error));
   return data;
 }
@@ -47,7 +48,7 @@ export async function simpanNota({ outletId, receiptDate, supplier, invoiceNo, p
  * `photoPath` = `null` berarti jangan sentuh fotonya; string kosong = hapus.
  */
 export async function ubahNota(id, { receiptDate, supplier, invoiceNo, photoPath, notes, items = null }) {
-  const { error } = await supabase.rpc('ubah_nota_terima', {
+  const { error } = await supabase.rpc('ubah_nota_terima', argumenRpc({
     p_id: id,
     p_receipt_date: receiptDate || null,
     // `?? null`, BUKAN `?? ''` — dan itu perbedaan yang menghapus data.
@@ -61,10 +62,30 @@ export async function ubahNota(id, { receiptDate, supplier, invoiceNo, photoPath
     // hijau, foto tersimpan, supplier lenyap.
     p_supplier: supplier ?? null,
     p_invoice_no: invoiceNo ?? null,
-    p_photo_path: photoPath,
+    // `?? null` DI SINI JUGA — dan ketiadaannya membunuh seluruh tombol Edit.
+    //
+    // ============ BUG YANG DIPERBAIKI ============
+    //
+    //   "Could not find the function public.ubah_nota_terima(p_id,
+    //    p_invoice_no, p_items, p_notes, p_receipt_date, p_supplier)
+    //    in the schema cache"
+    //
+    // Dialog Edit memanggil `ubahNota(id, { supplier, invoiceNo, items })` —
+    // tanpa menyebut foto. `photoPath` jadi `undefined`, dan **`JSON.stringify`
+    // MEMBUANG kunci yang bernilai `undefined`**. Yang sampai ke server bukan
+    // tujuh argumen dengan satu berisi NULL, melainkan ENAM argumen.
+    //
+    // PostgREST memilih fungsi berdasarkan HIMPUNAN NAMA argumen yang dikirim.
+    // Tidak ada `ubah_nota_terima` berargumen enam, jadi ia menjawab 42883 —
+    // pesan yang menyebut fungsi yang tidak pernah ada, dan tidak menyinggung
+    // sama sekali bahwa masalahnya satu kunci yang hilang di klien.
+    //
+    // Tiga kolom di atas selamat justru karena sudah ber-`?? null`. Komentar
+    // panjang di atas ditulis tentang foto, dan fotonya sendiri yang terlewat.
+    p_photo_path: photoPath ?? null,
     p_notes: notes ?? null,
     p_items: items === null ? null : items.map((i) => ({ product_id: i.product_id, qty: i.qty, line_total: i.line_total ?? null }))
-  });
+  }));
   if (error) throw new Error(error.message ?? String(error));
 }
 

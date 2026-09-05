@@ -1500,6 +1500,7 @@ node tools/audit-kelola-kantong-admin.cjs               # fitur DB yang tidak bi
 node tools/audit-hutang-nota.cjs                        # status bayar nota & pelonggaran bukti kas
 node tools/audit-harga-baris-nota.cjs                   # arti angka harga di nota (baris vs satuan)
 node tools/audit-geser-harga.cjs                        # penulisan ulang angka uang yang sudah tersimpan
+node tools/audit-argumen-rpc.cjs                        # argumen RPC yang undefined & hilang di jalan
 node tools/test-youtube-parser.mjs                      # parser link YouTube
 node tools/test-image-compress.mjs                      # skala & format kompresi foto
 ```
@@ -5219,6 +5220,30 @@ Dua hal lain yang datang dari laporan yang sama:
 Dan satu papercut yang terlihat di tangkapan layarnya: **"Mitra Plastik" dan "Mitra plastik" tampil sebagai dua supplier** dengan dua total terpisah. Orang yang menagih membawa angka yang kurang, tanpa satu pun tanda bahwa sisanya ada beberapa kartu di bawah. Pengelompokannya sekarang mengabaikan huruf besar-kecil; ejaan yang ditampilkan yang pertama ditemui.
 
 - [x] **Daftar nota bisa dicari & dimuat lebih banyak**, harga bisa diisi dari tab hutang, cara bayar bisa diubah setelah tersimpan, dan supplier beda ejaan tidak lagi terpecah
+
+## Satu `undefined`, dan yang dipanggil jadi fungsi lain
+
+> "Could not find the function public.ubah_nota_terima(p_id, p_invoice_no, p_items, p_notes, p_receipt_date, p_supplier) in the schema cache"
+
+Tujuh argumen tertulis di kode; **enam** yang sampai. Penyebabnya satu baris:
+
+```js
+p_photo_path: photoPath      // undefined saat pemanggil tidak menyebut foto
+```
+
+`JSON.stringify` **membuang** kunci bernilai `undefined` — tanpa peringatan, tanpa error, tanpa jejak di sisi klien. Dan PostgREST memilih fungsi berdasarkan **himpunan nama argumen** yang diterimanya. Jadi satu `undefined` tidak berarti "argumen ini NULL"; ia berarti *"panggil fungsi lain"*.
+
+Yang terjadi di sini adalah bentuk yang keras: tidak ada `ubah_nota_terima` berargumen enam, jadi galatnya menyebut fungsi yang tidak pernah ada dan tidak menyinggung sama sekali bahwa masalahnya satu kunci hilang di klien. Bentuk yang lebih buruk tinggal menunggu: kalau fungsi berargumen-kurang itu **kebetulan ada** — versi lama yang belum di-drop, atau yang parameternya ber-`DEFAULT` — panggilannya **berhasil**, mengerjakan hal yang berbeda, dan tidak ada satu pun error.
+
+Yang pahit: komentar panjang tepat di atas baris itu ditulis khusus tentang `?? null` dan bahaya field yang tidak disebut — untuk `p_supplier`, `p_invoice_no`, dan `p_notes`. Ketiganya selamat. **Fotonya, yang jadi contoh di komentar itu, yang terlewat.**
+
+### Kenapa auditnya tidak menyeluruh
+
+Menuntut `?? null` pada setiap argumen RPC menyentuh **141 tempat** di repo ini, hampir semuanya id wajib yang tidak pernah `undefined`. Aturan sebising itu akan diabaikan, dan aturan yang diabaikan lebih buruk daripada tidak ada.
+
+Jadi penjagaannya di `js/core/rpc-args.js` — `argumenRpc()` mengubah `undefined` jadi `null` di satu tempat — dan tesnya menirukan perjalanan yang sesungguhnya (`JSON.parse(JSON.stringify(...))`), termasuk satu pemeriksaan yang membuktikan bahwa tanpa penjagaan itu kuncinya **memang** hilang. Auditnya menuntut kedua RPC nota memakainya, dan `?? null` tetap ada sebagai lapis kedua: `argumenRpc` menjaga **bentuknya**, `?? null` menjaga **artinya** tetap "jangan sentuh" alih-alih string kosong yang berarti "hapus".
+
+- [x] **Argumen RPC tidak bisa hilang di jalan** — `argumenRpc()`, diuji lewat `JSON.stringify` yang sesungguhnya
 
 ## Kolom baru yang menyandera seluruh layar
 
