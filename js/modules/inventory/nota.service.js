@@ -46,10 +46,19 @@ export async function ubahNota(id, { receiptDate, supplier, invoiceNo, photoPath
   const { error } = await supabase.rpc('ubah_nota_terima', {
     p_id: id,
     p_receipt_date: receiptDate || null,
-    p_supplier: supplier ?? '',
-    p_invoice_no: invoiceNo ?? '',
+    // `?? null`, BUKAN `?? ''` — dan itu perbedaan yang menghapus data.
+    //
+    // Servernya membedakan NULL ("jangan sentuh") dari string kosong ("hapus").
+    // Mengubah `undefined` jadi `''` di sini berarti tiap pemanggil yang tidak
+    // menyebut sebuah kolom secara diam-diam MEMINTA kolom itu dikosongkan.
+    //
+    // Jalur "+ Foto" persis begitu: ia cuma mengirim `photoPath`, dan tiga
+    // kolom lain — nama supplier, no. invoice, catatan — ikut terhapus. Toast
+    // hijau, foto tersimpan, supplier lenyap.
+    p_supplier: supplier ?? null,
+    p_invoice_no: invoiceNo ?? null,
     p_photo_path: photoPath,
-    p_notes: notes ?? '',
+    p_notes: notes ?? null,
     p_items: items === null ? null : items.map((i) => ({ product_id: i.product_id, qty: i.qty, unit_cost: i.unit_cost ?? null }))
   });
   if (error) throw new Error(error.message ?? String(error));

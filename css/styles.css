@@ -2514,10 +2514,18 @@ select.sc-cell.is-off {
   color: var(--color-warning, #8a5800);
 }
 
-/* Kotak harga satuan di baris item picker. Dibatasi lebarnya supaya barisnya
-   tetap muat di layar HP bersama nama produk dan jumlahnya. */
+/* Kotak harga satuan di baris item picker, dengan awalan "Rp".
+
+   Awalannya elemen TERPISAH, bukan bagian dari nilai isiannya. Menaruh "Rp" di
+   dalam `value` berarti tiap kali orang menghapus dari depan ia bisa
+   memakannya, dan parser harus menebak apakah yang tersisa masih Rupiah. */
+.picker-row .pf-rp {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin-left: 2px;
+}
 .picker-row .pf-harga {
-  max-width: 120px;
+  max-width: 110px;
   margin: 0;
 }
 

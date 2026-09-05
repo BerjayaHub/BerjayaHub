@@ -13,7 +13,7 @@
  * membaca angka jumlahnya.
  */
 
-import { toast, infoDialog } from '../../core/ui.js';
+import { toast, infoDialog, formDialog } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { todayWIB } from '../../core/dates.js';
@@ -192,6 +192,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
                 }</td>
                 <td data-label="Aksi">
                   <button class="nota-isi" data-id="${n.id}" data-code="${esc(n.code)}">Isi</button>
+                  <button class="nota-edit" data-id="${n.id}" data-code="${esc(n.code)}">Edit</button>
                   <button class="nota-tambah-foto" data-id="${n.id}" data-code="${esc(n.code)}">${n.photo_path ? 'Ganti foto' : '+ Foto'}</button>
                 </td>
               </tr>`
@@ -216,15 +217,133 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
           await infoDialog({
             title: `Nota ${b.dataset.code}`,
             bodyHtml: isi.length
-              ? `<table class="data-table kartu-sempit"><thead><tr><th>Barang</th><th>Jumlah</th></tr></thead><tbody>${isi
+              ? `<table class="data-table kartu-sempit"><thead><tr><th>Barang</th><th>Jumlah</th><th>Harga/satuan</th><th>Subtotal</th></tr></thead><tbody>${isi
                   .map(
                     (i) =>
                       `<tr><td data-label="Barang">${esc(i.products?.name ?? '-')}</td>` +
-                      `<td data-label="Jumlah">${formatNum(i.qty)} ${esc(i.products?.base_unit ?? '')}</td></tr>`
+                      `<td data-label="Jumlah">${formatNum(i.qty)} ${esc(i.products?.base_unit ?? '')}</td>` +
+                      `<td data-label="Harga/satuan">${
+                        i.unit_cost == null
+                          ? '<span style="color:var(--color-danger)">belum diisi</span>'
+                          : formatRupiah(i.unit_cost)
+                      }</td>` +
+                      `<td data-label="Subtotal">${
+                        i.unit_cost == null ? '-' : formatRupiah(Number(i.qty) * Number(i.unit_cost))
+                      }</td></tr>`
                   )
-                  .join('')}</tbody></table>`
+                  .join('')}</tbody></table>` +
+                (() => {
+                  // Total & berapa baris yang belum berharga — persis seperti di
+                  // form isian. Dua tempat yang menampilkan hal yang sama harus
+                  // memakai perhitungan yang sama, kalau tidak orang akan
+                  // menemukan dua total berbeda untuk satu nota.
+                  const r = ringkasNota(isi);
+                  return `<p style="margin:8px 0 0;font-size:0.86rem">Total nota: <strong>${formatRupiah(r.total)}</strong>${
+                    r.tanpaHarga
+                      ? `<br /><span class="nota-total-kurang">${r.tanpaHarga} barang belum diisi harganya — tekan <strong>Edit</strong> untuk melengkapinya.</span>`
+                      : ''
+                  }</p>`;
+                })()
               : '<p>Nota ini tidak berisi barang.</p>'
           });
+        })
+      )
+    );
+
+    // ---- EDIT NOTA: pop up, sama bentuknya dengan "Isi" ----
+    //
+    // Nota yang sudah tersimpan tetap bisa diperbaiki, dan itu memang
+    // diperlukan: harga sering baru diketahui belakangan (nota fisiknya
+    // menyusul), dan jumlah bisa salah ketik.
+    //
+    // BARANGNYA TIDAK BISA DITAMBAH DI SINI, hanya diubah atau dinolkan. Itu
+    // batas yang disengaja: menambah barang berarti nota fisiknya berbeda dari
+    // yang tercatat, dan itu nota baru — bukan koreksi. Menyamarkannya sebagai
+    // edit membuat satu nomor nota memuat dua kiriman yang berbeda.
+    box.querySelectorAll('.nota-edit').forEach((b) =>
+      b.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const nota = daftar.find((n) => n.id === b.dataset.id);
+          let isi;
+          try {
+            isi = await itemNota(b.dataset.id);
+          } catch (e) {
+            toast(e.message ?? 'Isi nota gagal dimuat.', 'error');
+            return;
+          }
+          if (!isi.length) {
+            toast('Nota ini tidak berisi barang, jadi tidak ada yang bisa diubah.', 'warning');
+            return;
+          }
+
+          // Nama field memakai INDEKS, bukan product_id.
+          //
+          // `form.elements[nama]` memperlakukan nama yang mengandung karakter
+          // aneh dengan caranya sendiri, dan UUID berisi tanda hubung. Indeks
+          // membuat nama fieldnya pasti, dan pemetaan kembali ke produknya
+          // dikerjakan dari array yang sama yang dipakai menggambarnya.
+          const fields = [
+            { name: 'supplier', label: 'Supplier', type: 'text', value: nota?.supplier ?? '' },
+            { name: 'invoice', label: 'No. Invoice', type: 'text', value: nota?.invoice_no ?? '' }
+          ];
+          isi.forEach((i, idx) => {
+            const satuan = i.products?.base_unit ?? '';
+            fields.push({
+              name: `qty${idx}`,
+              label: `${i.products?.name ?? 'Barang'} — jumlah (${satuan})`,
+              type: 'qty',
+              value: i.qty
+            });
+            fields.push({
+              name: `harga${idx}`,
+              label: `${i.products?.name ?? 'Barang'} — harga per ${satuan}`,
+              type: 'rupiah',
+              value: i.unit_cost ?? '',
+              placeholder: 'kosongkan kalau belum tahu'
+            });
+          });
+
+          const nilai = await formDialog({
+            title: `Edit Nota ${b.dataset.code}`,
+            description:
+              'Jumlah 0 berarti barang itu dibatalkan dari nota ini — stoknya ikut dikembalikan. ' +
+              'Harga boleh dikosongkan kalau memang belum tahu; yang kosong tidak ikut menghitung biaya rata-rata bahan.',
+            fields,
+            submitText: 'Simpan Perubahan'
+          });
+          if (!nilai) return;
+
+          const items = isi
+            .map((i, idx) => ({
+              product_id: i.product_id,
+              qty: Number(nilai[`qty${idx}`] ?? 0),
+              unit_cost: nilai[`harga${idx}`]
+            }))
+            // Jumlah 0 dibuang dari daftar, dan servernya membaca ketiadaannya
+            // sebagai "dibatalkan" lalu membuat pergerakan penyeimbang negatif
+            // (0084). Mengirimnya sebagai qty 0 justru DILEWATI server tanpa
+            // efek apa pun — barangnya tetap ada, dan orangnya mengira sudah
+            // membatalkannya.
+            .filter((i) => i.qty > 0);
+
+          if (!items.length) {
+            toast('Nota harus menyisakan minimal satu barang. Kalau seluruhnya salah, buat nota baru.', 'warning');
+            return;
+          }
+
+          try {
+            await ubahNota(b.dataset.id, {
+              supplier: nilai.supplier,
+              invoiceNo: nilai.invoice,
+              items
+            });
+          } catch (e) {
+            toast(e.message ?? 'Gagal menyimpan perubahan.', 'error');
+            return;
+          }
+          toast(`Nota ${b.dataset.code} diperbarui.`, 'success');
+          gambarRiwayat();
         })
       )
     );

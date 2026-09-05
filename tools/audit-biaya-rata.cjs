@@ -72,12 +72,28 @@ if (picker) {
         'biaya rata-rata seolah-olah pembelian sungguhan.'
     );
   }
-  // Kosong tetap kosong, bukan nol.
-  if (!/unit_cost:\s*e\.unit_cost == null \|\| e\.unit_cost === ''/.test(kode)) {
+  // Kosong tetap kosong, bukan nol — dan itu dijamin `bacaRupiah`, yang
+  // mengembalikan `null` untuk isian kosong (lihat test-rupiah-desimal.mjs).
+  if (!/unit_cost:\s*bacaRupiah\(/.test(kode)) {
     salah(
-      "js/modules/dispatch/item-picker.js: `unit_cost` kosong tidak dijaga terhadap `Number('')`. " +
-        '`Number("")` adalah 0, bukan NaN — harga yang belum diisi akan tersimpan sebagai "gratis", ' +
-        'dan biaya rata-rata bahan itu anjlok tanpa satu pun tanda bahwa ada yang salah.'
+      "js/modules/dispatch/item-picker.js: `unit_cost` tidak dibaca lewat `bacaRupiah`. " +
+        'Isiannya sekarang teks berformat ("13.800,5"), jadi `Number()` langsung menghasilkan NaN — ' +
+        'dan untuk isian KOSONG, `Number("")` menghasilkan 0, yang tersimpan sebagai "barangnya gratis" ' +
+        'lalu ikut menimbang biaya rata-rata.'
+    );
+  }
+  // Kotak angka bawaan browser menolak titik ribuan dan mengosongkan dirinya.
+  if (/class="pf-harga"[^>]*type="number"|type="number"[^>]*class="pf-harga"/.test(kode)) {
+    salah(
+      'js/modules/dispatch/item-picker.js: kotak harga memakai `type="number"`. ' +
+        'Begitu titik ribuan diketik, browser menganggap isinya tidak sah dan `.value` jadi string ' +
+        'kosong — seluruh angka yang sudah diketik lenyap tanpa satu pun tanda.'
+    );
+  }
+  if (!/attachRupiahInput\(/.test(kode)) {
+    salah(
+      'js/modules/dispatch/item-picker.js: `attachRupiahInput` tidak dipasang. ' +
+        'Pemisah ribuannya tidak akan pernah muncul saat mengetik.'
     );
   }
 }
@@ -178,6 +194,61 @@ if (invPage) {
         'Ia cuma pembanding — stok yang tidak tampil karena harga gagal dimuat adalah pertukaran ' +
         'yang jelas merugikan.'
     );
+  }
+}
+
+
+// ---------------------------------------------------------------
+// 5. Nota yang sudah tersimpan tetap bisa diperbaiki.
+//
+// Harga sering baru diketahui belakangan (nota fisiknya menyusul), dan jumlah
+// bisa salah ketik. Tanpa jalan memperbaikinya, satu-satunya cara adalah
+// membuat nota baru — dan stok jadi terhitung dua kali.
+// ---------------------------------------------------------------
+if (notaStaff) {
+  const kode = tanpaKomentar(notaStaff);
+  if (!/class="nota-edit"/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: tidak ada tombol Edit di riwayat nota. ' +
+        'Harga yang baru diketahui belakangan tidak punya jalan masuk, dan satu-satunya cara ' +
+        'memperbaiki salah ketik adalah membuat nota baru — yang menghitung stoknya dua kali.'
+    );
+  }
+  if (!/type:\s*'rupiah'/.test(kode)) {
+    salah(
+      "js/modules/inventory/nota-staff.js: dialog edit tidak memakai field `type: 'rupiah'`. " +
+        "`money` membuang desimalnya — harga Rp13,80/gram tersimpan sebagai Rp1.380, seratus kali lipat."
+    );
+  }
+  // Baris berjumlah 0 harus DIBUANG dari daftar, bukan dikirim sebagai 0.
+  if (!/\.filter\(\(i\) => i\.qty > 0\)/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: baris berjumlah 0 tidak dibuang sebelum dikirim. ' +
+        'Server MELEWATI item berjumlah 0 tanpa efek apa pun (0084), jadi barangnya tetap ada ' +
+        'sementara orangnya mengira sudah membatalkannya. Yang membatalkan adalah KETIADAANNYA di daftar.'
+    );
+  }
+}
+
+// ---------------------------------------------------------------
+// 6. Service tidak boleh mengubah `undefined` jadi string kosong.
+// ---------------------------------------------------------------
+const notaSvc = baca('js/modules/inventory/nota.service.js');
+if (notaSvc) {
+  const kode = tanpaKomentar(notaSvc);
+  for (const [param, kolom] of [
+    ['p_supplier', 'nama supplier'],
+    ['p_invoice_no', 'no. invoice'],
+    ['p_notes', 'catatan']
+  ]) {
+    if (new RegExp(`${param}:\\s*\\w+\\s*\\?\\?\\s*''`).test(kode)) {
+      salah(
+        `js/modules/inventory/nota.service.js: \`${param}\` memakai \`?? ''\`. ` +
+          `Servernya membedakan NULL ("jangan sentuh") dari string kosong ("hapus"), jadi pemanggil ` +
+          `yang tidak menyebut ${kolom} akan diam-diam MEMINTA kolom itu dikosongkan. ` +
+          'Itu persis bug "+ Foto menghapus nama supplier".'
+      );
+    }
   }
 }
 

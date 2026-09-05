@@ -1,5 +1,5 @@
 import { renderSearchSelect, wireSearchSelect } from '../../core/ui.js';
-import { formatNum } from '../../core/format.js';
+import { formatNum, formatRibuanDesimal, bacaRupiah, attachRupiahInput } from '../../core/format.js';
 
 /**
  * Komponen pemilih produk untuk form Order / Kirim / Transfer.
@@ -109,9 +109,18 @@ export function createItemPicker(
           // hanya akan diisi orang dengan tebakan, lalu tebakan itu masuk ke
           // rata-rata biaya seolah-olah pembelian sungguhan.
           hargaSatuan
-            ? `<input type="number" class="pf-harga" min="0" step="any" placeholder="harga/${esc(
+            ? // `type="text"` + `inputmode="decimal"`, BUKAN `type="number"`.
+              //
+              // Kotak angka bawaan browser MENOLAK titik ribuan — begitu "13."
+              // diketik, isinya dianggap tidak sah dan `.value` jadi string
+              // kosong. Seluruh angka yang sudah diketik lenyap, tanpa satu pun
+              // tanda bahwa itu terjadi.
+              //
+              // `inputmode="decimal"` tetap memunculkan papan angka di HP, yang
+              // memang satu-satunya alasan `type="number"` menggoda di sini.
+              `<span class="pf-rp">Rp</span><input type="text" inputmode="decimal" class="pf-harga" placeholder="harga/${esc(
                 p?.base_unit ?? 'satuan'
-              )}" value="${entry.unit_cost ?? ''}" title="Harga per ${esc(
+              )}" value="${esc(formatRibuanDesimal(entry.unit_cost ?? ''))}" title="Harga per ${esc(
                 p?.base_unit ?? 'satuan'
               )} menurut nota supplier — boleh dikosongkan kalau belum tahu" />`
             : ''
@@ -134,6 +143,10 @@ export function createItemPicker(
       stockEl.textContent = p ? `${formatNum(stockMap.get(p.id) ?? 0)} ${p.base_unit}${kur ? ' ⚠' : ''}` : '–';
       stockEl.classList.toggle('pf-kurang', kur);
     };
+
+    // Pemisah ribuan hidup saat mengetik. Dipasang per baris karena barisnya
+    // digambar ulang tiap kali saringan kategori berubah.
+    attachRupiahInput(row.querySelector('.pf-harga'));
 
     wireSearchSelect(widget, opts, segarkanStok);
     // Diperbarui SAAT MENGETIK, bukan saat menyimpan. Peringatan yang baru
@@ -188,7 +201,7 @@ export function createItemPicker(
           // 0, harga yang belum diisi tersimpan sebagai "gratis" — dan biaya
           // rata-rata bahan itu anjlok tanpa satu pun tanda bahwa ada yang
           // salah. Jebakan yang sama sudah beberapa kali menggigit di repo ini.
-          unit_cost: e.unit_cost == null || e.unit_cost === '' ? null : Number(e.unit_cost)
+          unit_cost: bacaRupiah(e.unit_cost)
         }))
         .filter((i) => i.product_id && i.qty > 0),
     /** Dipanggil layar untuk menggambar ulang totalnya saat harga diketik. */

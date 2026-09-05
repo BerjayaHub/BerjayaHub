@@ -5048,6 +5048,38 @@ Akarnya satu, dan letaknya di satu baris. Penangan ganti-outlet memanggil `refre
 
 Sapuan ke 40 penangan ganti-outlet di seluruh modul menemukan satu kandidat lain, `menipis.admin.js`, dan itu **bukan** bug: `products`/`recipes` di sana dikunci ke BU, bukan outlet, dan yang memang milik outlet (`saldo`, `batasManual`, `porsiMinimumOutlet`) sudah diambil ulang tiap kali. Pemindai sapuannya sendiri sempat hijau palsu karena regexnya tidak cocok dengan bentuk `container.querySelector('#as-outlet').addEventListener(...)` — **hijau karena sasarannya tidak ketemu**, pola kegagalan yang di repo ini sudah berulang kali muncul dan sekarang selalu dijawab dengan ambang minimum jumlah sasaran.
 
+## Nota bisa diedit, harganya berformat Rupiah — dan satu bug yang menghapus supplier
+
+Tiga revisi yang diminta, plus satu temuan di jalan.
+
+### Kotak harga: `Rp` + pemisah ribuan, tapi tetap boleh pecahan
+
+`formatThousands` yang sudah ada membuang **semua** non-digit. Cocok untuk rupiah bulat, menghancurkan harga per satuan-pakai: cabai Rp13,80/gram tersimpan sebagai **Rp1.380** — seratus kali lipat, tanpa satu pun tanda. Jadi ada pasangan sendiri (`formatRibuanDesimal` / `bacaRupiah`) yang mempertahankan satu koma desimal.
+
+Kotaknya `type="text"` + `inputmode="decimal"`, **bukan** `type="number"`. Kotak angka bawaan browser menolak titik ribuan: begitu `13.` diketik, isinya dianggap tidak sah dan `.value` jadi string kosong — seluruh angka yang sudah diketik lenyap. `inputmode` tetap memunculkan papan angka di HP, yang memang satu-satunya alasan `type="number"` menggoda.
+
+Dan `bacaRupiah('')` mengembalikan **`null`, bukan 0**. Nol berarti barangnya gratis, dan itu ikut menimbang biaya rata-rata.
+
+### Nota bisa diedit lewat pop up
+
+Tombol **Edit** di riwayat, dialognya sebentuk dengan "Isi". Bisa mengubah jumlah, harga, supplier, dan no. invoice. Panel "Isi" sekarang juga menampilkan harga, subtotal, dan total notanya.
+
+Satu batas yang disengaja: **barang tidak bisa ditambah di situ**, hanya diubah atau dinolkan. Menambah barang berarti nota fisiknya berbeda dari yang tercatat — itu nota baru, bukan koreksi. Dan jumlah 0 **dibuang dari daftar**, bukan dikirim sebagai 0: server melewati item berjumlah 0 tanpa efek apa pun (`0084`), jadi mengirimnya berarti barangnya tetap ada sementara orangnya mengira sudah membatalkannya. Yang membatalkan adalah *ketiadaannya* di daftar.
+
+### Bug yang ditemukan di jalan: "+ Foto" menghapus nama supplier
+
+`ubah_nota_terima` menimpa `supplier`, `invoice_no`, dan `notes` **tanpa syarat**. Layar yang cuma menambahkan foto tidak menyebut ketiganya, service mengubah `undefined` jadi `''`, dan `nullif('','')` menjadikannya NULL.
+
+Jadi menekan "+ Foto" pada nota berisi *"Gerobak Telur"* menghapus nama supplier itu. Tombolnya bernama "+ Foto", toast-nya hijau, fotonya benar-benar tersimpan — dan satu-satunya yang berubah selain foto adalah tiga kolom yang tidak pernah disebut siapa pun. Baru ketahuan saat ada yang mencocokkan tagihan, dan pada saat itu nama yang terhapus sudah tidak bisa diketahui.
+
+Aturannya sudah ada dan sudah benar untuk `photo_path` sejak `0084`. Yang salah: ia hanya dipakai pada **satu** kolom, sementara pemanggilnya memperlakukan keempatnya sama. `0119` menyamakannya, dan service berhenti mengubah `undefined` jadi `''` — keduanya diperlukan, karena PWA lama di HP staff masih memakai jalur lama sampai ia memperbarui diri.
+
+Dua sabotase awalnya lolos, keduanya lubang di data tes saya: §4 memakai bahan yang sudah dibeli tiga kali di §1–§3 (jadi 33,75 justru benar, harapan tesnya yang salah), dan aturan `photo_path` **tidak pernah diuji sama sekali** — tidak ada satu kasus pun yang punya foto lalu diedit tanpa menyebut foto. Aturannya sudah benar sejak `0084`; yang tidak ada adalah tesnya.
+
+- [x] **Kotak harga berformat Rupiah** dengan desimal koma — `type: 'rupiah'` di `formDialog`, dan `attachRupiahInput` di item picker
+- [x] **Nota bisa diedit lewat pop up** — jumlah, harga, supplier, no. invoice; koreksi harga langsung menggeser biaya rata-rata
+- [x] **"+ Foto" berhenti menghapus supplier/invoice/catatan** (`0119`)
+
 ## Harga beli dari nota, dan biaya rata-rata bahan per outlet
 
 > "di modul bahan, sisi staff app, apakah benar tidak ada input harga di terima dari supplier ... dan harga ini berpengaruh ke cost rata rata bahan"

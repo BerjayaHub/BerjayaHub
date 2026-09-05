@@ -5,7 +5,7 @@ import { dorongLapis, pasangPenanyaKeluar, bersihkanIsian } from './navigasi.js'
 // supaya gaya notifikasi/pop up konsisten di seluruh aplikasi.
 // =========================================================
 
-import { formatThousands, parseNumber, attachThousandsInput } from './format.js';
+import { formatThousands, parseNumber, attachThousandsInput, formatRibuanDesimal, bacaRupiah, attachRupiahInput } from './format.js';
 import { photoInputHtml, wirePhotoInput } from './photo-input.js';
 
 // ---- Toast / pop up notifikasi ----
@@ -186,6 +186,13 @@ export function formDialog({
 
     // Auto-format ribuan untuk field 'money' & 'qty'.
     fields.filter((f) => f.type === 'money' || f.type === 'qty').forEach((f) => attachThousandsInput(form.elements[f.name]));
+    // `rupiah` DIPISAH dari `money`, dan bukan karena rewel.
+    //
+    // `money` membuang semua non-digit, jadi ia hanya benar untuk rupiah bulat.
+    // Harga bahan per satuan-pakai tidak bulat — cabai Rp13,80/gram akan
+    // tersimpan sebagai Rp1.380 di kotak `money`, seratus kali lipat, tanpa
+    // satu pun tanda bahwa itu terjadi.
+    fields.filter((f) => f.type === 'rupiah').forEach((f) => attachRupiahInput(form.elements[f.name]));
 
     // Aktifkan search-select fuzzy. `f.onChange` dipakai untuk field bertingkat
     // (mis. Merk -> Tipe): opsi field turunan cukup di-mutate di tempat
@@ -235,6 +242,11 @@ export function formDialog({
         } else if (f.type === 'money' || f.type === 'qty') {
           rawEmpty = String(input.value).trim() === '';
           values[f.name] = parseNumber(input.value);
+        } else if (f.type === 'rupiah') {
+          rawEmpty = String(input.value).trim() === '';
+          // `null` untuk kosong, BUKAN 0 — nol berarti barangnya gratis, dan
+          // pemanggil harus bisa membedakan keduanya.
+          values[f.name] = bacaRupiah(input.value);
         } else {
           values[f.name] = typeof input.value === 'string' ? input.value.trim() : input.value;
           rawEmpty = values[f.name] === '' || values[f.name] == null;
@@ -557,6 +569,20 @@ function fieldHtml(f) {
           <span class="money-prefix">Rp</span>
           <input type="text" inputmode="numeric" id="${id}" name="${escapeAttr(f.name)}"
             value="${escapeAttr(formatThousands(f.value ?? ''))}" ${f.required ? 'required' : ''}
+            ${f.placeholder ? `placeholder="${escapeAttr(f.placeholder)}"` : ''} />
+        </div>
+        ${help}
+      </div>`;
+  }
+
+  if (f.type === 'rupiah') {
+    return `
+      <div class="field">
+        <label for="${id}">${escapeHtml(f.label)}</label>
+        <div class="money-wrap">
+          <span class="money-prefix">Rp</span>
+          <input type="text" inputmode="decimal" id="${id}" name="${escapeAttr(f.name)}"
+            value="${escapeAttr(formatRibuanDesimal(f.value ?? ''))}" ${f.required ? 'required' : ''}
             ${f.placeholder ? `placeholder="${escapeAttr(f.placeholder)}"` : ''} />
         </div>
         ${help}
