@@ -18,6 +18,8 @@ import { formatNum } from '../../core/format.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { todayWIB } from '../../core/dates.js';
 import { createItemPicker } from '../dispatch/item-picker.js';
+import { ringkasNota } from './biaya-rata.js';
+import { formatRupiah } from '../../core/format.js';
 import { simpanNota, ubahNota, riwayatNota, itemNota, unggahFotoNota, urlFotoNota } from './nota.service.js';
 
 const esc = (s) =>
@@ -69,6 +71,8 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
         <input type="text" id="nota-catatan" placeholder="mis. sebagian barang menyusul" autocomplete="off" />
       </div>
 
+      <div id="nota-total" class="nota-total"></div>
+
       <button class="primary" id="nota-simpan" style="max-width:220px;margin-top:6px">Simpan Nota</button>
       <p class="error-text" id="nota-error"></p>
 
@@ -76,8 +80,43 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
       <div id="nota-riwayat">${loadingHtml('Memuat riwayat…', { baris: 2 })}</div>
     </div>`;
 
-  const picker = createItemPicker(wadah.querySelector('#nota-picker'), { products, showStock: false });
+  const picker = createItemPicker(wadah.querySelector('#nota-picker'), {
+    products,
+    showStock: false,
+    // Harga satuan menurut nota supplier. Dari sinilah biaya rata-rata bahan
+    // per outlet dihitung (0118). Layar lain yang memakai picker ini —
+    // order ke CK, transfer, retur — TIDAK menyalakannya: barangnya berpindah
+    // antar outlet, bukan dibeli, dan harga yang ditebak di sana akan masuk ke
+    // rata-rata seolah-olah pembelian sungguhan.
+    hargaSatuan: true
+  });
   const errorEl = wadah.querySelector('#nota-error');
+  const totalEl = wadah.querySelector('#nota-total');
+
+  /**
+   * Total nota, dan berapa baris yang harganya belum diisi.
+   *
+   * Jumlah yang kosong disebut TERPISAH. Total yang terlihat wajar padahal
+   * separuh barisnya belum berharga adalah angka yang paling mudah dipercaya
+   * dan paling salah — dan orang yang mencocokkannya dengan tagihan supplier
+   * akan menyimpulkan supplier-nya yang keliru.
+   */
+  function gambarTotal() {
+    const r = ringkasNota(picker.getItems());
+    if (!r.berharga && !r.tanpaHarga) {
+      totalEl.innerHTML = '';
+      return;
+    }
+    totalEl.innerHTML = `
+      <span>Total nota: <strong>${formatRupiah(r.total)}</strong></span>
+      ${
+        r.tanpaHarga
+          ? `<span class="nota-total-kurang">${r.tanpaHarga} barang belum diisi harganya — tidak ikut dihitung, dan tidak memengaruhi biaya rata-rata bahannya.</span>`
+          : ''
+      }`;
+  }
+  picker.onUbah(gambarTotal);
+  gambarTotal();
 
   wadah.querySelector('#nota-tutup').addEventListener('click', () => {
     wadah.innerHTML = '';

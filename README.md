@@ -5048,6 +5048,44 @@ Akarnya satu, dan letaknya di satu baris. Penangan ganti-outlet memanggil `refre
 
 Sapuan ke 40 penangan ganti-outlet di seluruh modul menemukan satu kandidat lain, `menipis.admin.js`, dan itu **bukan** bug: `products`/`recipes` di sana dikunci ke BU, bukan outlet, dan yang memang milik outlet (`saldo`, `batasManual`, `porsiMinimumOutlet`) sudah diambil ulang tiap kali. Pemindai sapuannya sendiri sempat hijau palsu karena regexnya tidak cocok dengan bentuk `container.querySelector('#as-outlet').addEventListener(...)` — **hijau karena sasarannya tidak ketemu**, pola kegagalan yang di repo ini sudah berulang kali muncul dan sekarang selalu dijawab dengan ambang minimum jumlah sasaran.
 
+## Harga beli dari nota, dan biaya rata-rata bahan per outlet
+
+> "di modul bahan, sisi staff app, apakah benar tidak ada input harga di terima dari supplier ... dan harga ini berpengaruh ke cost rata rata bahan"
+
+Benar — dan bentuknya yang sudah berulang di repo ini: `goods_receipt_items.unit_cost` **sudah ada sejak `0084`**, RPC-nya sudah menerimanya, `laporan-nota.js` sudah membacanya. Yang tidak pernah ada cuma kotak isiannya, jadi kolom itu selalu NULL.
+
+### Tiga keputusan, dan satu di antaranya membuat dua lainnya murah
+
+Iko memilih: **per outlet**, **jadi pembanding dulu**, **rata-rata tertimbang stok**. Pilihan kedua yang membuat yang pertama murah — karena angkanya tidak masuk HPP, mesin HPP, Profitabilitas, BEP, dan halaman Owner semuanya tetap berskala BU dan **tidak disentuh sama sekali**.
+
+HPP tetap memakai `purchase_price / purchase_qty` di Master Produk. Rata-rata nota ditampilkan di sebelahnya dengan selisih dan persennya; admin yang memutuskan kapan memperbarui master. Kalau ia langsung masuk HPP, satu salah ketik harga menggeser HPP, margin, dan pertimbangan harga jual seluruh menu yang memakai bahan itu — tanpa seorang pun menyetujuinya.
+
+### Diputar ulang, bukan ditambahkan sedikit-sedikit
+
+Rata-rata tertimbang bergantung pada urutan. Cara yang paling menggoda adalah memperbarui angkanya tiap kali nota disimpan — tapi nota **bisa diedit**, dan sesudah satu edit angka semacam itu tidak bisa diperbaiki tanpa mengulang seluruhnya. Yang terjadi adalah angka yang tetap terlihat wajar sambil diam-diam salah.
+
+Jadi `hitung_biaya_rata()` memutar ulang dari `stock_movements` tiap kali. Untuk satu bahan di satu outlet itu murah, dan hasilnya selalu cocok dengan riwayat apa pun yang terjadi padanya.
+
+Satu celah ditemukan saat menulis ini: kalau **hanya harganya** yang dikoreksi (jumlahnya tetap), `ubah_nota_terima` tidak membuat pergerakan apa pun — jadi `stock_movements` tetap memegang harga lama. Layar nota menampilkan harga yang sudah dibetulkan sementara biaya rata-ratanya masih dihitung dari yang salah. `0118` menulis ulang fungsi itu supaya koreksinya sampai.
+
+### Pemotong komentar di audit ternyata memakan kode
+
+Menambahkan audit baru membuka masalah yang sudah lama diam. Beberapa audit menyalin pemotong komentar dua-baris yang sama, dan pemotong itu memperlakukan `/*` **di dalam string** sebagai awal komentar:
+
+```html
+<input type="file" accept="image/*" />
+```
+
+`/*` itu menelan 37 baris kode sampai `*/` JSDoc berikutnya. Pengukuran pada empat berkas yang dipindai audit: **266, 292, 410, dan 776 karakter kode** dimakan diam-diam.
+
+Arah kegagalannya yang membuatnya berbahaya. Pemeriksaan "harus ada X" jadi **merah** pada kode yang benar — menjengkelkan, tapi terlihat. Pemeriksaan **"X dilarang"** jadi **hijau** karena kodenya sudah terlanjur terhapus — larangannya berhenti berlaku dan tidak ada yang tahu. Persis bentuk kegagalan yang paling sering dikejar di repo ini.
+
+Sekarang ada `tools/lib/tanpa-komentar.cjs`: pemindai karakter yang menghormati `'`, `"`, dan `` ` ``, dipakai bersama tiga audit. Batasnya ditulis terus terang — ia bukan parser JS dan tidak mengenali regex literal. Menulis penjelasannya sendiri sempat menutup blok JSDoc-nya dua kali, karena penjelasannya memuat urutan bintang-garis-miring.
+
+- [x] **Harga satuan di nota terima** (Staff App) — opt-in di item picker, jadi transfer & retur tidak ikut punya kotak harga; total nota disebut beserta berapa baris yang belum berharga
+- [x] **Biaya rata-rata bahan per outlet** (`0118`) — tertimbang stok, diputar ulang dari riwayat, tampil sebagai **pembanding** di tabel Bahan. **HPP tidak bergeser sedikit pun**
+- [x] **Pemotong komentar audit diperbaiki** — versi lama memakan sampai 776 karakter kode per berkas, dan pada pemeriksaan larangan itu berarti lolos diam-diam
+
 ## Cuti: WhatsApp seisi Telegram, dan admin bisa mempersempit tanggalnya
 
 Dua permintaan yang ternyata saling menyambung.

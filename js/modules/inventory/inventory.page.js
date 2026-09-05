@@ -1,7 +1,8 @@
 import { toast, formDialog, confirmDialog, fuzzyMatch } from '../../core/ui.js';
-import { formatNum } from '../../core/format.js';
+import { bandingHarga, perluDitinjau } from './biaya-rata.js';
+import { formatNum, formatRupiah } from '../../core/format.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
-import { getOutletStockMap, recordMovement, getAllowStaffOpname, recordMenuWaste } from './inventory.service.js';
+import { getBiayaRataOutlet, getOutletStockMap, recordMovement, getAllowStaffOpname, recordMenuWaste } from './inventory.service.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { cocokNama } from '../../core/nama.js';
@@ -142,6 +143,9 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
 
   const productOptions = activeProducts.map((p) => ({ value: p.id, label: `${p.name} (${p.base_unit})` }));
 
+  /** produkId -> { rata, … } menurut nota di outlet ini (0118). PEMBANDING saja. */
+  let biayaRata = new Map();
+
   async function refresh() {
     const stockDiv = container.querySelector('#inv-stock');
     stockDiv.innerHTML = loadingHtml('Memuat stok…');
@@ -152,6 +156,10 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       stockDiv.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
       return null;
     }
+    // Biaya rata-rata dimuat TERPISAH dan kegagalannya tidak menggagalkan
+    // layarnya. Ia cuma pembanding — stok yang tidak tampil karena harga
+    // gagal dimuat adalah pertukaran yang jelas merugikan.
+    biayaRata = await getBiayaRataOutlet(state.outletId).catch(() => new Map());
     gambarStok(map);
     return map;
   }
@@ -207,18 +215,39 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
           : ''
       }
       <div class="table-scroll gulir-baris" style="--tinggi-baris:38px"><table class="data-table baris-sejajar">
-        <thead><tr><th>Produk</th><th>Stok</th><th>Satuan</th></tr></thead>
+        <thead><tr><th>Produk</th><th>Stok</th><th>Satuan</th><th>Harga/satuan</th></tr></thead>
         <tbody>
           ${
             tampil
               .map((p) => {
                 const qty = Number(map.get(p.id) ?? 0);
                 const minus = qty < 0;
+
+                // HARGA MASTER vs RATA-RATA NOTA.
+                //
+                // Yang di atas adalah angka yang BENAR-BENAR dipakai menghitung
+                // HPP; yang di bawah harga sebenarnya yang dibayar belakangan
+                // di outlet ini. Keduanya ditulis berdampingan justru supaya
+                // selisihnya kelihatan — itu satu-satunya gunanya, karena
+                // rata-rata nota memang tidak masuk perhitungan apa pun.
+                const b = bandingHarga(p, biayaRata.get(p.id)?.rata);
+                const kelas = b.arah === 'naik' ? ' harga-banding-naik' : b.arah === 'turun' ? ' harga-banding-turun' : '';
+                const harga =
+                  b.master == null && b.nota == null
+                    ? '<span style="color:var(--color-text-muted)">-</span>'
+                    : `${b.master != null ? formatRupiah(b.master) : '<span style="color:var(--color-text-muted)">belum ada</span>'}${
+                        b.nota == null
+                          ? ''
+                          : `<div class="harga-banding${kelas}">nota: ${formatRupiah(b.nota)}${
+                              b.persen == null ? '' : ` (${b.persen > 0 ? '+' : ''}${b.persen}%)`
+                            }${perluDitinjau(b) ? ' ⚠' : ''}</div>`
+                      }`;
+
                 return `<tr><td>${escapeHtml(p.name)}</td><td${
                   minus ? ' style="color:var(--color-danger);font-weight:600"' : ''
-                }>${formatNum(qty)}${minus ? ' ⚠' : ''}</td><td>${escapeHtml(p.base_unit)}</td></tr>`;
+                }>${formatNum(qty)}${minus ? ' ⚠' : ''}</td><td>${escapeHtml(p.base_unit)}</td><td data-label="Harga/satuan">${harga}</td></tr>`;
               })
-              .join('') || '<tr><td colspan="3">Tidak ada bahan pada filter ini.</td></tr>'
+              .join('') || '<tr><td colspan="4">Tidak ada bahan pada filter ini.</td></tr>'
           }
         </tbody>
       </table></div>

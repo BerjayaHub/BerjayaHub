@@ -143,3 +143,24 @@ export async function listRecentInventoryActivity({ limit = 25, before = null } 
   if (error) throw error;
   return data ?? [];
 }
+
+/**
+ * Biaya rata-rata bahan menurut nota, untuk satu outlet (0118).
+ *
+ * PEMBANDING saja — tidak pernah dipakai menghitung HPP. Lihat alasan
+ * panjangnya di `biaya-rata.js` dan di migration `0118`.
+ *
+ * Mengembalikan Map produkId -> { rata, qtyDasar, notaTerakhir }. Produk yang
+ * belum pernah punya nota berharga TIDAK ADA di peta — sengaja tidak diwakili
+ * angka nol, karena nol berarti "bahannya gratis" dan itu pernyataan yang
+ * berbeda.
+ */
+export async function getBiayaRataOutlet(outletId) {
+  if (!outletId) return new Map();
+  const { data, error } = await supabase
+    .from('biaya_rata_bahan')
+    .select('product_id, rata, qty_dasar, nota_terakhir')
+    .eq('outlet_id', outletId);
+  if (error) throw error;
+  return new Map((data ?? []).map((r) => [r.product_id, { rata: Number(r.rata), qtyDasar: Number(r.qty_dasar), notaTerakhir: r.nota_terakhir }]));
+}

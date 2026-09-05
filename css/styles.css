@@ -2496,6 +2496,40 @@ select.sc-cell.is-off {
 
    Muncul HANYA kalau admin benar-benar mempersempitnya. Keterangan yang selalu
    ada berhenti diperhatikan justru pada baris yang berbeda dari yang lain. */
+/* Total nota saat harga satuan diisi.
+
+   Jumlah baris yang BELUM berharga disebut terpisah dan berwarna peringatan:
+   total yang terlihat wajar padahal separuh barisnya kosong adalah angka yang
+   paling mudah dipercaya dan paling salah — orang yang mencocokkannya dengan
+   tagihan supplier akan menyimpulkan supplier-nya yang keliru. */
+.nota-total {
+  margin-top: 10px;
+  font-size: 0.86rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nota-total-kurang {
+  font-size: 0.76rem;
+  color: var(--color-warning, #8a5800);
+}
+
+/* Kotak harga satuan di baris item picker. Dibatasi lebarnya supaya barisnya
+   tetap muat di layar HP bersama nama produk dan jumlahnya. */
+.picker-row .pf-harga {
+  max-width: 120px;
+  margin: 0;
+}
+
+/* Pembanding harga master vs rata-rata nota, di tabel Bahan & Master Produk. */
+.harga-banding {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin-top: 1px;
+}
+.harga-banding-naik { color: var(--color-danger); }
+.harga-banding-turun { color: var(--color-success, #1a7f37); }
+
 .cuti-jejak-ubah {
   font-size: 0.72rem;
   color: var(--color-warning, #8a5800);

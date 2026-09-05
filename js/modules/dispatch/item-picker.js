@@ -26,7 +26,7 @@ import { formatNum } from '../../core/format.js';
  */
 export function createItemPicker(
   mountEl,
-  { products, stockMap = new Map(), showStock = true, initial = [], peringatanKurang = false }
+  { products, stockMap = new Map(), showStock = true, initial = [], peringatanKurang = false, hargaSatuan = false }
 ) {
   const categories = [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
   const state = { category: '', subcategory: '' };
@@ -66,7 +66,11 @@ export function createItemPicker(
   function snapshot() {
     return [...rowsBox.querySelectorAll('.picker-row')].map((row) => ({
       product_id: row.querySelector('.search-select input[type="hidden"]').value,
-      qty: row.querySelector('.pf-qty').value
+      qty: row.querySelector('.pf-qty').value,
+      // Ikut disimpan walau `hargaSatuan` mati — nilainya cuma `undefined` di
+      // situ, dan menyalinnya apa adanya jauh lebih aman daripada dua bentuk
+      // snapshot yang berbeda tergantung opsi.
+      unit_cost: row.querySelector('.pf-harga')?.value
     }));
   }
 
@@ -97,6 +101,21 @@ export function createItemPicker(
             : ''
         }
         <input type="number" class="pf-qty" min="0" placeholder="jumlah" value="${entry.qty ?? ''}" />
+        ${
+          // HARGA SATUAN — opt-in, dan mati untuk pemakai lain picker ini.
+          //
+          // Order ke CK, transfer, dan retur tidak punya harga: barangnya
+          // berpindah antar outlet sendiri, bukan dibeli. Kotak harga di sana
+          // hanya akan diisi orang dengan tebakan, lalu tebakan itu masuk ke
+          // rata-rata biaya seolah-olah pembelian sungguhan.
+          hargaSatuan
+            ? `<input type="number" class="pf-harga" min="0" step="any" placeholder="harga/${esc(
+                p?.base_unit ?? 'satuan'
+              )}" value="${entry.unit_cost ?? ''}" title="Harga per ${esc(
+                p?.base_unit ?? 'satuan'
+              )} menurut nota supplier — boleh dikosongkan kalau belum tahu" />`
+            : ''
+        }
         <button type="button" class="pf-remove" title="Hapus">✕</button>
       </div>`;
   }
@@ -155,13 +174,25 @@ export function createItemPicker(
   mountEl.querySelector('.pf-add').addEventListener('click', addRow);
 
   refreshSubOptions();
-  renderRows(initial.map((i) => ({ product_id: i.product_id, qty: i.qty })));
+  renderRows(initial.map((i) => ({ product_id: i.product_id, qty: i.qty, unit_cost: i.unit_cost })));
 
   return {
     getItems: () =>
       snapshot()
-        .map((e) => ({ product_id: e.product_id, qty: Number(e.qty) }))
+        .map((e) => ({
+          product_id: e.product_id,
+          qty: Number(e.qty),
+          // KOSONG TETAP KOSONG, BUKAN NOL.
+          //
+          // `Number('')` adalah 0, bukan NaN. Kalau kosong diteruskan sebagai
+          // 0, harga yang belum diisi tersimpan sebagai "gratis" — dan biaya
+          // rata-rata bahan itu anjlok tanpa satu pun tanda bahwa ada yang
+          // salah. Jebakan yang sama sudah beberapa kali menggigit di repo ini.
+          unit_cost: e.unit_cost == null || e.unit_cost === '' ? null : Number(e.unit_cost)
+        }))
         .filter((i) => i.product_id && i.qty > 0),
+    /** Dipanggil layar untuk menggambar ulang totalnya saat harga diketik. */
+    onUbah: (fn) => rowsBox.addEventListener('input', fn),
     reset: () => renderRows([])
   };
 }

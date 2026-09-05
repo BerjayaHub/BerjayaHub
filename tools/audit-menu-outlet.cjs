@@ -44,10 +44,13 @@ const baca = (rel) => {
 };
 
 /** Buang komentar sebelum memindai — sudah berkali-kali jadi sumber lolos/palsu. */
-const tanpaKomentar = (t) =>
-  t
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p1) => p1 + ' '.repeat(m.length - p1.length));
+// Pemotong komentar yang MENGHORMATI STRING — lihat tools/lib/tanpa-komentar.cjs.
+//
+// Versi dua-baris yang dulu disalin ke tiap audit memperlakukan `/*` di dalam
+// string (`accept="image/*"`) sebagai awal komentar, lalu menelan puluhan baris
+// kode sampai `*/` JSDoc berikutnya. Pada pemeriksaan LARANGAN, itu berarti
+// audit hijau karena kodenya sudah terlanjur terhapus.
+const { tanpaKomentar } = require('./lib/tanpa-komentar.cjs');
 
 // ---------------------------------------------------------------
 // 1. Staff App menyaring, dan menyaring ulang saat outlet berganti.
