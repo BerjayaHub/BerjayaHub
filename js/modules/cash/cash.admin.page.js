@@ -9,8 +9,11 @@ import {
   deleteCashCategory,
   listCashBalances,
   listCashEntriesAdmin,
-  getCashProofUrl
+  getCashProofUrl,
+  daftarKantongKas,
+  aturKantongKas
 } from './cash.service.js';
+import { listMyOutletsAllBu } from '../../core/my-outlets.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
@@ -22,6 +25,7 @@ const DIRECTIONS = [
 
 const TABS = [
   { key: 'balances', label: 'Saldo & Mutasi' },
+  { key: 'accounts', label: 'Kantong Kas' },
   { key: 'categories', label: 'Kategori' }
 ];
 
@@ -45,6 +49,7 @@ export async function renderCashAdminPage(container) {
   async function showTab(key) {
     container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));
     if (key === 'balances') await renderBalancesTab(content);
+    if (key === 'accounts') await renderAccountsTab(content);
     if (key === 'categories') await renderCategoriesTab(content);
   }
   container.querySelectorAll('.tab-btn').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
@@ -149,6 +154,160 @@ async function loadMutasi(content) {
       }
     })
   );
+}
+
+// ---- Tab: Kantong Kas ----
+
+/**
+ * KENAPA TAB INI ADA.
+ *
+ * 0120 membuat kantong kas bisa diberi OUTLET, supaya staff outlet itu boleh
+ * mencatat pengeluaran dari kantong milik orang lain (Shenda menginput nota,
+ * kas Risma yang berkurang).
+ *
+ * Satu-satunya layar yang bisa mengisi outlet itu ada di STAFF APP, di balik
+ * tombol yang hanya digambar kalau jatah kantongnya lebih dari satu — dan
+ * pemegang berjatah 1 bahkan belum punya baris kantong sama sekali; kasnya
+ * hidup sebagai "Kas Utama". Jadi tidak ada seorang pun, termasuk super admin,
+ * yang bisa menyalakan fitur itu.
+ *
+ * Di sini adminnya yang membuatkan.
+ */
+
+const KET_OUTLET_KANTONG_ADMIN =
+  'Kalau kantong ini diberi outlet, SIAPA PUN yang bertugas di outlet itu bisa mencatat pengeluaran dari kantong ' +
+  'pemegangnya — mis. staff yang menginput nota dari supplier. Uangnya tetap milik pemegangnya dan selisihnya tetap ' +
+  'tanggung jawabnya; setiap entri mencatat siapa yang membuatnya. Kosongkan kalau kantong ini pribadi.';
+
+async function renderAccountsTab(content) {
+  content.innerHTML = loadingHtml('Memuat…', { baris: 5 });
+  let kantong, staff, outlets;
+  try {
+    [kantong, staff, outlets] = await Promise.all([daftarKantongKas(), listCashMembers(), listMyOutletsAllBu().catch(() => [])]);
+  } catch (error) {
+    content.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
+    return;
+  }
+
+  const adaKasUtamaBerisi = kantong.some((k) => !k.kantong_nyata);
+
+  content.innerHTML = `
+    <div class="page-header">
+      <h2 style="font-size:1.05rem;margin:0">Kantong Kas</h2>
+      <button class="primary" id="btn-new-akun" style="max-width:190px">+ Tambah Kantong</button>
+    </div>
+    <p style="font-size:0.82rem;color:var(--color-text-muted);max-width:720px">
+      Kantong yang diberi <strong>outlet</strong> boleh dibebani siapa pun yang bertugas di outlet itu — inilah yang
+      membuat staff bisa menginput nota supplier sementara uangnya berkurang dari kas pemegangnya.
+      Kantong tanpa outlet tetap pribadi: hanya pemegangnya.
+    </p>
+    ${
+      adaKasUtamaBerisi
+        ? `<p style="font-size:0.82rem;color:var(--color-text-muted);max-width:720px">
+             Baris <strong>Kas Utama</strong> adalah uang yang tidak berada di kantong mana pun — tempat kas berada
+             sebelum kantong pertama dibuat. Ia tidak bisa diberi outlet. Saldo totalnya tetap terhitung, dan membuat
+             kantong baru tidak memindahkan isinya.
+           </p>`
+        : ''
+    }
+    <div class="table-scroll"><table class="data-table table-freeze-1">
+      <thead><tr><th>Pemegang</th><th>Kantong</th><th>Outlet</th><th>Saldo</th><th>Status</th><th>Aksi</th></tr></thead>
+      <tbody>
+        ${
+          kantong
+            .map((k) => {
+              if (!k.kantong_nyata) {
+                return `<tr style="color:var(--color-text-muted)">
+                  <td>${esc(k.holder_name)}</td>
+                  <td><em>Kas Utama</em></td>
+                  <td>—</td>
+                  <td>${formatRupiah(k.balance)}</td>
+                  <td>—</td>
+                  <td style="font-size:0.75rem">tanpa kantong</td>
+                </tr>`;
+              }
+              return `<tr>
+                <td>${esc(k.holder_name)}</td>
+                <td>${esc(k.name)}</td>
+                <td>${k.outlet_name ? `🏪 ${esc(k.outlet_name)}` : '<span style="color:var(--color-text-muted)">pribadi</span>'}</td>
+                <td>${formatRupiah(k.balance)}</td>
+                <td>${k.is_active ? 'Aktif' : 'Ditutup'}</td>
+                <td><button class="btn-edit-akun" data-json='${escAttr(JSON.stringify(k))}'>Edit</button></td>
+              </tr>`;
+            })
+            .join('') || '<tr><td colspan="6">Belum ada kantong kas.</td></tr>'
+        }
+      </tbody>
+    </table></div>
+  `;
+
+  content.querySelector('#btn-new-akun').addEventListener('click', () => openAkunDialog(content, null, staff, outlets));
+  content
+    .querySelectorAll('.btn-edit-akun')
+    .forEach((btn) => btn.addEventListener('click', () => openAkunDialog(content, JSON.parse(btn.dataset.json), staff, outlets)));
+}
+
+async function openAkunDialog(content, existing, staff, outlets) {
+  const isEdit = !!existing;
+  const opsiOutlet = [
+    { value: '', label: 'Pribadi — hanya pemegangnya' },
+    ...outlets.map((o) => ({
+      value: o.id,
+      label: `Kas outlet ${o.name}${o.business_unit_name ? ` (${o.business_unit_name})` : ''}`
+    }))
+  ];
+
+  const values = await formDialog({
+    title: isEdit ? `Kantong Kas — ${existing.holder_name}` : 'Tambah Kantong Kas',
+    description: isEdit
+      ? 'Kantong tidak bisa dipindahkan ke pemegang lain; memindahkannya berarti memindahkan riwayat uangnya tanpa satu pun entri yang mencatatnya. Pakai Transfer.'
+      : 'Pilih pemegangnya, lalu namai sesuai peruntukannya — mis. "Kas Operasional Serpong".',
+    fields: [
+      // Saat mengedit, pemegangnya TIDAK dirender sama sekali — bukan dirender
+      // lalu dimatikan. `formDialog` tidak mengenal `disabled`, jadi field yang
+      // "dikunci" akan tampil biasa saja dan bisa diubah; penolakannya baru
+      // datang dari server, setelah orangnya mengira sudah berhasil memindahkan.
+      // Pemegangnya disebut di judul dialog.
+      ...(isEdit
+        ? []
+        : [{ name: 'holder_id', label: 'Pemegang', type: 'select', required: true, options: staff.map((s) => ({ value: s.user_id, label: s.full_name })) }]),
+      { name: 'name', label: 'Nama kantong', type: 'text', required: true, value: existing?.name ?? '', placeholder: 'mis. Kas Operasional' },
+      { name: 'outlet_id', label: 'Dipakai untuk outlet', type: 'select', value: existing?.outlet_id ?? '', options: opsiOutlet, help: KET_OUTLET_KANTONG_ADMIN },
+      ...(isEdit ? [{ name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing.is_active }] : [])
+    ],
+    submitText: 'Simpan'
+  });
+  if (!values) return;
+
+  // MENCABUT OUTLET DIKONFIRMASI. Akibatnya tidak terlihat di layar ini: staff
+  // yang selama ini bisa mencatat nota dari kantong itu akan berhenti bisa, dan
+  // yang ia lihat cuma pilihan kasnya menghilang tanpa sebab yang bisa ia
+  // telusuri — lalu ia akan mencatatnya ke kasnya sendiri, persis masalah semula.
+  if (isEdit && existing.outlet_id && !values.outlet_id) {
+    const ok = await confirmDialog({
+      title: 'Jadikan kantong pribadi?',
+      message: `Staff di outlet ${esc(existing.outlet_name ?? 'itu')} tidak akan bisa lagi mencatat pengeluaran dari "${esc(existing.name)}" milik ${esc(existing.holder_name)}. Riwayat yang sudah ada tidak berubah.`,
+      confirmText: 'Jadikan pribadi'
+    });
+    if (!ok) return;
+  }
+
+  try {
+    // TULIS PENUH: keempat field selalu dikirim. RPC-nya tidak punya nilai
+    // yang berarti "jangan sentuh", justru supaya pemanggil separuh-jadi
+    // ketahuan seketika alih-alih diam-diam mengosongkan field yang tak disebut.
+    await aturKantongKas({
+      id: existing?.id ?? null,
+      holderId: isEdit ? existing.holder_id : values.holder_id,
+      name: values.name,
+      outletId: values.outlet_id,
+      isActive: isEdit ? values.is_active !== false : true
+    });
+    toast(isEdit ? 'Kantong kas diperbarui.' : 'Kantong kas ditambahkan.', 'success');
+    await renderAccountsTab(content);
+  } catch (error) {
+    toast(error.message ?? 'Gagal menyimpan.', 'error');
+  }
 }
 
 // ---- Tab: Kategori ----

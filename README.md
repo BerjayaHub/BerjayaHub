@@ -1496,6 +1496,7 @@ node tools/audit-html-escape.cjs                        # data DB masuk HTML tan
 node tools/audit-owner-filter.cjs                       # query "milik saya" tanpa filter pemilik
 node tools/audit-outlet-scope.cjs                       # dropdown outlet menembus scope
 node tools/audit-embed-ambigu.cjs                      # embed PostgREST tanpa nama FK
+node tools/audit-kelola-kantong-admin.cjs               # fitur DB yang tidak bisa dinyalakan dari layar mana pun
 node tools/test-youtube-parser.mjs                      # parser link YouTube
 node tools/test-image-compress.mjs                      # skala & format kompresi foto
 ```
@@ -5079,6 +5080,36 @@ Satu sabotase lolos dengan jujur: `is_active` di `boleh_membebani_kas` **bukan**
 Backtick di dalam template literal menggigit untuk **keempat kalinya**, kali ini di komentar tes yang menyebut `to authenticated`.
 
 - [x] **Kantong kas boleh menyebut outlet** (`0120`) — pemegang tetap pemilik & penanggung jawab, staff outlet itu boleh membebani; opt-in per kantong, ditandai di daftar, dan mencabutnya dikonfirmasi
+
+## `0120` lengkap, teruji, dan tidak bisa dinyalakan oleh siapa pun
+
+Laporannya satu kalimat: *"kelola kas yang kamu maksud saya tidak bisa menemukan."*
+
+Ia benar. `0120` selesai dengan migration, fungsi izin, RPC, dua kebijakan baca, tes RLS berperan `authenticated`, audit tersendiri, 24 sabotase tertangkap — dan seluruhnya bertumpu pada `cash_accounts.outlet_id` yang **tidak bisa diisi oleh satu orang pun di sistem ini**:
+
+1. Satu-satunya layar yang mengisinya ada di **Staff App**, di balik tombol *Kelola Kas* yang hanya digambar kalau `cash_account_limit > 1`. Risma berjatah 1; tombolnya tidak pernah muncul untuknya.
+2. Pemegang berjatah 1 bahkan **tidak punya baris `cash_accounts` sama sekali**. Kasnya hidup sebagai `cash_entries.account_id = NULL` ("Kas Utama"). Tidak ada baris → tidak ada yang bisa diberi outlet → `catat_kas_di(p_account, …)` tidak punya apa pun untuk ditunjuk.
+3. **Admin Portal → User → Kas** hanya baca: saldo, mutasi, kategori.
+4. Sekalipun layarnya ada, RLS `cash_accounts_own` (`0063`) ber-`with check (holder_id = auth.uid())` — super admin boleh **melihat** kantong orang lain, tidak boleh **menulisnya**.
+
+Ini bentuk kegagalan yang sudah punya namanya sendiri di dokumen ini: **kemampuannya ada di database, jalannya tidak ada di layar**. Yang baru dan lebih tidak enak: kali ini seluruh perangkat verifikasinya ikut hijau. `audit-kas-outlet.cjs` memeriksa bahwa layar staff punya jalannya — dan itu benar. Tidak ada yang memeriksa bahwa jalan itu bisa **dicapai**.
+
+`0121` menambahkan tab **Kantong Kas** di Admin Portal → User → Kas, lewat dua RPC `security definer`:
+
+- `daftar_kantong_kas()` — seluruh kantong di organisasi, plus **baris semu "Kas Utama"** untuk uang yang tidak berada di kantong mana pun. Tanpa baris itu admin melihat daftar yang tampak lengkap sementara sebagian besar uangnya justru tidak ada di dalamnya, lalu menyimpulkan saldonya nol.
+- `atur_kantong_kas(id, holder, nama, outlet, aktif)` — **semua parameter wajib, tanpa satu pun `default`.** Disengaja: bug `0119` ("+ Foto" menghapus supplier) lahir dari pemanggil yang mengirim sebagian field dan diam-diam mengosongkan sisanya. Tanpa default, pemanggil yang lupa satu parameter mendapat *"function does not exist"* di percobaan pertama.
+
+Kebijakan `cash_accounts_own` **tidak disentuh**. Melonggarkan `with check` membuat super admin bisa menulis lewat jalur tabel mana pun, sehingga jatah kantong, larangan pindah pemegang, dan larangan menutup kantong berisi semuanya bisa dilewati lewat PostgREST tanpa menyentuh RPC-nya. Tesnya §4 menjaga justru **penolakan** itu.
+
+### Tiga pemeriksaan yang lulus karena alasan yang salah
+
+- §4 semula mencoba menulis kantong **Risma** lewat tabel. Ditolak — oleh **trigger jatah**, bukan oleh RLS. Hijau tanpa menyentuh kebijakan sama sekali. Sasarannya diganti ke Shenda, yang masih punya slot kosong.
+- §6 menguji nama bentrok dengan membuat kantong baru, pada titik ketika jatahnya sudah habis: pemeriksaan bentroknya **tidak pernah dijalankan**. Diganti jadi ganti-nama.
+- Audit `KET_OUTLET_KANTONG_ADMIN` mencari namanya di file. Sabotase `help: null` lolos — teksnya ditulis, disimpan, dan tidak pernah sampai ke layar. Sekarang yang dituntut `help: KET_OUTLET_KANTONG_ADMIN`. Bentuk yang sama menggigit pada `p_outlet:` di service: file itu juga berisi `catat_kas_di` yang punya `p_outlet:` sendiri, jadi menghapusnya dari `atur_kantong_kas` lolos. Pemeriksaannya sekarang dipotong ke blok panggilannya dulu.
+
+Ditambah satu jebakan yang sempat saya pasang sendiri: field "Pemegang" yang dikunci `disabled: true` saat mengedit. `formDialog` tidak mengenal opsi itu — field-nya tampil biasa saja dan bisa diubah, lalu penolakannya datang dari server setelah orangnya mengira sudah berhasil memindahkan kantong. Saat mengedit, field-nya tidak dirender sama sekali; pemegangnya disebut di judul dialog. Auditnya menolak `disabled: true` di file ini.
+
+- [x] **Kantong kas bisa dikelola dari Admin Portal** (`0121`) — super admin membuatkan kantong untuk pemegang mana pun dan memberinya outlet; kantong tidak bisa pindah tangan, kantong berisi tidak bisa ditutup, dan uang tanpa kantong tetap terlihat sebagai "Kas Utama"
 
 ## Nota bisa diedit, harganya berformat Rupiah — dan satu bug yang menghapus supplier
 

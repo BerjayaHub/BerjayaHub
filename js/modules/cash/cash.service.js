@@ -211,6 +211,42 @@ export async function saveCashAccount({ id, name, sort_order, is_active, outletI
 }
 
 /**
+ * Semua kantong kas di organisasi, untuk layar admin (0121).
+ *
+ * Termasuk baris semu **Kas Utama** (`id` null, `kantong_nyata` false) untuk
+ * uang yang tidak berada di kantong mana pun — itulah tempat kas pemegang
+ * berjatah 1 sebenarnya berada. Tanpa baris itu, daftarnya terlihat lengkap
+ * sementara sebagian besar uangnya justru tidak ada di dalamnya.
+ *
+ * Super admin saja; RPC-nya mengembalikan kosong untuk yang lain.
+ */
+export async function daftarKantongKas() {
+  const { data, error } = await supabase.rpc('daftar_kantong_kas');
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Buat/ubah kantong kas milik pemegang mana pun (0121, super admin).
+ *
+ * **TULIS PENUH.** RPC-nya sengaja tidak punya satu pun parameter dengan
+ * default, jadi tidak ada nilai yang berarti "jangan sentuh". Pemanggil wajib
+ * membawa keadaan LENGKAP kantongnya — kalau tidak, field yang tak disebut
+ * akan terhapus, dan itu bug 0119 ("+ Foto menghapus supplier") lagi.
+ */
+export async function aturKantongKas({ id, holderId, name, outletId, isActive }) {
+  const { data, error } = await supabase.rpc('atur_kantong_kas', {
+    p_id: id ?? null,
+    p_holder: holderId ?? null,
+    p_name: name,
+    p_outlet: outletId || null,
+    p_aktif: isActive !== false
+  });
+  if (error) throw error;
+  return data;
+}
+
+/**
  * Hapus kantong kas — isinya dipindahkan lebih dulu (migration 0066).
  *
  * `targetAccountId` null berarti **Kas Utama** (`account_id` NULL), yaitu tempat
