@@ -13,14 +13,27 @@
  * membaca angka jumlahnya.
  */
 
-import { toast, infoDialog, formDialog } from '../../core/ui.js';
+import { toast, infoDialog, formDialog, confirmDialog } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { todayWIB } from '../../core/dates.js';
 import { createItemPicker } from '../dispatch/item-picker.js';
 import { ringkasNota } from './biaya-rata.js';
 import { formatRupiah } from '../../core/format.js';
-import { simpanNota, ubahNota, riwayatNota, itemNota, unggahFotoNota, urlFotoNota } from './nota.service.js';
+import {
+  simpanNota,
+  ubahNota,
+  riwayatNota,
+  itemNota,
+  unggahFotoNota,
+  urlFotoNota,
+  ringkasanNota,
+  bayarNota,
+  batalkanPembayaranNota,
+  setJatuhTempoNota
+} from './nota.service.js';
+import { listKantongBisaKubebani } from '../cash/cash.service.js';
+import { statusTempo, bolehDibayar, kelompokPerSupplier } from './hutang-nota.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -73,10 +86,32 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
 
       <div id="nota-total" class="nota-total"></div>
 
-      <button class="primary" id="nota-simpan" style="max-width:220px;margin-top:6px">Simpan Nota</button>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+        <div class="field" style="margin:0;min-width:150px;flex:1 1 150px">
+          <label>Pembayaran</label>
+          <select id="nota-bayar-cara">
+            <option value="tempo">Tempo — bayar nanti</option>
+            <option value="tunai">Tunai — langsung dari kas</option>
+          </select>
+        </div>
+        <div class="field" id="nota-tempo-box" style="margin:0;min-width:150px;flex:1 1 150px">
+          <label>Jatuh tempo (opsional)</label>
+          <input type="date" id="nota-tempo" />
+        </div>
+        <div class="field" id="nota-kas-box" hidden style="margin:0;min-width:190px;flex:1 1 190px">
+          <label>Bayar dari kas</label>
+          <select id="nota-kas"><option value="">memuat…</option></select>
+        </div>
+      </div>
+      <p class="field-help" id="nota-bayar-ket" style="margin:4px 0 0"></p>
+
+      <button class="primary" id="nota-simpan" style="max-width:220px;margin-top:8px">Simpan Nota</button>
       <p class="error-text" id="nota-error"></p>
 
-      <h4 style="font-size:0.92rem;margin:18px 0 6px">Nota terakhir</h4>
+      <div class="tab-bar" style="margin-top:18px">
+        <button class="tab-btn active" data-nota-tab="riwayat">Nota terakhir</button>
+        <button class="tab-btn" data-nota-tab="hutang">Hutang Supplier</button>
+      </div>
       <div id="nota-riwayat">${loadingHtml('Memuat riwayat…', { baris: 2 })}</div>
     </div>`;
 
@@ -118,6 +153,51 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
   picker.onUbah(gambarTotal);
   gambarTotal();
 
+  // ---- TUNAI vs TEMPO ----
+  //
+  // Defaultnya TEMPO, dan itu bukan pilihan sembarangan: nota yang tersimpan
+  // tanpa mengurangi kas hanya membuat hutang yang bisa dilunasi belakangan,
+  // sementara nota yang salah ditandai tunai sudah terlanjur memotong kas
+  // orang lain. Yang pertama diperbaiki dengan menekan Bayar; yang kedua harus
+  // dibatalkan, dan pembatalan meninggalkan dua baris di buku kas selamanya.
+  const caraEl = wadah.querySelector('#nota-bayar-cara');
+  const kasBox = wadah.querySelector('#nota-kas-box');
+  const tempoBox = wadah.querySelector('#nota-tempo-box');
+  const kasEl = wadah.querySelector('#nota-kas');
+  const ketBayar = wadah.querySelector('#nota-bayar-ket');
+  let kantongSiap = false;
+
+  const KET_TEMPO =
+    'Stok bertambah sekarang, kas belum berkurang. Notanya masuk ke tab Hutang Supplier di bawah, ' +
+    'dan bisa dilunasi bersama nota lain dari supplier yang sama.';
+  const KET_TUNAI =
+    'Kas berkurang begitu nota disimpan. Semua barang harus sudah ada harganya — kalau ada yang kosong, ' +
+    'kas cuma berkurang sebesar sebagian isinya dan selisihnya tidak akan muncul sebagai error.';
+
+  async function muatKantong() {
+    if (kantongSiap) return;
+    try {
+      const daftar = await listKantongBisaKubebani(outletId);
+      kasEl.innerHTML = daftar.length
+        ? daftar.map((k) => `<option value="${k.id}">${esc(k.name)}${k.outlets?.name ? ` — ${esc(k.outlets.name)}` : ''}</option>`).join('')
+        : '<option value="">tidak ada kas yang bisa kamu bebani</option>';
+      kantongSiap = true;
+    } catch (e) {
+      kasEl.innerHTML = '<option value="">gagal memuat daftar kas</option>';
+      ketBayar.textContent = `Daftar kas gagal dimuat: ${e.message ?? e}. Simpan sebagai tempo dulu, lalu bayar dari tab Hutang Supplier.`;
+    }
+  }
+
+  function gambarCara() {
+    const tunai = caraEl.value === 'tunai';
+    kasBox.hidden = !tunai;
+    tempoBox.hidden = tunai;
+    ketBayar.textContent = tunai ? KET_TUNAI : KET_TEMPO;
+    if (tunai) muatKantong();
+  }
+  caraEl.addEventListener('change', gambarCara);
+  gambarCara();
+
   wadah.querySelector('#nota-tutup').addEventListener('click', () => {
     wadah.innerHTML = '';
     wadah.setAttribute('hidden', '');
@@ -145,8 +225,24 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
         return;
       }
 
+      const tunai = caraEl.value === 'tunai';
+      const akun = tunai ? kasEl.value : '';
+      if (tunai && !akun) {
+        errorEl.textContent = 'Pilih dulu kas yang membayarnya, atau ubah pembayarannya jadi Tempo.';
+        return;
+      }
+      // Diperiksa DI SINI, sebelum notanya lahir. Kalau dibiarkan sampai
+      // server, notanya sudah tersimpan sementara pembayarannya ditolak — dan
+      // orangnya menghadapi setengah pekerjaan yang tidak ia minta.
+      if (tunai && items.some((i) => i.unit_cost === null || i.unit_cost === undefined || i.unit_cost === '')) {
+        errorEl.textContent =
+          'Masih ada barang tanpa harga. Isi harganya dulu, atau simpan sebagai Tempo lalu lunasi setelah harganya lengkap.';
+        return;
+      }
+
+      let notaId;
       try {
-        await simpanNota({
+        notaId = await simpanNota({
           outletId,
           receiptDate: wadah.querySelector('#nota-tgl').value,
           supplier: wadah.querySelector('#nota-supplier').value,
@@ -155,15 +251,193 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
           notes: wadah.querySelector('#nota-catatan').value,
           items
         });
-        toast(`Nota tersimpan — stok ${items.length} barang bertambah.`, 'success');
-        renderNotaStaff(wadah, { businessUnitId, outletId, products });
       } catch (e) {
         errorEl.textContent = e.message ?? 'Gagal menyimpan nota.';
+        return;
       }
+
+      // NOTANYA SUDAH ADA MULAI DARI SINI.
+      //
+      // Apa pun yang gagal setelah titik ini TIDAK boleh dilaporkan sebagai
+      // "gagal menyimpan nota" — notanya tersimpan, stoknya sudah bertambah,
+      // dan orang yang mengira gagal akan menginputnya untuk kedua kalinya.
+      try {
+        if (tunai) {
+          await bayarNota({ notaIds: [notaId], accountId: akun, date: todayWIB() });
+          toast(`Nota tersimpan & dibayar — stok ${items.length} barang bertambah.`, 'success');
+        } else {
+          const due = wadah.querySelector('#nota-tempo').value;
+          if (due) await setJatuhTempoNota(notaId, due);
+          toast(`Nota tersimpan — stok ${items.length} barang bertambah, masuk hutang supplier.`, 'success');
+        }
+      } catch (e) {
+        toast(
+          `Nota TERSIMPAN dan stoknya sudah bertambah, tapi ${tunai ? 'pembayarannya' : 'jatuh temponya'} gagal: ` +
+            `${e.message ?? e}. Jangan input ulang — selesaikan dari tab Hutang Supplier.`,
+          'warning'
+        );
+      }
+      renderNotaStaff(wadah, { businessUnitId, outletId, products });
+    })
+  );
+
+  // ---- DUA TAMPILAN: riwayat & hutang ----
+  wadah.querySelectorAll('[data-nota-tab]').forEach((b) =>
+    b.addEventListener('click', () => {
+      wadah.querySelectorAll('[data-nota-tab]').forEach((x) => x.classList.toggle('active', x === b));
+      if (b.dataset.notaTab === 'hutang') gambarHutang();
+      else gambarRiwayat();
     })
   );
 
   gambarRiwayat();
+
+  /** Penanda status bayar, dipakai riwayat maupun daftar hutang. */
+  function lencanaStatus(n) {
+    const s = statusTempo(n, todayWIB());
+    if (s === 'lunas') return '<span class="nota-lunas">lunas</span>';
+    if (s === 'terlambat') return `<span class="nota-telat">lewat tempo ${esc(n.due_date)}</span>`;
+    if (s === 'hari-ini') return '<span class="nota-telat">jatuh tempo hari ini</span>';
+    if (s === 'akan-datang') return `<span class="nota-tempo">tempo ${esc(n.due_date)}</span>`;
+    return '<span class="nota-tempo">belum dibayar</span>';
+  }
+
+  /**
+   * HUTANG SUPPLIER — nota yang belum dibayar, dikelompokkan per supplier.
+   *
+   * Nota dicentang lalu dibayar SEKALIGUS dengan satu entri kas, karena itulah
+   * yang benar-benar terjadi: satu amplop berpindah tangan satu kali. Satu
+   * entri per nota akan memenuhi buku kas dengan baris yang tidak punya
+   * padanan di dunia nyata.
+   */
+  async function gambarHutang() {
+    const box = wadah.querySelector('#nota-riwayat');
+    if (!box) return;
+    box.innerHTML = loadingHtml('Memuat hutang…', { baris: 3 });
+
+    let daftar = [];
+    let kantong = [];
+    try {
+      [daftar, kantong] = await Promise.all([
+        ringkasanNota(businessUnitId, { outletId, status: 'belum' }),
+        listKantongBisaKubebani(outletId).catch(() => [])
+      ]);
+    } catch (e) {
+      box.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
+      return;
+    }
+
+    const grup = kelompokPerSupplier(daftar, todayWIB());
+    if (!grup.length) {
+      box.innerHTML = '<p style="color:var(--color-text-muted);font-size:0.88rem">Tidak ada hutang supplier di outlet ini. 🎉</p>';
+      return;
+    }
+
+    const totalSemua = grup.reduce((s, g) => s + g.total, 0);
+    box.innerHTML = `
+      <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
+        Total hutang outlet ini: <strong>${formatRupiah(totalSemua)}</strong>.
+        Centang nota yang dibayar lalu tekan <strong>Bayar</strong> — beberapa nota yang dibayar bersama
+        menghasilkan <strong>satu</strong> baris di buku kas.
+        <br />Barangnya dihitung sebagai biaya pada <strong>tanggal notanya</strong>, sedangkan kas berkurang pada
+        <strong>tanggal pembayaran</strong>. Untuk nota Agustus yang dibayar September, dua tanggal itu memang berbeda —
+        dan keduanya benar.
+      </p>
+      ${grup
+        .map(
+          (g) => `<div class="inline-card" style="margin-bottom:10px">
+            <div class="page-header" style="margin-bottom:6px">
+              <h4 style="margin:0;font-size:0.92rem">${esc(g.supplier)}${g.terlambat ? ` <span class="nota-telat">${g.terlambat} lewat tempo</span>` : ''}</h4>
+              <strong style="font-size:0.92rem">${formatRupiah(g.total)}</strong>
+            </div>
+            <div class="table-scroll"><table class="data-table kartu-sempit">
+              <thead><tr><th></th><th>Nomor</th><th>Tanggal</th><th>Status</th><th>Total</th></tr></thead>
+              <tbody>${g.notas
+                .map(
+                  (n) => `<tr>
+                    <td><input type="checkbox" class="hutang-pilih" data-id="${n.id}" ${Number(n.baris_tanpa_harga) > 0 ? 'disabled' : ''} /></td>
+                    <td data-label="Nomor" style="font-family:ui-monospace,Menlo,monospace;font-size:0.8rem">${esc(n.code)}</td>
+                    <td data-label="Tanggal">${esc(n.receipt_date)}</td>
+                    <td data-label="Status">${lencanaStatus(n)}${
+                      Number(n.baris_tanpa_harga) > 0
+                        ? `<div class="nota-total-kurang">${n.baris_tanpa_harga} barang belum berharga — lengkapi lewat Edit sebelum bisa dibayar</div>`
+                        : ''
+                    }</td>
+                    <td data-label="Total">${formatRupiah(n.total)}</td>
+                  </tr>`
+                )
+                .join('')}</tbody>
+            </table></div>
+          </div>`
+        )
+        .join('')}
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:6px">
+        <div class="field" style="margin:0;min-width:190px;flex:1 1 190px">
+          <label>Bayar dari kas</label>
+          <select id="hutang-kas">${
+            kantong.length
+              ? kantong.map((k) => `<option value="${k.id}">${esc(k.name)}${k.outlets?.name ? ` — ${esc(k.outlets.name)}` : ''}</option>`).join('')
+              : '<option value="">tidak ada kas yang bisa kamu bebani</option>'
+          }</select>
+        </div>
+        <div class="field" style="margin:0;min-width:150px;flex:0 1 150px">
+          <label>Tanggal bayar</label>
+          <input type="date" id="hutang-tgl" value="${todayWIB()}" max="${todayWIB()}" />
+        </div>
+        <button class="primary" id="hutang-bayar" style="max-width:200px">Bayar yang dicentang</button>
+      </div>
+      <p class="error-text" id="hutang-error"></p>`;
+
+    const errBox = box.querySelector('#hutang-error');
+    const terpilih = () => {
+      const ids = [...box.querySelectorAll('.hutang-pilih:checked')].map((c) => c.dataset.id);
+      return daftar.filter((n) => ids.includes(n.id));
+    };
+
+    box.querySelectorAll('.hutang-pilih').forEach((c) =>
+      c.addEventListener('change', () => {
+        const p = bolehDibayar(terpilih());
+        errBox.textContent = p.boleh || !terpilih().length ? '' : p.alasan;
+      })
+    );
+
+    box.querySelector('#hutang-bayar').addEventListener(
+      'click',
+      sekaliJalan(async () => {
+        errBox.textContent = '';
+        const pilih = terpilih();
+        const p = bolehDibayar(pilih);
+        if (!p.boleh) {
+          errBox.textContent = p.alasan;
+          return;
+        }
+        const akun = box.querySelector('#hutang-kas').value;
+        if (!akun) {
+          errBox.textContent = 'Tidak ada kas yang bisa kamu bebani. Minta admin memberi outlet pada kantong kas pemegangnya.';
+          return;
+        }
+        const ok = await confirmDialog({
+          title: `Bayar ${pilih.length} nota?`,
+          message:
+            `Total <strong>${formatRupiah(p.total)}</strong> akan keluar dari kas yang dipilih, sebagai <strong>satu</strong> baris di buku kas. ` +
+            'Setelah dibayar, isi notanya tidak bisa diubah lagi sampai pembayarannya dibatalkan.',
+          confirmText: 'Bayar'
+        });
+        if (!ok) return;
+        try {
+          await bayarNota({
+            notaIds: pilih.map((n) => n.id),
+            accountId: akun,
+            date: box.querySelector('#hutang-tgl').value
+          });
+          toast(`${pilih.length} nota dilunasi.`, 'success');
+          gambarHutang();
+        } catch (e) {
+          errBox.textContent = e.message ?? 'Gagal membayar.';
+        }
+      })
+    );
+  }
 
   async function gambarRiwayat() {
     const box = wadah.querySelector('#nota-riwayat');
@@ -178,13 +452,14 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
     const tampil = daftar.slice(0, 15);
     box.innerHTML = tampil.length
       ? `<div class="table-scroll"><table class="data-table kartu-sempit">
-          <thead><tr><th>Nomor</th><th>Tanggal</th><th>Supplier</th><th>Nota</th><th>Aksi</th></tr></thead>
+          <thead><tr><th>Nomor</th><th>Tanggal</th><th>Supplier</th><th>Bayar</th><th>Nota</th><th>Aksi</th></tr></thead>
           <tbody>${tampil
             .map(
               (n) => `<tr>
                 <td data-label="Nomor" style="font-family:ui-monospace,Menlo,monospace;font-size:0.8rem">${esc(n.code)}</td>
                 <td data-label="Tanggal">${esc(n.receipt_date)}</td>
                 <td data-label="Supplier">${esc(n.supplier ?? '-')}</td>
+                <td data-label="Bayar">${lencanaStatus(n)}</td>
                 <td data-label="Nota">${
                   n.photo_path
                     ? `<button class="nota-foto-lihat" data-path="${esc(n.photo_path)}">Lihat</button>`
@@ -192,7 +467,15 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
                 }</td>
                 <td data-label="Aksi">
                   <button class="nota-isi" data-id="${n.id}" data-code="${esc(n.code)}">Isi</button>
-                  <button class="nota-edit" data-id="${n.id}" data-code="${esc(n.code)}">Edit</button>
+                  ${
+                    // Nota lunas: tombol Edit DIGANTI, bukan dimatikan diam-diam.
+                    // Tombol yang ada tapi ditolak server memaksa orang menebak
+                    // apa yang salah; tombol yang berubah namanya menjelaskan
+                    // sendiri apa yang harus dilakukan lebih dulu.
+                    n.payment_status === 'lunas'
+                      ? `<button class="nota-batal" data-id="${n.id}" data-code="${esc(n.code)}">Batalkan pembayaran</button>`
+                      : `<button class="nota-edit" data-id="${n.id}" data-code="${esc(n.code)}">Edit</button>`
+                  }
                   <button class="nota-tambah-foto" data-id="${n.id}" data-code="${esc(n.code)}">${n.photo_path ? 'Ganti foto' : '+ Foto'}</button>
                 </td>
               </tr>`
@@ -246,6 +529,46 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
                 })()
               : '<p>Nota ini tidak berisi barang.</p>'
           });
+        })
+      )
+    );
+
+    // ---- BATALKAN PEMBAYARAN ----
+    //
+    // Pembatalan berlaku untuk SELURUH pembayaran, bukan satu nota di
+    // dalamnya — dan kalau pembayarannya menggabungkan beberapa nota, itu
+    // harus dikatakan SEBELUM ditekan. Orang yang mengira membatalkan satu
+    // nota lalu mendapati enam nota lain ikut terbuka tidak punya cara
+    // mengetahui bahwa itu memang perilakunya.
+    box.querySelectorAll('.nota-batal').forEach((b) =>
+      b.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const nota = daftar.find((n) => n.id === b.dataset.id);
+          const serumpun = nota?.payment_entry_id
+            ? daftar.filter((n) => n.payment_entry_id === nota.payment_entry_id)
+            : [nota].filter(Boolean);
+          const lain = serumpun.filter((n) => n.id !== b.dataset.id);
+
+          const ok = await confirmDialog({
+            title: `Batalkan pembayaran nota ${b.dataset.code}?`,
+            message:
+              (lain.length
+                ? `Nota ini dibayar bersama <strong>${lain.length} nota lain</strong> (${lain.map((n) => esc(n.code)).join(', ')}) dalam satu pembayaran, jadi <strong>semuanya</strong> akan kembali jadi hutang.<br /><br />`
+                : '') +
+              'Uangnya dikembalikan lewat baris <strong>baru</strong> di buku kas — baris pembayaran yang lama tetap ada. ' +
+              'Buku kas mencatat dua kejadian karena memang ada dua kejadian.',
+            confirmText: 'Batalkan pembayaran',
+            danger: true
+          });
+          if (!ok) return;
+          try {
+            const n = await batalkanPembayaranNota(b.dataset.id);
+            toast(`${n} nota kembali jadi hutang; kasnya sudah dikembalikan.`, 'success');
+            gambarRiwayat();
+          } catch (e) {
+            toast(e.message ?? 'Gagal membatalkan pembayaran.', 'error');
+          }
         })
       )
     );

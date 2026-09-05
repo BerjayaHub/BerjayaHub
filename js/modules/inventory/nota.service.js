@@ -81,7 +81,12 @@ export async function riwayatNota(
   { outletId = null, dateFrom = null, dateTo = null, denganPembuat = false } = {}
 ) {
   const kolom =
-    'id, code, receipt_date, supplier, invoice_no, photo_path, notes, outlet_id, created_at, outlets!outlet_id(name)' +
+    'id, code, receipt_date, supplier, invoice_no, photo_path, notes, outlet_id, created_at, ' +
+    // Status bayarnya ikut sejak 0122. Diambil dari tabelnya sendiri, bukan
+    // dari view `nota_ringkas`: kolom ini tidak butuh penjumlahan item, dan
+    // menukar sumber tabel di sini akan mematikan embed `outlets!outlet_id`
+    // yang sudah dipakai layar ini.
+    'payment_status, due_date, payment_entry_id, outlets!outlet_id(name)' +
     (denganPembuat ? ', pembuat:user_profiles!created_by(full_name)' : '');
 
   return ambilSemua((dari, sampai) => {
@@ -96,6 +101,71 @@ export async function riwayatNota(
     if (dateTo) q = q.lte('receipt_date', dateTo);
     return q.range(dari, sampai);
   });
+}
+
+/**
+ * Nota + total + berapa barisnya yang belum berharga + status bayarnya (0122).
+ *
+ * Totalnya dihitung SERVER lewat view `nota_ringkas`, bukan di sini. Angka yang
+ * sama dipakai untuk memutuskan boleh-tidaknya sebuah nota dibayar; kalau
+ * klien menghitungnya sendiri, dua sumber itu cepat atau lambat menyimpang —
+ * dan yang terlihat cuma pembayaran yang ditolak tanpa sebab yang jelas.
+ *
+ * @param {string} businessUnitId
+ * @param {{outletId?: string|null, status?: 'lunas'|'belum'|null}} opsi
+ */
+export async function ringkasanNota(businessUnitId, { outletId = null, status = null } = {}) {
+  return ambilSemua((dari, sampai) => {
+    let q = supabase
+      .from('nota_ringkas')
+      .select('*', { count: 'exact' })
+      .eq('business_unit_id', businessUnitId)
+      .order('receipt_date', { ascending: false });
+    if (outletId) q = q.eq('outlet_id', outletId);
+    if (status) q = q.eq('payment_status', status);
+    return q.range(dari, sampai);
+  });
+}
+
+/**
+ * Lunasi beberapa nota sekaligus dengan SATU entri kas (0122).
+ *
+ * `notaIds` boleh berisi banyak nota, tapi semuanya harus dari satu outlet dan
+ * belum lunas. Server yang memeriksanya — kalau satu saja gagal, tidak ada yang
+ * dibayar.
+ *
+ * @returns {Promise<string|null>} id entri kasnya, atau `null` kalau totalnya 0
+ *   (nota bonus/sampel ditandai lunas tanpa memindahkan uang).
+ */
+export async function bayarNota({ notaIds, accountId, date, notes }) {
+  const { data, error } = await supabase.rpc('bayar_nota', {
+    p_notas: notaIds,
+    p_account: accountId,
+    p_date: date || null,
+    p_notes: notes || null
+  });
+  if (error) throw new Error(error.message ?? String(error));
+  return data;
+}
+
+/**
+ * Batalkan pembayaran — membuat entri kas BALIK, tidak menghapus yang asli.
+ *
+ * Berlaku untuk SELURUH pembayaran yang memuat nota ini. Kembaliannya jumlah
+ * nota yang ikut dibatalkan, supaya layar bisa mengatakannya sebelum & sesudah.
+ *
+ * @returns {Promise<number>}
+ */
+export async function batalkanPembayaranNota(notaId) {
+  const { data, error } = await supabase.rpc('batalkan_pembayaran_nota', { p_nota: notaId });
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data) || 0;
+}
+
+/** Pasang/ubah jatuh tempo nota yang belum lunas (0122). */
+export async function setJatuhTempoNota(notaId, dueDate) {
+  const { error } = await supabase.rpc('set_jatuh_tempo_nota', { p_nota: notaId, p_due: dueDate || null });
+  if (error) throw new Error(error.message ?? String(error));
 }
 
 /** Isi satu nota. */

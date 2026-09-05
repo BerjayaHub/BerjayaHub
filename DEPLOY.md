@@ -80,6 +80,7 @@ pernah dijalankan.
 | 0111 | `0111_draft_order_ck.sql` | **Order ke CK punya tahap DRAFT.** Disusun bersama dulu (bar + kitchen), baru ditekan Kirim — sebelum itu CK tidak melihatnya sama sekali. Satu draft per pasangan outlet-tujuan (unique index parsial). Sesudah dikirim, isinya **terkunci**. ⚠️ **Perlu redeploy `notify-telegram`** supaya draft tidak diumumkan sebagai order baru. Jalur lama `create_stock_order` dicabut grant-nya |
 | 0112 | `0112_koreksi_penjualan_berjejak.sql` | **Admin bisa memperbaiki penjualan tanggal lampau.** Wewenangnya sudah ada sejak `0101`; yang baru adalah jejaknya (`qty_awal`, `dikoreksi_at/_by/_alasan`) dan **alasan wajib untuk tanggal lampau**. Stok bahan ikut dikoreksi sesuai resep; harga tetap harga saat transaksi dicatat. ⚠️ Mengandung `drop function ubah_penjualan(uuid, numeric)` — tanda tangannya bertambah satu parameter, dan tanpa drop versi lamanya tetap hidup sebagai overload tanpa penjagaan alasan |
 | 0113 | `0113_cuti_di_jadwal_shift.sql` | **Cuti yang disetujui terbaca di jadwal shift** (Staff App & Admin Portal). Dua RPC baca saja (`cuti_disetujui_rentang`, `cuti_saya_rentang`) yang menguraikan rentang pengajuan jadi satu baris per tanggal. **Tidak menulis apa pun** ke `shift_schedules` — cuti tetap satu-satunya sumber kebenaran, jadi cuti yang dibatalkan langsung hilang dari jadwal tanpa perlu disinkronkan |
+| 0122 | `0122_nota_status_bayar.sql` | **Nota punya status bayar; hutang supplier bisa dilihat & dilunasi.** Menambah `payment_status` / `due_date` / `paid_at` / `paid_by` / `payment_entry_id` pada `goods_receipts`, kolom `cash_entries.untuk_nota`, view `nota_ringkas`, serta RPC `bayar_nota` (beberapa nota → **satu** entri kas), `batalkan_pembayaran_nota` (entri **balik**, yang asli tidak dihapus) dan `set_jatuh_tempo_nota`. ⚠️ **Mengganti batasan `cash_entries_nota_wajib`** jadi pelonggaran sempit: kas keluar boleh tanpa foto **hanya** kalau `untuk_nota`, dan itu diverifikasi saat commit oleh constraint trigger. Trigger baru menolak perubahan isi nota yang sudah lunas. **Nota lama semuanya berstatus `belum`** — menebak "lunas" akan menyembunyikan hutang yang nyata |
 | 0121 | `0121_kelola_kantong_kas_dari_admin.sql` | ⚠️ **Wajib, kalau tidak `0120` tidak bisa dinyalakan oleh siapa pun.** `0120` membuat kantong kas bisa diberi outlet, tapi tidak ada satu orang pun yang bisa mengisinya: layarnya cuma ada di Staff App di balik jatah kantong > 1, pemegang berjatah 1 bahkan tidak punya baris kantong sama sekali (kasnya `account_id` NULL), Admin Portal → User → Kas hanya baca, dan RLS `0063` melarang super admin menulis kantong orang lain. Menambah RPC `daftar_kantong_kas()` (semua kantong + baris semu **Kas Utama** untuk uang tanpa kantong) dan `atur_kantong_kas(id, holder, nama, outlet, aktif)` — **tulis penuh, semua parameter wajib, tanpa default**. Kebijakan `cash_accounts_own` **sengaja tidak disentuh** |
 | 0120 | `0120_kas_outlet_boleh_dibebani.sql` | **Kantong kas boleh menyebut OUTLET, dan staff outlet itu boleh membebaninya.** Menambah `cash_accounts.outlet_id` (boleh kosong = perilaku lama), fungsi `boleh_membebani_kas`, RPC `catat_kas_di`, serta DUA kebijakan baca baru: kantong ber-outlet terlihat oleh staff outlet itu, dan entri kas terlihat oleh yang membuatnya. Kebijakan tulis lama (`cash_entries_insert_own`) **sengaja tidak disentuh**. **Tidak ada data yang dipindahkan** — semua kantong yang ada tetap pribadi sampai ada yang memberinya outlet |
 | 0119 | `0119_ubah_nota_tanpa_menghapus.sql` | ⚠️ **Perbaikan bug penghapusan data — jalankan bersama 0118.** Menekan **"+ Foto"** pada nota MENGHAPUS nama supplier, no. invoice, dan catatannya: `ubah_nota_terima` menimpa ketiganya tanpa syarat, sementara layar hanya mengirim fotonya. Sekarang keempat kolom memakai aturan yang sama — **NULL = jangan sentuh, string kosong = hapus, string berisi = ganti**. Menulis ulang `ubah_nota_terima` lagi (versi 0118-nya digantikan utuh, termasuk penyelarasan `unit_cost`) |
@@ -566,6 +567,19 @@ siapa pun.
     tempat user punya peran, dengan nama BU tertulis di depannya.
 - **Kantong kas (sub-kas)** → **Master User → Edit** pada staff yang bersangkutan →
   isian *Jumlah kantong kas*.
+- **Tunai atau tempo saat menerima barang** → **Staff App → Bahan → Terima dari
+  Supplier**, isian *Pembayaran*. Defaultnya **Tempo**: stok bertambah, kas belum
+  berkurang, notanya masuk ke tab **Hutang Supplier** di layar yang sama.
+  **Tunai** meminta kantong kas dan langsung memotongnya — hanya bisa dipakai
+  kalau semua barang sudah ada harganya.
+- **Melunasi hutang** → tab **Hutang Supplier**: centang beberapa nota dari satu
+  supplier, pilih kasnya, tekan Bayar. Beberapa nota yang dibayar bersama
+  menghasilkan **satu** baris di buku kas. Nota yang masih punya barang tanpa
+  harga tidak bisa dicentang.
+- **Membatalkan pembayaran** → tombolnya menggantikan *Edit* pada nota lunas.
+  Pembatalan berlaku untuk **seluruh** pembayaran (semua nota yang dibayar
+  bersama), dan uangnya kembali lewat baris **baru** di buku kas — baris
+  pembayaran lama tetap ada.
 - **Kantong kas milik ORANG LAIN, dan outletnya** → **Admin Portal → User → Kas →
   tab "Kantong Kas"** (`0121`, super admin). Ini satu-satunya tempat kantong bisa
   dibuatkan untuk pemegang berjatah 1 — di Staff App tombol *Kelola Kas* hanya
@@ -828,7 +842,7 @@ node tools/test-koneksi.mjs
 node tools/test-slot-fleksibel.mjs
 ```
 
-Atau semuanya sekaligus (38 audit + 79 tes):
+Atau semuanya sekaligus (39 audit + 81 tes):
 
 ```bash
 node --experimental-vm-modules tools/audit-syntax.cjs

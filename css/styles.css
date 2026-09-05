@@ -2554,6 +2554,34 @@ select.sc-cell.is-off {
   color: var(--color-warning, #8a5800);
 }
 
+/* Status bayar nota (0122).
+
+   Ketiganya diberi WARNA dan KATA sekaligus, bukan warna saja. Nota lewat
+   tempo yang cuma dibedakan warna merah tidak terbaca oleh siapa pun yang
+   buta warna, dan layar ini dipakai di HP di bawah lampu gudang. */
+.nota-lunas,
+.nota-telat,
+.nota-tempo {
+  display: inline-block;
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.nota-lunas {
+  color: #14532d;
+  background: #dcfce7;
+}
+.nota-telat {
+  color: #7f1d1d;
+  background: #fee2e2;
+}
+.nota-tempo {
+  color: #78350f;
+  background: #fef3c7;
+}
+
 /* Kotak harga satuan di baris item picker, dengan awalan "Rp".
 
    Awalannya elemen TERPISAH, bukan bagian dari nilai isiannya. Menaruh "Rp" di

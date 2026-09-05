@@ -1497,6 +1497,7 @@ node tools/audit-owner-filter.cjs                       # query "milik saya" tan
 node tools/audit-outlet-scope.cjs                       # dropdown outlet menembus scope
 node tools/audit-embed-ambigu.cjs                      # embed PostgREST tanpa nama FK
 node tools/audit-kelola-kantong-admin.cjs               # fitur DB yang tidak bisa dinyalakan dari layar mana pun
+node tools/audit-hutang-nota.cjs                        # status bayar nota & pelonggaran bukti kas
 node tools/test-youtube-parser.mjs                      # parser link YouTube
 node tools/test-image-compress.mjs                      # skala & format kompresi foto
 ```
@@ -5110,6 +5111,44 @@ Kebijakan `cash_accounts_own` **tidak disentuh**. Melonggarkan `with check` memb
 Ditambah satu jebakan yang sempat saya pasang sendiri: field "Pemegang" yang dikunci `disabled: true` saat mengedit. `formDialog` tidak mengenal opsi itu — field-nya tampil biasa saja dan bisa diubah, lalu penolakannya datang dari server setelah orangnya mengira sudah berhasil memindahkan kantong. Saat mengedit, field-nya tidak dirender sama sekali; pemegangnya disebut di judul dialog. Auditnya menolak `disabled: true` di file ini.
 
 - [x] **Kantong kas bisa dikelola dari Admin Portal** (`0121`) — super admin membuatkan kantong untuk pemegang mana pun dan memberinya outlet; kantong tidak bisa pindah tangan, kantong berisi tidak bisa ditutup, dan uang tanpa kantong tetap terlihat sebagai "Kas Utama"
+
+## Nota punya status bayar, dan hutang supplier akhirnya punya tempat
+
+> "benar, jadi ada pembelian yang mengurangi kas dan tidak mengurangi karena jatuh tempo"
+
+Tanpa pembedaan itu cuma ada dua pilihan, dan keduanya salah: semua nota mengurangi kas (kas terlihat habis padahal uangnya masih ada, dan hutangnya tidak tercatat di mana pun), atau tidak ada yang mengurangi kas (kas terlihat utuh padahal uangnya sudah keluar).
+
+`0122` memberi nota `payment_status`, `due_date`, dan penunjuk ke entri kas yang membayarnya. Saat menyimpan nota, staff memilih **Tunai** (pilih kantong kas, langsung memotong) atau **Tempo** (opsional jatuh tempo). Tab **Hutang Supplier** mengelompokkan nota belum lunas per supplier, dengan yang lewat tempo di atas.
+
+### Biaya ikut tanggal nota, kas ikut tanggal bayar
+
+Barang datang Agustus, dibayar September. HPP dan biaya rata-rata bahan tetap memakai `receipt_date`; kas berkurang di `entry_date`. **Ini bukan ketidakcocokan yang perlu diperbaiki** — keduanya benar sekaligus. Yang wajib ada adalah penjelasannya di layar, kalau tidak orang akan mencari selisih Agustus–September itu setiap bulan dan mengira ada yang rusak. Auditnya menuntut kalimat itu tetap ada.
+
+### Satu entri kas per pembayaran, bukan per nota
+
+Bayar 7 nota ke satu supplier = **satu** baris di buku kas, karena yang benar-benar terjadi adalah satu amplop berpindah tangan satu kali. Konsekuensinya pembatalan juga per **pembayaran**: membatalkan satu nota dari pembayaran gabungan akan meninggalkan entri kas yang nominalnya tidak lagi sama dengan nota-nota yang menunjuknya — angka yang tidak salah di baris mana pun, tapi tidak pernah bisa dijumlahkan lagi. Layarnya menyebutkan nota lain yang ikut terbawa **sebelum** tombolnya ditekan.
+
+Pembatalan membuat entri **balik**, bukan menghapus. Menghapus entri yang salah membuat saldo hari ini benar sementara laporan yang sudah dicetak kemarin tidak akan pernah bisa dijelaskan lagi.
+
+### Kewajiban foto bukti: dilonggarkan sempit, lalu diverifikasi
+
+`cash_entries_nota_wajib` mewajibkan `proof_path` pada setiap kas keluar. Untuk pembayaran nota, catatannya justru lebih kuat daripada foto — ada kode nota, supplier, dan seluruh barisnya berharga — sementara `photo_path` nota sendiri boleh kosong, jadi tanpa pelonggaran nota tanpa foto **tidak akan pernah bisa dibayar**.
+
+Yang dibuka hanya entri ber-`untuk_nota`. Tapi itu cuma sebuah boolean yang bisa dikirim siapa saja dari klien, jadi ia diverifikasi **saat commit** oleh constraint trigger: harus ada nota yang menunjuk entri itu. Pemeriksaan saat insert tidak bisa dipakai — notanya baru menunjuk entri ini beberapa pernyataan kemudian.
+
+Satu sabotase lolos dengan jujur: mengganti `initially deferred` jadi `immediate` **tidak** membuat tes merah, dan itu memang benar. Trigger AFTER diantrikan sampai akhir pernyataan **terluar**, dan untuk `select bayar_nota(...)` pernyataan terluarnya adalah panggilan fungsinya sendiri. Yang load-bearing adalah adanya pemeriksanya, jadi itu yang disabotase.
+
+### Nota lunas tidak bisa diubah — dijaga trigger, bukan penulisan ulang keempat
+
+`ubah_nota_terima` sudah ditulis ulang tiga kali (`0084` → `0118` → `0119`), dan tiap penulisan ulang berisiko menghilangkan penjagaan versi sebelumnya diam-diam. Trigger pada `goods_receipt_items` menutup jalur tabel langsung juga. Yang dikunci hanya **nilainya**; menambahkan foto ke nota lunas tetap boleh, karena itu tidak mengubah satu angka pun.
+
+### Dua sabotase yang lolos karena sabotasenya yang lemah
+
+`String.replace` dengan string hanya mengganti kemunculan **pertama**, jadi dua sabotase menyisakan nama yang dicari auditnya di tempat lain dalam file yang sama. Keduanya terlihat seperti audit yang lemah padahal yang lemah adalah sabotasenya. Sekarang polanya regex global.
+
+Dan satu tes yang lulus karena alasan yang salah: pemeriksaan "pembayaran lintas outlet ditolak" memakai user yang **tidak berhak** di outlet kedua, jadi penolakannya datang dari pemeriksaan wewenang dan sabotase yang membuang pemeriksaan lintas-outlet lolos utuh. Sekarang pembayarnya berhak di kedua outlet, dan tesnya juga membuktikan ia memang berhasil kalau dipisah.
+
+- [x] **Status bayar nota & hutang supplier** (`0122`) — Tunai/Tempo saat menerima, tab Hutang Supplier per supplier, pelunasan gabungan dengan satu entri kas, pembatalan lewat entri balik
 
 ## Nota bisa diedit, harganya berformat Rupiah — dan satu bug yang menghapus supplier
 
