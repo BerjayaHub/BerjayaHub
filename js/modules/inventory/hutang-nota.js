@@ -45,7 +45,7 @@ export function statusTempo(nota, hariIni) {
  *
  * @returns {{boleh: boolean, alasan: string|null, total: number}}
  */
-export function bolehDibayar(notas) {
+export function bolehDibayar(notas, { lintasOutlet = false } = {}) {
   const daftar = Array.isArray(notas) ? notas : [];
   if (!daftar.length) return { boleh: false, alasan: 'Belum ada nota yang dicentang.', total: 0 };
 
@@ -68,8 +68,14 @@ export function bolehDibayar(notas) {
   // Satu outlet saja: `cash_entries.outlet_id` cuma punya satu nilai, jadi
   // membayar dua outlet sekaligus akan mencatat separuh biayanya atas nama
   // outlet yang tidak pernah menerima barangnya.
+  //
+  // `lintasOutlet` dipakai untuk pembayaran PUSAT (0125). Batas ini memang
+  // hanya punya SATU sebab — kolom outlet di entri kas — dan pembayaran pusat
+  // tidak membuat entri kas sama sekali. Menahannya di situ berarti melarang
+  // sesuatu tanpa alasan, dan pusat justru biasanya melunasi satu supplier
+  // untuk beberapa outlet sekaligus.
   const outlet = new Set(daftar.map((n) => n.outlet_id));
-  if (outlet.size > 1) {
+  if (!lintasOutlet && outlet.size > 1) {
     return { boleh: false, alasan: `Nota yang dicentang berasal dari ${outlet.size} outlet berbeda. Bayar per outlet.`, total: 0 };
   }
 

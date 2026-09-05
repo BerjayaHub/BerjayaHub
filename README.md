@@ -5245,6 +5245,35 @@ Jadi penjagaannya di `js/core/rpc-args.js` — `argumenRpc()` mengubah `undefine
 
 - [x] **Argumen RPC tidak bisa hilang di jalan** — `argumenRpc()`, diuji lewat `JSON.stringify` yang sesungguhnya
 
+## Nota yang dibayar Pusat
+
+> "bisakah, selain diambil dari kas outlet dia diambil dari Pusat, jadi ini dibayar oleh pusat tanpa berpengaruh ke kas manapun"
+
+Sampai `0125`, melunasi nota **selalu** membuat satu entri kas keluar. Untuk tagihan yang dibayar kantor pusat lewat transfer bank, entri itu salah dua kali: kas pemegang berkurang padahal uangnya tidak pernah ada di tangannya, dan orang yang menghitung uang fisik di outlet menemukan selisih yang tidak pernah terjadi.
+
+Sekarang `bayar_nota` punya **sumber**: `kas` atau `pusat`. Sumber `pusat` menandai lunas tanpa satu baris pun di `cash_entries`.
+
+### Konsekuensinya dikatakan, bukan disembunyikan
+
+Pembayaran Pusat tidak meninggalkan jejak di buku kas. Itu memang yang diminta, dan akibatnya nyata: **"berapa total uang keluar untuk supplier bulan ini" berhenti bisa dijawab dari buku kas saja.** Jawabannya harus dibaca dari nota. Kalimat itu ada di layar — di dialog, di tab hutang, dan di konfirmasinya — dan auditnya menuntut kalimat itu tetap ada.
+
+Karena itu pula sumbernya **disimpan**, bukan dibiarkan sebagai "lunas tanpa entri kas". Tanpa `payment_source`, nota bertotal nol (barang sampel) dan tagihan Rp300.000 yang dibayar kantor pusat terlihat persis sama: dua hal yang sangat berbeda, satu tampilan.
+
+Alternatif yang **tidak** dipilih: membuat kantong "Kas Pusat". Bukunya jadi konsisten, tapi saldonya minus terus-menerus dan ada orang yang harus merekonsiliasinya tiap bulan — pekerjaan baru yang tidak diminta siapa pun.
+
+### Batas yang dilonggarkan, dan yang tidak
+
+- **Lintas outlet: dilonggarkan.** Batas satu-outlet cuma punya satu sebab — `cash_entries.outlet_id` hanya satu nilai — dan pembayaran pusat tidak membuat entri kas. Menahannya di situ berarti melarang sesuatu tanpa alasan, sementara pusat justru biasanya melunasi satu supplier untuk beberapa outlet sekaligus.
+- **Harga lengkap: tetap wajib.** Alasannya berbeda dari jalur kas. Di sana harga bolong membuat nominal yang keluar salah; di sini tidak ada nominal yang keluar sama sekali — tapi menandai lunas menghapus notanya dari daftar hutang, dan biayanya jadi tidak pernah tercatat. Hutangnya hilang dari layar tanpa pernah jadi angka.
+
+### Dua tanda tangan, satu isi
+
+`bayar_nota` 4-argumen dipertahankan sebagai pembungkus tipis yang meneruskan dengan sumber `kas`. Bukan demi kerapian: PostgREST memilih fungsi berdasarkan himpunan nama argumen, dan PWA di HP staff masih mengirim empat — menghapus yang lama membuat tombol Bayar mereka menjawab 42883. Isinya satu baris, jadi tidak ada dua perilaku yang bisa menyimpang diam-diam. Sabotase yang mengubah pembungkusnya jadi `'pusat'` ditangkap tesnya.
+
+Dan di sisi klien, `bayarNota` mengirim `p_account: null` untuk pembayaran pusat — lewat `argumenRpc`, karena kunci yang hilang justru akan membuat PostgREST memilih pembungkus 4-argumen, yang artinya "bayar dari kas". Bug yang baru saja diperbaiki, tepat menunggu di jalur baru.
+
+- [x] **Nota bisa dilunasi Pusat** (`0125`) — tanpa menyentuh kas mana pun, boleh lintas outlet, dan sumbernya tercatat supaya bisa dibedakan dari nota bertotal nol
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.

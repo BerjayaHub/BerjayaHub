@@ -66,6 +66,22 @@ cek(
 );
 cek('2 totalnya dijumlahkan', bolehDibayar([nota({ code: 'A', total: 1000 }), nota({ code: 'B', total: 2500 })]).total, 3500);
 
+// PEMBAYARAN PUSAT BOLEH LINTAS OUTLET (0125).
+//
+// Batas satu-outlet cuma punya SATU sebab: `cash_entries.outlet_id` hanya satu
+// nilai. Pembayaran pusat tidak membuat entri kas, jadi batas itu tidak punya
+// alasan — dan pusat justru biasanya melunasi satu supplier untuk beberapa
+// outlet sekaligus.
+const duaOutlet = [nota({ code: 'A', outlet: 'OUT-1', total: 1000 }), nota({ code: 'B', outlet: 'OUT-2', total: 2000 })];
+cek('2 pusat boleh lintas outlet', bolehDibayar(duaOutlet, { lintasOutlet: true }).boleh, true);
+cek('2 totalnya tetap benar', bolehDibayar(duaOutlet, { lintasOutlet: true }).total, 3000);
+cek('2 kas TETAP tidak boleh lintas outlet', bolehDibayar(duaOutlet).boleh, false);
+cek(
+  '2 lintasOutlet tidak melonggarkan aturan LAIN',
+  bolehDibayar([nota({ code: 'A', outlet: 'OUT-1', kurang: 1 }), nota({ code: 'B', outlet: 'OUT-2' })], { lintasOutlet: true }).boleh,
+  false
+);
+
 // ---------------------------------------------------------------
 // 3. kelompokPerSupplier
 // ---------------------------------------------------------------

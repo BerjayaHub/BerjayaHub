@@ -178,13 +178,22 @@ export async function ringkasanNota(businessUnitId, { outletId = null, status = 
  * @returns {Promise<string|null>} id entri kasnya, atau `null` kalau totalnya 0
  *   (nota bonus/sampel ditandai lunas tanpa memindahkan uang).
  */
-export async function bayarNota({ notaIds, accountId, date, notes }) {
-  const { data, error } = await supabase.rpc('bayar_nota', {
-    p_notas: notaIds,
-    p_account: accountId,
-    p_date: date || null,
-    p_notes: notes || null
-  });
+export async function bayarNota({ notaIds, accountId, date, notes, sumber = 'kas' }) {
+  const { data, error } = await supabase.rpc(
+    'bayar_nota',
+    argumenRpc({
+      p_notas: notaIds,
+      // `pusat` tidak menyentuh kas mana pun, jadi kantongnya memang null —
+      // dan `argumenRpc` yang menjaga kuncinya tetap terkirim. Tanpa itu
+      // PostgREST melihat empat argumen dan memilih pembungkus lama, yang
+      // artinya "bayar dari kas" — diam-diam mengerjakan hal yang berbeda dari
+      // yang dipilih orangnya di layar.
+      p_account: accountId ?? null,
+      p_date: date || null,
+      p_notes: notes || null,
+      p_sumber: sumber || 'kas'
+    })
+  );
   if (error) throw new Error(error.message ?? String(error));
   return data;
 }

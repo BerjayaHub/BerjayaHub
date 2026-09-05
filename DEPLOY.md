@@ -80,6 +80,7 @@ pernah dijalankan.
 | 0111 | `0111_draft_order_ck.sql` | **Order ke CK punya tahap DRAFT.** Disusun bersama dulu (bar + kitchen), baru ditekan Kirim — sebelum itu CK tidak melihatnya sama sekali. Satu draft per pasangan outlet-tujuan (unique index parsial). Sesudah dikirim, isinya **terkunci**. ⚠️ **Perlu redeploy `notify-telegram`** supaya draft tidak diumumkan sebagai order baru. Jalur lama `create_stock_order` dicabut grant-nya |
 | 0112 | `0112_koreksi_penjualan_berjejak.sql` | **Admin bisa memperbaiki penjualan tanggal lampau.** Wewenangnya sudah ada sejak `0101`; yang baru adalah jejaknya (`qty_awal`, `dikoreksi_at/_by/_alasan`) dan **alasan wajib untuk tanggal lampau**. Stok bahan ikut dikoreksi sesuai resep; harga tetap harga saat transaksi dicatat. ⚠️ Mengandung `drop function ubah_penjualan(uuid, numeric)` — tanda tangannya bertambah satu parameter, dan tanpa drop versi lamanya tetap hidup sebagai overload tanpa penjagaan alasan |
 | 0113 | `0113_cuti_di_jadwal_shift.sql` | **Cuti yang disetujui terbaca di jadwal shift** (Staff App & Admin Portal). Dua RPC baca saja (`cuti_disetujui_rentang`, `cuti_saya_rentang`) yang menguraikan rentang pengajuan jadi satu baris per tanggal. **Tidak menulis apa pun** ke `shift_schedules` — cuti tetap satu-satunya sumber kebenaran, jadi cuti yang dibatalkan langsung hilang dari jadwal tanpa perlu disinkronkan |
+| 0125 | `0125_nota_dibayar_pusat.sql` | **Nota boleh dilunasi PUSAT, tanpa menyentuh kas mana pun.** Menambah `goods_receipts.payment_source` (`kas` / `pusat`) dan parameter `p_sumber` pada `bayar_nota`. Sumber `pusat` menandai lunas **tanpa membuat satu baris pun di `cash_entries`**, dan boleh **lintas outlet** (batas satu-outlet hanya ada karena `cash_entries.outlet_id` cuma satu nilai). Syarat harga lengkap **tetap berlaku**. `bayar_nota` 4-argumen dipertahankan sebagai **pembungkus** yang meneruskan dengan sumber `kas`, supaya PWA lama di HP staff tidak patah. ⚠️ **Nominal yang dibayar pusat tidak akan muncul di laporan kas** — total belanja bahan harus dibaca dari nota |
 | 0124 | `0124_geser_harga_ke_harga_beli.sql` | **Menggeser harga nota lama dari arti "per satuan" ke harga beli baris.** `0123` sengaja tidak menebak data lama; ini alatnya, dipakai per nota setelah orangnya melihat total sekarang vs total sesudahnya. Menambah `goods_receipts.harga_digeser_at` (sekali saja) dan RPC `geser_harga_nota(daftar)` — `line_total := unit_cost lama`, `unit_cost := lama / qty`, dalam **satu** `update`, plus `stock_movements` supaya biaya rata-rata ikut terkoreksi. **Tidak ada konversi massal otomatis**: nota yang harganya sudah benar akan rusak kalau ikut digeser. Nota **lunas ditolak** — nominal kasnya dihitung dari harga lama |
 | 0123 | `0123_harga_beli_per_baris.sql` | ⚠️ **Perbaikan salah paham yang menggandakan angka ribuan kali.** Kotak harga di nota berlabel "harga/gr" dan disimpan sebagai `unit_cost`, sementara orang mengetik angka yang tertulis di kertas notanya: beras 5.000 gr seharga Rp180.000 tersimpan sebagai Rp180.000/gram = **Rp900.000.000**. Menambah `goods_receipt_items.line_total` (harga beli seluruh baris — angka yang diketik orang), fungsi `harga_baris_nota()`, dan **menulis ulang `simpan_nota_terima` + `ubah_nota_terima`** supaya `unit_cost` jadi turunan (`line_total / qty`). `nota_ringkas` & `bayar_nota` memakai `line_total`. Bentuk lama (`unit_cost`) tetap diterima untuk PWA yang belum memperbarui diri. **Baris lama diisi `line_total = qty * unit_cost`** — arti yang dinyatakan kolom itu selama ini; baris yang terlanjur diisi sebagai total **tetap salah** dan harus dibetulkan lewat Edit |
 | 0122 | `0122_nota_status_bayar.sql` | **Nota punya status bayar; hutang supplier bisa dilihat & dilunasi.** Menambah `payment_status` / `due_date` / `paid_at` / `paid_by` / `payment_entry_id` pada `goods_receipts`, kolom `cash_entries.untuk_nota`, view `nota_ringkas`, serta RPC `bayar_nota` (beberapa nota → **satu** entri kas), `batalkan_pembayaran_nota` (entri **balik**, yang asli tidak dihapus) dan `set_jatuh_tempo_nota`. ⚠️ **Mengganti batasan `cash_entries_nota_wajib`** jadi pelonggaran sempit: kas keluar boleh tanpa foto **hanya** kalau `untuk_nota`, dan itu diverifikasi saat commit oleh constraint trigger. Trigger baru menolak perubahan isi nota yang sudah lunas. **Nota lama semuanya berstatus `belum`** — menebak "lunas" akan menyembunyikan hutang yang nyata |
@@ -592,9 +593,15 @@ siapa pun.
   **Tunai** meminta kantong kas dan langsung memotongnya — hanya bisa dipakai
   kalau semua barang sudah ada harganya.
 - **Melunasi hutang** → tab **Hutang Supplier**: centang beberapa nota dari satu
-  supplier, pilih kasnya, tekan Bayar. Beberapa nota yang dibayar bersama
-  menghasilkan **satu** baris di buku kas. Nota yang masih punya barang tanpa
-  harga tidak bisa dicentang.
+  supplier, pilih **Dibayar oleh** (Kas outlet / Pusat), tekan Bayar. Beberapa
+  nota yang dibayar dari kas menghasilkan **satu** baris di buku kas. Nota yang
+  masih punya barang tanpa harga tidak bisa dicentang.
+- **Dibayar Pusat** → pilihan ketiga di **Pembayaran** (saat menyimpan nota),
+  di tombol **Tunai/Tempo**, dan di **Dibayar oleh** pada tab hutang. Notanya
+  ditandai lunas dan hilang dari daftar hutang, tapi **tidak ada baris yang
+  masuk ke buku kas mana pun** — jadi nominalnya tidak akan muncul di laporan
+  kas, dan total belanja bahan harus dibaca dari nota. Pembayaran pusat boleh
+  mencakup **beberapa outlet sekaligus**; pembayaran kas tetap per outlet.
 - **Membatalkan pembayaran** → tombolnya menggantikan *Edit* pada nota lunas.
   Pembatalan berlaku untuk **seluruh** pembayaran (semua nota yang dibayar
   bersama), dan uangnya kembali lewat baris **baru** di buku kas — baris
@@ -861,7 +868,7 @@ node tools/test-koneksi.mjs
 node tools/test-slot-fleksibel.mjs
 ```
 
-Atau semuanya sekaligus (42 audit + 84 tes):
+Atau semuanya sekaligus (42 audit + 85 tes):
 
 ```bash
 node --experimental-vm-modules tools/audit-syntax.cjs

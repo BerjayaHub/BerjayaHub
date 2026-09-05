@@ -112,13 +112,62 @@ if (mig) {
 }
 
 // ---------------------------------------------------------------
+// 1b. 0125 — dibayar Pusat, tanpa menyentuh kas.
+// ---------------------------------------------------------------
+const mig25 = baca('supabase/migrations/0125_nota_dibayar_pusat.sql');
+if (mig25) {
+  if (!/add column if not exists payment_source/.test(mig25)) {
+    salah(
+      'supabase/migrations/0125: kolom `payment_source` tidak ada. ' +
+        'Tanpa itu nota yang dibayar kantor pusat tidak bisa dibedakan dari nota bertotal nol — keduanya lunas ' +
+        'tanpa entri kas, dan barang sampel yang gratis terlihat persis seperti tagihan Rp300.000.'
+    );
+  }
+  // Entri kas HANYA untuk sumber kas.
+  if (!/if v_sumber = 'kas' and v_total > 0 then/.test(mig25)) {
+    salah(
+      'supabase/migrations/0125: entri kas tidak dibatasi pada sumber `kas`. ' +
+        'Pembayaran Pusat akan tetap memotong kas pemegang — persis hal yang diminta untuk TIDAK terjadi.'
+    );
+  }
+  // Pembungkus 4 argumen wajib tetap ada untuk PWA lama.
+  if (!/select bayar_nota\(p_notas, p_account, p_date, p_notes, 'kas'\)/.test(mig25)) {
+    salah(
+      'supabase/migrations/0125: pembungkus `bayar_nota` 4 argumen hilang. ' +
+        'PostgREST memilih fungsi berdasarkan himpunan NAMA argumen, dan PWA di HP staff masih mengirim empat — ' +
+        'tombol Bayar mereka akan menjawab 42883 sampai aplikasinya memperbarui diri.'
+    );
+  }
+  // Batas satu-outlet hanya untuk kas.
+  if (!/if v_sumber = 'kas' then\s*\n\s*select count\(distinct outlet_id\)/.test(mig25)) {
+    salah(
+      'supabase/migrations/0125: batas satu-outlet tidak dibatasi pada sumber `kas`. ' +
+        'Batas itu cuma punya satu sebab — `cash_entries.outlet_id` hanya satu nilai — dan pembayaran pusat ' +
+        'tidak membuat entri kas sama sekali.'
+    );
+  }
+  // Harga lengkap TETAP wajib, apa pun sumbernya.
+  if (/if v_sumber = 'kas' and v_tanpa_harga/.test(mig25)) {
+    salah(
+      'supabase/migrations/0125: syarat harga lengkap dilonggarkan untuk sumber pusat. ' +
+        'Menandai lunas menghapus notanya dari daftar hutang; kalau harganya bolong, biayanya tidak pernah ' +
+        'tercatat oleh siapa pun — hutangnya hilang dari layar tanpa pernah jadi angka.'
+    );
+  }
+}
+
+// ---------------------------------------------------------------
 // 2. Service
 // ---------------------------------------------------------------
 const svc = baca('js/modules/inventory/nota.service.js');
 if (svc) {
   const kode = tanpaKomentar(svc);
   for (const [pola, apa] of [
-    [/rpc\('bayar_nota'/, '`bayar_nota`'],
+    // Sejak 0125 dibungkus `argumenRpc(...)`: `p_account` bernilai null untuk
+    // pembayaran Pusat, dan kunci yang hilang akan membuat PostgREST memilih
+    // pembungkus 4 argumen — yang artinya "bayar dari kas".
+    [/rpc\(\s*'bayar_nota',\s*\n?\s*argumenRpc\(/, '`bayar_nota` lewat `argumenRpc`'],
+    [/p_sumber:/, 'parameter `p_sumber`'],
     [/rpc\('batalkan_pembayaran_nota'/, '`batalkan_pembayaran_nota`'],
     [/rpc\('set_jatuh_tempo_nota'/, '`set_jatuh_tempo_nota`'],
     [/from\('nota_ringkas'\)/, "view `nota_ringkas`"]
@@ -251,6 +300,35 @@ if (hal) {
     salah(
       'js/modules/inventory/nota-staff.js: tombol Tunai/Tempo tidak ada di kedua tab. ' +
         'Nota yang terlanjur ditandai tempo padahal dibayar tunai harus bisa diperbaiki dari tempat ia terlihat.'
+    );
+  }
+
+  // ---- SUMBER PEMBAYARAN, DAN AKIBATNYA, HARUS TERLIHAT ----
+  if (!/id="hutang-sumber"/.test(kode) || !/value="pusat"/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: tidak ada pilihan sumber pembayaran (kas vs pusat). ' +
+        'RPC-nya menerima `p_sumber` sejak 0125 dan tidak bisa dicapai siapa pun.'
+    );
+  }
+  if (!/KET_PUSAT/.test(kode) || !/buku kas mana pun/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: akibat memilih Pusat tidak dijelaskan di layar. ' +
+        'Nominalnya TIDAK masuk buku kas mana pun, jadi tidak akan pernah muncul di laporan kas — orang yang ' +
+        'tidak diberi tahu akan mencarinya di sana dan menyimpulkan ada yang hilang.'
+    );
+  }
+  // Kantong kas disembunyikan saat sumbernya pusat, bukan dibiarkan tampil.
+  if (!/kasBoxEl\.hidden = pusat/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: pilihan kantong kas tetap tampil saat sumbernya Pusat. ' +
+        'Kotak yang terisi tapi tidak dipakai membuat orangnya yakin uangnya keluar dari kas itu.'
+    );
+  }
+  // Status "lunas" harus menyebut sumbernya.
+  if (!/payment_source === 'pusat'/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: penanda lunas tidak membedakan pusat dari kas. ' +
+        'Yang dibayar kas bisa ditelusuri di buku kas; yang dibayar pusat tidak akan pernah ketemu di sana.'
     );
   }
 
