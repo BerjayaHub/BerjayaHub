@@ -5328,6 +5328,31 @@ Satu sabotase juga sempat "tertangkap" karena auditnya **belum ada** — `node` 
 
 - [x] **Rekap NBM menghitung seluruh rentangnya** — batas WIB simetris, fallback basis dihormati di query, dan tujuh daftar berentang tanggal berhenti dipotong diam-diam
 
+## Sentul beli es batu, dibayar kas Central Kitchen
+
+> "setiap outlet bisa memakai kas dari outlet lain … outlet sentul membeli ice batu, lalu memakai kas CK"
+
+`0120` membuka kantong kas untuk staff outlet **yang disebut kantong itu**. Staff Sentul tidak punya cakupan di Central Kitchen, jadi Kas CK tidak pernah muncul di daftarnya — dan kalaupun muncul, `boleh_membebani_kas` akan menolaknya. Yang tampil di layar: *"tidak ada kas yang bisa kamu bebani"*.
+
+`0126` mengganti satu kata: `has_outlet_scope` → **`has_bu_scope`**. Sentul dan Central Kitchen adalah outlet BU yang sama, jadi keduanya saling menjangkau.
+
+### Dua batas yang tetap berdiri
+
+- **Kantong tanpa outlet tetap pribadi.** Itu janji `0120`, dan orang yang memakainya sebagai dompet sendiri tidak boleh mendapati saldonya berkurang karena keputusan yang tidak pernah ia ambil. Sabotase yang mencabutnya lewat pintu belakang ditangkap tesnya.
+- **BU lain tetap ditolak.** Kas antar-BU menyangkut siapa menanggung biaya siapa antar badan usaha; jawabannya bukan "siapa saja yang kebetulan punya cakupan".
+
+### Biayanya tidak ikut berpindah
+
+Es batunya masuk stok Sentul, jadi bebannya **Sentul**. Yang berpindah cuma uangnya, dari kantong CK. Itu sudah bentuknya sejak awal — `bayar_nota` dan `catat_kas_di` mengambil `outlet_id` entri kas dari **notanya**, bukan dari kantongnya. Tidak ada satu baris pun di `0126` yang menyentuhnya, dan itu dicatat justru supaya tidak ada yang "merapikannya" nanti dengan mengikutkan outlet kantong.
+
+### Harganya, dikatakan terus terang
+
+Sesudah ini siapa pun yang bertugas di BU ini bisa mengurangi kas siapa pun yang kantongnya diberi outlet. Pemegangnya tetap yang menanggung selisih kalau uang fisiknya tidak cocok. Yang menahannya bukan izin melainkan **jejak**: tiap entri mencatat `created_by`, dan layar Kas menandai kantong yang terbuka. Labelnya pun berubah jadi *kantong — outlet — pemegang*, supaya terbaca **sebelum** tombolnya ditekan, bukan sesudah saldonya turun.
+
+Satu sabotase lolos dengan jujur: `outlet_id is not null` di dalam kebijakan **baca** ternyata bukan penjaga — untuk kantong tanpa outlet, sub-query BU-nya menghasilkan NULL dan `has_bu_scope(uid, NULL)` sudah false dengan sendirinya. Ia dipertahankan sebagai pertahanan berlapis, dan sabotasenya diganti dengan yang benar-benar menggigit.
+
+- [x] **Kas bisa dipakai lintas outlet se-BU** (`0126`) — kantong pribadi tetap tertutup, BU lain tetap ditolak, dan beban biayanya tetap ikut outlet yang menerima barangnya
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.

@@ -368,6 +368,19 @@ if (hal) {
     );
   }
 
+  // 0126: label kantong menyebut OUTLET dan PEMEGANGNYA.
+  //
+  // Daftarnya kini memuat kantong outlet lain. "Kas CK" saja tidak cukup:
+  // yang berkurang adalah uang orang lain, di outlet lain, dan itu harus
+  // terbaca sebelum tombolnya ditekan — bukan sesudah saldonya turun.
+  if (!/k\.outlets\?\.name, k\.user_profiles\?\.full_name/.test(kode)) {
+    salah(
+      'js/modules/inventory/nota-staff.js: label kantong kas tidak menyebut outlet & pemegangnya. ' +
+        'Sejak 0126 daftarnya memuat kantong outlet LAIN, jadi tanpa keduanya orang tidak tahu uang siapa yang ' +
+        'sedang ia kurangi.'
+    );
+  }
+
   // Isi harga bisa dari tab Hutang — di situlah nota tanpa harga terlihat.
   if (!/class="hutang-edit"/.test(kode)) {
     salah(

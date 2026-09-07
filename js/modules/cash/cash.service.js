@@ -144,11 +144,25 @@ export async function listMyCashAccounts(onlyActive = true) {
 export async function listKantongBisaKubebani(outletId) {
   if (!outletId) return [];
   const uid = await currentUserId();
+  // SELURUH kantong yang RLS izinkan kubaca, bukan cuma kantong outlet ini.
+  //
+  // Versi pertama menyaring `outlet_id.eq.${outletId}` di klien — jadi staff
+  // Sentul yang membeli es batu memakai kas Central Kitchen melihat "tidak ada
+  // kas yang bisa kamu bebani", padahal sejak 0126 ia berhak.
+  //
+  // Yang memutuskan boleh-tidaknya sekarang cuma DUA hal, dan keduanya di
+  // server: kebijakan baca `cash_accounts` (kantong ber-outlet terlihat oleh
+  // se-BU) dan `boleh_membebani_kas()` saat menulis. Menyalin aturannya lagi ke
+  // sini berarti dua sumber jawaban yang cepat atau lambat menyimpang — dan
+  // penyimpangannya muncul sebagai pilihan yang hilang tanpa sebab.
+  //
+  // `holder_id.eq` tetap disebut supaya kantong PRIBADI milik sendiri (tanpa
+  // outlet) ikut terbawa; kebijakan baca yang berbasis outlet tidak memuatnya.
   const { data, error } = await supabase
     .from('cash_accounts')
-    .select('id, name, holder_id, outlet_id, user_profiles!holder_id(full_name)')
+    .select('id, name, holder_id, outlet_id, user_profiles!holder_id(full_name), outlets!outlet_id(name)')
     .eq('is_active', true)
-    .or(`holder_id.eq.${uid},outlet_id.eq.${outletId}`)
+    .or(`holder_id.eq.${uid},outlet_id.not.is.null`)
     .order('name');
   if (error) throw error;
   return data ?? [];

@@ -114,6 +114,20 @@ if (svc) {
   if (!/listKantongBisaKubebani/.test(kode)) {
     salah('js/modules/cash/cash.service.js: tidak ada cara mengambil daftar kantong yang boleh dibebani.');
   }
+  // 0126: daftarnya TIDAK BOLEH disaring ke satu outlet di klien.
+  //
+  // Sejak 0126 staff Sentul berhak memakai Kas Central Kitchen. Menyaring
+  // `outlet_id.eq.${outletId}` di sini membuat haknya tidak pernah terlihat —
+  // yang tampil "tidak ada kas yang bisa kamu bebani", persis yang dilaporkan.
+  // Yang memutuskan cukup dua hal, keduanya di server: kebijakan baca
+  // `cash_accounts`, dan `boleh_membebani_kas()` saat menulis.
+  if (/outlet_id\.eq\.\$\{outletId\}/.test(kode)) {
+    salah(
+      'js/modules/cash/cash.service.js: daftar kantong disaring ke satu outlet di klien. ' +
+        'Sejak 0126 kantong ber-outlet boleh dibebani se-BU; saringan ini menyembunyikan hak yang sudah diberikan ' +
+        'server, dan gejalanya "tidak ada kas yang bisa kamu bebani".'
+    );
+  }
   // `outletId` undefined harus berarti "jangan sentuh".
   if (!/outletId === undefined \? \{\} :/.test(kode)) {
     salah(

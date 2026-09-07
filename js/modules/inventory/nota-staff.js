@@ -191,8 +191,19 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
    * mencari Pusat di situ, dan menyimpulkan fiturnya tidak ada. Pertanyaannya
    * memang satu ("siapa yang membayar"), jadi kotaknya juga satu.
    */
+  /**
+   * Nama kantong yang menyebut OUTLET dan PEMEGANGNYA.
+   *
+   * Sejak 0126 daftarnya memuat kantong outlet LAIN — staff Sentul bisa
+   * membayar es batu dari Kas Central Kitchen. Label "Kas CK" saja tidak
+   * cukup di situ: yang berkurang adalah uang orang lain, di outlet lain, dan
+   * itu harus terbaca sebelum tombolnya ditekan, bukan sesudah saldonya turun.
+   */
+  const labelKantong = (k) =>
+    [k.name, k.outlets?.name, k.user_profiles?.full_name].filter(Boolean).join(' — ');
+
   const opsiPembayar = (kantong) => [
-    ...kantong.map((k) => ({ value: k.id, label: `${k.name}${k.outlets?.name ? ` — ${k.outlets.name}` : ''}` })),
+    ...kantong.map((k) => ({ value: k.id, label: labelKantong(k) })),
     { value: BAYAR_PUSAT, label: 'Pusat — tidak menyentuh kas' }
   ];
 
@@ -204,7 +215,9 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
     'Dibayar Pusat: notanya ditandai lunas dan hilang dari daftar hutang, tapi TIDAK ada baris yang masuk ke buku kas mana pun. ' +
     'Nominalnya tidak akan muncul di laporan kas — total belanja bahan harus dibaca dari notanya.';
   const KET_TUNAI =
-    'Kas outlet berkurang begitu nota disimpan. Semua barang harus sudah ada harganya — kalau ada yang kosong, ' +
+    'Kas yang dipilih berkurang begitu nota disimpan — boleh kas outlet lain di BU ini, mis. Sentul membayar ' +
+    'dengan kas Central Kitchen. Biayanya tetap beban outlet yang menerima barangnya. ' +
+    'Semua barang harus sudah ada harganya — kalau ada yang kosong, ' +
     'kas cuma berkurang sebesar sebagian isinya dan selisihnya tidak akan muncul sebagai error. ' +
     'Kalau yang membayar Pusat, simpan sebagai Tempo lalu lunasi atas nama Pusat dari tab Hutang Supplier.';
 
@@ -213,7 +226,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
     try {
       const daftar = await listKantongBisaKubebani(outletId);
       kasEl.innerHTML = daftar.length
-        ? daftar.map((k) => `<option value="${k.id}">${esc(k.name)}${k.outlets?.name ? ` — ${esc(k.outlets.name)}` : ''}</option>`).join('')
+        ? daftar.map((k) => `<option value="${k.id}">${esc(labelKantong(k))}</option>`).join('')
         : '<option value="">tidak ada kas yang bisa kamu bebani</option>';
       kantongSiap = true;
     } catch (e) {
