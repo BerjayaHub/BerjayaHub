@@ -1,5 +1,6 @@
 import { supabase } from '../../config/supabase-client.js';
 import { compressImage } from '../../core/image-compress.js';
+import { ambilSemua } from '../../core/ambil-semua.js';
 
 export const ENTRY_LABEL = {
   move_out: 'Pindah keluar',
@@ -366,19 +367,27 @@ export async function listCashBalances() {
 }
 
 export async function listCashEntriesAdmin({ holderId, entryType, dateFrom, dateTo }) {
-  let query = supabase
-    .from('cash_entries')
-    .select('id, entry_type, amount, notes, entry_date, proof_path, created_at, holder:user_profiles!holder_id(full_name), counterpart:user_profiles!counterpart_id(full_name), cash_categories(name)')
-    .order('entry_date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(500);
-  if (holderId) query = query.eq('holder_id', holderId);
-  if (entryType) query = query.eq('entry_type', entryType);
-  if (dateFrom) query = query.gte('entry_date', dateFrom);
-  if (dateTo) query = query.lte('entry_date', dateTo);
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  // `ambilSemua`, BUKAN `.limit(N)` tunggal.
+  //
+  // Rentang tanggalnya berarti orangnya meminta SELURUH periode itu; batas
+  // keras tanpa paginasi memotongnya diam-diam — dan karena urutannya menurun,
+  // yang hilang selalu bagian TERTUA dari rentang. Persis gejala Rekap NBM:
+  // filter 31 Agustus-5 September tampil, 31 Agustusnya tidak ada.
+  return ambilSemua((dari, sampai) => {
+    let query = supabase
+      .from('cash_entries')
+      .select(
+        'id, entry_type, amount, notes, entry_date, proof_path, created_at, holder:user_profiles!holder_id(full_name), counterpart:user_profiles!counterpart_id(full_name), cash_categories(name)',
+        { count: 'exact' }
+      )
+      .order('entry_date', { ascending: false })
+      .order('created_at', { ascending: false });
+    if (holderId) query = query.eq('holder_id', holderId);
+    if (entryType) query = query.eq('entry_type', entryType);
+    if (dateFrom) query = query.gte('entry_date', dateFrom);
+    if (dateTo) query = query.lte('entry_date', dateTo);
+    return query.range(dari, sampai);
+  });
 }
 
 export async function listRecentCashActivity({ limit = 25, before = null } = {}) {

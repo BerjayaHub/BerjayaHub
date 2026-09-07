@@ -1,5 +1,6 @@
 import { supabase } from '../../config/supabase-client.js';
 import { ambilSemua } from '../../core/ambil-semua.js';
+import { isoFrom, isoTo } from '../../core/dates.js';
 
 /**
  * Pengambilan data untuk halaman owner.
@@ -132,8 +133,8 @@ export async function listStockMovements({ businessUnitId, dari, sampai, outletI
       .from('stock_movements')
       .select('movement_type, qty_delta, unit_cost, product_id, outlet_id, created_at')
       .eq('business_unit_id', businessUnitId)
-      .gte('created_at', `${dari}T00:00:00+07:00`)
-      .lte('created_at', `${sampai}T23:59:59+07:00`)
+      .gte('created_at', isoFrom(dari))
+      .lte('created_at', isoTo(sampai))
       .order('created_at')
       .range(from, to);
     if (outletIds?.length) q = q.in('outlet_id', outletIds);
@@ -166,8 +167,8 @@ export async function listProductionRuns({ businessUnitId, dari, sampai, outletI
     .from('production_runs')
     .select('id, product_id, outlet_id, output_qty, created_at, cancelled_at')
     .eq('business_unit_id', businessUnitId)
-    .gte('created_at', `${dari}T00:00:00+07:00`)
-    .lte('created_at', `${sampai}T23:59:59+07:00`)
+    .gte('created_at', isoFrom(dari))
+    .lte('created_at', isoTo(sampai))
     .order('created_at', { ascending: false });
   if (outletIds?.length) q = q.in('outlet_id', outletIds);
 
@@ -234,17 +235,23 @@ export async function listChecklist({ businessUnitId, dari, sampai, outletIds = 
 }
 
 export async function listAttendance({ businessUnitId, dari, sampai, outletIds = null }) {
-  let q = supabase
-    .from('attendance_records')
-    .select('user_id, outlet_id, clock_in_at, clock_out_at')
-    .eq('business_unit_id', businessUnitId)
-    .gte('clock_in_at', `${dari}T00:00:00+07:00`)
-    .lte('clock_in_at', `${sampai}T23:59:59+07:00`);
-  if (outletIds?.length) q = q.in('outlet_id', outletIds);
-
-  const { data, error } = await q;
-  if (error) throw error;
-  return data ?? [];
+  // `ambilSemua`, karena presensi tumbuh satu baris per orang per hari.
+  //
+  // Versi pertama mengambilnya sekali tanpa `.range()` maupun `.limit()`, jadi
+  // PostgREST memotongnya di ~1.000 baris — dan potongan itu BUKAN error.
+  // Untuk BU berisi 30 orang, seribu baris habis dalam lima minggu; sesudah
+  // itu ringkasan Owner diam-diam menghitung sebagian bulannya saja, dan
+  // angkanya tetap terlihat wajar.
+  return ambilSemua((from, to) => {
+    let q = supabase
+      .from('attendance_records')
+      .select('user_id, outlet_id, clock_in_at, clock_out_at', { count: 'exact' })
+      .eq('business_unit_id', businessUnitId)
+      .gte('clock_in_at', isoFrom(dari))
+      .lte('clock_in_at', isoTo(sampai));
+    if (outletIds?.length) q = q.in('outlet_id', outletIds);
+    return q.range(from, to);
+  });
 }
 
 /**

@@ -114,22 +114,28 @@ export async function recordMenuWaste({ businessUnitId, outletId, productId, qty
  */
 
 export async function listMovements({ businessUnitId, outletId, movementType, dateFrom, dateTo }) {
+  // `ambilSemua`, BUKAN `.limit(N)` tunggal. Rentang tanggalnya berarti orangnya
+  // meminta SELURUH periode itu; batas keras tanpa paginasi memotongnya
+  // diam-diam, dan karena urutannya menurun yang hilang selalu bagian TERTUA
+  // dari rentang — persis gejala Rekap NBM yang dilaporkan.
+  return ambilSemua((dari, sampai) => {
   let query = supabase
     .from('stock_movements')
     // `product_id` (skalar) ikut diambil supaya baris ini bisa dicocokkan dengan
     // master produk lewat ID. Mencocokkan lewat NAMA terlihat bekerja sampai ada
     // dua produk bernama sama — dan repo ini sudah punya sejarahnya.
-    .select('id, product_id, movement_type, qty_delta, unit_cost, notes, created_at, products(name, base_unit), outlets!outlet_id(name), ref:outlets!ref_outlet_id(name), user_profiles!created_by(full_name)')
+    .select(
+      'id, product_id, movement_type, qty_delta, unit_cost, notes, created_at, products(name, base_unit), outlets!outlet_id(name), ref:outlets!ref_outlet_id(name), user_profiles!created_by(full_name)',
+      { count: 'exact' }
+    )
     .eq('business_unit_id', businessUnitId)
-    .order('created_at', { ascending: false })
-    .limit(300);
+    .order('created_at', { ascending: false });
   if (outletId) query = query.eq('outlet_id', outletId);
   if (movementType) query = query.eq('movement_type', movementType);
   if (dateFrom) query = query.gte('created_at', dateFrom);
   if (dateTo) query = query.lte('created_at', dateTo);
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  return query.range(dari, sampai);
+  });
 }
 
 export async function listRecentInventoryActivity({ limit = 25, before = null } = {}) {

@@ -1,6 +1,7 @@
 import { supabase } from '../../config/supabase-client.js';
 import { compressImage } from '../../core/image-compress.js';
 import { getMyBaseScope } from '../../core/base-scope.js';
+import { ambilSemua } from '../../core/ambil-semua.js';
 
 /**
  * Lokasi untuk keperluan PENCATATAN (bukan penentuan area).
@@ -467,6 +468,10 @@ export async function reverseGeocode(lat, lng) {
  * menjelaskan kenapa.
  */
 export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFrom, dateTo, outletMode = 'lokasi' }) {
+  // `ambilSemua`, BUKAN `.limit(200)` tunggal. Layar ini menyaring RENTANG
+  // TANGGAL, jadi orangnya meminta seluruh periode itu — dan batas keras tanpa
+  // paginasi memotong bagian TERTUA dari rentangnya tanpa satu pun error.
+  return ambilSemua((dari, sampai) => {
   let query = supabase
     .from('attendance_records')
     // CATATAN: nama outlet/BU lokasi TIDAK di-embed di sini. RLS `outlets_select`
@@ -476,10 +481,9 @@ export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFro
     // `user_id` WAJIB ikut: dipakai UI untuk mencocokkan penanda 🔕 (status
     // langganan push). Tanpa kolom ini pencocokannya meleset diam-diam dan
     // SEMUA staff ditandai belum mengaktifkan notifikasi.
-    .select('id, user_id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, clock_in_accuracy_m, shift_name, late_minutes, late_status, late_status_awal, late_menit_awal, late_dinilai_ulang_at, late_dinilai_ulang_alasan, business_unit_id, nbm_business_unit_id, nbm_outlet_id, nbm_outlet_note, outlet_id, user_profiles!user_id(full_name)')
+    .select('id, user_id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, clock_in_accuracy_m, shift_name, late_minutes, late_status, late_status_awal, late_menit_awal, late_dinilai_ulang_at, late_dinilai_ulang_alasan, business_unit_id, nbm_business_unit_id, nbm_outlet_id, nbm_outlet_note, outlet_id, user_profiles!user_id(full_name)', { count: 'exact' })
     .or(`nbm_business_unit_id.eq.${businessUnitId},and(nbm_business_unit_id.is.null,business_unit_id.eq.${businessUnitId})`)
-    .order('clock_in_at', { ascending: false })
-    .limit(200);
+    .order('clock_in_at', { ascending: false });
 
   if (outletId) {
     query =
@@ -493,9 +497,8 @@ export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFro
   if (dateFrom) query = query.gte('clock_in_at', dateFrom);
   if (dateTo) query = query.lte('clock_in_at', dateTo);
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  return query.range(dari, sampai);
+  });
 }
 
 /**
@@ -516,24 +519,48 @@ export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFro
  * kedua info outlet: nbm_outlet (basis, untuk config NBM) & outlets (lokasi absen).
  */
 export async function listAttendanceForNbm({ businessUnitId, outletId, dateFrom, dateTo }) {
-  let query = supabase
-    .from('attendance_records')
-    .select(
-      // outlets!outlet_id (lokasi absen) bisa null kalau outletnya milik BU lain
-      // (RLS outlets_select). Nama lokasi diresolusi di UI via list_attendance_outlets.
-      'id, clock_in_at, clock_out_at, is_storing, business_unit_id, nbm_business_unit_id, outlet_id, nbm_outlet_id, nbm_outlet_note, user_profiles!user_id(full_name), nbm_outlet:outlets!nbm_outlet_id(id, name)'
-    )
-    .eq('nbm_business_unit_id', businessUnitId)
-    .order('clock_in_at', { ascending: false })
-    .limit(500);
+  const kolom =
+    // outlets!outlet_id (lokasi absen) bisa null kalau outletnya milik BU lain
+    // (RLS outlets_select). Nama lokasi diresolusi di UI via list_attendance_outlets.
+    'id, clock_in_at, clock_out_at, is_storing, business_unit_id, nbm_business_unit_id, outlet_id, nbm_outlet_id, nbm_outlet_note, user_profiles!user_id(full_name), nbm_outlet:outlets!nbm_outlet_id(id, name)';
 
-  if (outletId) query = query.eq('nbm_outlet_id', outletId);
-  if (dateFrom) query = query.gte('clock_in_at', dateFrom);
-  if (dateTo) query = query.lte('clock_in_at', dateTo);
+  // BASIS = `coalesce(nbm_*, lokasi fisik)`, DI QUERY JUGA.
+  //
+  // Migration 0011 menyatakannya hitam di atas putih: "Nullable: baris lama /
+  // fallback -> pakai lokasi fisik seperti perilaku lama." Fungsi SQL 0074 dan
+  // 0106 memakai `coalesce(...)`, dan layar rekapnya sendiri memakai
+  // `r.nbm_outlet_id ?? r.outlet_id` saat menghitung.
+  //
+  // Query ini dulu TIDAK. Ia memakai `eq('nbm_business_unit_id', …)` polos,
+  // jadi presensi yang basisnya belum pernah dicap — baris lama, atau yang
+  // dibuat sebelum 0011 — tidak pernah ikut terambil sama sekali. Rekapnya
+  // tetap tampil, angkanya tetap terlihat wajar, dan yang hilang cuma
+  // sebagian orang. Menyaring per outlet memperparahnya: baris ber-
+  // `nbm_outlet_id` NULL dihitung sebagai outletnya oleh layar, tapi tidak
+  // pernah sampai ke layar itu.
+  const atau = (kolomBasis, kolomFisik, nilai) =>
+    `${kolomBasis}.eq.${nilai},and(${kolomBasis}.is.null,${kolomFisik}.eq.${nilai})`;
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  return ambilSemua((dari, sampai) => {
+    let query = supabase
+      .from('attendance_records')
+      .select(kolom, { count: 'exact' })
+      .or(atau('nbm_business_unit_id', 'business_unit_id', businessUnitId))
+      .order('clock_in_at', { ascending: false });
+
+    if (outletId) query = query.or(atau('nbm_outlet_id', 'outlet_id', outletId));
+    if (dateFrom) query = query.gte('clock_in_at', dateFrom);
+    if (dateTo) query = query.lte('clock_in_at', dateTo);
+
+    // `ambilSemua`, BUKAN `.limit(500)`.
+    //
+    // Batas itu dulu dipasang tanpa paginasi, dan urutannya MENURUN — jadi
+    // yang terpotong justru tanggal PALING LAMA. Gejalanya persis seperti yang
+    // dilaporkan: rentang 31 Agustus–5 September tampil, tapi 31 Agustusnya
+    // tidak ada. Dan pemotongan itu bukan error: jawabannya sukses, cuma
+    // kurang.
+    return query.range(dari, sampai);
+  });
 }
 
 /**

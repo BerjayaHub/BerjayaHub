@@ -872,7 +872,7 @@ node tools/test-koneksi.mjs
 node tools/test-slot-fleksibel.mjs
 ```
 
-Atau semuanya sekaligus (42 audit + 85 tes):
+Atau semuanya sekaligus (44 audit + 86 tes):
 
 ```bash
 node --experimental-vm-modules tools/audit-syntax.cjs

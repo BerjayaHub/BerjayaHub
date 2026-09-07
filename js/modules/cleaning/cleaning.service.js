@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { ambilSemua } from '../../core/ambil-semua.js';
 import { compressImage } from '../../core/image-compress.js';
 import { perluDikecilkan } from '../../core/photo-input.js';
 
@@ -723,23 +724,28 @@ export async function getItemsPerSession(businessUnitId, outletId, sessions) {
 // ---- Admin: rekap ----
 
 export async function listRunsForAdmin({ businessUnitId, outletId, dateFrom, dateTo }) {
+  // `ambilSemua`, BUKAN `.limit(500)` tunggal. Rekap ini menyaring RENTANG
+  // TANGGAL; batas keras tanpa paginasi memotong bagian TERTUA dari rentangnya
+  // tanpa satu pun error.
+  return ambilSemua((dari, sampai) => {
   let query = supabase
     .from('checklist_runs')
     // Foto per item ikut diambil di sini (hanya kolom path-nya) supaya kolom
     // Bukti bisa menampilkan thumbnail tanpa satu query tambahan per baris.
     // 500 baris x 1 query = 500 permintaan berbarengan; sebagian akan tertunda
     // lama dan tabelnya tampak "sebagian fotonya rusak".
-    .select('id, run_date, notes, photo_path, created_at, user_profiles(full_name), checklist_sessions(name), outlets(name), checklist_run_items(photo_path)')
+    .select(
+      'id, run_date, notes, photo_path, created_at, user_profiles(full_name), checklist_sessions(name), outlets(name), checklist_run_items(photo_path)',
+      { count: 'exact' }
+    )
     .eq('business_unit_id', businessUnitId)
     .order('run_date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(500);
+    .order('created_at', { ascending: false });
   if (outletId) query = query.eq('outlet_id', outletId);
   if (dateFrom) query = query.gte('run_date', dateFrom);
   if (dateTo) query = query.lte('run_date', dateTo);
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  return query.range(dari, sampai);
+  });
 }
 
 export async function getRunItems(runId) {

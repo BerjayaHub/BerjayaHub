@@ -1,6 +1,7 @@
 import { supabase } from '../../config/supabase-client.js';
 import { formatRupiah, formatNum } from '../../core/format.js';
 import { isoFrom, isoTo } from '../../core/dates.js';
+import { ambilSemua } from '../../core/ambil-semua.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
 import { getNbmConfig, listOvertimeTiers, listHolidays, listNbmAdjustments, calculateNbm } from '../attendance/nbm.service.js';
 // listHolidays juga dipakai laporan Hak Cuti Pengganti (PH).
@@ -108,17 +109,25 @@ function daysBetween(from, to) {
  * belum punya basis di-fallback ke lokasi fisik.
  */
 async function fetchAttendance({ businessUnitId, outletId, from, to }) {
-  let q = supabase
-    .from('attendance_records')
-    .select('id, user_id, clock_in_at, clock_out_at, is_storing, late_status, late_minutes, business_unit_id, nbm_business_unit_id, outlet_id, nbm_outlet_id')
-    .or(`nbm_business_unit_id.eq.${businessUnitId},and(nbm_business_unit_id.is.null,business_unit_id.eq.${businessUnitId})`)
-    .gte('clock_in_at', isoFrom(from))
-    .lte('clock_in_at', isoTo(to))
-    .order('clock_in_at')
-    .limit(5000);
-  const { data, error } = await q;
-  if (error) throw error;
-  const rows = data ?? [];
+  // `ambilSemua`, bukan `.limit(5000)`.
+  //
+  // Batas itu tidak pernah menghasilkan error — jawabannya sukses, cuma
+  // kurang. Urutannya MENAIK di sini, jadi yang terpotong justru tanggal
+  // TERBARU: laporan setahun akan diam-diam berhenti di bulan kesekian, dan
+  // yang hilang adalah bulan yang paling mungkin sedang ditanyakan orang.
+  const rows = await ambilSemua((dari, sampai) =>
+    supabase
+      .from('attendance_records')
+      .select(
+        'id, user_id, clock_in_at, clock_out_at, is_storing, late_status, late_minutes, business_unit_id, nbm_business_unit_id, outlet_id, nbm_outlet_id',
+        { count: 'exact' }
+      )
+      .or(`nbm_business_unit_id.eq.${businessUnitId},and(nbm_business_unit_id.is.null,business_unit_id.eq.${businessUnitId})`)
+      .gte('clock_in_at', isoFrom(from))
+      .lte('clock_in_at', isoTo(to))
+      .order('clock_in_at')
+      .range(dari, sampai)
+  );
   if (!outletId) return rows;
   return rows.filter((r) => (r.nbm_outlet_id ?? r.outlet_id) === outletId);
 }

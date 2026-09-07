@@ -13,7 +13,7 @@ import {
 import { exportTablePDF } from '../../core/pdf.js';
 import { toast, formDialog, shareDialog, confirmDialog } from '../../core/ui.js';
 import { formatRupiah, formatThousands, parseNumber, attachThousandsInput } from '../../core/format.js';
-import { monthRangeWIB } from '../../core/dates.js';
+import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 /** 'YYYY-MM-DD' -> '01 Agu 2026'. Kosong -> '…' supaya teksnya tetap terbaca. */
@@ -100,8 +100,15 @@ async function runReport(businessUnitId, outlets) {
   const records = await listAttendanceForNbm({
     businessUnitId,
     outletId,
-    dateFrom: from ? new Date(from).toISOString() : '',
-    dateTo: to ? new Date(to + 'T23:59:59').toISOString() : ''
+    // `isoFrom`/`isoTo`, BUKAN `new Date(...)` mentah.
+    //
+    // Bentuk lamanya memakai dua tata bahasa sekaligus: `new Date('2026-08-31')`
+    // dibaca sebagai UTC, sementara `new Date('2026-08-31T23:59:59')` dibaca
+    // sebagai waktu lokal. Batas awalnya jadi melompat ke pukul 07:00 WIB, dan
+    // setiap absensi sebelum jam itu di tanggal pertama hilang dari rekap —
+    // tanpa satu pun error.
+    dateFrom: isoFrom(from),
+    dateTo: isoTo(to)
   });
 
   // NBM dihitung berdasarkan outlet BASIS (nbm_outlet), bukan lokasi absen.

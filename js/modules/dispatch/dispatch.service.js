@@ -291,10 +291,16 @@ export async function getDispatchItems(dispatchId) {
  */
 export async function listMyDispatches(outletIds, { dateFrom, dateTo } = {}) {
   if (!outletIds?.length) return [];
+  // `ambilSemua`, BUKAN `.limit(N)` tunggal. Rentang tanggalnya berarti orangnya
+  // meminta SELURUH periode itu; batas keras tanpa paginasi memotongnya
+  // diam-diam, dan karena urutannya menurun yang hilang selalu bagian TERTUA
+  // dari rentang — persis gejala Rekap NBM yang dilaporkan.
+  return ambilSemua((dari, sampai) => {
   let q = supabase
     .from('dispatches')
     .select(
-      'id, code, status, notes, created_at, received_at, from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name), sender:user_profiles!created_by(full_name), receiver:user_profiles!received_by(full_name)'
+      'id, code, status, notes, created_at, received_at, from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name), sender:user_profiles!created_by(full_name), receiver:user_profiles!received_by(full_name)',
+      { count: 'exact' }
     )
     // Kiriman KELUAR maupun MASUK: satu outlet ingin melihat keduanya di satu
     // tempat, karena pertanyaannya "dokumen nomor sekian ke mana", bukan
@@ -307,13 +313,11 @@ export async function listMyDispatches(outletIds, { dateFrom, dateTo } = {}) {
     // untuk barang yang belum berangkat — dan menunggu sesuatu yang belum
     // dikirim. Draft punya tabnya sendiri di sisi CK.
     .neq('status', 'draft')
-    .order('created_at', { ascending: false })
-    .limit(300);
+    .order('created_at', { ascending: false });
   if (dateFrom) q = q.gte('created_at', dateFrom);
   if (dateTo) q = q.lte('created_at', dateTo);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data ?? [];
+  return q.range(dari, sampai);
+  });
 }
 
 /** Satu order beserta itemnya — untuk dilihat & diunduh per nomor. */
@@ -357,21 +361,27 @@ export async function getDispatchForPdf(dispatchId) {
 }
 
 export async function listDispatchesAdmin({ businessUnitId, status, dateFrom, dateTo }) {
+  // `ambilSemua`, BUKAN `.limit(N)` tunggal. Rentang tanggalnya berarti orangnya
+  // meminta SELURUH periode itu; batas keras tanpa paginasi memotongnya
+  // diam-diam, dan karena urutannya menurun yang hilang selalu bagian TERTUA
+  // dari rentang — persis gejala Rekap NBM yang dilaporkan.
+  return ambilSemua((dari, sampai) => {
   let query = supabase
     .from('dispatches')
     // `code` IKUT dibaca. Sebelumnya tidak, jadi nomor surat jalan — satu-satunya
     // pegangan untuk menelusuri sebuah kiriman — tidak pernah muncul di layar
     // admin sama sekali.
-    .select('id, code, status, notes, created_at, received_at, from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name), sender:user_profiles!created_by(full_name), receiver:user_profiles!received_by(full_name)')
+    .select(
+      'id, code, status, notes, created_at, received_at, from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name), sender:user_profiles!created_by(full_name), receiver:user_profiles!received_by(full_name)',
+      { count: 'exact' }
+    )
     .eq('business_unit_id', businessUnitId)
-    .order('created_at', { ascending: false })
-    .limit(300);
+    .order('created_at', { ascending: false });
   if (status) query = query.eq('status', status);
   if (dateFrom) query = query.gte('created_at', dateFrom);
   if (dateTo) query = query.lte('created_at', dateTo);
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  return query.range(dari, sampai);
+  });
 }
 
 export async function listRecentDispatchActivity({ limit = 25, before = null } = {}) {

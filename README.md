@@ -1501,6 +1501,8 @@ node tools/audit-hutang-nota.cjs                        # status bayar nota & pe
 node tools/audit-harga-baris-nota.cjs                   # arti angka harga di nota (baris vs satuan)
 node tools/audit-geser-harga.cjs                        # penulisan ulang angka uang yang sudah tersimpan
 node tools/audit-argumen-rpc.cjs                        # argumen RPC yang undefined & hilang di jalan
+node tools/audit-batas-tanggal.cjs                      # batas rentang UTC vs waktu lokal
+node tools/audit-fallback-basis.cjs                     # nbm_* NULL = pakai lokasi fisik
 node tools/test-youtube-parser.mjs                      # parser link YouTube
 node tools/test-image-compress.mjs                      # skala & format kompresi foto
 ```
@@ -5284,6 +5286,47 @@ Dialog cara-bayarnya juga berhenti memakai label **"Kalau Tunai, …"**. Kotak y
 
 - [x] **Nota bisa dilunasi Pusat** (`0125`) — tanpa menyentuh kas mana pun, boleh lintas outlet, dan sumbernya tercatat supaya bisa dibedakan dari nota bertotal nol
 - [x] **Satu dropdown "Dibayar oleh"** — kantong kas + Pusat; Pusat tidak lagi muncul di layar input nota
+
+## Rekap NBM kehilangan 31 Agustus — tiga sebab, satu gejala
+
+> "ada case ab serpong salah jumlah, jadi staff filter tanggal 31 agus – 5 sept, tetapi yang muncul cuma tanggal 1 – 5 sept"
+
+Satu layar, **tiga** cacat yang berdiri sendiri-sendiri. Ketiganya menghasilkan gejala yang sama persis: rekapnya tampil, totalnya terlihat wajar, dan sebagian orang tidak ada di sana.
+
+### 1. Batas awal dan batas akhir memakai dua aturan berbeda
+
+```js
+dateFrom: new Date(from).toISOString()              // '2026-08-31'          -> UTC
+dateTo:   new Date(to + 'T23:59:59').toISOString()  // '2026-09-05T23:59:59' -> LOKAL
+```
+
+`'YYYY-MM-DD'` polos dibaca sebagai **UTC**; begitu ada komponen jam, ia dibaca sebagai **waktu lokal**. Beda tata bahasa yang tidak akan pernah terlihat saat membaca kodenya. Akibatnya batas awal melompat ke **07:00 WIB**, dan setiap absensi sebelum jam itu di tanggal pertama lenyap.
+
+Dan waktu lokal itu milik **browser**, bukan milik usahanya: admin yang laptopnya masih WITA melihat rentang yang berbeda dari rekannya untuk filter yang sama. `isoFrom`/`isoTo` sekarang memasang `+07:00` eksplisit, dan tesnya lulus di bawah `TZ=Asia/Makassar` maupun `TZ=America/New_York`.
+
+### 2. Basis NBM disaring tanpa fallback yang dijanjikan skemanya
+
+Migration `0011` menyatakannya hitam di atas putih: *"Nullable: baris lama / fallback → pakai lokasi fisik."* Fungsi SQL `0074` dan `0106` memakai `coalesce(...)`. Layar rekapnya memakai `r.nbm_outlet_id ?? r.outlet_id` **saat menghitung**.
+
+Querynya tidak. Ia memakai `eq('nbm_business_unit_id', …)` polos — jadi layarnya menghitung fallback untuk baris yang tidak pernah sampai kepadanya. Yang menyakitkan: `report.service.js` sudah memakai bentuk `.or(...)` yang benar untuk pertanyaan yang **persis sama**. Dua layar, satu aturan, dua jawaban.
+
+### 3. `.limit(500)` tanpa paginasi, diurutkan menurun
+
+Yang terpotong justru bagian **tertua** dari rentangnya — tepat bagian yang paling mungkin sedang dicari orang. Dan potongan itu bukan error: jawabannya sukses, cuma kurang.
+
+### Auditnya menemukan enam kejadian lain
+
+Aturan barunya bukan "`.limit()` dilarang" — `.limit(20)` untuk "aktivitas terbaru" adalah batas yang **dimaksud**. Yang dilarang: `.limit(N ≥ 100)` pada query yang **juga menyaring rentang tanggal**. Begitu dipasang, ia langsung menunjuk **enam** tempat lain dengan cacat yang sama: ringkasan Owner, mutasi kas admin, riwayat kiriman (×2), mutasi stok, rekap presensi admin, dan rekap kebersihan. Semuanya sekarang lewat `ambilSemua`.
+
+### Dan tiga kali audit itu salah tentang dirinya sendiri
+
+- **Menuduh yang benar.** Aturan pertama menandai setiap `new Date(x).toISOString()` — termasuk enam tempat yang justru benar, karena mengubah sebuah *instant* memang begitu caranya. Dipersempit ke bentuk yang berbahaya: ketika yang masuk adalah tanggal **tanpa jam**.
+- **Membaca komentar sebagai kode.** Ia menuduh `attendance.service.js` memakai `.limit(500)` — yang ditemukannya adalah komentar yang menjelaskan kenapa `.limit(500)` sudah dibuang. Kelemahan yang berulang di repo ini, dan komentarnya sekarang dibuang dulu.
+- **Membuang pengecualiannya sendiri.** Begitu komentar dibersihkan, delapan pengecualian `baris-terbatas:` ikut hangus — pengecualiannya memang ditulis di komentar. Polanya dicari di teks bersih, pengecualiannya dibaca dari teks mentah.
+
+Satu sabotase juga sempat "tertangkap" karena auditnya **belum ada** — `node` gagal, dan skripnya membaca kegagalan itu sebagai keberhasilan. Auditnya lalu benar-benar ditulis.
+
+- [x] **Rekap NBM menghitung seluruh rentangnya** — batas WIB simetris, fallback basis dihormati di query, dan tujuh daftar berentang tanggal berhenti dipotong diam-diam
 
 ## Kolom baru yang menyandera seluruh layar
 

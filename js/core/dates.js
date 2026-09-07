@@ -44,10 +44,35 @@ export function geserHari(tanggal, n) {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
 
-/** Batas ISO untuk query timestamptz dari input date 'YYYY-MM-DD'. */
+/**
+ * Batas ISO untuk query `timestamptz` dari input date 'YYYY-MM-DD'.
+ *
+ * ============ KENAPA OFFSET WIB DITULIS EKSPLISIT ============
+ *
+ * Dua jebakan sekaligus, dan keduanya sudah menggigit di Rekap NBM.
+ *
+ * 1. **`new Date('2026-08-31')` dibaca sebagai UTC**, sementara
+ *    `new Date('2026-08-31T00:00:00')` dibaca sebagai waktu LOKAL. Beda tata
+ *    bahasa yang sama sekali tidak terlihat. Layar rekap memakai bentuk
+ *    pertama untuk batas AWAL dan bentuk kedua untuk batas AKHIR — jadi
+ *    batas awalnya melompat ke pukul 07:00 WIB, dan tujuh jam pertama tanggal
+ *    itu hilang tanpa satu pun error.
+ *
+ * 2. **Waktu lokal itu milik BROWSER, bukan milik usahanya.** Admin yang
+ *    laptopnya masih WITA, atau yang sedang di luar negeri, mendapat rentang
+ *    yang bergeser 1–8 jam dari yang dilihat rekannya — untuk filter tanggal
+ *    yang sama persis.
+ *
+ * Seluruh sistem ini beroperasi di WIB, dan WIB tidak mengenal DST, jadi
+ * offsetnya ditulis apa adanya: `+07:00`. Hasilnya sama di perangkat mana pun.
+ */
 export function isoFrom(dateStr) {
-  return dateStr ? new Date(`${dateStr}T00:00:00`).toISOString() : '';
+  return dateStr ? new Date(`${dateStr}T00:00:00+07:00`).toISOString() : '';
 }
 export function isoTo(dateStr) {
-  return dateStr ? new Date(`${dateStr}T23:59:59`).toISOString() : '';
+  // 23:59:59, bukan 23:59:59.999 — `lte` terhadap `timestamptz` berpresisi
+  // mikrodetik akan melewatkan absensi yang jatuh di sisa detik terakhir hari
+  // itu. Kasusnya langka, tapi bentuk kegagalannya sama: baris yang ada di
+  // database dan tidak pernah muncul di layar.
+  return dateStr ? new Date(`${dateStr}T23:59:59.999+07:00`).toISOString() : '';
 }
