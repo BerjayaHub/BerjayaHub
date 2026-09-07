@@ -593,6 +593,14 @@ siapa pun.
   berkurang, notanya masuk ke tab **Hutang Supplier** di layar yang sama.
   **Tunai** meminta kantong kas dan langsung memotongnya — hanya bisa dipakai
   kalau semua barang sudah ada harganya.
+- **Outlet yang sedang dibuka di Staff App** → **pemilih outlet di header**, di
+  sebelah pemilih BU. Muncul kalau akun itu boleh mengakses lebih dari satu
+  outlet di BU tersebut; kalau cuma satu, namanya ditampilkan saja. Pilihannya
+  diingat **per BU**. Kalau tertulis "— pilih outlet —", modul yang butuh outlet
+  belum punya tempat: stok, nota, dan kas selalu menempel pada satu outlet.
+  Sebelum ini pemilihnya tidak ada, dan akun tanpa cakupan di BU itu diam-diam
+  memakai outlet **BU lain** — Produksi hilang, daftar kas kosong, dan nota
+  tersimpan di outlet yang salah.
 - **Bayar pakai kas outlet lain** → sejak `0126`, dropdown **Bayar dari kas** /
   **Dibayar oleh** memuat seluruh kantong ber-outlet di BU ini, bukan cuma
   kantong outlet tempat kamu bertugas. Labelnya menyebut *kantong — outlet —
@@ -878,7 +886,7 @@ node tools/test-koneksi.mjs
 node tools/test-slot-fleksibel.mjs
 ```
 
-Atau semuanya sekaligus (44 audit + 87 tes):
+Atau semuanya sekaligus (45 audit + 88 tes):
 
 ```bash
 node --experimental-vm-modules tools/audit-syntax.cjs

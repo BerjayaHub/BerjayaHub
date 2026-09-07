@@ -1503,6 +1503,7 @@ node tools/audit-geser-harga.cjs                        # penulisan ulang angka 
 node tools/audit-argumen-rpc.cjs                        # argumen RPC yang undefined & hilang di jalan
 node tools/audit-batas-tanggal.cjs                      # batas rentang UTC vs waktu lokal
 node tools/audit-fallback-basis.cjs                     # nbm_* NULL = pakai lokasi fisik
+node tools/audit-outlet-aktif.cjs                       # Staff App meminjam outlet BU lain
 node tools/test-youtube-parser.mjs                      # parser link YouTube
 node tools/test-image-compress.mjs                      # skala & format kompresi foto
 ```
@@ -5352,6 +5353,44 @@ Sesudah ini siapa pun yang bertugas di BU ini bisa mengurangi kas siapa pun yang
 Satu sabotase lolos dengan jujur: `outlet_id is not null` di dalam kebijakan **baca** ternyata bukan penjaga — untuk kantong tanpa outlet, sub-query BU-nya menghasilkan NULL dan `has_bu_scope(uid, NULL)` sudah false dengan sendirinya. Ia dipertahankan sebagai pertahanan berlapis, dan sabotasenya diganti dengan yang benar-benar menggigit.
 
 - [x] **Kas bisa dipakai lintas outlet se-BU** (`0126`) — kantong pribadi tetap tertutup, BU lain tetap ditolak, dan beban biayanya tetap ikut outlet yang menerima barangnya
+
+## Satu baris cakupan, dan seluruh sesi salah tempat
+
+> "modul produksi apakah hilang dari staff app central kitchen ya?"
+
+Tidak hilang. Yang terjadi jauh lebih luas, dan modul Produksi cuma gejalanya yang paling terlihat.
+
+```js
+const scopesInBu = context.scopes.filter((s) => s.business_unit_id === activeBuId);
+const activeScope = scopesInBu.find((s) => s.is_primary) ?? scopesInBu[0] ?? context.scopes[0];
+//                                                                          ^^^^^^^^^^^^^^^^^^
+```
+
+Super admin melihat **seluruh** BU di pemilih atas — termasuk BU yang ia tidak punya baris cakupannya. Untuk BU seperti itu `scopesInBu` kosong, dan sesinya jatuh ke `context.scopes[0]`: cakupan milik **BU yang lain**.
+
+Akun dengan satu cakupan **"Admin Divisi / Admin"** yang membuka **"Awal Bermula Cafe"** mendapat `outletId` = outlet Admin Divisi. Sesudah itu:
+
+- **Produksi hilang** — outlet itu bukan central kitchen;
+- **"tidak ada kas yang bisa kamu bebani"** — kantong dicari di outlet BU lain;
+- **nota tersimpan di outlet BU lain**, lalu tidak muncul di riwayat karena riwayatnya menyaring BU yang sedang dibuka.
+
+Tiga keluhan terpisah selama sesi ini, satu sebab. Dan tidak satu pun menghasilkan error — yang terlihat cuma modul yang hilang dan daftar yang kosong, dan itu terbaca sebagai aplikasi yang rusak.
+
+### Yang diubah
+
+Aturannya pindah ke `js/core/outlet-aktif.js` — murni, tanpa DOM, diuji tanpa browser. Outlet aktif **harus** milik BU yang sedang dibuka; kalau tidak ada yang cocok jawabannya `null`, bukan meminjam outlet BU lain.
+
+Tiga hal yang menyertainya:
+
+- **Pemilih outlet di header.** Sebelumnya tidak ada sama sekali — outlet ditentukan diam-diam oleh baris cakupan mana yang kebetulan pertama, dan orang yang bertugas di dua outlet tidak punya jalan berpindah. Muncul hanya kalau memang ada yang bisa dipilih; staff satu outlet tidak melihat perubahan apa pun.
+- **Diingat per BU.** Satu kunci `localStorage` bersama akan membawa outlet BU sebelumnya ke BU berikutnya — bug yang sama, cuma lewat pintu lain. Dan pilihan tersimpan diabaikan kalau outletnya sudah tidak boleh diakses: `localStorage` tidak boleh jadi izin yang hidup lebih lama daripada pemberiannya.
+- **"Outlet belum dipilih" dikatakan.** Keadaan ini dulu tidak pernah ada karena selalu ada outlet yang dipinjam. Sekarang ia nyata, dan layarnya menyebutkannya — modul yang butuh outlet akan menyimpan ke tempat yang salah kalau dibiarkan diam.
+
+Peran outlet juga dibaca dari daftar outlet yang boleh, **bukan** dari embed `scope.outlets` — embed itu bisa `null` karena RLS `outlets_select` untuk outlet BU lain, dan peran `null` diam-diam berarti "tampilkan semua modul".
+
+Satu koreksi pada auditnya sendiri: aturan pertama menuduh `availableBUs[0]?.id ?? context.scopes[0].business_unit_id` — baris yang memilih **BU default** dan tidak meminjam outlet apa pun. Audit yang menuduh kode benar akan dimatikan orang, dan sesudahnya ia tidak menjaga apa pun.
+
+- [x] **Staff App tidak lagi meminjam outlet BU lain** — pemilih outlet ada, diingat per BU, dan keadaan "belum dipilih" dinyatakan
 
 ## Kolom baru yang menyandera seluruh layar
 

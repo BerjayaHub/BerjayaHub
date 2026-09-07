@@ -3,6 +3,8 @@ import { buatPenjagaSesi } from './auth/perubahan-sesi.js';
 import { getActiveModules, getModuleRenderer, registerModule, getMyAllowedModules, getModulesActiveInAnyBu } from './core/module-loader.js';
 import { getModuleIcon, pakaiLabelStaff } from './core/module-icons.js';
 import { listBusinessUnitsBasic } from './modules/organization/organization.service.js';
+import { outletAktif, modulUntukPeran } from './core/outlet-aktif.js';
+import { listMyOutlets } from './core/my-outlets.js';
 import { toast, confirmDialog, formDialog, escapeHtml } from './core/ui.js';
 import { mountTutorialButton, openTutorialDialog, ensureTutorialStyles } from './core/tutorial-button.js';
 import { listTutorialsByModule } from './modules/tutorial/tutorial.service.js';
@@ -191,9 +193,33 @@ async function renderShell() {
 
 async function renderShellForBu(context, availableBUs, activeBuId) {
   const activeBu = availableBUs.find((b) => b.id === activeBuId) || null;
-  // Scope untuk BU aktif: utamakan yang ditandai "tempat kerja utama".
-  const scopesInBu = context.scopes.filter((s) => s.business_unit_id === activeBuId);
-  const activeScope = scopesInBu.find((s) => s.is_primary) ?? scopesInBu[0] ?? context.scopes[0];
+
+  // ============ OUTLET AKTIF: TIDAK PERNAH MEMINJAM BU LAIN ============
+  //
+  // Versi lamanya berakhir dengan `?? context.scopes[0]` — cakupan milik BU
+  // YANG LAIN. Super admin melihat SELURUH BU di pemilih atas, termasuk yang ia
+  // tidak punya baris cakupannya; untuk BU seperti itu `scopesInBu` kosong dan
+  // seluruh sesinya memakai outlet BU lain.
+  //
+  // Yang dilaporkan: akun bercakupan tunggal "Admin Divisi / Admin" membuka
+  // "Awal Bermula Cafe", lalu modul Produksi hilang, daftar kas kosong, dan
+  // nota tersimpan di outlet BU lain. Tidak satu pun menghasilkan error.
+  //
+  // Aturannya sekarang ada di `js/core/outlet-aktif.js` dan diuji tanpa
+  // browser di `tools/test-outlet-aktif.mjs`.
+  const outletBoleh = await listMyOutlets(activeBuId).catch(() => []);
+  let outletTersimpan = null;
+  try {
+    outletTersimpan = localStorage.getItem(`staff_outlet_${activeBuId}`);
+  } catch {
+    // localStorage bisa diblokir -> pakai default
+  }
+  const pilihanOutlet = outletAktif({
+    scopes: context.scopes,
+    buId: activeBuId,
+    outletBoleh,
+    tersimpan: outletTersimpan
+  });
 
   app.innerHTML = loadingHtml('Memuat modul…', { penuh: true });
   // Modul aktif BU, lalu disaring lagi oleh akses per user (kalau diatur admin).
@@ -217,8 +243,8 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
   const moduleCtx = {
     userId: context.profile.id,
     businessUnitId: activeBuId,
-    outletId: activeScope?.outlet_id ?? null,
-    outletRole: activeScope?.outlets?.outlet_role ?? null
+    outletId: pilihanOutlet.outletId,
+    outletRole: pilihanOutlet.outletRole
   };
 
   applyBuTheme(activeBu);
@@ -230,6 +256,30 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
            ${availableBUs.map((b) => `<option value="${b.id}"${b.id === activeBuId ? ' selected' : ''}>${escapeHtml(b.name)}</option>`).join('')}
          </select>`
       : `<div class="topbar-bu">${escapeHtml(activeBu?.name ?? '')}</div>`;
+
+  // ---- PEMILIH OUTLET ----
+  //
+  // Sebelumnya TIDAK ADA sama sekali: outlet ditentukan diam-diam oleh baris
+  // cakupan mana yang kebetulan pertama. Orang yang bertugas di dua outlet
+  // tidak punya jalan berpindah, dan super admin tanpa cakupan di BU itu
+  // terdampar di outlet BU lain.
+  //
+  // Muncul hanya kalau memang ADA yang bisa dipilih. Untuk staff satu outlet,
+  // layarnya tidak berubah sedikit pun.
+  const outletLine =
+    outletBoleh.length > 1
+      ? `<select class="topbar-bu-select" id="outlet-switcher-staff" aria-label="Outlet">
+           <option value=""${pilihanOutlet.outletId ? '' : ' selected'}>— pilih outlet —</option>
+           ${outletBoleh
+             .map(
+               (o) =>
+                 `<option value="${o.id}"${o.id === pilihanOutlet.outletId ? ' selected' : ''}>${escapeHtml(o.name ?? 'Outlet')}</option>`
+             )
+             .join('')}
+         </select>`
+      : outletBoleh.length === 1
+        ? `<div class="topbar-bu">${escapeHtml(outletBoleh[0].name ?? '')}</div>`
+        : '';
 
   // Pintasan mode (Staff App ↔ Admin Portal) hanya untuk akun ber-peran admin.
   const ADMIN_ROLES = ['super_admin', 'bu_admin', 'outlet_admin'];
@@ -247,6 +297,7 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
         <div class="topbar-info">
           <div class="topbar-name">${escapeHtml(context.profile.full_name)}</div>
           ${buLine}
+          ${outletLine}
         </div>
         <button class="topbar-btn" id="btn-home-top" title="Beranda" aria-label="Beranda">🏠</button>
         <button class="topbar-btn" id="btn-profile" title="Profil Saya" aria-label="Profil Saya">👤</button>
@@ -270,6 +321,19 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
   // Lihat alasan lengkapnya di main-admin.js — intinya: klik kanan "buka di tab
   // baru", klik tengah, dan Ctrl/Cmd+klik hanya bekerja pada tautan sungguhan,
   // dan penangan klik apa pun justru merusaknya lagi.
+
+  document.getElementById('outlet-switcher-staff')?.addEventListener('change', (e) => {
+    try {
+      // Diingat PER BU. Satu kunci bersama akan membuat outlet BU sebelumnya
+      // terbawa ke BU berikutnya — bentuk yang sama dengan bug yang baru saja
+      // diperbaiki, cuma lewat localStorage alih-alih lewat `scopes[0]`.
+      if (e.target.value) localStorage.setItem(`staff_outlet_${activeBuId}`, e.target.value);
+      else localStorage.removeItem(`staff_outlet_${activeBuId}`);
+    } catch {
+      // abaikan kalau localStorage diblokir
+    }
+    renderShellForBu(context, availableBUs, activeBuId);
+  });
 
   document.getElementById('bu-switcher-staff')?.addEventListener('change', (e) => {
     try {
@@ -362,14 +426,11 @@ async function renderHome(context, modules, moduleCtx) {
   const firstName = (context.profile.full_name || '').split(' ')[0] || 'Halo';
   // Hanya tampilkan modul yang punya halaman Staff App + sesuai peran outlet:
   // Produksi hanya di Central Kitchen; Menu hanya di outlet non-CK (yang menjual).
+  // Aturannya di `js/core/outlet-aktif.js` — dipisah supaya bisa diuji tanpa
+  // browser, dan supaya "outlet belum dipilih" punya jawaban yang DINYATAKAN
+  // (semua modul tampil) alih-alih kebetulan.
   const role = moduleCtx.outletRole;
-  const staffModules = modules.filter((mod) => {
-    if (!getModuleRenderer(mod.code)) return false;
-    if (mod.code === 'production') return !role || role === 'central_kitchen';
-    // Menu, penjualan, dan reservasi hanya untuk outlet yang melayani tamu.
-    if (mod.code === 'menu' || mod.code === 'sales' || mod.code === 'reservation') return !role || role !== 'central_kitchen';
-    return true;
-  });
+  const staffModules = modules.filter((mod) => getModuleRenderer(mod.code) && modulUntukPeran(mod.code, role));
   const hasAttendance = staffModules.some((m) => m.code === 'attendance');
   // Presensi sudah punya kartu sendiri di header (att-mini), jadi jangan
   // ditampilkan lagi sebagai kartu biasa — dua pintu ke halaman yang sama
@@ -385,6 +446,19 @@ async function renderHome(context, modules, moduleCtx) {
             <span id="home-tutorial"></span>
           </div>
           <p>Pilih menu di bawah untuk mulai.</p>
+          ${
+            // OUTLET BELUM DIPILIH -> DIKATAKAN, bukan didiamkan.
+            //
+            // Sebelumnya keadaan ini tidak pernah ada: kalau tidak ada cakupan
+            // di BU ini, sesinya diam-diam memakai outlet BU LAIN. Sekarang
+            // outletnya `null`, dan itu harus terbaca — modul yang butuh outlet
+            // akan menyimpan ke tempat yang salah atau tampil kosong, dan
+            // keduanya terlihat seperti kerusakan aplikasi.
+            moduleCtx.outletId
+              ? ''
+              : `<p class="error-text" style="margin:6px 0 0">Outlet belum dipilih. Pilih outlet di kotak atas —
+                 stok, nota, dan kas selalu menempel pada satu outlet, jadi tanpa itu isiannya bisa mendarat di tempat yang salah.</p>`
+          }
         </div>
       </div>
       ${hasAttendance ? `<button class="att-mini" id="att-mini"><div class="att-mini-head">🕐 Presensi Hari Ini</div><div class="att-mini-body" id="att-mini-body">Memuat…</div></button>` : ''}
