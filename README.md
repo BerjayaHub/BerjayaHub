@@ -5429,6 +5429,50 @@ Pencocokan otomatis hanya menerima nama yang **sama persis** sesudah huruf besar
 
 - [x] **Ekspor pembelian ke ESB** (`0127`) — impor daftar induk, pemetaan dengan pencocokan otomatis, pratinjau, unduh, dan penanda supaya tidak terunggah dua kali
 
+## Dokumen ESB kedua: Simple Transfer dari modul Pengiriman
+
+> "sekarang lanjut ke bagian lain, di esb namanya simple transfer di berjaya hub kita pakai modul pengiriman"
+
+13 kolom, header di **baris 1**, dan **tanpa satu pun kolom harga** — transfer memindahkan barang, bukan uang. `Sequence` mengelompokkan beberapa baris jadi satu dokumen, sama seperti Simple Purchase.
+
+### Tidak ada pemetaan baru, dan itu keputusan
+
+Origin/Destination Branch & Location sumbernya sama-sama **nama outlet** — persis yang sudah dipetakan untuk Purchase. Unit dan Product Name juga. Satu-satunya kolom yang belum pernah dipakai adalah `Product Code`, dan itu sudah tersimpan di `esb_master.kode` sejak impor Master Product Data.
+
+Memberi transfer jenis pemetaan sendiri akan membuat "AB Sentul" dipetakan **dua kali**, lalu suatu hari yang satu diperbarui dan yang lain tidak. Dua jawaban untuk satu pertanyaan tidak pernah terlihat salah di layar; ia cuma membuat dua berkas ESB tidak konsisten. Auditnya menolak `peta.origin` / `peta.destination` secara eksplisit.
+
+### Yang dikirim adalah yang DITERIMA
+
+Tiga keputusan yang saling menopang, semuanya dari pengguna:
+
+| | Dipakai | Bukan |
+|---|---|---|
+| Qty | `received_qty` | `sent_qty` |
+| Tanggal | `received_at` (WIB) | `created_at` / `sent_at` |
+| Status | hanya `received` | `draft`, `sent`, `cancelled` |
+
+CK mengirim 10 kg, yang sampai 9 kg: ESB harus mencatat **9**. Memakai `sent_qty` membuat stok tujuan di ESB lebih besar daripada isi raknya, dan selisih seperti itu tidak muncul sebagai error — ia ketahuan saat opname berminggu-minggu kemudian, ketika asalnya sudah tidak bisa dilacak.
+
+Aturan "hanya yang sudah diterima" ditegakkan **dua kali dengan sengaja**: di query layar (menentukan apa yang terlihat) dan di `tandai_kiriman_esb` (menentukan apa yang boleh ditandai). Kalau suatu hari query layarnya berubah, database tetap menolak.
+
+Baris yang `received_qty`-nya **nol** dibuang — barangnya memang tidak sampai. Baris yang `received_qty`-nya **belum terisi** justru menahan seluruh kirimannya: barangnya sampai tapi jumlahnya tidak pernah dicatat, dan mengirimnya sebagai nol membuat stok tujuan kurang tanpa ada yang menyadarinya.
+
+### `tanggalWIB` — dan kenapa `slice(0, 10)` salah
+
+`received_at` bertipe `timestamptz` dan datang dalam UTC. Penerimaan pukul 00:30 WIB tersimpan sebagai `…T17:30:00Z` **hari sebelumnya**; memotong sepuluh huruf pertama melaporkannya ke ESB pada tanggal kemarin. Tanggalnya tetap tanggal yang masuk akal, cuma salah satu hari — dan baru terlihat saat stok dua hari itu dibandingkan.
+
+Kebalikannya juga dijaga: `receipt_date` di nota bertipe **DATE**, jadi `notaUntukEsb` justru **tidak boleh** memakai `isoFrom`/`isoTo` — offset WIB pada kolom DATE menggeser batasnya sehari. Dua kolom, dua tipe, dua aturan yang berlawanan; auditnya memeriksa keduanya.
+
+### Kiriman yang sudah diekspor dikunci isinya
+
+Trigger `trg_tolak_ubah_kiriman_terekspor` menolak insert/update/delete pada `dispatch_items` milik kiriman yang sudah bertanda. Tanpa itu, qty terima bisa dikoreksi **sesudah** berkasnya diunggah, dan ESB menyimpan angka yang berbeda dari Berjaya Hub selamanya — tanpa satu pun baris yang terlihat aneh di kedua sistem. Jalan keluarnya ada dan memang jalan yang benar: batalkan tandanya, perbaiki, unggah ulang.
+
+### Sabotase yang menemukan lubang di tempat lain
+
+Satu sabotase dilaporkan "lolos": penyaring `esb_exported_at` dibuang, audit tetap hijau. Sebabnya bukan auditnya lemah — `String.replace` mengganti kecocokan **pertama**, dan baris yang identik itu ada dua kali di berkas yang sama. Yang dirusak ternyata `notaUntukEsb`, sisi **Purchase**, yang saat itu tidak dijaga audit mana pun. Jadi yang ditemukan bukan sabotase yang salah sasaran, melainkan lubang yang sudah ada sejak `0127`. Auditnya sekarang menjaga kedua fungsi.
+
+- [x] **Ekspor pengiriman ke ESB** (`0128`) — Simple Transfer dari modul Pengiriman, satu layar & satu pemetaan bersama Simple Purchase
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.

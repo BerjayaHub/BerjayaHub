@@ -107,7 +107,11 @@ console.log('\nSABOTASE ATURAN MURNI:');
 sabotase('nota lunas ikut terhitung sebagai hutang', ATURAN, "if (n?.payment_status === 'lunas') continue;\n    const nama", 'if (false) continue;\n    const nama', TES_ATURAN);
 sabotase('baris tanpa harga tidak lagi menghalangi pembayaran', ATURAN, 'if (kurang.length) {', 'if (false) {', TES_ATURAN);
 sabotase('jatuh tempo hari ini dianggap sudah terlambat', ATURAN, 'if (due < hariIni)', 'if (due <= hariIni)', TES_ATURAN);
-sabotase('dua outlet dibiarkan dibayar bersama', ATURAN, 'if (outlet.size > 1) {', 'if (false) {', TES_ATURAN);
+// Polanya menyebut `!lintasOutlet` karena 0125 menambahkannya: pembayaran oleh
+// PUSAT memang boleh lintas outlet. Versi lama sabotase ini masih mencari
+// `if (outlet.size > 1) {` yang sudah tidak ada, jadi ia berhenti terpasang —
+// penjaga yang tidak pernah gagal karena tidak pernah benar-benar mencoba.
+sabotase('dua outlet dibiarkan dibayar bersama dari kas', ATURAN, 'if (!lintasOutlet && outlet.size > 1) {', 'if (false) {', TES_ATURAN);
 sabotase('supplier tanpa nama hilang dari daftar', ATURAN, '|| TANPA_SUPPLIER', "|| ''", TES_ATURAN);
 
 console.log('\nSABOTASE YANG HANYA AUDIT YANG BISA MENANGKAP (jalur layar):');

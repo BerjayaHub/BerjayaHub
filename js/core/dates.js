@@ -37,6 +37,28 @@ export function monthEndWIB() {
   return `${akhir.getUTCFullYear()}-${pad(akhir.getUTCMonth() + 1)}-${pad(akhir.getUTCDate())}`;
 }
 
+/**
+ * 'YYYY-MM-DD' (WIB) dari sebuah `timestamptz`.
+ *
+ * Bukan `String(instant).slice(0, 10)`. Nilai timestamptz datang dari PostgREST
+ * dalam UTC, dan penerimaan barang pukul 20:00 WIB tersimpan sebagai
+ * `...T13:00:00Z` — hari yang sama. Tapi penerimaan pukul 23:30 WIB tersimpan
+ * sebagai `T16:30:00Z` HARI YANG SAMA, sementara input pukul 00:30 WIB
+ * tersimpan sebagai `T17:30:00Z` HARI SEBELUMNYA. Memotong sepuluh huruf
+ * pertama akan melaporkan penerimaan dini hari ke ESB pada tanggal kemarin.
+ *
+ * Bentuk kegagalannya persis yang paling mahal di sini: tanggalnya tetap
+ * tanggal yang masuk akal, cuma salah satu hari, dan baru terlihat saat stok
+ * dua hari itu dibandingkan.
+ */
+export function tanggalWIB(instant) {
+  if (!instant) return '';
+  const d = new Date(instant);
+  if (Number.isNaN(d.getTime())) return '';
+  const w = new Date(d.getTime() + 7 * 3600000);
+  return `${w.getUTCFullYear()}-${pad(w.getUTCMonth() + 1)}-${pad(w.getUTCDate())}`;
+}
+
 /** Geser sebuah 'YYYY-MM-DD' sebanyak n hari. */
 export function geserHari(tanggal, n) {
   const d = new Date(tanggal + 'T00:00:00Z');

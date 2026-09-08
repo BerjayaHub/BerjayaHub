@@ -23,13 +23,16 @@ import { loadXLSX } from '../../core/xlsx.js';
 import { listProducts } from '../product/product.service.js';
 import { sayaAdminBu } from '../../core/base-scope.js';
 import { KOLOM_ESB, JENIS_PETA, buatPeta, barisEsbPurchase, ringkasEkspor } from './esb-purchase.js';
+import { KOLOM_TRANSFER, barisEsbTransfer, ringkasTransfer } from './esb-transfer.js';
 import {
   listEsbMaster,
   gantiEsbMaster,
   listEsbMap,
   simpanEsbMap,
   notaUntukEsb,
-  tandaiNotaEsb
+  tandaiNotaEsb,
+  kirimanUntukEsb,
+  tandaiKirimanEsb
 } from './esb.service.js';
 
 const esc = (s) =>
@@ -46,6 +49,33 @@ const LABEL_JENIS = {
 
 /** Cara bayar lokal yang selalu perlu padanan, apa pun isi notanya. */
 const CARA_BAYAR = ['kas', 'tempo', 'pusat'];
+
+/**
+ * Dua jenis dokumen ESB, satu layar, **satu pemetaan**.
+ *
+ * Origin/Destination di Simple Transfer sumbernya sama-sama nama outlet —
+ * persis yang sudah dipetakan untuk Branch & Location di Simple Purchase. Kalau
+ * transfer diberi jenis pemetaan sendiri, "AB Sentul" harus dipetakan dua kali,
+ * lalu suatu hari yang satu diperbarui dan yang lain tidak. Dua jawaban untuk
+ * satu pertanyaan tidak pernah terlihat salah di layar; ia cuma membuat dua
+ * berkas ESB tidak konsisten.
+ */
+const DOKUMEN = {
+  purchase: {
+    label: 'Simple Purchase',
+    sumber: 'nota penerimaan barang (modul Bahan)',
+    kolom: KOLOM_ESB,
+    berkas: 'esb-purchase',
+    satuan: 'nota'
+  },
+  transfer: {
+    label: 'Simple Transfer',
+    sumber: 'kiriman antar-outlet yang SUDAH DITERIMA (modul Pengiriman)',
+    kolom: KOLOM_TRANSFER,
+    berkas: 'esb-transfer',
+    satuan: 'kiriman'
+  }
+};
 
 /**
  * Nama disamakan sebelum dibandingkan: huruf kecil, spasi rangkap jadi satu,
@@ -114,12 +144,13 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
   };
 
   container.innerHTML = `
-    <h2 style="font-size:1.05rem">Ekspor ke ESB — Simple Purchase</h2>
+    <h2 style="font-size:1.05rem">Ekspor ke ESB</h2>
     <p style="font-size:0.82rem;color:var(--color-text-muted);max-width:760px">
-      Berjaya Hub jadi tempat input, ESB menerima berkasnya. <strong>Harga yang dikirim adalah harga per satuan</strong>
-      (beras 5.000 gr seharga Rp180.000 berangkat sebagai Qty 5000, Price 36) — sama seperti cara master ESB sendiri
-      menyimpannya. Nota yang ada nilainya belum terpetakan <strong>tidak ikut terunduh</strong>; ia muncul di daftar
-      di bawah, supaya ketahuan alih-alih berangkat dengan sel kosong yang ditolak ESB belakangan.
+      Berjaya Hub jadi tempat input, ESB menerima berkasnya. Dua jenis dokumen didukung —
+      <strong>Simple Purchase</strong> dari nota penerimaan dan <strong>Simple Transfer</strong> dari modul Pengiriman —
+      dan keduanya memakai <strong>pemetaan yang sama</strong>. Dokumen yang ada nilainya belum terpetakan
+      <strong>tidak ikut terunduh</strong>; ia muncul di daftar di bawah, supaya ketahuan alih-alih berangkat dengan
+      sel kosong yang ditolak ESB belakangan.
     </p>
 
     <div class="inline-card" style="max-width:820px">
@@ -156,6 +187,12 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
     <div class="inline-card" style="max-width:820px;margin-top:12px">
       <h3 style="margin-top:0;font-size:0.95rem">3. Unduh</h3>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="field" style="margin:0"><label>Jenis dokumen</label>
+          <select id="esb-dokumen">
+            <option value="purchase">Simple Purchase — nota supplier</option>
+            <option value="transfer">Simple Transfer — kiriman antar-outlet</option>
+          </select>
+        </div>
         <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="esb-from" value="${range.from}" /></div>
         <div class="field" style="margin:0"><label>Sampai tanggal</label><input type="date" id="esb-to" value="${range.to}" /></div>
         <div class="field" style="margin:0"><label>Outlet</label>
@@ -165,6 +202,7 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
         </div>
         <button class="primary" id="esb-pratinjau" style="max-width:140px">Pratinjau</button>
       </div>
+      <p style="font-size:0.8rem;color:var(--color-text-muted);margin:8px 0 0" id="esb-dokumen-ket"></p>
       <div id="esb-hasil" style="margin-top:10px"></div>
     </div>
   `;
@@ -312,58 +350,106 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
   // ---------------------------------------------------------------
   // 3. Pratinjau & unduh
   // ---------------------------------------------------------------
+  const jenisDokumen = () => container.querySelector('#esb-dokumen').value;
+
+  function ketDokumen() {
+    const d = DOKUMEN[jenisDokumen()];
+    container.querySelector('#esb-dokumen-ket').innerHTML =
+      `Sumbernya: ${esc(d.sumber)}.` +
+      (jenisDokumen() === 'transfer'
+        ? ' Qty yang dikirim ke ESB adalah <strong>jumlah yang DITERIMA</strong>, dan tanggalnya tanggal barang diterima — bukan tanggal dikirim.'
+        : ' <strong>Harga yang dikirim adalah harga per satuan</strong> (beras 5.000 gr seharga Rp180.000 berangkat sebagai Qty 5000, Price 36).');
+  }
+  ketDokumen();
+  // Hasil pratinjau lama dibersihkan saat jenisnya berganti. Tabel Purchase yang
+  // masih terpampang di bawah pilihan "Transfer" akan diunduh sebagai berkas
+  // bernama transfer — dan isinya baru ketahuan salah setelah diunggah.
+  container.querySelector('#esb-dokumen').addEventListener('change', () => {
+    ketDokumen();
+    container.querySelector('#esb-hasil').innerHTML = '';
+  });
+
   container.querySelector('#esb-pratinjau').addEventListener('click', sekaliJalan(pratinjau));
 
   async function pratinjau() {
     const hasilEl = container.querySelector('#esb-hasil');
     hasilEl.innerHTML = loadingHtml('Menyiapkan…', { baris: 3 });
+    const jenis = jenisDokumen();
+    const dok = DOKUMEN[jenis];
     const from = container.querySelector('#esb-from').value;
     const to = container.querySelector('#esb-to').value;
     const outletId = container.querySelector('#esb-outlet').value || null;
 
-    let data;
+    let hasil;
+    let total;
+    let ringkas;
+    let ids;
     try {
-      data = await notaUntukEsb({ businessUnitId, from, to, outletId });
+      if (jenis === 'transfer') {
+        const data = await kirimanUntukEsb({ businessUnitId, from, to, outletId });
+        total = data.kiriman.length;
+        if (!total) {
+          hasilEl.innerHTML =
+            '<p style="color:var(--color-text-muted);font-size:0.88rem">Tidak ada kiriman <strong>yang sudah diterima</strong> di rentang itu. Kiriman yang masih di jalan sengaja belum ditawarkan — stok ESB baru boleh bertambah setelah barangnya sampai. Yang sudah pernah diekspor juga tidak ditawarkan lagi.</p>';
+          return;
+        }
+        hasil = barisEsbTransfer({
+          kiriman: data.kiriman,
+          itemsPerKiriman: data.itemsPerKiriman,
+          peta: buatPeta(peta),
+          // Product Code diambil dari daftar induk ESB lewat NAMA hasil
+          // pemetaan — kode lokal Berjaya Hub bukan kode ESB.
+          kodeItem: new Map(master.filter((m) => m.jenis === 'item' && m.kode).map((m) => [m.nama, m.kode]))
+        });
+        ringkas = ringkasTransfer(hasil, total);
+        ids = hasil.kirimanIds;
+      } else {
+        const data = await notaUntukEsb({ businessUnitId, from, to, outletId });
+        total = data.notas.length;
+        if (!total) {
+          hasilEl.innerHTML =
+            '<p style="color:var(--color-text-muted);font-size:0.88rem">Tidak ada nota baru di rentang itu. Nota yang sudah pernah diekspor sengaja tidak ditawarkan lagi.</p>';
+          return;
+        }
+        hasil = barisEsbPurchase({ notas: data.notas, itemsPerNota: data.itemsPerNota, peta: buatPeta(peta) });
+        ringkas = ringkasEkspor(hasil, total);
+        ids = hasil.notaIds;
+      }
     } catch (e) {
       hasilEl.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
       return;
     }
-    if (!data.notas.length) {
-      hasilEl.innerHTML =
-        '<p style="color:var(--color-text-muted);font-size:0.88rem">Tidak ada nota baru di rentang itu. Nota yang sudah pernah diekspor sengaja tidak ditawarkan lagi.</p>';
-      return;
-    }
-
-    const hasil = barisEsbPurchase({ notas: data.notas, itemsPerNota: data.itemsPerNota, peta: buatPeta(peta) });
-    const r = ringkasEkspor(hasil, data.notas.length);
 
     hasilEl.innerHTML = `
       <p style="font-size:0.88rem;margin:0 0 8px">
-        <strong>${r.siap}</strong> nota siap (${r.baris} baris)${
-          r.tertahan ? ` · <span class="nota-telat">${r.tertahan} tertahan</span>` : ''
+        <strong>${ringkas.siap}</strong> ${dok.satuan} siap (${ringkas.baris} baris)${
+          ringkas.tertahan ? ` · <span class="nota-telat">${ringkas.tertahan} tertahan</span>` : ''
         }
       </p>
       ${
         hasil.kurang.length
           ? `<div class="table-scroll" style="margin-bottom:8px"><table class="data-table kartu-sempit">
-               <thead><tr><th>Jenis</th><th>Nilai Berjaya Hub</th><th>Nota terpengaruh</th></tr></thead>
+               <thead><tr><th>Jenis</th><th>Nilai Berjaya Hub</th><th>Dokumen terpengaruh</th></tr></thead>
                <tbody>${hasil.kurang
-                 .map(
-                   (k) =>
+                 .map((k) => {
+                   // Modul Purchase menamainya `nota`, modul Transfer `dok`.
+                   const daftar = k.dok ?? k.nota ?? [];
+                   return (
                      `<tr><td data-label="Jenis">${esc(LABEL_JENIS[k.jenis] ?? k.jenis)}</td>` +
                      `<td data-label="Nilai">${esc(k.nilai)}</td>` +
-                     `<td data-label="Nota" style="font-size:0.8rem">${esc(k.nota.slice(0, 6).join(', '))}${
-                       k.nota.length > 6 ? ` +${k.nota.length - 6}` : ''
+                     `<td data-label="Dokumen" style="font-size:0.8rem">${esc(daftar.slice(0, 6).join(', '))}${
+                       daftar.length > 6 ? ` +${daftar.length - 6}` : ''
                      }</td></tr>`
-                 )
+                   );
+                 })
                  .join('')}</tbody></table></div>
              <p class="nota-total-kurang" style="margin:0 0 8px">Petakan dulu di langkah 2, lalu tekan Pratinjau lagi.</p>`
           : ''
       }
       ${
-        r.siap
-          ? '<button class="primary" id="esb-unduh" style="max-width:220px">⇩ Unduh .xlsx untuk ESB</button>'
-          : '<p class="error-text" style="margin:0">Tidak ada nota yang bisa diunduh.</p>'
+        ringkas.siap
+          ? `<button class="primary" id="esb-unduh" style="max-width:260px">⇩ Unduh .xlsx — ${esc(dok.label)}</button>`
+          : `<p class="error-text" style="margin:0">Tidak ada ${esc(dok.satuan)} yang bisa diunduh.</p>`
       }
     `;
 
@@ -371,22 +457,22 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       'click',
       sekaliJalan(async () => {
         try {
-          await unduhEsb(hasil.baris, `esb-purchase-${from}-sd-${to}`);
+          await unduhEsb(dok.kolom, hasil.baris, `${dok.berkas}-${from}-sd-${to}`);
         } catch (e) {
           toast(e.message ?? 'Gagal membuat berkas.', 'error');
           return;
         }
         // DITANDAI SESUDAH BERKASNYA JADI, bukan sebelum. Kalau ditandai lebih
-        // dulu lalu pembuatan berkasnya gagal, notanya hilang dari daftar tanpa
-        // pernah sampai ke ESB — dan tidak ada yang tahu sampai stoknya tidak
-        // cocok.
+        // dulu lalu pembuatan berkasnya gagal, dokumennya hilang dari daftar
+        // tanpa pernah sampai ke ESB — dan tidak ada yang tahu sampai stoknya
+        // tidak cocok.
         try {
-          const n = await tandaiNotaEsb(hasil.notaIds);
-          toast(`Berkas terunduh. ${n} nota ditandai sudah diekspor.`, 'success');
+          const n = jenis === 'transfer' ? await tandaiKirimanEsb(ids) : await tandaiNotaEsb(ids);
+          toast(`Berkas terunduh. ${n} ${dok.satuan} ditandai sudah diekspor.`, 'success');
         } catch (e) {
           toast(
             `Berkas TERUNDUH, tapi penandaannya gagal: ${e.message ?? e}. ` +
-              'Nota ini akan ditawarkan lagi di ekspor berikutnya — jangan unggah dua kali.',
+              `${dok.satuan} ini akan ditawarkan lagi di ekspor berikutnya — jangan unggah dua kali.`,
             'warning'
           );
         }
@@ -401,9 +487,9 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
  *
  * ESB membaca baris pertama sebagai nama kolom.
  */
-async function unduhEsb(baris, namaFile) {
+async function unduhEsb(kolom, baris, namaFile) {
   const XLSX = await loadXLSX();
-  const ws = XLSX.utils.aoa_to_sheet([KOLOM_ESB, ...baris]);
+  const ws = XLSX.utils.aoa_to_sheet([kolom, ...baris]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
   XLSX.writeFile(wb, `${namaFile}.xlsx`);

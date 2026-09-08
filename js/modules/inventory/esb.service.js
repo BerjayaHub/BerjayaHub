@@ -9,6 +9,7 @@
 import { supabase } from '../../config/supabase-client.js';
 import { ambilSemua } from '../../core/ambil-semua.js';
 import { argumenRpc } from '../../core/rpc-args.js';
+import { isoFrom, isoTo } from '../../core/dates.js';
 
 // ---- Daftar induk ESB ----
 
@@ -201,6 +202,91 @@ export async function tandaiNotaEsb(notaIds) {
 /** Batalkan penandaan — untuk berkas yang ditolak ESB. */
 export async function batalkanTandaEsb(notaIds) {
   const { data, error } = await supabase.rpc('batalkan_tanda_esb', argumenRpc({ p_notas: notaIds }));
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data) || 0;
+}
+
+// ---- Kiriman untuk diekspor (Simple Transfer, 0128) ----
+
+/**
+ * Kiriman beserta itemnya, siap diberikan ke `barisEsbTransfer`.
+ *
+ * Hanya status 'received'. Aturannya juga ada di `tandai_kiriman_esb` (0128) —
+ * ditulis dua kali dengan sengaja: yang di sini menentukan apa yang TERLIHAT,
+ * yang di database menentukan apa yang boleh DITANDAI. Kalau suatu saat query
+ * ini berubah, database tetap menolak.
+ *
+ * @param {{businessUnitId: string, from: string, to: string, outletId?: string|null,
+ *          termasukSudahEkspor?: boolean}} o
+ */
+export async function kirimanUntukEsb({ businessUnitId, from, to, outletId = null, termasukSudahEkspor = false }) {
+  const kiriman = await ambilSemua((dari, sampai) => {
+    let q = supabase
+      .from('dispatches')
+      .select(
+        'id, code, status, notes, received_at, from_outlet_id, to_outlet_id, esb_exported_at, ' +
+          'from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name)',
+        { count: 'exact' }
+      )
+      .eq('business_unit_id', businessUnitId)
+      .eq('status', 'received')
+      // `received_at` bertipe timestamptz — berbeda dengan `receipt_date` di
+      // nota, yang DATE. Di sini batas WIB eksplisit memang diperlukan, kalau
+      // tidak kiriman sore hari terakhir rentang akan hilang.
+      .gte('received_at', isoFrom(from))
+      .lte('received_at', isoTo(to))
+      .order('received_at')
+      .order('code');
+    // Penyaringan outlet memakai `.or()` supaya kiriman KELUAR maupun MASUK
+    // outlet itu ikut. Menyaring satu sisi saja akan membuat separuh mutasi
+    // hilang dari ESB tergantung dari mana admin melihatnya.
+    if (outletId) q = q.or(`from_outlet_id.eq.${outletId},to_outlet_id.eq.${outletId}`);
+    if (!termasukSudahEkspor) q = q.is('esb_exported_at', null);
+    return q.range(dari, sampai);
+  });
+
+  if (!kiriman.length) return { kiriman: [], itemsPerKiriman: new Map() };
+
+  const ids = kiriman.map((d) => d.id);
+  const items = await ambilSemua((dari, sampai) =>
+    supabase
+      .from('dispatch_items')
+      .select('dispatch_id, sent_qty, received_qty, products(name, base_unit)', { count: 'exact' })
+      .in('dispatch_id', ids)
+      .range(dari, sampai)
+  );
+
+  const peta = new Map();
+  for (const it of items) {
+    if (!peta.has(it.dispatch_id)) peta.set(it.dispatch_id, []);
+    peta.get(it.dispatch_id).push({
+      product_name: it.products?.name ?? '',
+      base_unit: it.products?.base_unit ?? '',
+      sent_qty: it.sent_qty,
+      received_qty: it.received_qty
+    });
+  }
+
+  return {
+    kiriman: kiriman.map((d) => ({
+      ...d,
+      from_outlet_name: d.from_outlet?.name ?? '',
+      to_outlet_name: d.to_outlet?.name ?? ''
+    })),
+    itemsPerKiriman: peta
+  };
+}
+
+/** Tandai kiriman yang BENAR-BENAR ikut terunduh. Dipanggil sesudah berkasnya jadi. */
+export async function tandaiKirimanEsb(kirimanIds) {
+  const { data, error } = await supabase.rpc('tandai_kiriman_esb', argumenRpc({ p_kiriman: kirimanIds }));
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data) || 0;
+}
+
+/** Batalkan penandaan kiriman — untuk berkas yang ditolak ESB. */
+export async function batalkanTandaKirimanEsb(kirimanIds) {
+  const { data, error } = await supabase.rpc('batalkan_tanda_kiriman_esb', argumenRpc({ p_kiriman: kirimanIds }));
   if (error) throw new Error(error.message ?? String(error));
   return Number(data) || 0;
 }
