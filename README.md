@@ -5473,6 +5473,42 @@ Satu sabotase dilaporkan "lolos": penyaring `esb_exported_at` dibuang, audit tet
 
 - [x] **Ekspor pengiriman ke ESB** (`0128`) — Simple Transfer dari modul Pengiriman, satu layar & satu pemetaan bersama Simple Purchase
 
+## Desktop memakai layarnya, mobile tidak disentuh
+
+> "tampilan dekstop saya ingin lebih lebar sesuai dengan layar, untuk memudahkan pengisian di dekstop … jangan ubah tampilan di ukuran mobile, karena sudah pas"
+
+`.staff-main` terkunci **760px** sejak awal, dan puluhan kartu membawa `style="max-width:820px"` sendiri. Di layar 1920px, dua pertiga layarnya kosong sementara isian qty surat jalan berdesak di kolom sempit.
+
+Perbaikannya satu blok di ujung `css/styles.css`, dan **seluruhnya** di dalam satu media query.
+
+### Syarat medianya cerminan persis aturan mobile
+
+| Desktop | Mobile yang sudah ada |
+|---|---|
+| `min-width: 769px` | `max-width: 768px` |
+| `min-height: 501px` | `max-height: 500px` |
+
+Tidak ada ukuran yang masuk keduanya, dan tidak ada yang tidak masuk salah satunya. Syarat **tinggi** yang paling mudah terlupa: HP yang diputar mendatar jadi ~800px lebar dan lolos `min-width: 769px` padahal tingginya cuma ~360px — persis kondisi yang sudah ditangani baris 420 sejak lama. Tanpa itu, "jangan ubah tampilan mobile" dilanggar justru di perangkat yang paling sering dipakai sambil berdiri.
+
+`!important` diperlukan karena batas kartu menempel sebagai atribut `style`, dan atribut selalu menang atas stylesheet — pola yang sama sudah dipakai aturan mobile untuk arah sebaliknya.
+
+### Empat hal yang sengaja TIDAK ikut melebar
+
+Melebarkan semuanya akan memenuhi permintaan secara harfiah sambil merugikan yang memakainya:
+
+- **Kotak isian tunggal** (dibatasi 520px). `.field input` lebarnya 100%; di kartu 1800px, kotak "Nomor nota" jadi sepanjang meja dan mata harus menyeberangi layar untuk memastikan apa yang baru diketik. Isian yang memang berjajar (`display:flex`) tidak dibatasi — di sana lebarnya sudah dibagi saudaranya sendiri.
+- **Paragraf penjelasan.** Batas ~700px pada teks bukan sisa ruang, melainkan panjang baris yang masih nyaman dibaca.
+- **Dialog** (`.modal-card`). Ia mengambang di atas halaman; selebar layar, ia berhenti terlihat sebagai dialog.
+- **Tabel yang membawa batasnya sendiri** — Rekap Penjualan (560px), Jadwal Shift (640px), dan kanvas tanda tangan (520px). Tabel empat kolom yang direntangkan ke 1900px memisahkan nama menu dari angkanya selebar meja.
+
+Yang melebar: wadah halaman, kartu isi, dan tabel di dalamnya yang memang `width: 100%` — Pengiriman, Bahan, Ekspor ESB, Kas, dan seluruh layar Admin Portal.
+
+### Auditnya menjaga sisi yang tidak terlihat
+
+CSS tidak punya "hanya desktop"; yang ada hanya syarat media, dan syarat yang meleset satu piksel akan diam-diam mengenai HP tanpa error apa pun. `audit-lebar-desktop.cjs` mengunci batas 769/501, menolak properti non-lebar masuk blok itu, dan menolak `max-width: none !important` yang berkeliaran di luar media query. Dua kali audit itu menuduh kode yang benar — `display:` yang ia temukan ada di dalam pemilih `[style*="display:flex"]`, dan `.modal-card` yang ia laporkan ada di komentar penjelasnya; keduanya diperbaiki, karena audit yang menuduh kode benar akan dimatikan orang.
+
+- [x] **Lebar desktop mengikuti layar** — 12 sabotase, termasuk "syarat tinggi dilepas" dan "pelebaran bocor ke lingkup global"
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.

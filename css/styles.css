@@ -3054,3 +3054,90 @@ select.sc-cell.is-off {
 .ord-sudah-draft .ord-judul strong {
   color: var(--color-text);
 }
+
+/* =========================================================
+   LEBAR DESKTOP — layar lebar dipakai, bukan disisakan
+   =========================================================
+
+   > "tampilan dekstop saya ingin lebih lebar sesuai dengan layar, untuk
+   >  memudahkan pengisian di dekstop / jangan ubah tampilan di ukuran mobile,
+   >  karena sudah pas"
+
+   `.staff-main` dikunci 760px sejak awal, dan puluhan kartu membawa
+   `style="max-width:820px"` sendiri. Di layar 1080px itu masih wajar; di
+   1920px, dua pertiga layarnya kosong sementara isian qty surat jalan berdesak
+   di kolom sempit — dan yang mengisinya harus menggulir daftar panjang yang
+   sebenarnya muat sekaligus.
+
+   ============ SYARAT MEDIA-NYA CERMINAN PERSIS ATURAN MOBILE ============
+
+   `min-width: 769px` — satu piksel di atas `max-width: 768px` yang dipakai
+   seluruh aturan mobile di berkas ini. Tidak ada lebar yang masuk keduanya,
+   dan tidak ada lebar yang tidak masuk salah satunya.
+
+   `min-height: 501px` — pasangan dari `max-height: 500px` di baris 420. HP
+   yang diputar mendatar jadi ~800px lebar dan LOLOS `min-width: 769px`,
+   padahal tingginya cuma ~360px. Tanpa syarat tinggi ini, "jangan ubah
+   tampilan mobile" akan dilanggar justru di perangkat yang paling sering
+   dipakai sambil berdiri.
+
+   Karena itu blok ini TIDAK boleh berisi apa pun selain lebar. Ukuran huruf,
+   jarak sentuh, dan susunan tetap sama seperti sebelumnya. */
+@media (min-width: 769px) and (min-height: 501px) {
+  /* Wadah halaman Staff App ikut lebar layar. `.app-content` (Admin Portal &
+     Owner) memang sudah tanpa batas sejak awal — yang mengekangnya cuma kartu
+     di dalamnya, yang diurus aturan berikutnya. */
+  .staff-main {
+    max-width: none;
+    padding: var(--spacing-lg) clamp(20px, 3vw, 56px);
+  }
+
+  /* Kartu isi mengikuti wadahnya.
+     `!important` diperlukan karena batasnya menempel sebagai atribut `style`,
+     dan atribut selalu menang atas stylesheet. Pola yang sama sudah dipakai
+     aturan mobile di baris 485 untuk arah sebaliknya. */
+  .staff-main .inline-card,
+  .app-content .inline-card {
+    max-width: none !important;
+  }
+
+  /* Tabel di dalamnya ikut melebar dengan sendirinya — `.data-table` sudah
+     `width: 100%`. Yang TIDAK diikutkan: `.table-scroll` yang membawa batasnya
+     sendiri (Rekap Penjualan 560px, Jadwal Shift 640px). Batas itu bukan sisa
+     ruang; tabel empat kolom yang direntangkan ke 1900px membuat angka dan
+     nama menunya terpisah selebar meja, dan mata harus menyeberangi layar
+     untuk memasangkannya kembali. */
+
+  /* ============ YANG SENGAJA TIDAK IKUT MELEBAR ============
+
+     Tiga hal yang justru menjadi LEBIH SULIT dipakai kalau ikut selebar layar.
+     Melebarkannya akan memenuhi permintaan secara harfiah sambil merugikan
+     orang yang memakainya:
+
+     1. Kotak isian tunggal. `.field input` lebarnya 100%; di kartu 1800px,
+        kotak "Nomor nota" jadi sepanjang meja. Mata harus menyeberangi layar
+        untuk memastikan apa yang baru diketik, dan itu kebalikan dari
+        "memudahkan pengisian".
+     2. Paragraf penjelasan. Batas ~700px pada teks bukan sisa ruang, melainkan
+        panjang baris yang masih nyaman dibaca.
+     3. Dialog (`.modal-card`). Ia mengambang di atas halaman; selebar layar,
+        ia berhenti terlihat sebagai dialog.
+
+     Kotak yang memang ditulis melebar oleh layarnya sendiri — pencarian,
+     catatan, textarea — dikecualikan lewat `.isian-lebar`. */
+  .staff-main .field > input:not(.isian-lebar),
+  .staff-main .field > select:not(.isian-lebar),
+  .app-content .field > input:not(.isian-lebar),
+  .app-content .field > select:not(.isian-lebar) {
+    max-width: 520px;
+  }
+
+  /* Baris isian yang memang disusun berdampingan (`display:flex`) tidak
+     dibatasi: di sana lebarnya sudah dibagi oleh saudaranya sendiri. */
+  .staff-main [style*="display:flex"] > .field > input,
+  .staff-main [style*="display:flex"] > .field > select,
+  .app-content [style*="display:flex"] > .field > input,
+  .app-content [style*="display:flex"] > .field > select {
+    max-width: none;
+  }
+}
