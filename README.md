@@ -5392,6 +5392,43 @@ Satu koreksi pada auditnya sendiri: aturan pertama menuduh `availableBUs[0]?.id 
 
 - [x] **Staff App tidak lagi meminjam outlet BU lain** — pemilih outlet ada, diingat per BU, dan keadaan "belum dipilih" dinyatakan
 
+## Berjaya Hub jadi input utama, ESB tinggal menerima berkasnya
+
+> "saya ingin berjaya hub sebagai input utama, lalu menghasilkan template yang sesuai dengan esb, jadi admin portal tinggal download excel yang sesuai dengan template esb, dan upload saja di esb"
+
+Template **ESB Simple Purchase**: satu sheet datar, header di **baris 1**, 25 kolom. `Sequence` mengelompokkan beberapa baris jadi satu dokumen pembelian; `Type` membedakan `Item` dari `Cost`. Berjaya Hub hanya mengirim `Item`.
+
+### Arti `Price` dibuktikan masternya sendiri, bukan ditebak
+
+```
+Almond Slice   KG   qty 1000   Base Price 88.000
+Almond Slice   GR   qty    1   Base Price     88
+```
+
+`Price` selalu per satuan yang ditulis di kolom `Unit` baris itu. Karena Berjaya Hub menyimpan stok & harga dalam satuan dasar, Qty dan Price berangkat apa adanya — tanpa pembagian, tanpa selisih recehan. Ada tes yang **secara eksplisit menolak** angka Rp180.000 untuk beras 5.000 gr; angka itu adalah harga baris, dan mengirimkannya menggandakan nilai pembelian 5.000 kali. Kesalahan yang persis sama sudah melahirkan `0123` dan `0124`.
+
+### Yang belum terpetakan menahan notanya
+
+Branch, Location, Payment Method, COA, satuan, dan nama item harus cocok dengan master **di dalam** ESB — sementara nama di Berjaya Hub diketik sendiri. Sel yang dikosongkan karena belum dipetakan akan ditolak ESB jauh belakangan, atau lebih buruk: diterima sebagai data baru yang salah.
+
+Jadi nota yang salah satu nilainya belum punya padanan **tidak ikut terunduh**, dan muncul di daftar "belum terpetakan" lengkap dengan nomor notanya. Satu baris bermasalah menahan **seluruh** notanya: dokumen separuh jadi di ESB harus dihapus lalu diunggah ulang.
+
+### Dua tabel, karena umurnya berbeda
+
+`esb_master` adalah salinan daftar induk ESB, diisi dengan **mengunggah berkas ekspor ESB itu sendiri** — bukan diketik ulang. 279 nama produk yang diketik tangan pasti melahirkan salah ketik, dan salah ketik di sini tidak muncul sebagai error.
+
+`esb_map` adalah keputusan manusia. Digabung jadi satu tabel, satu impor master akan menghapus pekerjaan pemetaan berhari-hari — ada tesnya.
+
+### Tiga koreksi terhadap asumsi saya sendiri
+
+- **Location bukan salinan Branch.** Versi pertama menyalinnya. Daftar yang diberikan membuktikan sebaliknya: `HEAD OFFICE` → `Central Kitchen`, dan `Awal Bermula Cafe & Eatery Serpong` → `Outlet Awal Bermula Coffee & Eatery Serpong`. Salinan itu akan mengisi dropdown dengan nama yang **tidak ada** di ESB, dan pilihannya tampil seperti pilihan yang sah.
+- **Nama Branch Serpong** yang diberikan (`Awal Bermula Cafe Serpong`) tidak sama dengan masternya (`… & Eatery Serpong`). Yang dipakai yang dari master.
+- **`audit-outlet-tulis` menolak layar ini** karena menerima daftar outlet tanpa menyebut penjaga wewenang. Benar: pemetaan berskala **BU** (`is_bu_admin`), dan tanpa `sayaAdminBu()` admin outlet akan melihat editor lengkap yang tiap perubahannya ditolak RLS.
+
+Pencocokan otomatis hanya menerima nama yang **sama persis** sesudah huruf besar-kecil dan tanda baca diabaikan. Yang mirip tapi tidak sama sengaja dibiarkan — "Telur" ~ "Telur Puyuh" adalah tebakan, dan tebakan di sini jadi pembelian yang tercatat atas barang yang salah.
+
+- [x] **Ekspor pembelian ke ESB** (`0127`) — impor daftar induk, pemetaan dengan pencocokan otomatis, pratinjau, unduh, dan penanda supaya tidak terunggah dua kali
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.

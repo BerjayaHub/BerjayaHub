@@ -80,6 +80,7 @@ pernah dijalankan.
 | 0111 | `0111_draft_order_ck.sql` | **Order ke CK punya tahap DRAFT.** Disusun bersama dulu (bar + kitchen), baru ditekan Kirim — sebelum itu CK tidak melihatnya sama sekali. Satu draft per pasangan outlet-tujuan (unique index parsial). Sesudah dikirim, isinya **terkunci**. ⚠️ **Perlu redeploy `notify-telegram`** supaya draft tidak diumumkan sebagai order baru. Jalur lama `create_stock_order` dicabut grant-nya |
 | 0112 | `0112_koreksi_penjualan_berjejak.sql` | **Admin bisa memperbaiki penjualan tanggal lampau.** Wewenangnya sudah ada sejak `0101`; yang baru adalah jejaknya (`qty_awal`, `dikoreksi_at/_by/_alasan`) dan **alasan wajib untuk tanggal lampau**. Stok bahan ikut dikoreksi sesuai resep; harga tetap harga saat transaksi dicatat. ⚠️ Mengandung `drop function ubah_penjualan(uuid, numeric)` — tanda tangannya bertambah satu parameter, dan tanpa drop versi lamanya tetap hidup sebagai overload tanpa penjagaan alasan |
 | 0113 | `0113_cuti_di_jadwal_shift.sql` | **Cuti yang disetujui terbaca di jadwal shift** (Staff App & Admin Portal). Dua RPC baca saja (`cuti_disetujui_rentang`, `cuti_saya_rentang`) yang menguraikan rentang pengajuan jadi satu baris per tanggal. **Tidak menulis apa pun** ke `shift_schedules` — cuti tetap satu-satunya sumber kebenaran, jadi cuti yang dibatalkan langsung hilang dari jadwal tanpa perlu disinkronkan |
+| 0127 | `0127_ekspor_esb.sql` | **Ekspor nota ke template ESB "Simple Purchase".** Menambah `esb_master` (salinan daftar induk ESB — Branch, Unit, Product — diisi dengan mengunggah berkas ekspor ESB itu sendiri) dan `esb_map` (pemetaan nilai lokal → nilai ESB). **Dipisah dengan sengaja**: master diganti tiap impor, pemetaan adalah keputusan manusia yang harus bertahan melewatinya. Plus `goods_receipts.esb_exported_at` / `esb_exported_by` supaya nota tidak terunggah dua kali, RPC `tandai_nota_esb` (dipanggil SESUDAH berkasnya jadi) dan `batalkan_tanda_esb` untuk berkas yang ditolak ESB. Keduanya berskala **BU** (`is_bu_admin`) |
 | 0126 | `0126_kas_lintas_outlet_se_bu.sql` | **Kantong kas ber-outlet boleh dibebani outlet LAIN di BU yang sama.** Sentul membeli es batu memakai Kas Central Kitchen. `boleh_membebani_kas` menerima `has_bu_scope` (bukan lagi hanya `has_outlet_scope`), dan kebijakan baca `cash_accounts_baca_bu` membuka kantongnya supaya daftarnya tidak kosong. **Kantong TANPA outlet tetap pribadi** dan **BU lain tetap ditolak**. Beban biayanya **tidak berubah**: tetap ikut outlet yang menerima barangnya. ⚠️ Sesudah ini siapa pun yang bertugas di BU ini bisa mengurangi kas siapa pun yang kantongnya diberi outlet — yang menahannya jejak `created_by`, bukan izin |
 | 0125 | `0125_nota_dibayar_pusat.sql` | **Nota boleh dilunasi PUSAT, tanpa menyentuh kas mana pun.** Menambah `goods_receipts.payment_source` (`kas` / `pusat`) dan parameter `p_sumber` pada `bayar_nota`. Sumber `pusat` menandai lunas **tanpa membuat satu baris pun di `cash_entries`**, dan boleh **lintas outlet** (batas satu-outlet hanya ada karena `cash_entries.outlet_id` cuma satu nilai). Syarat harga lengkap **tetap berlaku**. `bayar_nota` 4-argumen dipertahankan sebagai **pembungkus** yang meneruskan dengan sumber `kas`, supaya PWA lama di HP staff tidak patah. ⚠️ **Nominal yang dibayar pusat tidak akan muncul di laporan kas** — total belanja bahan harus dibaca dari nota |
 | 0124 | `0124_geser_harga_ke_harga_beli.sql` | **Menggeser harga nota lama dari arti "per satuan" ke harga beli baris.** `0123` sengaja tidak menebak data lama; ini alatnya, dipakai per nota setelah orangnya melihat total sekarang vs total sesudahnya. Menambah `goods_receipts.harga_digeser_at` (sekali saja) dan RPC `geser_harga_nota(daftar)` — `line_total := unit_cost lama`, `unit_cost := lama / qty`, dalam **satu** `update`, plus `stock_movements` supaya biaya rata-rata ikut terkoreksi. **Tidak ada konversi massal otomatis**: nota yang harganya sudah benar akan rusak kalau ikut digeser. Nota **lunas ditolak** — nominal kasnya dihitung dari harga lama |
@@ -593,6 +594,17 @@ siapa pun.
   berkurang, notanya masuk ke tab **Hutang Supplier** di layar yang sama.
   **Tunai** meminta kantong kas dan langsung memotongnya — hanya bisa dipakai
   kalau semua barang sudah ada harganya.
+- **Ekspor pembelian ke ESB** → **Admin Portal → Inventory → Ekspor ESB**
+  (Admin BU / Super Admin). Tiga langkah: (1) unggah berkas ekspor ESB apa
+  adanya — Master Branch, Master Unit of Material, Master Product Data;
+  (2) petakan nilai Berjaya Hub ke nilai ESB, dengan tombol **⚡ Cocokkan
+  otomatis** yang hanya mencocokkan nama yang **sama persis**; (3) pilih rentang
+  tanggal, Pratinjau, lalu unduh `.xlsx`. **Harga yang dikirim per satuan**
+  (beras 5.000 gr Rp180.000 → Qty 5000, Price 36), sesuai cara master ESB
+  menyimpannya. Nota yang ada nilainya belum terpetakan **tidak ikut terunduh**
+  dan muncul di daftar "belum terpetakan". Sesudah terunduh, notanya ditandai
+  dan tidak ditawarkan lagi. ⚠️ **Location diketik manual** — ia bukan salinan
+  Branch (`HEAD OFFICE` → `Central Kitchen`).
 - **Outlet yang sedang dibuka di Staff App** → **pemilih outlet di header**, di
   sebelah pemilih BU. Muncul kalau akun itu boleh mengakses lebih dari satu
   outlet di BU tersebut; kalau cuma satu, namanya ditampilkan saja. Pilihannya
@@ -886,7 +898,7 @@ node tools/test-koneksi.mjs
 node tools/test-slot-fleksibel.mjs
 ```
 
-Atau semuanya sekaligus (45 audit + 88 tes):
+Atau semuanya sekaligus (45 audit + 90 tes):
 
 ```bash
 node --experimental-vm-modules tools/audit-syntax.cjs
