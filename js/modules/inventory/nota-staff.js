@@ -126,7 +126,15 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
     // order ke CK, transfer, retur — TIDAK menyalakannya: barangnya berpindah
     // antar outlet, bukan dibeli, dan harga yang ditebak di sana akan masuk ke
     // rata-rata seolah-olah pembelian sungguhan.
-    hargaSatuan: true
+    hargaSatuan: true,
+    // SATU BAHAN, SATU BARIS — juga di nota.
+    //
+    // Di sini penggabungannya lebih halus daripada di order: qty dijumlahkan
+    // DAN harganya dijumlahkan, jadi biaya per satuannya jadi rata-rata
+    // tertimbang yang benar. Yang tidak boleh terjadi adalah salah satu baris
+    // belum berharga — `gabungDuplikat` mengosongkan harganya dan mengatakannya,
+    // karena harga separuh jauh lebih berbahaya daripada harga kosong.
+    tanpaDuplikat: true
   });
   const errorEl = wadah.querySelector('#nota-error');
   const totalEl = wadah.querySelector('#nota-total');
@@ -267,6 +275,12 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
       const items = picker.getItems();
       if (!items.length) {
         errorEl.textContent = 'Tambahkan minimal satu barang dengan jumlahnya.';
+        return;
+      }
+      // Diperiksa SEBELUM foto diunggah. Menolak sesudahnya berarti satu berkas
+      // yatim tertinggal di Storage untuk nota yang tidak pernah ada.
+      if (picker.adaDuplikat()) {
+        errorEl.textContent = `${picker.namaDuplikat().join(', ')} ada di lebih dari satu baris. Gabungkan dulu jadi satu baris.`;
         return;
       }
 
@@ -1079,6 +1093,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
                 products,
                 showStock: false,
                 hargaSatuan: true,
+                tanpaDuplikat: true,
                 initial: isi.map((i) => ({ product_id: i.product_id, qty: i.qty, line_total: i.line_total ?? '' }))
               });
 
@@ -1091,6 +1106,9 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
                 const items = picker.getItems();
                 if (!items.length) {
                   return 'Nota harus berisi minimal satu barang. Kalau seluruhnya salah, hapus barangnya satu per satu lalu buat nota baru.';
+                }
+                if (picker.adaDuplikat()) {
+                  return `${picker.namaDuplikat().join(', ')} ada di lebih dari satu baris. Gabungkan dulu jadi satu baris.`;
                 }
                 // BARANG YANG DIHAPUS dari picker tidak ikut terkirim — dan
                 // ketiadaannya itulah yang dibaca server sebagai "dibatalkan",

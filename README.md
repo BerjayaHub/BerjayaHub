@@ -5509,6 +5509,38 @@ CSS tidak punya "hanya desktop"; yang ada hanya syarat media, dan syarat yang me
 
 - [x] **Lebar desktop mengikuti layar** — 12 sabotase, termasuk "syarat tinggi dilepas" dan "pelebaran bocor ke lingkup global"
 
+## Satu bahan, satu baris
+
+> "didalam satu nomor order, jangan ada bahan dengan nama yang sama … staff a order bahan a 100gr, jika staff b juga ingin order bahan a sebanyak 150gr, maka dia harus menambahkan bahan a menjadi 250gr"
+
+Sejak `0110` order milik **outlet**, bukan pembuatnya: bar mengisi sirup, kitchen menambah daging, ke satu nomor order yang sama. Layar edit menampilkan isi yang sudah ada lalu menyediakan "+ Tambah Produk" — dan tidak ada apa pun yang menahan orang kedua memilih barang yang sudah dipesan orang pertama.
+
+Hasilnya dua baris untuk satu barang. Tidak ada error, tidak ada peringatan, keduanya terlihat wajar. Yang menemukannya adalah staff CK yang menyiapkan barang sambil membaca daftar — dan pada saat itu ia harus menebak apakah 100 dan 150 berarti 250, atau salah satunya salah ketik.
+
+### Dijumlahkan, tapi di depan mata
+
+Penjumlahan senyap ditolak dengan sengaja: staff B yang mengetik 150 harus **melihat** angkanya jadi 250 sebelum menyimpan, kalau tidak ia akan mengira memesan 150. Jadi barisnya ditandai merah begitu produknya dipilih, kotak penjelasnya menyebut nama bahan dan jumlah gabungannya, dan ada tombol **Gabungkan** — sementara Simpan benar-benar ditolak selama masih kembar. Kotak merah yang tetap bisa dilewati Simpan bukan penjagaan, cuma hiasan.
+
+Berlaku di **lima** pemilih produk: Order ke CK, Kirim ke Outlet, isi Draft Surat Jalan, nota supplier baru, dan edit nota.
+
+### Dua lapis, karena PWA-nya bisa tertinggal versi
+
+Aplikasi ini terpasang di HP staff dan versinya bisa tertinggal berhari-hari — penjagaan yang hanya ada di layar tidak berlaku untuk HP itu, dan justru HP itulah yang paling sering dipakai di lapangan. Jadi ada unique index di ketiga tabel. Tapi unique index sendirian menghasilkan `duplicate key value violates unique constraint gri_produk_uk` di layar staff outlet: kalimat yang tidak menyebut bahan mana. Maka triggernya yang bicara, dengan nama produknya.
+
+### Harga separuh lebih berbahaya daripada harga kosong
+
+Di nota, penggabungan menjumlahkan qty **dan** harga, jadi biaya per satuannya rata-rata tertimbang yang benar. Tapi kalau salah satu baris belum berharga — 100gr@Rp5.000 + 150gr@(kosong) — harganya **dikosongkan**, bukan diambil dari baris yang kebetulan berharga. Menjumlahkan begitu saja menghasilkan 250gr seharga Rp5.000: biaya per gram anjlok dari 50 ke 20, dan angka itu masuk ke rata-rata biaya bahan seolah-olah pembelian sungguhan. Harga kosong ditahan `0122` sebelum nota bisa dilunasi; harga yang salah tidak ditahan siapa pun.
+
+### Yang paling berbahaya di migration ini bukan bahan kembarnya
+
+Menggabungkan data lama harus **mematikan** `trg_tolak_ubah_nota_lunas` (0122) dan `trg_tolak_ubah_kiriman_terekspor` (0128) untuk sesaat. Lupa menyalakannya lagi berarti nota yang sudah lunas bisa diubah siapa pun, selamanya, tanpa satu pun layar yang menunjukkannya. Auditnya menghitung `disable` versus `enable` dan memeriksa bahwa penggabungannya berada **di antara** keduanya; dua sabotase khusus menguji persis kegagalan itu.
+
+### Dua sabotase yang lolos, dan sebabnya sama
+
+`String.replace` mengganti kecocokan **pertama**. `bacaRupiah(e.line_total)` dan `pf-gabung` masing-masing muncul dua kali di `item-picker.js`, jadi sabotasenya merusak yang satu sementara audit menemukan yang lain dan tetap hijau. Auditnya sekarang memeriksa tempat yang spesifik: `bacaRupiah` **di dalam `isiTerbaca`** (fungsi yang memberi makan penggabungan, bukan `getItems`), dan tombol Gabungkan pada **markup maupun handler**-nya.
+
+- [x] **Satu bahan satu baris** (`0129`) — di order, surat jalan, dan nota; 22 sabotase tertangkap
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.

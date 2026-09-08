@@ -1,5 +1,6 @@
 import { renderSearchSelect, wireSearchSelect } from '../../core/ui.js';
 import { formatNum, formatRibuanDesimal, bacaRupiah, attachRupiahInput } from '../../core/format.js';
+import { cariDuplikat, gabungDuplikat } from './duplikat-item.js';
 
 /**
  * Komponen pemilih produk untuk form Order / Kirim / Transfer.
@@ -22,11 +23,32 @@ import { formatNum, formatRibuanDesimal, bacaRupiah, attachRupiahInput } from '.
  * menyala pada hampir setiap baris yang benar, dan peringatan yang menyala
  * saat semuanya normal berhenti dibaca dalam hitungan hari.
  *
+ * ============ SATU BAHAN, SATU BARIS ============
+ *
+ * `tanpaDuplikat` menyalakan penjagaan terhadap bahan kembar dalam satu
+ * dokumen. Sejak 0110 order milik OUTLET: bar mengisi sirup, kitchen menambah
+ * daging, ke satu nomor order yang sama. Tanpa penjagaan ini, orang kedua bisa
+ * memilih barang yang sudah dipesan orang pertama, dan dokumennya berangkat ke
+ * CK dengan dua baris untuk satu barang — tanpa error, tanpa peringatan, dan
+ * keduanya terlihat wajar.
+ *
+ * Yang dilakukan di sini cuma MENANDAI dan MENAWARKAN penggabungan. Penjumlahan
+ * senyap ditolak dengan sengaja: staff yang mengetik 150 harus melihat angkanya
+ * jadi 250 sebelum menyimpan, kalau tidak ia akan mengira memesan 150.
+ *
  * @returns {{ getItems: () => Array<{product_id:string, qty:number}> }}
  */
 export function createItemPicker(
   mountEl,
-  { products, stockMap = new Map(), showStock = true, initial = [], peringatanKurang = false, hargaSatuan = false }
+  {
+    products,
+    stockMap = new Map(),
+    showStock = true,
+    initial = [],
+    peringatanKurang = false,
+    hargaSatuan = false,
+    tanpaDuplikat = false
+  }
 ) {
   const categories = [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
   const state = { category: '', subcategory: '' };
@@ -42,6 +64,7 @@ export function createItemPicker(
         <select class="pf-sub"><option value="">Semua</option></select>
       </div>
     </div>
+    <div class="pf-kembar-box" hidden></div>
     <div class="picker-rows"></div>
     <button type="button" class="pf-add" style="margin-top:8px">+ Tambah Produk</button>
   `;
@@ -49,6 +72,7 @@ export function createItemPicker(
   const catSel = mountEl.querySelector('.pf-cat');
   const subSel = mountEl.querySelector('.pf-sub');
   const rowsBox = mountEl.querySelector('.picker-rows');
+  const kembarBox = mountEl.querySelector('.pf-kembar-box');
 
   const filtered = () =>
     products.filter((p) => (!state.category || p.category === state.category) && (!state.subcategory || p.subcategory === state.subcategory));
@@ -72,6 +96,78 @@ export function createItemPicker(
       // snapshot yang berbeda tergantung opsi.
       line_total: row.querySelector('.pf-harga')?.value
     }));
+  }
+
+  /**
+   * Isi baris dengan harga yang sudah jadi ANGKA.
+   *
+   * `snapshot()` mengembalikan harga apa adanya dari kotaknya — "12.500",
+   * lengkap dengan titik ribuan. `Number('12.500')` adalah 12,5, bukan 12500.
+   * Menyerahkan bentuk itu ke penjumlahan akan mengubah dua belas ribu lima
+   * ratus jadi dua belas setengah, dan hasilnya tetap terlihat seperti angka.
+   */
+  function isiTerbaca() {
+    return snapshot().map((e) => ({
+      product_id: e.product_id,
+      qty: e.qty,
+      ...(hargaSatuan ? { line_total: bacaRupiah(e.line_total) } : {})
+    }));
+  }
+
+  /**
+   * Tandai baris yang produknya kembar, dan tawarkan penggabungannya.
+   *
+   * Dipanggil SAAT MEMILIH, bukan saat menyimpan. Peringatan yang baru muncul
+   * sesudah tombol Simpan ditekan datang terlambat — orangnya sudah mengisi
+   * seluruh baris, dan yang tersisa cuma membongkar pekerjaannya sendiri.
+   */
+  function segarkanDuplikat() {
+    if (!tanpaDuplikat) return;
+    const isi = isiTerbaca();
+    const kembar = cariDuplikat(isi);
+    const baris = [...rowsBox.querySelectorAll('.picker-row')];
+
+    for (const row of baris) {
+      const id = row.querySelector('.search-select input[type="hidden"]')?.value ?? '';
+      row.classList.toggle('picker-row-kembar', !!id && kembar.has(id));
+    }
+
+    if (!kembar.size) {
+      kembarBox.hidden = true;
+      kembarBox.innerHTML = '';
+      return;
+    }
+
+    const daftar = [...kembar.entries()].map(([id, idx]) => {
+      const p = products.find((x) => x.id === id);
+      const total = idx.reduce((n, j) => n + (Number(isi[j]?.qty) || 0), 0);
+      return `<li><strong>${esc(p?.name ?? 'Bahan')}</strong> ada di ${idx.length} baris — kalau digabung jadi <strong>${formatNum(
+        total
+      )} ${esc(p?.base_unit ?? '')}</strong></li>`;
+    });
+
+    kembarBox.hidden = false;
+    kembarBox.innerHTML = `
+      <div class="pf-kembar-pesan">
+        <p style="margin:0 0 6px"><strong>Bahan yang sama tidak boleh dua baris.</strong>
+        Ubah jumlah di baris yang sudah ada, jangan tambah baris baru.</p>
+        <ul style="margin:0 0 8px;padding-left:18px">${daftar.join('')}</ul>
+        <button type="button" class="pf-gabung">Gabungkan jadi satu baris</button>
+      </div>`;
+
+    kembarBox.querySelector('.pf-gabung').addEventListener('click', () => {
+      const { items: hasil, digabung } = gabungDuplikat(isiTerbaca());
+      renderRows(hasil);
+      // Harga yang hilang DIKATAKAN, tidak dibiarkan jadi kotak kosong yang
+      // orangnya kira memang belum pernah diisi.
+      const hilang = digabung.filter((d) => d.hargaHilang).map((d) => products.find((p) => p.id === d.product_id)?.name ?? 'Bahan');
+      if (hilang.length) {
+        kembarBox.hidden = false;
+        kembarBox.innerHTML = `<div class="pf-kembar-pesan">Jumlahnya sudah digabung. <strong>Harga ${esc(
+          hilang.join(', ')
+        )} dikosongkan</strong> karena salah satu barisnya belum berharga — isi ulang harga belinya.</div>`;
+      }
+    });
   }
 
   /** Apakah jumlah ini melebihi stok yang ada? Dipakai untuk menyalakan ⚠. */
@@ -159,14 +255,21 @@ export function createItemPicker(
     // digambar ulang tiap kali saringan kategori berubah.
     attachRupiahInput(row.querySelector('.pf-harga'));
 
-    wireSearchSelect(widget, opts, segarkanStok);
+    wireSearchSelect(widget, opts, () => {
+      segarkanStok();
+      segarkanDuplikat();
+    });
     // Diperbarui SAAT MENGETIK, bukan saat menyimpan. Peringatan yang baru
     // muncul sesudah tombol ditekan datang terlambat: keputusannya sudah
     // diambil.
-    qtyEl.addEventListener('input', segarkanStok);
+    qtyEl.addEventListener('input', () => {
+      segarkanStok();
+      segarkanDuplikat();
+    });
     row.querySelector('.pf-remove').addEventListener('click', () => {
       row.remove();
       if (!rowsBox.querySelector('.picker-row')) addRow();
+      segarkanDuplikat();
     });
   }
 
@@ -174,6 +277,7 @@ export function createItemPicker(
     const opts = optionsOf(filtered());
     rowsBox.innerHTML = (entries.length ? entries : [{ product_id: '', qty: '' }]).map((e) => rowHtml(e, opts)).join('');
     rowsBox.querySelectorAll('.picker-row').forEach((row) => wireRow(row, opts));
+    segarkanDuplikat();
   }
 
   function addRow() {
@@ -183,6 +287,7 @@ export function createItemPicker(
     const row = wrap.firstElementChild;
     rowsBox.appendChild(row);
     wireRow(row, opts);
+    segarkanDuplikat();
   }
 
   catSel.addEventListener('change', () => {
@@ -217,7 +322,23 @@ export function createItemPicker(
         .filter((i) => i.product_id && i.qty > 0),
     /** Dipanggil layar untuk menggambar ulang totalnya saat harga diketik. */
     onUbah: (fn) => rowsBox.addEventListener('input', fn),
-    reset: () => renderRows([])
+    reset: () => renderRows([]),
+
+    /**
+     * Masih ada bahan kembar? Dipakai layar untuk MENOLAK SIMPAN.
+     *
+     * Penandaan di layar saja tidak cukup: orang bisa menekan Simpan tanpa
+     * membaca kotak merah di atasnya, dan dokumen yang terlanjur berangkat ke
+     * CK tidak bisa diubah lagi (0111).
+     *
+     * Selalu `false` kalau `tanpaDuplikat` mati, supaya pemakai lama picker ini
+     * tidak tiba-tiba tertahan.
+     */
+    adaDuplikat: () => (tanpaDuplikat ? cariDuplikat(isiTerbaca()).size > 0 : false),
+
+    /** Nama bahan yang kembar — untuk disebut di pesan galat layar. */
+    namaDuplikat: () =>
+      [...cariDuplikat(isiTerbaca()).keys()].map((id) => products.find((p) => p.id === id)?.name ?? 'Bahan')
   };
 }
 

@@ -493,6 +493,14 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           products: stockProducts,
           stockMap: state.stockMap,
           showStock: true,
+          // SATU BAHAN, SATU BARIS.
+          //
+          // Order ini milik outlet, bukan pembuatnya (0110): bar mengisi sirup,
+          // kitchen menambah daging. Tanpa penjagaan ini orang kedua memilih
+          // barang yang sudah dipesan orang pertama, dan CK menerima dua baris
+          // untuk satu barang tanpa tahu apakah 100 dan 150 berarti 250 atau
+          // salah satunya salah ketik.
+          tanpaDuplikat: true,
           initial: items.map((it) => ({ product_id: it.product_id, qty: it.qty }))
         });
 
@@ -506,6 +514,13 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           const newItems = editPicker.getItems();
           if (!newItems.length) {
             errorEl.textContent = 'Order harus berisi minimal satu produk.';
+            return;
+          }
+          // Penandaan di layar saja tidak cukup: kotak merah di atas daftar
+          // bisa dilewati begitu saja, dan order yang terlanjur dikirim ke CK
+          // tidak bisa diubah lagi (0111).
+          if (editPicker.adaDuplikat()) {
+            errorEl.textContent = `${editPicker.namaDuplikat().join(', ')} ada di lebih dari satu baris. Gabungkan dulu jadi satu baris.`;
             return;
           }
           e.target.disabled = true;
@@ -755,7 +770,10 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       showStock: true,
       // Layar ini MENGIRIM dari outlet yang sedang dibuka, jadi `stockMap`
       // memang stok pengirimnya — "melebihi stok" berarti barangnya tidak ada.
-      peringatanKurang: true
+      peringatanKurang: true,
+      // Dua baris untuk satu barang di surat jalan membuat stoknya berpindah
+      // dua kali, dan yang menerima menghitung fisiknya sekali.
+      tanpaDuplikat: true
     });
 
     box.querySelector('#disp-send-btn').addEventListener('click', async (e) => {
@@ -769,6 +787,10 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       const items = picker.getItems();
       if (!items.length) {
         errorEl.textContent = 'Tambahkan minimal satu produk dengan jumlah.';
+        return;
+      }
+      if (picker.adaDuplikat()) {
+        errorEl.textContent = `${picker.namaDuplikat().join(', ')} ada di lebih dari satu baris. Gabungkan dulu jadi satu baris.`;
         return;
       }
       e.target.disabled = true;
@@ -977,10 +999,21 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       // memang berarti barangnya tidak ada di rak. Bandingkan dengan layar
       // Order ke CK, yang sengaja TIDAK menyalakan ini.
       peringatanKurang: true,
+      // Draft ini bisa lahir dari order yang isinya disusun beberapa orang, dan
+      // CK boleh menambah barang lagi di sini. Dua pintu masuk ke satu daftar
+      // adalah tempat bahan kembar muncul.
+      tanpaDuplikat: true,
       initial: items.map((i) => ({ product_id: i.product_id, qty: i.sent_qty }))
     });
 
     const ambilItem = () => picker.getItems();
+
+    /** Menahan Simpan & Kirim selama masih ada bahan kembar. */
+    const tertahanDuplikat = () => {
+      if (!picker.adaDuplikat()) return false;
+      toast(`${picker.namaDuplikat().join(', ')} ada di lebih dari satu baris. Gabungkan dulu jadi satu baris.`, 'error');
+      return true;
+    };
 
     body.querySelector('.drf-save').addEventListener('click', sekaliJalan(async () => {
       const daftar = ambilItem();
@@ -990,6 +1023,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         toast('Isi minimal satu barang. Kalau memang batal, pakai Hapus draft.', 'warning');
         return;
       }
+      if (tertahanDuplikat()) return;
       try {
         await ubahDraftKiriman({ dispatchId: draft.id, items: daftar, notes: body.querySelector('.drf-notes').value });
         toast('Draft diperbarui. Stok masih belum bergerak.', 'success');
@@ -1002,6 +1036,9 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     body.querySelector('.drf-send').addEventListener('click', sekaliJalan(async () => {
       const daftar = ambilItem();
       if (!daftar.length) return toast('Draft kosong, tidak ada yang bisa dikirim.', 'warning');
+      // Diperiksa SEBELUM dialog konfirmasi. Bertanya "Ya, kirim?" lalu menolak
+      // sesudah orangnya menekan Ya adalah dua keputusan untuk satu tindakan.
+      if (tertahanDuplikat()) return;
 
       const ok = await confirmDialog({
         title: `Kirim ${draft.code ?? 'surat jalan'}?`,
