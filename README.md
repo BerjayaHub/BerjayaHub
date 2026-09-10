@@ -5720,6 +5720,43 @@ Kesalahannya bukan salah memilih outlet, melainkan salah memilih **jenis** — d
 
 - [x] **Kiriman salah alamat** (`0133`) — batalkan / teruskan / konfirmasi jenis; 21 sabotase tertangkap
 
+## Draft order yang sudah ada harus TERLIHAT
+
+> "jadi staff b tidak membuat draft order baru sekaligus nomor order baru bila masih ada draft order yang belum dikirim … karena ada case dimana staff a membuat draft order lalu staff b membuat draft order lagi"
+
+Yang dijaga sudah ada, dan saya tidak membangunnya ulang. Sejak `0111`:
+
+```sql
+create unique index stock_orders_satu_draft
+  on stock_orders(from_outlet_id, to_outlet_id) where status = 'draft';
+```
+
+plus `buat_atau_ambil_draft_order` yang **mengembalikan draft yang ada** alih-alih membuat nomor baru. Dua nomor draft sekaligus memang tidak mungkin — jaminannya di tempat yang benar, yaitu database.
+
+**Yang tidak ada adalah tandanya di layar.** Staff B melihat tombol "Buka / Buat Draft Order" — dua kemungkinan dalam satu kalimat, dan yang membacanya tidak tahu mana yang akan terjadi. Ia menekannya, mendapat draft milik staff A yang sudah berisi setengah pesanan, dan tidak ada satu pun kalimat yang mengatakan itu bukan daftar kosong miliknya sendiri.
+
+Jaminan yang bekerja diam-diam tetap terasa seperti tidak ada.
+
+### Yang berubah
+
+- **Peringatan di atas tombol**, bukan di paragraf penjelasan: *"Outlet ini SUDAH punya draft order OR-260910-AAAA, sudah berisi 7 bahan, dibuat Risma. Tambahkan pesananmu ke draft itu."* Kalimat "satu outlet hanya punya satu draft" sudah ada sejak `0111` — di dalam paragraf yang dibaca sekali lalu dilewati selamanya.
+- **Label tombolnya mengikuti keadaan**: "📝 Buka draft OR-260910-AAAA" atau "📝 Buat Draft Order Baru". Menjawab sebelum ditekan.
+- **Baris draft ditandai** di tabel Order Saya — ia satu-satunya baris yang masih bisa ditambahi di antara riwayat yang seluruhnya terkunci.
+
+### Pintu kedua yang tidak diminta tapi lebih berbahaya
+
+Draft bukan satu-satunya sumber dobel order. Kalau staff A sudah **mengirim** ordernya pagi tadi, draftnya tidak ada lagi — dan staff B yang membuat draft baru siang harinya benar-benar boleh, karena itu dua dokumen yang berbeda. Barangnya tetap dobel; yang menahan cuma ingatan orang, dan ingatan orang adalah hal pertama yang habis saat sedang sibuk.
+
+Jadi order yang **masih menunggu diproses CK** juga disebut: *"Belum ada draft, tapi 1 order sudah dikirim ke CK dan belum diproses (OR-260909-BBBB). Periksa dulu isinya sebelum memesan lagi."*
+
+### Keadaan yang seharusnya mustahil tetap punya jawaban
+
+Kalau indeks unik `0111` suatu saat hilang — migration yang gagal separuh, restore dari cadangan lama — layar **tidak boleh** diam-diam memilih salah satu draft dan menyembunyikan yang lain. Dua nomor yang keduanya "benar" menurut layar adalah dobel order yang paling sulit dilacak. Modenya dikenali sendiri (`ada-draft-ganda`), warnanya merah, dan kalimatnya menyebut admin.
+
+Auditnya juga memeriksa **`0111` itu sendiri**, walau bukan berkas yang diubah: seluruh fitur ini bersandar padanya, dan tanpa indeks itu peringatan di layar cuma hiasan di atas lubang yang sudah terbuka.
+
+- [x] **Draft order outlet terlihat sebelum ditekan** — tanpa migration; 17 sabotase tertangkap
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.

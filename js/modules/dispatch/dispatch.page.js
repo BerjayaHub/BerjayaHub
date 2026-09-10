@@ -5,6 +5,7 @@ import { listProducts } from '../product/product.service.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { createItemPicker } from './item-picker.js';
 import { saringTabel } from './saring-tabel.js';
+import { keadaanOrderKeCk, labelTombolDraft, pesanKeadaan } from './draft-outlet.js';
 import { petaDraftPerOrder, keadaanOrder, ringkasOrder } from './order-draft.js';
 import {
   buatDraftKiriman,
@@ -392,6 +393,22 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     const ckChoices = servedCk ? [servedCk] : ckOutlets;
     const myOrders = await listMyOrders([state.outletId]).catch(() => []);
 
+    // KEADAAN DRAFT DIBACA DULU, SEBELUM APA PUN DIGAMBAR.
+    //
+    // Jaminan "satu draft per outlet" sudah ada di database sejak 0111 (unique
+    // index parsial + `buat_atau_ambil_draft_order`), jadi dua nomor draft
+    // sekaligus memang tidak mungkin. Yang tidak ada adalah TANDANYA di layar:
+    // staff B menekan tombol "Buka / Buat", mendapat draft milik staff A yang
+    // sudah berisi setengah pesanan, dan tidak ada apa pun yang mengatakan itu
+    // bukan daftar kosong miliknya sendiri.
+    //
+    // Jaminan yang bekerja diam-diam tetap terasa seperti tidak ada.
+    const keadaanOrder = keadaanOrderKeCk(myOrders);
+    // Isi draftnya diambil HANYA kalau memang ada — satu panggilan tambahan
+    // untuk satu dokumen, bukan untuk seluruh daftar.
+    const isiDraft = keadaanOrder.draft ? await getOrderItems(keadaanOrder.draft.id).catch(() => null) : null;
+    const pesanDraft = pesanKeadaan(keadaanOrder, { jumlahBaris: isiDraft ? isiDraft.length : null });
+
     box.innerHTML = `
       <div class="inline-card" style="max-width:640px">
         <h3 style="margin-top:0">Order ke Central Kitchen</h3>
@@ -401,8 +418,9 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           <strong>CK belum melihatnya sama sekali</strong>. Baru saat ditekan <strong>Kirim ke CK</strong>,
           ordernya berangkat dan isinya terkunci.
           <br /><br />
-          Satu outlet hanya punya <strong>satu draft</strong> per Central Kitchen tujuan. Menekan tombol di
-          bawah akan membuka draft yang sudah ada, bukan membuat yang baru.
+          Satu outlet hanya punya <strong>satu draft</strong> per Central Kitchen tujuan — dijaga database,
+          bukan cuma kesepakatan. Kalau draftnya sudah ada, tombol di bawah <strong>membukanya</strong>,
+          dan nomornya disebut di tombol itu supaya kamu tahu sebelum menekannya.
         </p>
         ${
           ckChoices.length
@@ -416,7 +434,19 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                        .map((o) => `<option value="${o.id}">${esc(o.name)}</option>`)
                        .join('')}</select></div>`
                }
-               <button class="primary" id="ord-buka-draft" style="max-width:280px">📝 Buka / Buat Draft Order</button>
+               ${
+                 // PERINGATANNYA DI ATAS TOMBOL, bukan di paragraf penjelasan.
+                 //
+                 // Kalimat "satu outlet hanya punya satu draft" sudah ada sejak
+                 // 0111 — di dalam paragraf yang dibaca sekali lalu dilewati
+                 // selamanya. Yang dibutuhkan staff B adalah kalimat yang
+                 // menyebut NOMOR draft yang sudah ada, siapa yang membuatnya,
+                 // dan berapa isinya, tepat sebelum tombol yang akan ditekannya.
+                 pesanDraft
+                   ? `<div class="${keadaanOrder.mode === 'ada-draft-ganda' ? 'draft-ganda' : 'draft-ada'}">${esc(pesanDraft)}</div>`
+                   : ''
+               }
+               <button class="primary" id="ord-buka-draft" style="max-width:320px">${esc(labelTombolDraft(keadaanOrder))}</button>
                <p class="error-text" id="ord-error"></p>`
             : `<p style="color:var(--color-text-muted);font-size:0.88rem;margin:0">Belum ada Central Kitchen di BU ini.</p>`
         }
@@ -429,7 +459,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                <tbody>
                  ${myOrders
                    .map(
-                     (o) => `<tr>
+                     (o) => `<tr${o.status === 'draft' ? ' class="ord-draft-aktif"' : ''}>
                        <td data-label="No. Order"><button class="btn-dok-order" data-id="${o.id}" title="Lihat & unduh dokumen"
                          style="font-family:ui-monospace,Menlo,monospace;font-size:0.8rem">${esc(o.code ?? o.id.slice(0, 6))}</button></td>
                        <td data-label="Ke">${esc(o.to_outlet?.name ?? '-')}</td>
