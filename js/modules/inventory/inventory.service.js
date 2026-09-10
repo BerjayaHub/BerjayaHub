@@ -1,5 +1,6 @@
 import { supabase } from '../../config/supabase-client.js';
 import { ambilSemua } from '../../core/ambil-semua.js';
+import { argumenRpc } from '../../core/rpc-args.js';
 
 export const MOVEMENT_LABEL = {
   receive: 'Penerimaan',
@@ -8,8 +9,55 @@ export const MOVEMENT_LABEL = {
   transfer_out: 'Transfer Keluar',
   transfer_in: 'Transfer Masuk',
   usage: 'Pemakaian',
-  production: 'Produksi'
+  production: 'Produksi',
+  // 0134 — pack dibuka kembali jadi bahan bakunya.
+  bongkar_out: 'Bongkar (keluar)',
+  bongkar_in: 'Bongkar (masuk)'
 };
+
+// ---- Bongkar bahan setengah jadi (0134) ----
+
+/**
+ * Bongkar: pack keluar, bahan baku yang bisa dipisahkan masuk kembali.
+ *
+ * `items` hanya berisi baris yang BENAR-BENAR bisa dipisahkan — server menolak
+ * jumlah yang melebihi porsi resepnya, dan itu yang menahan fitur ini jadi
+ * alat mencetak stok dari udara.
+ */
+export async function bongkarBahan({ outletId, productId, qty, items, notes }) {
+  const { data, error } = await supabase.rpc(
+    'bongkar_bahan',
+    argumenRpc({
+      p_outlet: outletId,
+      p_product: productId,
+      p_qty: qty,
+      p_items: items ?? [],
+      p_notes: notes ?? null
+    })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? null;
+}
+
+/** Batalkan catatan bongkar. Alasan wajib. */
+export async function batalkanBongkar(bongkarId, alasan) {
+  const { error } = await supabase.rpc('batalkan_bongkar', argumenRpc({ p_bongkar: bongkarId, p_alasan: alasan }));
+  if (error) throw new Error(error.message ?? String(error));
+}
+
+/** Riwayat bongkar satu outlet, terbaru dulu. */
+export async function riwayatBongkar(businessUnitId, outletId, batas = 25) {
+  const { data, error } = await supabase
+    // baris-terbatas: daftar pendek untuk panel, ada tombol muat lagi.
+    .from('bongkar_runs')
+    .select('id, code, qty, notes, created_at, dibatalkan_at, alasan_batal, products!product_id(name, base_unit), user_profiles!created_by(full_name)')
+    .eq('business_unit_id', businessUnitId)
+    .eq('outlet_id', outletId)
+    .order('created_at', { ascending: false })
+    .limit(batas);
+  if (error) throw error;
+  return data ?? [];
+}
 
 async function currentUserId() {
   const {

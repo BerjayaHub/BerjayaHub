@@ -5757,6 +5757,42 @@ Auditnya juga memeriksa **`0111` itu sendiri**, walau bukan berkas yang diubah: 
 
 - [x] **Draft order outlet terlihat sebelum ditekan** — tanpa migration; 17 sabotase tertangkap
 
+## Bongkar: membuka pack kembali jadi bahan bakunya
+
+> "saya ingin ada fitur bongkar bahan setengah jadi menjadi bahan baku kembali. contoh : UDANG PACK ; resep = udang 50gr ; dibongkar bahan maka di stock UDANG PACK akan jadi udang 50gr"
+
+### Ini kejadian baru, bukan penghapusan produksi
+
+Godaan pertamanya adalah memakai `hapus_produksi` (`0092`). Itu keliru, dan kekeliruannya baru terlihat saat laporan bulanan dibaca. `hapus_produksi` menyatakan **produksi itu tidak pernah terjadi**; bongkar menyatakan sebaliknya — produksinya memang terjadi, packnya memang jadi, dan hari ini ia dibuka lagi. Packnya bahkan mungkin tidak pernah diproduksi di outlet ini: ia bisa datang lewat kiriman dari CK, dan tidak ada catatan produksi apa pun untuk dihapus.
+
+Jadi bongkar punya nomornya sendiri (`BKR-…`), jejaknya sendiri, dan pembatalannya sendiri.
+
+### Yang paling berbahaya: bongkar MENAMBAH stok
+
+Tanpa batas atas, fitur ini adalah alat mencetak stok dari udara — ketik 5 pack keluar, 500 kg udang masuk. Stok yang dicetak begitu terlihat **persis** seperti stok yang sungguhan; tidak ada laporan yang bisa membedakannya, dan yang menemukannya adalah orang yang menghitung fisik di gudang berminggu-minggu kemudian.
+
+Maka batasnya ditegakkan **di server**, bukan cuma di layar: tiap bahan paling banyak sebesar porsinya menurut resep, `qty_resep × (jumlah_dibongkar / yield)`. Rumusnya ditulis di kedua sisi dan diuji dua-duanya — layar memakainya supaya penolakannya tidak datang sesudah seluruh form diisi, server memakainya karena PWA di HP staff bisa tertinggal versi.
+
+### Staff memilih baris mana yang kembali
+
+Alasannya fisik: UDANG PACK berisi udang + tepung + bumbu. Udangnya bisa dipisahkan; tepung yang sudah menempel tidak. Resepnya ditampilkan dengan jumlah terisi otomatis sebesar porsinya, tapi tiap baris bisa dinolkan — dan **0 adalah jawaban yang sah**, bukan kesalahan isi. Mengembalikan seluruh resep otomatis akan menambah stok tepung yang sebenarnya sudah terbuang.
+
+Bongkar yang tidak mengembalikan apa pun **ditolak** dan diarahkan ke Waste: membuang pack adalah tindakan berbeda, dengan laporan yang dibaca orang berbeda.
+
+### Bahan yang kembali tidak membawa biaya
+
+`unit_cost` adalah sumber tunggal biaya rata-rata bahan (`0118`), dan sejak `0123` hanya diisi oleh pembelian dari nota supplier. Kalau bahan hasil bongkar membawa biaya turunan dari packnya, ongkos olahan pack itu merembes ke rata-rata bahan bakunya — dan sesudah beberapa siklus produksi-bongkar, harga udang mentah di laporan tidak lagi ada hubungannya dengan harga udang di pasar.
+
+### Tiga hal yang tertangkap verifikasinya sendiri
+
+- **Sabotase "jumlah nol/minus diterima" lolos.** Tesnya cuma menuntut "ada error" — dan dengan qty 0 porsinya juga 0, jadi pemeriksa *batas atas* yang menolak, dengan pesan yang sama sekali berbeda. Tesnya sekarang memeriksa **sebabnya**.
+- **Audit "panel ikut ditutup" buta.** Ia mencari nama panelnya di seluruh berkas, padahal nama itu juga muncul saat panelnya dibuka. Sekarang diperiksa **di dalam daftar penutupnya**.
+- **`audit-baris-sejajar` menangkap kelas CSS yang bentrok** yang saya tulis sendiri — `baris-sejajar` dan `kartu-sempit` sekaligus, dua aturan `display` untuk sel yang sama.
+
+Dan satu jebakan lama menggigit untuk **kelima** kalinya: satu backtick di dalam komentar HTML di dalam template literal mengakhiri literalnya. `audit-syntax` yang menemukannya.
+
+- [x] **Bongkar bahan** (`0134`) — batas porsi ditegakkan server, hasilnya tanpa biaya; 23 sabotase tertangkap
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.

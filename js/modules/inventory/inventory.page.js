@@ -3,6 +3,7 @@ import { bandingHarga, perluDitinjau } from './biaya-rata.js';
 import { formatNum, formatRupiah } from '../../core/format.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
 import { getBiayaRataOutlet, getOutletStockMap, recordMovement, getAllowStaffOpname, recordMenuWaste } from './inventory.service.js';
+import { renderBongkarStaff } from './bongkar-staff.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { cocokNama } from '../../core/nama.js';
@@ -76,11 +77,13 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
         ${allowOpname ? '<button id="inv-opname">📋 Stok Opname</button>' : ''}
         <button id="inv-resep">📖 Resep</button>
         <button id="inv-menipis">⚠️ Bahan Menipis</button>
+        <button id="inv-bongkar">🔧 Bongkar Bahan</button>
       </div>
     </div>
 
     <div id="inv-nota-panel" hidden></div>
     <div id="inv-menipis-panel" hidden></div>
+    <div id="inv-bongkar-panel" hidden></div>
     <div id="inv-opname-panel"></div>
     <div id="inv-resep-panel"></div>
     <div id="inv-stock" style="margin-top:8px"></div>
@@ -99,7 +102,8 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     // salah bertambah. Baru ketahuan saat stok tidak cocok berhari-hari kemudian.
     for (const [sel, pesan] of [
       ['#inv-nota-panel', 'Panel terima nota ditutup karena outletnya berganti.'],
-      ['#inv-menipis-panel', 'Panel bahan menipis ditutup karena outletnya berganti.']
+      ['#inv-menipis-panel', 'Panel bahan menipis ditutup karena outletnya berganti.'],
+      ['#inv-bongkar-panel', 'Panel bongkar bahan ditutup karena outletnya berganti.']
     ]) {
       const panel = container.querySelector(sel);
       if (panel && !panel.hasAttribute('hidden')) {
@@ -263,6 +267,37 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   // `stockMap` diambil SAAT DITEKAN, bukan dipegang dari awal: panel ini
   // menghitung "cukup berapa porsi lagi", dan menghitungnya dari stok basi
   // menghasilkan daftar belanja yang salah tanpa satu pun tanda di layar.
+  // BONGKAR BAHAN (0134).
+  //
+  // `stockMap` diambil ULANG saat panelnya dibuka, sama alasannya dengan panel
+  // Bahan Menipis: layar ini memperingatkan "stok kamu cuma 3, kamu membongkar
+  // 5", dan peringatan yang dihitung dari stok basi memperingatkan hal yang
+  // salah — atau lebih buruk, diam saat seharusnya berbicara.
+  const bongkarPanel = container.querySelector('#inv-bongkar-panel');
+  container.querySelector('#inv-bongkar').addEventListener('click', async () => {
+    if (!bongkarPanel.hasAttribute('hidden')) {
+      bongkarPanel.setAttribute('hidden', '');
+      bongkarPanel.innerHTML = '';
+      return;
+    }
+    bongkarPanel.removeAttribute('hidden');
+    bongkarPanel.innerHTML = loadingHtml('Memuat…', { baris: 3 });
+    stockMap = (await refresh()) ?? stockMap;
+    renderBongkarStaff(bongkarPanel, {
+      businessUnitId,
+      outletId: state.outletId,
+      products,
+      recipes,
+      stockMap: stockMap ?? new Map(),
+      // Stok di daftar bawah ikut segar sesudah bongkar — kalau tidak, angka
+      // yang baru saja berubah tetap menampilkan nilai lamanya, dan orang
+      // menekan tombolnya lagi karena mengira gagal.
+      sesudah: async () => {
+        stockMap = (await refresh()) ?? stockMap;
+      }
+    });
+  });
+
   const menipisPanel = container.querySelector('#inv-menipis-panel');
   container.querySelector('#inv-menipis').addEventListener('click', async () => {
     if (!menipisPanel.hasAttribute('hidden')) {
