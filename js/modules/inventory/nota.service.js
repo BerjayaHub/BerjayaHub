@@ -109,8 +109,13 @@ export async function riwayatNota(
   const dasar =
     'id, code, receipt_date, supplier, invoice_no, photo_path, notes, outlet_id, created_at, outlets!outlet_id(name)' +
     (denganPembuat ? ', pembuat:user_profiles!created_by(full_name)' : '');
-  // Status bayarnya ikut sejak 0122.
-  const bayar = ', payment_status, due_date, payment_entry_id';
+  // Status bayarnya ikut sejak 0122; status BATAL sejak 0131.
+  //
+  // Digabung dalam satu kelompok yang sama dengan sengaja: kalau salah satunya
+  // belum ada di server, jalur cadangan di bawah tetap menampilkan notanya —
+  // tanpa status, tapi ada. Dipisah jadi dua percobaan cuma menambah satu
+  // permintaan gagal untuk keuntungan yang tidak ada.
+  const bayar = ', payment_status, due_date, payment_entry_id, status, alasan_batal, dibatalkan_at';
 
   const ambil = (kolom) =>
     ambilSemua((dari, sampai) => {
@@ -233,6 +238,45 @@ export async function geserHargaNota(notaIds) {
 export async function setJatuhTempoNota(notaId, dueDate) {
   const { error } = await supabase.rpc('set_jatuh_tempo_nota', { p_nota: notaId, p_due: dueDate || null });
   if (error) throw new Error(error.message ?? String(error));
+}
+
+/**
+ * Perbaiki nota — TERMASUK yang sudah lunas (0131).
+ *
+ * Bedanya dengan `ubah_nota` bukan cuma izin: fungsi ini yang menyesuaikan kas
+ * sebesar selisih totalnya. Memanggil `ubah_nota_terima` langsung untuk nota
+ * lunas akan ditolak server, dan itu memang disengaja — perubahan nilai tanpa
+ * kas yang ikut bergerak membuat buku kas dan nota bercerita berbeda.
+ *
+ * Mengembalikan SELISIHNYA supaya layar bisa menyebut angkanya.
+ */
+export async function koreksiNota({ id, receiptDate, supplier, invoiceNo, photoPath, notes, items, alasan }) {
+  const { data, error } = await supabase.rpc(
+    'koreksi_nota',
+    argumenRpc({
+      p_id: id,
+      p_receipt_date: receiptDate ?? null,
+      p_supplier: supplier ?? null,
+      p_invoice_no: invoiceNo ?? null,
+      p_photo_path: photoPath ?? null,
+      p_notes: notes ?? null,
+      p_items: items ?? null,
+      p_alasan: alasan ?? null
+    })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data) || 0;
+}
+
+/**
+ * Batalkan nota: stok ditarik, kas dikembalikan kalau sudah dibayar.
+ *
+ * Notanya TIDAK dihapus. Mengembalikan total yang ditarik.
+ */
+export async function batalkanNota(id, alasan) {
+  const { data, error } = await supabase.rpc('batalkan_nota', argumenRpc({ p_nota: id, p_alasan: alasan }));
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data) || 0;
 }
 
 /** Isi satu nota. */

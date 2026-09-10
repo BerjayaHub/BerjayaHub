@@ -163,6 +163,15 @@ export function formDialog({
   fields = [],
   submitText = 'Simpan',
   cancelText = 'Batal',
+  // Tombol simpannya merah, untuk form yang tindakannya MERUSAK — membatalkan
+  // nota, misalnya, yang menarik stok dan mengembalikan uang.
+  //
+  // Ada di sini, bukan cuma di `confirmDialog`, karena tindakan merusak yang
+  // butuh isian (alasan wajib) tidak bisa memakai `confirmDialog`. Tanpa opsi
+  // ini, satu-satunya pilihan adalah mengirim `danger: true` yang DIABAIKAN
+  // diam-diam — persis bentuk kegagalan yang pernah menghapus kolom pemegang
+  // kas dari dialog tanpa satu pun tanda.
+  danger = false,
   onReady
 } = {}) {
   return new Promise((resolve) => {
@@ -179,7 +188,7 @@ export function formDialog({
         <p class="error-text modal-error" style="min-height:0"></p>
         <div class="modal-actions">
           <button type="button" class="btn-ghost" data-act="cancel">${escapeHtml(cancelText)}</button>
-          <button type="submit" class="primary btn-inline" data-act="ok">${escapeHtml(submitText)}</button>
+          <button type="submit" class="${danger ? 'btn-danger' : 'primary'} btn-inline" data-act="ok">${escapeHtml(submitText)}</button>
         </div>
       </div>
     `;

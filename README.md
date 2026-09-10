@@ -5572,6 +5572,49 @@ Yang terpenting: kalau sebabnya **server belum siap**, layar menawarkan **"Simpa
 
 - [x] **Bucket foto nota dipastikan ada** (`0130`) — plus audit yang menjaga seluruh bucket; 14 sabotase tertangkap
 
+## Salah input nota: satu aturan, tiga akibat
+
+> "sediakan aksi untuk hapus juga di terima dari supplier ini, jadi saat dihapus maka juga berpengaruh kepada stock … di aksi edit juga bisa mengubah tanggal dan isi nota walaupun sudah lunas … atau bagaimana skema menurutmu yang simpel"
+
+Skemanya satu kalimat: **nota tidak pernah dihapus — ia dibatalkan atau diperbaiki, dan tiap perubahan menarik stok, kas, dan jejaknya ikut serta.**
+
+Tiga akibat yang harus selalu bergerak bersama, karena yang tertinggal tidak akan pernah mengeluh:
+
+| | Caranya | Kalau tertinggal |
+|---|---|---|
+| **Stok** | pergerakan penyeimbang (mekanisme 0084) | barang hantu di gudang |
+| **Kas** | entri penyesuaian sebesar selisihnya | kas dan nota bercerita berbeda |
+| **Jejak** | siapa, kapan, **alasan wajib** | pembatalan tidak bisa dibedakan dari kesalahan sistem |
+
+### Hapus = batalkan, dan itu keputusan
+
+Nomor nota berurutan. Nota yang dibuang meninggalkan lompatan yang tidak bisa dijelaskan siapa pun enam bulan kemudian — dan pergerakan stok penyeimbangnya menunjuk ke nota yang sudah tidak ada, jadi "stok ini asalnya dari mana" berhenti bisa dijawab. Nota batal tetap tampil di riwayat, dicoret dan diredupkan, tanpa tombol aksi. Disembunyikan pun berbahaya: staff yang tidak menemukannya akan menginput ulang, sementara stoknya sudah ditarik.
+
+### Nota lunas bisa diperbaiki — tapi hanya lewat satu pintu
+
+`ubah_nota_terima` sudah ditulis ulang **empat kali** (0084 → 0118 → 0119 → 0123), dan 0122 sudah menuliskan kekhawatiran bahwa tiap penulisan ulang bisa menghilangkan penjagaan versi sebelumnya. Jadi fungsi itu tidak disentuh. `koreksi_nota` membungkusnya: baca total sebelum, panggil, baca total sesudah, sesuaikan kas.
+
+Kunci "nota lunas" **dibuka**, bukan dihapus — lewat penanda sesi yang hanya dipasang `koreksi_nota`. PWA lama di HP staff yang memanggil `ubah_nota_terima` langsung tetap tertahan seperti sebelumnya. Kalau tidak, HP itu bisa mengubah nilai nota lunas tanpa kas bergerak sama sekali, dan itu jauh lebih buruk daripada tidak bisa mengedit.
+
+Selisihnya **disebut angkanya** di toast: "Kas keluar tambahan Rp3.000" atau "Rp6.000 dikembalikan ke kas". "Nota diperbarui" saja memaksa orang membuka buku kas untuk tahu apa yang terjadi pada uangnya.
+
+### Enam sabotase yang lolos, dan dua di antaranya jujur
+
+Empat temuan pertama audit ini adalah audit yang menuduh kode benar — hitungan kemunculan `esb_exported_at` yang buta pada variabel, regex `rpc('...')` yang tidak menoleransi baris menurun, pemeriksaan tombol Edit yang polanya masih ada tapi artinya berubah, dan jendela pencarian yang berhenti tepat sebelum baris yang dicari. Semuanya diperbaiki, bukan dilonggarkan.
+
+Dua sabotase yang lolos ternyata **benar-benar tidak bisa ditangkap tes**, dan itu dikatakan apa adanya di berkasnya:
+
+- Penjaga `'pusat'` dan `'belum lunas'` di `sesuaikan_kas_nota` tidak menahan apa pun sendirian — keduanya tidak punya `payment_entry_id`, jadi pencarian entri aslinya yang menahan. Sabotasenya diganti: yang dicabut sekarang **seluruh rantainya**, dan tesnya membuktikan rantai itu load-bearing.
+- `set_config(..., true)` berlaku sampai transaksinya selesai, dan tiap RPC adalah satu transaksi — jadi kuncinya menutup sendiri walau penutupan eksplisitnya dicabut. Penjagaannya dipindah ke audit, yang menghitung buka-versus-tutup.
+
+Dan satu jebakan lama menggigit untuk ketiga kalinya: `String.replace` mengganti kecocokan **pertama**, dan `${danger ? 'btn-danger' : 'primary'}` ada dua kali di `ui.js`.
+
+### `formDialog` akhirnya mengenal `danger`
+
+Dialog pembatalan butuh isian (alasan wajib), jadi `confirmDialog` tidak bisa dipakai. Mengirim `danger: true` ke `formDialog` akan **diabaikan diam-diam** — persis bentuk kegagalan yang pernah menghapus kolom pemegang kas dari sebuah dialog tanpa satu pun tanda. Opsinya ditambahkan sungguhan, dan auditnya menjaga bahwa ia dipakai, bukan cuma diterima.
+
+- [x] **Batal & koreksi nota** (`0131`) — stok ditarik, kas menyesuaikan, alasan wajib; 24 sabotase tertangkap
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.

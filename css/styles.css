@@ -3055,6 +3055,23 @@ select.sc-cell.is-off {
   color: var(--color-text);
 }
 
+/* Nota yang DIBATALKAN — tetap terbaca, jelas tidak berlaku.
+
+   Tidak disembunyikan: staff yang tidak menemukan notanya akan menginput ulang,
+   sementara stoknya sudah ditarik. Yang dihilangkan cuma tombolnya. */
+.nota-baris-batal {
+  opacity: 0.62;
+}
+.nota-baris-batal td:first-child {
+  text-decoration: line-through;
+}
+
+.badge-batal {
+  background: color-mix(in srgb, var(--color-danger, #c0392b) 14%, transparent);
+  color: var(--color-danger, #c0392b);
+  font-weight: 600;
+}
+
 /* Baris pemilih produk yang bahannya KEMBAR dalam satu dokumen.
 
    Ditandai di kedua barisnya, bukan cuma yang baru. Orang yang menambah tidak

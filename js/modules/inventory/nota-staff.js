@@ -23,6 +23,8 @@ import { formatRupiah } from '../../core/format.js';
 import {
   simpanNota,
   ubahNota,
+  koreksiNota,
+  batalkanNota,
   riwayatNota,
   itemNota,
   unggahFotoNota,
@@ -833,31 +835,51 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
           <thead><tr><th>Nomor</th><th>Tanggal</th><th>Supplier</th><th>Bayar</th><th>Nota</th><th>Aksi</th></tr></thead>
           <tbody>${tampil
             .map(
-              (n) => `<tr>
+              (n) => {
+                // NOTA BATAL TETAP TERLIHAT, tapi tidak bisa disentuh.
+                //
+                // Menyembunyikannya akan membuat orang mengira notanya hilang
+                // dan menginput ulang — sementara stoknya sudah ditarik. Yang
+                // dibuang cuma tombolnya, bukan barisnya.
+                const batal = n.status === 'dibatalkan';
+                return `<tr${batal ? ' class="nota-baris-batal"' : ''}>
                 <td data-label="Nomor" style="font-family:ui-monospace,Menlo,monospace;font-size:0.8rem">${esc(n.code)}</td>
                 <td data-label="Tanggal">${esc(n.receipt_date)}</td>
                 <td data-label="Supplier">${esc(n.supplier ?? '-')}</td>
-                <td data-label="Bayar">${lencanaStatus(n)}</td>
+                <td data-label="Bayar">${
+                  batal
+                    ? `<span class="badge badge-batal">dibatalkan</span>${
+                        n.alasan_batal ? `<div style="font-size:0.72rem;color:var(--color-text-muted)">${esc(n.alasan_batal)}</div>` : ''
+                      }`
+                    : lencanaStatus(n)
+                }</td>
                 <td data-label="Nota">${
                   n.photo_path
                     ? `<button class="nota-foto-lihat" data-path="${esc(n.photo_path)}">Lihat</button>`
                     : '<span style="color:var(--color-danger);font-size:0.8rem">belum ada</span>'
                 }</td>
-                <td data-label="Aksi">
+                <td data-label="Aksi">${
+                  batal
+                    ? '<span style="font-size:0.78rem;color:var(--color-text-muted)">—</span>'
+                    : `
                   <button class="nota-isi" data-id="${n.id}" data-code="${esc(n.code)}">Isi</button>
+                  <!-- EDIT SELALU ADA, termasuk pada nota lunas (0131).
+                       Kasnya ikut disesuaikan sebesar selisihnya, jadi tidak ada
+                       lagi alasan menyembunyikan tombolnya. Yang berubah cuma
+                       peringatan di dalam dialognya. -->
+                  <button class="nota-edit" data-id="${n.id}" data-code="${esc(n.code)}"
+                          data-lunas="${n.payment_status === 'lunas' ? '1' : ''}">Edit</button>
                   ${
-                    // Nota lunas: tombol Edit DIGANTI, bukan dimatikan diam-diam.
-                    // Tombol yang ada tapi ditolak server memaksa orang menebak
-                    // apa yang salah; tombol yang berubah namanya menjelaskan
-                    // sendiri apa yang harus dilakukan lebih dulu.
                     n.payment_status === 'lunas'
                       ? `<button class="nota-batal" data-id="${n.id}" data-code="${esc(n.code)}">Batalkan pembayaran</button>`
-                      : `<button class="nota-edit" data-id="${n.id}" data-code="${esc(n.code)}">Edit</button>
-                         <button class="nota-cara-bayar" data-id="${n.id}" data-code="${esc(n.code)}">Tunai/Tempo</button>`
+                      : `<button class="nota-cara-bayar" data-id="${n.id}" data-code="${esc(n.code)}">Tunai/Tempo</button>`
                   }
                   <button class="nota-tambah-foto" data-id="${n.id}" data-code="${esc(n.code)}">${n.photo_path ? 'Ganti foto' : '+ Foto'}</button>
-                </td>
-              </tr>`
+                  <button class="btn-danger nota-hapus" data-id="${n.id}" data-code="${esc(n.code)}"
+                          data-lunas="${n.payment_status === 'lunas' ? '1' : ''}">Hapus</button>`
+                }</td>
+              </tr>`;
+              }
             )
             .join('')}</tbody>
         </table></div>` +
@@ -1003,6 +1025,58 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
     box.querySelectorAll('.nota-cara-bayar').forEach((b) =>
       b.addEventListener('click', sekaliJalan(() => bukaCaraBayar(daftar.find((n) => n.id === b.dataset.id) ?? { id: b.dataset.id, code: b.dataset.code }, gambarRiwayat)))
     );
+
+    // HAPUS = BATALKAN, dan konsekuensinya disebut sebelum ditekan.
+    //
+    // Nota yang dibatalkan menarik stoknya kembali, dan kalau sudah dibayar,
+    // uangnya juga. Dua hal itu tidak terlihat dari kata "Hapus" — dan yang
+    // menekannya sedang berdiri di gudang, bukan sedang membaca dokumentasi.
+    box.querySelectorAll('.nota-hapus').forEach((b) =>
+      b.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const n = daftar.find((x) => x.id === b.dataset.id);
+          const lunas = b.dataset.lunas === '1';
+          const total = Number(n?.total ?? 0);
+
+          const isian = await formDialog({
+            title: `Batalkan nota ${b.dataset.code}?`,
+            description:
+              'Stok yang masuk lewat nota ini akan DITARIK KEMBALI' +
+              (lunas ? `, dan ${formatRupiah(total)} dikembalikan ke kas.` : '.') +
+              '\n\nNotanya tidak dihapus — nomornya tetap ada di riwayat, ditandai dibatalkan, ' +
+              'supaya kalau ada selisih dengan supplier nanti jejaknya masih bisa dibaca.',
+            fields: [
+              // ALASAN WAJIB, dan servernya juga menuntutnya (0131). Diminta di
+              // sini supaya penolakannya tidak datang sesudah orangnya menekan
+              // tombol merah.
+              { name: 'alasan', label: 'Alasan pembatalan', type: 'text', value: '', placeholder: 'mis. salah input, barang diretur' }
+            ],
+            submitText: 'Ya, batalkan nota',
+            danger: true
+          });
+          if (!isian) return;
+          if (!String(isian.alasan ?? '').trim()) {
+            toast('Sebutkan alasan pembatalannya — walau sesingkat "salah input".', 'warning');
+            return;
+          }
+
+          try {
+            const ditarik = await batalkanNota(b.dataset.id, isian.alasan);
+            toast(
+              lunas
+                ? `Nota ${b.dataset.code} dibatalkan. Stok ditarik dan ${formatRupiah(ditarik)} kembali ke kas.`
+                : `Nota ${b.dataset.code} dibatalkan. Stoknya sudah ditarik.`,
+              'success'
+            );
+          } catch (e) {
+            toast(e.message ?? 'Gagal membatalkan nota.', 'error');
+            return;
+          }
+          gambarRiwayat();
+        })
+      )
+    );
  
     // MENAMBAH FOTO YANG MENYUSUL — jalur yang paling sering dipakai, dan
     // sengaja TIDAK menyentuh barangnya sama sekali (`items: null`). Mengirim
@@ -1076,14 +1150,31 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
           // layar sempit barisnya membungkus sendiri (`@media 560px`) alih-alih
           // memaksa gulir ke samping.
           let picker = null;
+          const sudahLunas = nota?.payment_status === 'lunas';
           const nilai = await formDialog({
             title: `Edit Nota ${nota.code}`,
             description:
               'Barang boleh ditambah, jumlahnya diubah, atau dihapus dengan tombol ✕. ' +
-              'Harga boleh dikosongkan kalau memang belum tahu — yang kosong tidak ikut menghitung biaya rata-rata bahan.',
+              'Harga boleh dikosongkan kalau memang belum tahu — yang kosong tidak ikut menghitung biaya rata-rata bahan.' +
+              (sudahLunas
+                ? // NOTA LUNAS TETAP BISA DIPERBAIKI (0131), dan orangnya harus
+                  // tahu konsekuensinya SEBELUM menekan Simpan — bukan setelah
+                  // melihat saldo kasnya berubah.
+                  '\n\nNota ini SUDAH DIBAYAR. Kalau totalnya berubah, kas ikut disesuaikan otomatis sebesar selisihnya, ' +
+                  'dan penyesuaian itu muncul sebagai baris tersendiri di buku kas.'
+                : ''),
             fields: [
+              // TANGGAL BISA DIPERBAIKI — bagian dari keluhan aslinya.
+              //
+              // Tanggal nota menentukan bulan mana pembelian ini masuk. Salah
+              // ketik tanggal memindahkan biayanya ke bulan yang salah, dan
+              // yang menemukannya adalah orang yang menutup buku bulan itu.
+              { name: 'tanggal', label: 'Tanggal nota', type: 'date', value: nota?.receipt_date ?? '' },
               { name: 'supplier', label: 'Supplier', type: 'text', value: nota?.supplier ?? '' },
               { name: 'invoice', label: 'No. Invoice', type: 'text', value: nota?.invoice_no ?? '' },
+              ...(sudahLunas
+                ? [{ name: 'alasan', label: 'Alasan perbaikan', type: 'text', value: '', placeholder: 'mis. harga salah ketik' }]
+                : []),
               { name: 'barang', label: 'Barang', type: 'html', html: '<div id="nota-edit-picker"></div>' }
             ],
             submitText: 'Simpan Perubahan',
@@ -1142,17 +1233,36 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
           });
           if (!nilai) return;
 
+          // SATU JALUR UNTUK KEDUANYA.
+          //
+          // `koreksiNota` menyesuaikan kas kalau notanya sudah dibayar, dan
+          // tidak melakukan apa-apa pada kas kalau belum. Memakai dua fungsi
+          // berbeda tergantung status berarti suatu hari salah satunya lupa
+          // diperbarui — dan yang lupa adalah jalur yang menyentuh uang.
+          let selisih = 0;
           try {
-            await ubahNota(nota.id, {
+            selisih = await koreksiNota({
+              id: nota.id,
+              receiptDate: nilai.tanggal || null,
               supplier: nilai.supplier,
               invoiceNo: nilai.invoice,
-              items: nilai.items
+              items: nilai.items,
+              alasan: nilai.alasan
             });
           } catch (e) {
             toast(e.message ?? 'Gagal menyimpan perubahan.', 'error');
             return;
           }
-          toast(`Nota ${nota.code} diperbarui.`, 'success');
+          // Selisihnya DISEBUT ANGKANYA. "Nota diperbarui" saja membuat orang
+          // harus membuka buku kas untuk tahu apa yang terjadi pada uangnya.
+          toast(
+            selisih === 0
+              ? `Nota ${nota.code} diperbarui.`
+              : selisih > 0
+                ? `Nota ${nota.code} diperbarui. Kas keluar tambahan ${formatRupiah(selisih)}.`
+                : `Nota ${nota.code} diperbarui. ${formatRupiah(Math.abs(selisih))} dikembalikan ke kas.`,
+            'success'
+          );
           sesudah();
   }
 }
