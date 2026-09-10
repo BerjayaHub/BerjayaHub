@@ -5793,6 +5793,38 @@ Dan satu jebakan lama menggigit untuk **kelima** kalinya: satu backtick di dalam
 
 - [x] **Bongkar bahan** (`0134`) — batas porsi ditegakkan server, hasilnya tanpa biaya; 23 sabotase tertangkap
 
+## Kartu Penjualan di Staff App CK
+
+> "di staff app CK juga sediakan card untuk penjualan, karena ada menu yang memang terjual dari CK seperti tumpeng dll"
+
+Tidak ada yang perlu dibangun. Kemampuannya sudah ada, dan sudah lama:
+
+```
+0021 — outlets.allow_sales boolean not null default true
+0025 — record_sales memeriksa allow_sales, dan TIDAK pernah memeriksa outlet_role
+```
+
+Admin Portal → Organisasi bahkan sudah punya centang **"Bisa melakukan penjualan (sales)"**, dan `sales.page.js` sudah menyaring outletnya dengan `allow_sales !== false`. Central Kitchen sudah boleh mencatat penjualan sejak Fase 8.
+
+Satu-satunya yang menghalangi adalah **satu baris di layar**:
+
+```js
+if (kode === 'menu' || kode === 'sales' || kode === 'reservation')
+  return outletRole !== 'central_kitchen';
+```
+
+Kartunya disembunyikan berdasarkan **peran**, mengabaikan setelan yang sudah disediakan khusus untuk pertanyaan itu. Bentuk kegagalan yang paling sering berulang di repo ini: **kemampuannya ada di database, jalannya tidak ada di layar.**
+
+Sekarang `sales` mengikuti `allow_sales`. `menu` dan `reservation` sengaja tetap terkunci ke peran — keduanya soal melayani tamu **di tempat**, bukan soal boleh-tidaknya menjual; kalau CK memerlukannya nanti, itu permintaan tersendiri dengan setelannya sendiri.
+
+### Dua arah, bukan satu
+
+Setelan yang cuma bekerja saat bernilai `true` adalah setelan yang tidak bekerja. Kalau `false` diabaikan, centang di Admin Portal jadi hiasan — dan penolakan `record_sales` baru datang setelah staff mengisi seluruh keranjang. Ada tesnya untuk kedua arah, plus satu untuk `undefined` (outlet belum dipilih) yang berarti **boleh**: menyembunyikan modul karena satu bidang yang kebetulan kosong terbaca sebagai fitur yang hilang.
+
+`bolehJual` dititipkan lewat `moduleCtx`, bukan dibaca langsung — `renderHome` adalah fungsi tingkat atas, dan `outletBoleh` tidak ada di sana. Membacanya dari situ akan melempar **saat dijalankan**, bukan saat dimuat. Auditnya menjaga bahwa nilainya benar-benar diteruskan: tanpa itu `bolehJual` selalu `undefined`, dan karena `undefined` berarti boleh, kartunya akan tampil di semua outlet tanpa satu pun error.
+
+- [x] **Penjualan di Staff App CK** — mengikuti setelan `allow_sales`, bukan peran outlet; 17 sabotase tertangkap
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.

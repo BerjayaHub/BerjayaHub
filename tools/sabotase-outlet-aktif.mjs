@@ -102,15 +102,44 @@ sabotase(
 );
 sabotase('Produksi muncul di outlet non-CK', INTI, "if (kode === 'production') return outletRole === 'central_kitchen';", "if (kode === 'production') return true;", TES);
 sabotase(
-  'Menu/Penjualan muncul di central kitchen',
+  'Menu/Reservasi muncul di central kitchen',
   INTI,
-  "if (kode === 'menu' || kode === 'sales' || kode === 'reservation') return outletRole !== 'central_kitchen';",
-  "if (kode === 'menu' || kode === 'sales' || kode === 'reservation') return true;",
+  "if (kode === 'menu' || kode === 'reservation') return outletRole !== 'central_kitchen';",
+  "if (kode === 'menu' || kode === 'reservation') return true;",
+  TES
+);
+sabotase(
+  'Penjualan dikunci lagi ke peran outlet — CK tidak bisa mencatat tumpengnya',
+  INTI,
+  "  if (kode === 'sales') return bolehJual !== false;",
+  "  if (kode === 'sales') return outletRole !== 'central_kitchen';",
+  TES
+);
+sabotase(
+  'setelan "tidak boleh jual" diabaikan — centang di Admin Portal jadi hiasan',
+  INTI,
+  "  if (kode === 'sales') return bolehJual !== false;",
+  "  if (kode === 'sales') return true;",
   TES
 );
 sabotase('satu-satunya outlet tidak dipakai', INTI, 'if (daftar.length === 1) {', 'if (false) {', TES);
 
 console.log('\nSABOTASE YANG HANYA AUDIT YANG BISA MENANGKAP (jalur layar):');
+
+sabotase(
+  'setelan jual tidak diteruskan ke aturannya — kartunya tampil di semua outlet',
+  SHELL,
+  'modulUntukPeran(mod.code, role, { bolehJual: moduleCtx.bolehJual })',
+  'modulUntukPeran(mod.code, role)',
+  AUDIT
+);
+sabotase(
+  'allow_sales outlet aktif tidak dibaca — bolehJual tidak punya sumber',
+  SHELL,
+  '?.allow_sales !== false',
+  '!== null',
+  AUDIT
+);
 
 sabotase(
   'fallback `?? context.scopes[0]` dikembalikan',

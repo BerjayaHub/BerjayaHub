@@ -52,6 +52,22 @@ if (inti) {
       salah(`js/core/outlet-aktif.js: \`${n}\` tidak diekspor.`);
     }
   }
+  // PENJUALAN ditentukan SETELAN, bukan peran outlet.
+  //
+  // `outlets.allow_sales` ada sejak 0021 dan `record_sales` (0025) sudah
+  // memeriksanya tanpa pernah melihat `outlet_role` — Central Kitchen memang
+  // boleh menjual (tumpeng, dsb). Mengunci kartunya ke peran mengabaikan
+  // setelan yang sudah disediakan untuk pertanyaan itu.
+  if (!/if \(kode === 'sales'\) return bolehJual !== false;/.test(kode)) {
+    salah(
+      "js/core/outlet-aktif.js: modul `sales` tidak mengikuti `bolehJual`. " +
+        'Kemampuannya sudah ada di database sejak 0021/0025; yang menyembunyikan kartunya cuma layar.'
+    );
+  }
+  if (/kode === 'sales'[^\n]*outletRole !== 'central_kitchen'/.test(kode)) {
+    salah("js/core/outlet-aktif.js: `sales` masih dikunci ke peran outlet — CK tidak akan pernah bisa mencatat penjualannya.");
+  }
+
   // Cakupan HARUS disaring per BU.
   if (!/s\?\.business_unit_id === buId/.test(kode)) {
     salah(
@@ -100,6 +116,21 @@ if (shell) {
       'js/main-staff.js: aturan outlet/modul ditulis ulang di layar alih-alih memakai `js/core/outlet-aktif.js`. ' +
         'Dua sumber jawaban untuk pertanyaan yang sama cepat atau lambat menyimpang.'
     );
+  }
+  // SETELAN JUAL harus benar-benar sampai ke aturannya.
+  //
+  // `modulUntukPeran` membaca `opsi.bolehJual`; kalau layar tidak pernah
+  // mengirimnya, nilainya selalu `undefined` — dan karena `undefined` berarti
+  // "boleh", kartunya tampil di MANA-MANA. Centang "Bisa melakukan penjualan"
+  // di Admin Portal jadi hiasan, dan tidak ada satu pun error yang menandainya.
+  if (!/bolehJual: moduleCtx\.bolehJual/.test(kode)) {
+    salah(
+      'js/main-staff.js: `bolehJual` tidak diteruskan ke `modulUntukPeran`. ' +
+        'Tanpa itu setelan penjualan per outlet diabaikan diam-diam — kartunya tampil di semua outlet.'
+    );
+  }
+  if (!/allow_sales !== false/.test(kode)) {
+    salah('js/main-staff.js: `allow_sales` outlet aktif tidak dibaca — `bolehJual` tidak punya sumber.');
   }
   // Outletnya harus bisa DIPILIH — sebelumnya tidak ada pemilih sama sekali.
   if (!/id="outlet-switcher-staff"/.test(kode)) {

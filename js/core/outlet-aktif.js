@@ -115,14 +115,42 @@ export function outletAktif({ scopes, buId, outletBoleh, tersimpan = null }) {
  * menyembunyikan modul untuk orang yang belum memilih outlet akan terbaca
  * sebagai fitur yang hilang, dan itu persis keluhan yang melahirkan berkas ini.
  *
+ * ============ PENJUALAN DITENTUKAN SETELAN, BUKAN PERAN ============
+ *
+ *   "di staff app CK juga sediakan card untuk penjualan, karena ada menu yang
+ *    memang terjual dari CK seperti tumpeng dll"
+ *
+ * Kemampuannya sudah ada di database sejak lama dan tidak perlu dibangun:
+ *
+ *   0021 — `outlets.allow_sales boolean not null default true`
+ *   0025 — `record_sales` memeriksa `allow_sales`, dan TIDAK pernah memeriksa
+ *          `outlet_role`. Central Kitchen sudah boleh mencatat penjualan.
+ *   Admin Portal → Organisasi sudah punya centang "Bisa melakukan penjualan".
+ *
+ * Satu-satunya yang menghalangi adalah baris di layar ini, yang menyembunyikan
+ * kartunya berdasarkan PERAN — mengabaikan setelan yang sudah disediakan untuk
+ * pertanyaan itu. Bentuk kegagalan yang sudah berulang di repo ini:
+ * kemampuannya ada di database, jalannya tidak ada di layar.
+ *
+ * Jadi `sales` sekarang mengikuti `bolehJual`. Kalau setelannya tidak diketahui
+ * (undefined), jawabannya YA — layar tidak boleh menyembunyikan modul karena
+ * satu bidang yang kebetulan tidak ikut termuat.
+ *
+ * `menu` dan `reservation` SENGAJA tidak ikut: keduanya soal melayani tamu di
+ * tempat, bukan soal boleh-tidaknya menjual. Kalau suatu saat CK memerlukannya,
+ * itu permintaan tersendiri dengan setelannya sendiri.
+ *
  * @param {string} kode
  * @param {string|null} outletRole
+ * @param {{bolehJual?: boolean}} [opsi]
  */
-export function modulUntukPeran(kode, outletRole) {
+export function modulUntukPeran(kode, outletRole, opsi = {}) {
+  const bolehJual = opsi.bolehJual;
+  if (kode === 'sales') return bolehJual !== false;
   if (!outletRole) return true;
   // Produksi hanya di central kitchen.
   if (kode === 'production') return outletRole === 'central_kitchen';
-  // Menu, penjualan, dan reservasi hanya untuk outlet yang melayani tamu.
-  if (kode === 'menu' || kode === 'sales' || kode === 'reservation') return outletRole !== 'central_kitchen';
+  // Menu & reservasi hanya untuk outlet yang melayani tamu di tempat.
+  if (kode === 'menu' || kode === 'reservation') return outletRole !== 'central_kitchen';
   return true;
 }

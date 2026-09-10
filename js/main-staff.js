@@ -244,7 +244,23 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
     userId: context.profile.id,
     businessUnitId: activeBuId,
     outletId: pilihanOutlet.outletId,
-    outletRole: pilihanOutlet.outletRole
+    outletRole: pilihanOutlet.outletRole,
+    // SETELAN OUTLET, BUKAN PERANNYA, yang menentukan kartu Penjualan.
+    //
+    // `outlets.allow_sales` sudah ada sejak 0021 dan sudah diperiksa
+    // `record_sales` (0025) — Central Kitchen memang boleh menjual, dan
+    // centangnya sudah ada di Admin Portal → Organisasi. Yang menyembunyikan
+    // kartunya selama ini cuma layar.
+    //
+    // Dititipkan di `moduleCtx` karena `renderHome` adalah fungsi tingkat atas:
+    // `outletBoleh` tidak ada di sana, dan membacanya dari situ akan melempar
+    // saat dijalankan — bukan saat dimuat.
+    //
+    // `undefined` (outlet belum dipilih) berarti BOLEH: menyembunyikan modul
+    // karena satu bidang yang kebetulan kosong terbaca sebagai fitur hilang.
+    bolehJual: pilihanOutlet.outletId
+      ? outletBoleh.find((o) => o.id === pilihanOutlet.outletId)?.allow_sales !== false
+      : undefined
   };
 
   applyBuTheme(activeBu);
@@ -430,7 +446,9 @@ async function renderHome(context, modules, moduleCtx) {
   // browser, dan supaya "outlet belum dipilih" punya jawaban yang DINYATAKAN
   // (semua modul tampil) alih-alih kebetulan.
   const role = moduleCtx.outletRole;
-  const staffModules = modules.filter((mod) => getModuleRenderer(mod.code) && modulUntukPeran(mod.code, role));
+  const staffModules = modules.filter(
+    (mod) => getModuleRenderer(mod.code) && modulUntukPeran(mod.code, role, { bolehJual: moduleCtx.bolehJual })
+  );
   const hasAttendance = staffModules.some((m) => m.code === 'attendance');
   // Presensi sudah punya kartu sendiri di header (att-mini), jadi jangan
   // ditampilkan lagi sebagai kartu biasa — dua pintu ke halaman yang sama

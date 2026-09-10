@@ -145,11 +145,46 @@ uji('INTI: outlet BELUM DIPILIH -> semua modul tampil', () => {
   assert.equal(modulUntukPeran('sales', null), true);
 });
 
-uji('Menu/Penjualan/Reservasi tidak di central kitchen', () => {
-  for (const k of ['menu', 'sales', 'reservation']) {
+uji('Menu & Reservasi tidak di central kitchen', () => {
+  // Keduanya soal melayani tamu DI TEMPAT, bukan soal boleh-tidaknya menjual.
+  for (const k of ['menu', 'reservation']) {
     assert.equal(modulUntukPeran(k, 'central_kitchen'), false, k);
     assert.equal(modulUntukPeran(k, 'store'), true, k);
   }
+});
+
+uji('INTI: Penjualan mengikuti SETELAN outlet, bukan perannya', () => {
+  // CK menjual tumpeng. Kemampuannya sudah ada di database sejak 0021/0025 —
+  // `outlets.allow_sales`, dan `record_sales` yang memeriksanya tanpa pernah
+  // melihat `outlet_role`. Yang menyembunyikan kartunya cuma layar.
+  assert.equal(modulUntukPeran('sales', 'central_kitchen', { bolehJual: true }), true);
+  assert.equal(modulUntukPeran('sales', 'store', { bolehJual: true }), true);
+});
+
+uji('INTI: outlet yang penjualannya DIMATIKAN tidak menampilkan kartunya', () => {
+  // Setelannya harus benar-benar bekerja dua arah. Kalau `false` diabaikan,
+  // centang di Admin Portal jadi hiasan — dan penolakan `record_sales` baru
+  // datang sesudah staff mengisi seluruh keranjang.
+  assert.equal(modulUntukPeran('sales', 'store', { bolehJual: false }), false);
+  assert.equal(modulUntukPeran('sales', 'central_kitchen', { bolehJual: false }), false);
+});
+
+uji('setelan tidak diketahui -> kartunya TETAP tampil', () => {
+  // Outlet belum dipilih, atau bidangnya tidak ikut termuat. Menyembunyikan
+  // modul karena satu bidang yang kebetulan kosong terbaca sebagai fitur
+  // yang hilang — keluhan yang melahirkan berkas ini.
+  assert.equal(modulUntukPeran('sales', 'central_kitchen'), true);
+  assert.equal(modulUntukPeran('sales', 'store', {}), true);
+  assert.equal(modulUntukPeran('sales', null, { bolehJual: undefined }), true);
+});
+
+uji('setelan jual TIDAK memengaruhi modul lain', () => {
+  // Kalau `bolehJual: false` ikut mematikan modul lain, mematikan penjualan
+  // satu outlet akan melumpuhkan seluruh Staff App-nya.
+  for (const k of ['inventory', 'attendance', 'dispatch', 'menu']) {
+    assert.equal(modulUntukPeran(k, 'store', { bolehJual: false }), true, k);
+  }
+  assert.equal(modulUntukPeran('production', 'central_kitchen', { bolehJual: false }), true);
 });
 
 uji('modul lain tidak terpengaruh peran outlet', () => {
