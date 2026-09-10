@@ -16,6 +16,8 @@ import {
   listIncomingDispatches,
   getDispatchItems,
   lengkapiKeteranganKiriman,
+  batalkanKiriman,
+  teruskanKiriman,
   getDispatchForPdf,
   ORDER_STATUS,
   DISPATCH_STATUS,
@@ -252,8 +254,13 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         </table></div>
 
         <h3 style="font-size:0.95rem;margin:18px 0 6px">Pengiriman (${kiriman.length})</h3>
+        <p class="report-note" style="margin:0 0 8px">
+          Salah alamat? Selama <strong>belum diterima</strong>, kirimannya bisa <strong>dibatalkan</strong> —
+          stoknya belum bergerak. Kalau <strong>sudah diterima</strong>, barangnya sungguhan ada di sana:
+          pakai <strong>Teruskan</strong> supaya berpindah ke tujuan yang benar dengan surat jalan sendiri.
+        </p>
         <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
-          <thead><tr><th>No. Surat Jalan</th><th>Dari</th><th>Ke</th><th>Waktu</th><th>Status</th></tr></thead>
+          <thead><tr><th>No. Surat Jalan</th><th>Dari</th><th>Ke</th><th>Waktu</th><th>Status</th><th>Aksi</th></tr></thead>
           <tbody>${
             kiriman
               .map(
@@ -265,13 +272,99 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                   <td style="font-size:0.8rem" data-label="Waktu">${fmtDateTime(d.created_at)}</td>
                   <td data-label="Status">${esc(DISPATCH_STATUS[d.status] ?? d.status)}${
                     d.received_at ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">diterima ${fmtDateTime(d.received_at)}</div>` : ''
+                  }${
+                    d.alasan_batal ? `<div style="font-size:0.74rem;color:var(--color-danger)">${esc(d.alasan_batal)}</div>` : ''
+                  }</td>
+                  <td data-label="Aksi">${
+                    // TIGA KEADAAN, TIGA JAWABAN YANG BERBEDA (0133).
+                    //
+                    // Tombol yang salah di keadaan yang salah akan ditolak
+                    // server sesudah orangnya mengisi dialog — pekerjaannya
+                    // terbuang, dan penolakannya terbaca seperti kerusakan.
+                    d.status === 'sent'
+                      ? `<button class="btn-danger btn-batal-kiriman" data-id="${d.id}" data-code="${esc(d.code ?? '')}"
+                           data-ke="${esc(d.to_outlet?.name ?? '')}">Batalkan</button>`
+                      : d.status === 'received' && d.to_outlet_id === state.outletId
+                        ? `<button class="btn-teruskan-kiriman" data-id="${d.id}" data-code="${esc(d.code ?? '')}"
+                             data-ke="${esc(d.to_outlet?.name ?? '')}">Teruskan →</button>`
+                        : '<span style="font-size:0.78rem;color:var(--color-text-muted)">—</span>'
                   }</td>
                 </tr>`
               )
-              .join('') || '<tr><td colspan="5">Tidak ada pengiriman pada rentang ini.</td></tr>'
+              .join('') || '<tr><td colspan="6">Tidak ada pengiriman pada rentang ini.</td></tr>'
           }</tbody>
         </table></div>
       `;
+
+      // ---- Batalkan kiriman yang belum diterima ----
+      hasil.querySelectorAll('.btn-batal-kiriman').forEach((btn) =>
+        btn.addEventListener(
+          'click',
+          sekaliJalan(async () => {
+            const isian = await formDialog({
+              title: `Batalkan kiriman ${btn.dataset.code}?`,
+              description:
+                `Kiriman ini ke ${btn.dataset.ke} dan belum diterima, jadi stoknya belum bergerak sama sekali — ` +
+                'pembatalannya bersih.\n\nNomor surat jalannya tetap ada di riwayat, ditandai dibatalkan beserta alasanmu.',
+              fields: [
+                { name: 'alasan', label: 'Alasan pembatalan', type: 'text', value: '', placeholder: 'mis. salah outlet, harusnya retur ke CK' }
+              ],
+              submitText: 'Ya, batalkan kiriman',
+              danger: true
+            });
+            if (!isian) return;
+            if (!String(isian.alasan ?? '').trim()) {
+              toast('Sebutkan alasan pembatalannya.', 'warning');
+              return;
+            }
+            try {
+              await batalkanKiriman(btn.dataset.id, isian.alasan);
+              toast(`Kiriman ${btn.dataset.code} dibatalkan. Buat surat jalan baru ke tujuan yang benar.`, 'success');
+            } catch (e) {
+              toast(e.message ?? 'Gagal membatalkan kiriman.', 'error');
+              return;
+            }
+            muat();
+          })
+        )
+      );
+
+      // ---- Teruskan kiriman yang sudah terlanjur diterima ----
+      hasil.querySelectorAll('.btn-teruskan-kiriman').forEach((btn) =>
+        btn.addEventListener(
+          'click',
+          sekaliJalan(async () => {
+            // Tujuannya outlet mana pun SELAIN tempat barangnya sekarang.
+            const pilihan = allOutlets.filter((o) => o.id !== state.outletId).map((o) => ({ value: o.id, label: o.name }));
+            if (!pilihan.length) {
+              toast('Tidak ada outlet tujuan lain di BU ini.', 'warning');
+              return;
+            }
+            const isian = await formDialog({
+              title: `Teruskan ${btn.dataset.code} ke tujuan yang benar`,
+              description:
+                `Barangnya sungguhan ada di ${btn.dataset.ke} sekarang, jadi ini BUKAN pembatalan — ` +
+                'akan dibuat surat jalan BARU dari sini ke tujuan yang benar, sebanyak yang benar-benar diterima.\n\n' +
+                'Bentuknya draft: periksa isinya, lalu tekan Kirim saat barangnya sudah siap diangkut.',
+              fields: [
+                { name: 'tujuan', label: 'Tujuan yang benar', type: 'select', options: pilihan, value: pilihan[0].value },
+                { name: 'alasan', label: 'Alasan (opsional)', type: 'text', value: '', placeholder: 'mis. harusnya retur ke CK' }
+              ],
+              submitText: 'Buat surat jalan koreksi'
+            });
+            if (!isian) return;
+            try {
+              const draftBaru = await teruskanKiriman(btn.dataset.id, isian.tujuan, isian.alasan);
+              toast('Draft surat jalan koreksi dibuat. Periksa isinya di tab Draft, lalu kirim.', 'success');
+              state.fokusDraft = draftBaru ?? null;
+              state.tab = 'drafts';
+              buildTabs();
+            } catch (e) {
+              toast(e.message ?? 'Gagal membuat kiriman koreksi.', 'error');
+            }
+          })
+        )
+      );
       // Staff App: TANPA nilai rupiah. Surat jalan yang dipegang kurir tidak
       // perlu memuat modal.
       hasil.querySelectorAll('.btn-dok').forEach((btn) =>
@@ -853,6 +946,26 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         errorEl.textContent = `${picker.namaDuplikat().join(', ')} ada di lebih dari satu baris. Gabungkan dulu jadi satu baris.`;
         return;
       }
+
+      // KONFIRMASI YANG MENYEBUT JENISNYA DENGAN HURUF BESAR.
+      //
+      // Kesalahan di lapangan bukan salah memilih outlet, melainkan salah
+      // memilih JENIS: yang seharusnya retur ke CK dikerjakan sebagai transfer
+      // antar outlet, dan dropdown tujuannya lalu berisi daftar yang berbeda
+      // tanpa ada yang menyadarinya. Dialog yang cuma menyebut nama outlet
+      // tidak akan menangkap itu.
+      const jenisKirim = isCK ? 'KIRIM KE OUTLET' : jenisSel?.value === 'retur' ? 'RETUR KE CENTRAL KITCHEN' : 'TRANSFER ANTAR OUTLET';
+      const namaTujuan = toSel.options[toSel.selectedIndex]?.text ?? 'outlet tujuan';
+      const ok = await confirmDialog({
+        title: 'Periksa tujuannya dulu',
+        message:
+          `${items.length} barang dari ${fromOutlet?.name ?? 'outlet ini'} ke ${namaTujuan}.\n\n` +
+          `Ini ${jenisKirim}.\n\n` +
+          'Kalau tujuannya salah, kiriman masih bisa dibatalkan selama belum diterima.',
+        confirmText: 'Ya, buat surat jalan'
+      });
+      if (!ok) return;
+
       e.target.disabled = true;
       try {
         await buatDraftKiriman({ fromOutlet: state.outletId, toOutlet: to, items, notes: box.querySelector('#disp-notes').value });
@@ -1244,7 +1357,15 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                    </p>`
                 : ''
             }
-            <button class="primary btn-save-receive" data-id="${d.id}" style="margin-top:10px;max-width:220px">Simpan (Terima)</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+              <button class="primary btn-save-receive" data-id="${d.id}" style="max-width:220px">Simpan (Terima)</button>
+              <!-- SALAH ALAMAT: penerima juga boleh menolak (0133).
+                   Sampai 0133 tidak ada tombol ini sama sekali — kiriman yang
+                   salah alamat WAJIB diterima outlet yang salah, lalu dikarang
+                   kiriman balik tanpa hubungan apa pun ke aslinya. -->
+              <button class="btn-danger btn-tolak-kiriman" data-id="${d.id}" data-code="${esc(d.code ?? '')}"
+                      data-dari="${esc(d.from_outlet?.name ?? '')}">Bukan untuk kami</button>
+            </div>
           </div>
         </div>`;
         })
@@ -1264,6 +1385,50 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         kartu.querySelector('.recv-cari-bahan'),
         kartu.querySelectorAll('tbody tr[data-nama]'),
         kartu.querySelector('.recv-cari-info')
+      )
+    );
+
+    // TOLAK KIRIMAN SALAH ALAMAT.
+    //
+    // Stoknya belum bergerak sama sekali di tahap ini, jadi penolakannya
+    // bersih — dan itu dikatakan di dialognya supaya orangnya tidak ragu
+    // bahwa ada yang rusak karena menekannya.
+    box.querySelectorAll('.btn-tolak-kiriman').forEach((btn) =>
+      btn.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const isian = await formDialog({
+            title: `Tolak kiriman ${btn.dataset.code}?`,
+            description:
+              `Kiriman ini dari ${btn.dataset.dari}. Kalau memang bukan untuk outlet ini, tolak saja — ` +
+              'stoknya belum bergerak sama sekali, jadi tidak ada yang perlu dibetulkan sesudahnya.\n\n' +
+              'Pengirimnya akan melihat kiriman ini dibatalkan beserta alasanmu.',
+            fields: [
+              {
+                name: 'alasan',
+                label: 'Alasan penolakan',
+                type: 'text',
+                value: '',
+                placeholder: 'mis. salah outlet, harusnya ke CK'
+              }
+            ],
+            submitText: 'Ya, tolak kiriman',
+            danger: true
+          });
+          if (!isian) return;
+          if (!String(isian.alasan ?? '').trim()) {
+            toast('Sebutkan alasannya supaya pengirim tahu apa yang salah.', 'warning');
+            return;
+          }
+          try {
+            await batalkanKiriman(btn.dataset.id, isian.alasan);
+            toast(`Kiriman ${btn.dataset.code} ditolak. Pengirimnya akan melihat alasanmu.`, 'success');
+          } catch (e) {
+            toast(e.message ?? 'Gagal menolak kiriman.', 'error');
+            return;
+          }
+          renderIncoming();
+        })
       )
     );
 

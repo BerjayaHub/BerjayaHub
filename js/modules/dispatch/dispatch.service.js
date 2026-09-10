@@ -300,6 +300,32 @@ export async function getDispatchItems(dispatchId) {
 }
 
 /**
+ * Batalkan kiriman yang BELUM diterima (0133).
+ *
+ * Boleh oleh pengirim maupun outlet tujuan — siapa pun yang lebih dulu sadar
+ * salah alamat. Stok belum bergerak di tahap ini, jadi pembatalannya bersih.
+ */
+export async function batalkanKiriman(dispatchId, alasan) {
+  const { error } = await supabase.rpc('batalkan_kiriman', argumenRpc({ p_dispatch: dispatchId, p_alasan: alasan }));
+  if (error) throw new Error(error.message ?? String(error));
+}
+
+/**
+ * Teruskan kiriman yang SUDAH diterima ke tujuan yang benar (0133).
+ *
+ * Bukan pembatalan: barangnya sungguhan ada di outlet yang salah. Yang dibuat
+ * adalah DRAFT surat jalan baru dari sana. Mengembalikan id draftnya.
+ */
+export async function teruskanKiriman(dispatchId, tujuanOutletId, alasan) {
+  const { data, error } = await supabase.rpc(
+    'teruskan_kiriman',
+    argumenRpc({ p_dispatch: dispatchId, p_tujuan: tujuanOutletId, p_alasan: alasan })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? null;
+}
+
+/**
  * Outlet melengkapi keterangan baris kiriman yang CK lupa isi (0132).
  *
  * Hanya mengisi yang MASIH KOSONG — keterangan pengirim bukan milik penerima.
@@ -333,7 +359,10 @@ export async function listMyDispatches(outletIds, { dateFrom, dateTo } = {}) {
   let q = supabase
     .from('dispatches')
     .select(
-      'id, code, status, notes, created_at, received_at, from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name), sender:user_profiles!created_by(full_name), receiver:user_profiles!received_by(full_name)',
+      // `to_outlet_id` & `alasan_batal` ikut sejak 0133: layar riwayat perlu
+      // tahu apakah outlet inilah yang MENERIMA (yang boleh meneruskan), dan
+      // kenapa sebuah kiriman dibatalkan.
+      'id, code, status, notes, created_at, received_at, to_outlet_id, alasan_batal, from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name), sender:user_profiles!created_by(full_name), receiver:user_profiles!received_by(full_name)',
       { count: 'exact' }
     )
     // Kiriman KELUAR maupun MASUK: satu outlet ingin melihat keduanya di satu

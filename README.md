@@ -5676,6 +5676,50 @@ Satu koreksi pada auditnya sendiri: versi pertama menuntut `terapkanSaringan()` 
 
 - [x] **Cari nama bahan** — di Order Masuk, Draft SJ, dan Terima kiriman; 17 sabotase tertangkap
 
+## Salah kirim: Serpong harusnya retur ke CK, malah ke Hampton
+
+> "cek di modul pengiriman fitur transfer antar outlet / retur ke CK, apakah sudah ada koneksi ke outlet atau ck di kiriman masuk? … lalu berikan solusi bila outlet salah kirim"
+
+**Pertanyaan pertama: sudah terkoneksi.** `listIncomingDispatches` menyaring hanya dengan `to_outlet_id` + status `sent`, tanpa membedakan jenisnya — transfer antar outlet maupun retur ke CK sama-sama muncul di Kiriman Masuk outlet tujuan.
+
+Yang ditemukan saat memeriksa jauh lebih penting:
+
+```sql
+-- 0022, sejak awal:
+status text not null check (status in ('sent','received','cancelled'))
+```
+
+`cancelled` berdiri di sana sejak hari pertama dan **tidak ada satu pun fungsi yang pernah mengisinya**. Penerima juga tidak punya tombol "Tolak", hanya "Simpan (Terima)". Jadi kiriman yang salah alamat **wajib diterima** oleh outlet yang salah, lalu dikarang kiriman balik tanpa hubungan apa pun ke aslinya.
+
+Bentuk kegagalan yang khas di repo ini: batasannya terlihat lengkap, layarnya terlihat wajar, dan yang menemukannya adalah orang yang sedang menghadapi masalahnya.
+
+### Yang menentukan bukan siapa yang salah, tapi DI MANA BARANGNYA
+
+| Keadaan | Jawaban | Kenapa |
+|---|---|---|
+| **Belum diterima** | **Batalkan** | Stok belum bergerak sama sekali (0103 menggesernya saat diterima). Pembatalannya bersih. |
+| **Sudah diterima** | **Teruskan** | Barangnya sungguhan ada di Hampton. Membatalkannya membuat pembukuan berbohong sampai ada yang benar-benar mengantarkannya kembali. |
+
+Menukar keduanya adalah kesalahan paling mahal yang bisa dibuat di sini, dan tidak satu pun dari keduanya melempar error saat terjadi. Dua sabotase khusus menguji persis pertukaran itu.
+
+**Batalkan** boleh oleh **kedua sisi** — Serpong yang sadar sendiri, atau Hampton lewat tombol "Bukan untuk kami". Siapa pun yang lebih dulu sadar bisa langsung membetulkan; kiriman salah yang menggantung ikut menghalangi daftar kiriman yang benar di layar penerima. Alasan wajib.
+
+**Teruskan** membuat **draft** surat jalan baru dari Hampton ke CK, sebanyak yang **benar-benar diterima** (bukan yang dikirim), tersambung ke kiriman aslinya lewat `koreksi_dari`. Bentuknya draft karena barangnya masih harus dinaikkan ke mobil — surat jalan yang sudah "terkirim" untuk barang yang masih di rak menyesatkan siapa pun yang memegangnya.
+
+### Satu jebakan yang hampir terlewat
+
+Sejak `0103` stok baru bergeser saat kiriman diterima — jadi membatalkan yang berstatus `sent` tidak perlu menyentuh apa pun. **Kecuali kiriman lama.** Sebelum `0103`, stok pengirim dipotong saat kiriman **dibuat**, dan `receive_dispatch` sampai hari ini masih memeriksanya (`v_ck_sudah`). Kiriman lama yang masih menggantung di `sent` sudah memotong stok pengirimnya; membatalkannya tanpa mengembalikan potongan itu **menghilangkan barangnya dari pembukuan untuk selamanya**.
+
+Diperiksa dari buku besarnya sendiri, bukan dari tanggal atau kolom penanda yang bisa basi — dan pengembaliannya lewat pergerakan penyeimbang, bukan penghapusan.
+
+### Pencegahannya: konfirmasi yang menyebut JENISnya dengan huruf besar
+
+> "Ini **TRANSFER ANTAR OUTLET**."
+
+Kesalahannya bukan salah memilih outlet, melainkan salah memilih **jenis** — dan dropdown tujuannya lalu berisi daftar yang berbeda tanpa ada yang menyadarinya. Dialog yang cuma menyebut nama outlet tidak akan menangkap itu.
+
+- [x] **Kiriman salah alamat** (`0133`) — batalkan / teruskan / konfirmasi jenis; 21 sabotase tertangkap
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.
