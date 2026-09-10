@@ -18,6 +18,7 @@
 import { supabase } from '../../config/supabase-client.js';
 import { ambilSemua } from '../../core/ambil-semua.js';
 import { argumenRpc } from '../../core/rpc-args.js';
+import { pesanGagalUnggah } from './pesan-unggah.js';
 
 const BUCKET = 'receipt-photos';
 
@@ -252,10 +253,15 @@ export async function itemNota(receiptId) {
  */
 export async function unggahFotoNota(outletId, file) {
   if (!file) return null;
+  // Tanpa outlet, path-nya jadi "undefined/…" dan kebijakan storage menolaknya
+  // saat mencoba membaca folder pertama sebagai uuid — dengan pesan tentang
+  // tipe data, yang tidak menyebut outlet sama sekali.
+  if (!outletId) throw new Error('Outlet belum dipilih, jadi foto notanya tidak tahu harus disimpan atas nama outlet mana.');
+
   const ext = (file.name?.split('.').pop() ?? 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
   const path = `${outletId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
-  if (error) throw new Error(`Foto nota gagal diunggah: ${error.message}`);
+  if (error) throw new Error(pesanGagalUnggah(error));
   return path;
 }
 

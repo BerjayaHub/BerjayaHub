@@ -35,6 +35,7 @@ import {
 } from './nota.service.js';
 import { listKantongBisaKubebani } from '../cash/cash.service.js';
 import { statusTempo, bolehDibayar, kelompokPerSupplier } from './hutang-nota.js';
+import { karenaBucketHilang } from './pesan-unggah.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -292,8 +293,26 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
       try {
         if (file) photoPath = await unggahFotoNota(outletId, file);
       } catch (e) {
-        errorEl.textContent = `${e.message ?? e} — notanya belum disimpan, coba lagi atau lewati fotonya.`;
-        return;
+        const pesan = e.message ?? String(e);
+        // KEGAGALAN SERVER TIDAK BOLEH MENYANDERA NOTANYA.
+        //
+        // Kalau penyimpanan fotonya belum disiapkan, tidak ada satu pun
+        // tindakan di layar yang bisa memperbaikinya — dan menahan notanya
+        // berarti orang yang memegang nota kertas di depan supplier tidak bisa
+        // mencatat apa pun sampai admin turun tangan. Angka notanya jauh lebih
+        // penting daripada fotonya; fotonya bisa menyusul lewat "+ Foto".
+        if (karenaBucketHilang(pesan)) {
+          const lanjut = await confirmDialog({
+            title: 'Simpan notanya tanpa foto?',
+            message: `${pesan}\n\nIsi notanya sudah lengkap dan tidak akan hilang.`,
+            confirmText: 'Simpan tanpa foto'
+          });
+          if (!lanjut) return;
+          photoPath = null;
+        } else {
+          errorEl.textContent = `${pesan} — notanya belum disimpan, coba lagi atau lewati fotonya.`;
+          return;
+        }
       }
 
       const tunai = caraEl.value === 'tunai';

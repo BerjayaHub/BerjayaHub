@@ -5541,6 +5541,37 @@ Menggabungkan data lama harus **mematikan** `trg_tolak_ubah_nota_lunas` (0122) d
 
 - [x] **Satu bahan satu baris** (`0129`) — di order, surat jalan, dan nota; 22 sabotase tertangkap
 
+## "No bucket" — migration yang berhenti di tengah, berbulan-bulan lalu
+
+> "di terima dari supplier masih tidak bisa upload foto nota, keterangan no bucket"
+
+Bucket `receipt-photos` memang tidak ada. Yang menarik bukan perbaikannya — itu sepele — melainkan **kenapa ia bisa hilang tanpa ada yang tahu**.
+
+```
+0084  baris  71   create policy gr_select on goods_receipts      ← tanpa drop
+      baris 263   insert into storage.buckets ... receipt-photos ← di ujung
+```
+
+`create policy` tanpa `drop policy if exists` gagal kalau kebijakannya sudah ada. Begitu `0084` dijalankan untuk kedua kalinya — hal yang wajar setelah sesuatu di tengah gagal — ia berhenti di baris 71 dan **tidak pernah sampai ke baris 263**.
+
+Bentuk kegagalannya yang paling mahal: **semuanya bekerja** kecuali satu tombol. Tabelnya ada, layarnya ada, nota bisa disimpan, harga tercatat. Tidak ada tes yang bisa menangkapnya, karena tidak ada satu baris kode pun yang salah. Yang salah adalah keadaan server, dan keadaan server tidak punya penjaga.
+
+`test-migrasi-0130` **mereproduksi** rangkaian itu lebih dulu — jalankan sekali, bucket ada; hapus, jalankan lagi, berhenti di `create policy`, bucket tidak lahir — sebelum membuktikan bahwa `0130` memperbaikinya. Tanpa reproduksi itu, "0130 memperbaiki masalah" cuma klaim.
+
+### Yang dijaga sekarang
+
+`audit-bucket-storage.cjs` memastikan tiap `storage.from(...)` di `js/` punya bucket yang benar-benar dibuat migration — **termasuk yang namanya lewat konstanta**. Pencarian yang cuma melihat string literal melewatkan `nota.service.js`, yang memakai `from(BUCKET)`; justru bucket itulah yang hilang. Audit yang sama menuntut migration baru (≥ 0130) idempotent: `on conflict do nothing`, dan tiap `create policy` didahului `drop`.
+
+Satu koreksi pada auditnya sendiri: versi pertama menuduh `urlSementara(bucket, path)` dan `unduhBytes(bucket, path)` di `dokumen.service.js` — penolong yang memang menerima bucket mana pun dari pemanggilnya. Aturannya sekarang membedakan **KONSTANTA** (huruf besar, wajib bisa ditelusuri) dari **parameter** (huruf kecil, ditentukan pemanggil).
+
+### Pesan yang bisa ditindaklanjuti, dan nota yang tidak tersandera
+
+"Bucket not found" adalah jawaban yang benar dan sama sekali tidak berguna bagi staff yang sedang memegang nota kertas di depan supplier. Sekarang tiap sebab terdengar berbeda — wadah belum ada, ditolak izin, foto kebesaran, jaringan putus — dan galat yang tidak dikenali tetap ditampilkan apa adanya, supaya sebab yang baru masih bisa dilacak.
+
+Yang terpenting: kalau sebabnya **server belum siap**, layar menawarkan **"Simpan tanpa foto"**. Tidak ada satu pun tindakan di layar yang bisa memperbaiki bucket yang hilang, dan menahan notanya berarti orang di outlet tidak bisa mencatat apa pun sampai admin turun tangan. Angka notanya jauh lebih penting daripada fotonya; fotonya menyusul lewat "+ Foto".
+
+- [x] **Bucket foto nota dipastikan ada** (`0130`) — plus audit yang menjaga seluruh bucket; 14 sabotase tertangkap
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.
