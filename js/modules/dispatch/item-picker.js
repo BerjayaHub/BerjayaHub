@@ -1,6 +1,7 @@
 import { renderSearchSelect, wireSearchSelect } from '../../core/ui.js';
 import { formatNum, formatRibuanDesimal, bacaRupiah, attachRupiahInput } from '../../core/format.js';
 import { cariDuplikat, gabungDuplikat } from './duplikat-item.js';
+import { cocokKata, ringkasSaringan } from './saring-baris.js';
 
 /**
  * Komponen pemilih produk untuk form Order / Kirim / Transfer.
@@ -54,7 +55,14 @@ export function createItemPicker(
     // yang menutup perdebatan "outlet tidak pesan" versus "CK tidak kirim".
     // Di layar lain (nota, order) baris nol memang tidak punya arti, jadi
     // bawaannya tetap membuang.
-    bolehNol = false
+    bolehNol = false,
+    // Kotak pencarian nama bahan di atas barisnya.
+    //
+    // Untuk daftar panjang — draft surat jalan dari order berisi tiga puluh
+    // baris. Yang tidak cocok DISEMBUNYIKAN, tidak pernah dibuang: kotak
+    // isiannya hidup di dalam barisnya, dan baris yang lenyap dari DOM lenyap
+    // juga dari `getItems()`.
+    cariBaris = false
   }
 ) {
   const categories = [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
@@ -71,6 +79,14 @@ export function createItemPicker(
         <select class="pf-sub"><option value="">Semua</option></select>
       </div>
     </div>
+    ${
+      cariBaris
+        ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0">
+             <input type="text" class="pf-cari" placeholder="Cari nama bahan…" style="flex:1 1 200px;min-width:160px" />
+             <span class="pf-cari-info" style="font-size:0.78rem;color:var(--color-text-muted)"></span>
+           </div>`
+        : ''
+    }
     <div class="pf-kembar-box" hidden></div>
     <div class="picker-rows"></div>
     <button type="button" class="pf-add" style="margin-top:8px">+ Tambah Produk</button>
@@ -175,6 +191,38 @@ export function createItemPicker(
         )} dikosongkan</strong> karena salah satu barisnya belum berharga — isi ulang harga belinya.</div>`;
       }
     });
+  }
+
+  /**
+   * Sembunyikan baris yang namanya tidak cocok pencarian.
+   *
+   * DISEMBUNYIKAN, bukan dibuang — `snapshot()` membaca seluruh
+   * `.picker-row` di DOM, jadi baris yang dihapus akan hilang juga dari
+   * `getItems()` beserta angka yang sudah diketik di dalamnya.
+   *
+   * Namanya dibaca dari produk yang SEDANG dipilih, bukan dari atribut yang
+   * ditulis saat menggambar: orang bisa mengganti produk sebuah baris kapan
+   * saja, dan atribut yang basi akan menyembunyikan baris yang seharusnya
+   * muncul.
+   */
+  function terapkanSaringan() {
+    if (!cariBaris) return;
+    const kotak = mountEl.querySelector('.pf-cari');
+    const info = mountEl.querySelector('.pf-cari-info');
+    if (!kotak) return;
+    const kata = kotak.value;
+    const semua = [...rowsBox.querySelectorAll('.picker-row')];
+    let tampil = 0;
+    for (const row of semua) {
+      const id = row.querySelector('.search-select input[type="hidden"]')?.value ?? '';
+      // Baris yang produknya BELUM dipilih selalu terlihat: itu baris kosong
+      // di bawah daftar, satu-satunya tempat menambah barang baru. Menyembunyi-
+      // kannya membuat "+ Tambah Produk" terlihat tidak melakukan apa pun.
+      const cocok = !id || cocokKata(products.find((p) => p.id === id)?.name ?? '', kata);
+      row.hidden = !cocok;
+      if (cocok) tampil += 1;
+    }
+    if (info) info.textContent = ringkasSaringan(semua.length, tampil, kata);
   }
 
   /** Apakah jumlah ini melebihi stok yang ada? Dipakai untuk menyalakan ⚠. */
@@ -285,6 +333,7 @@ export function createItemPicker(
     rowsBox.innerHTML = (entries.length ? entries : [{ product_id: '', qty: '' }]).map((e) => rowHtml(e, opts)).join('');
     rowsBox.querySelectorAll('.picker-row').forEach((row) => wireRow(row, opts));
     segarkanDuplikat();
+    terapkanSaringan();
   }
 
   function addRow() {
@@ -295,6 +344,7 @@ export function createItemPicker(
     rowsBox.appendChild(row);
     wireRow(row, opts);
     segarkanDuplikat();
+    terapkanSaringan();
   }
 
   catSel.addEventListener('change', () => {
@@ -308,6 +358,8 @@ export function createItemPicker(
     renderRows(snapshot());
   });
   mountEl.querySelector('.pf-add').addEventListener('click', addRow);
+
+  mountEl.querySelector('.pf-cari')?.addEventListener('input', terapkanSaringan);
 
   refreshSubOptions();
   renderRows(initial.map((i) => ({ product_id: i.product_id, qty: i.qty, line_total: i.line_total })));

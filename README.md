@@ -5650,6 +5650,32 @@ Satu sabotase lolos dan menemukan audit yang buta: mencari nama kelas `kirim-nol
 
 - [x] **Kiriman nol & keterangan** (`0132`) — di layar CK, layar outlet, dan surat jalan cetak; 22 sabotase tertangkap
 
+## Cari nama bahan di dalam satu dokumen
+
+> "berikan filter nama bahan juga di order yang masuk dan draft surat jalan … di sisi outlet terima barang juga berikan filter nama bahan juga"
+
+Satu order dari outlet bisa berisi tiga puluh baris. Staff CK memegang satu karung dan harus menemukan barisnya di antara semuanya, di layar HP, sambil berdiri di depan rak. Kotak pencarian sekarang ada di tiga tempat: **Order Masuk**, **Draft Surat Jalan**, dan **Terima kiriman** di sisi outlet. Tanpa migration — seluruhnya di layar.
+
+### Yang paling berbahaya di fitur ini bukan pencariannya
+
+Baris di ketiga layar itu memuat kotak isian yang sudah diketik orang — jumlah kirim, jumlah terima, keterangan. Menyaring dengan **menggambar ulang** tabel berisi baris yang cocok saja akan menghapus angka yang sudah diketik untuk baris lain, dan — jauh lebih buruk — membuat baris yang tidak terlihat **tidak ikut terkirim ke server**, karena `querySelectorAll` hanya menemukan yang ada di DOM.
+
+Itu persis kegagalan yang baru saja diperbaiki `0132`: barang yang lenyap dari surat jalan tanpa satu pun error. Menyaring dengan menggambar ulang akan menghidupkannya kembali lewat pintu yang tidak akan dicurigai siapa pun — fitur pencarian.
+
+Jadi aturannya satu, dan seluruh `saring-tabel.js` ada demi menegakkannya: **menyembunyikan (`hidden`), tidak pernah membuang.** Auditnya menolak `remove()`, `innerHTML =`, dan `replaceChildren()` di berkas itu.
+
+### Tiga keputusan kecil yang menentukan rasanya
+
+- **Cocok per KATA, bukan satu potongan.** Orang mengetik "crispy cireng" untuk "BAHAN CIRENG CRISPY", dan pencocokan sebagai satu string tidak akan pernah menemukannya.
+- **Kata kunci kosong = semua cocok.** Itu keadaan awal tiap layar, bukan kasus pinggiran — kalau kosong dianggap "tidak cocok", seluruh tabel menghilang begitu layarnya dibuka.
+- **Keadaan nol hasil DIKATAKAN.** "Tidak ada bahan yang cocok — 30 bahan lainnya disembunyikan, bukan hilang." Tabel yang tiba-tiba kosong terbaca seperti datanya lenyap, dan orang yang menyimpulkan begitu akan menutup layarnya lalu mengetik ulang ordernya.
+
+Di picker draft, baris yang produknya **belum dipilih** selalu terlihat — kalau ikut tersembunyi, "+ Tambah Produk" terasa tidak melakukan apa pun selama pencarian aktif.
+
+Satu koreksi pada auditnya sendiri: versi pertama menuntut `terapkanSaringan()` dipanggil tiga kali, angka yang saya karang dari salah hitung — ia menuduh kode yang sudah lengkap. Sekarang diperiksa per tempat: `renderRows` dan `addRow`.
+
+- [x] **Cari nama bahan** — di Order Masuk, Draft SJ, dan Terima kiriman; 17 sabotase tertangkap
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.

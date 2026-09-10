@@ -4,6 +4,7 @@ import { formatNum } from '../../core/format.js';
 import { listProducts } from '../product/product.service.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { createItemPicker } from './item-picker.js';
+import { saringTabel } from './saring-tabel.js';
 import { petaDraftPerOrder, keadaanOrder, ringkasOrder } from './order-draft.js';
 import {
   buatDraftKiriman,
@@ -635,13 +636,23 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
               berangkat. Yang dikosongkan dihitung <strong>0</strong>, dan barisnya <strong>tetap muncul</strong> di surat
               jalan lengkap dengan jumlah yang diminta. Itu yang menjawab "outlet tidak pesan" versus "CK tidak kirim".
             </p>
+            ${
+              // Pencarian per dokumen — satu order bisa berisi tiga puluh baris,
+              // dan staff CK memegang satu karung sambil mencari barisnya.
+              items.length > 5
+                ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+                     <input type="text" class="ord-cari-bahan" placeholder="Cari nama bahan…" style="flex:1 1 200px;min-width:160px" />
+                     <span class="ord-cari-info" style="font-size:0.78rem;color:var(--color-text-muted)">${items.length} bahan</span>
+                   </div>`
+                : ''
+            }
             <div class="table-scroll"><table class="data-table baris-sejajar">
               <thead><tr><th>Produk</th><th>Diminta</th><th>Stok CK</th><th>Dikirim</th><th>Keterangan</th></tr></thead>
               <tbody>
                 ${items
                   .map((it) => {
                     const stok = state.stockMap.get(it.product_id) ?? 0;
-                    return `<tr>
+                    return `<tr data-nama="${esc(it.products?.name ?? '')}">
                       <td data-label="Produk">${esc(it.products?.name ?? '-')}</td>
                       <td data-label="Diminta">${formatNum(it.qty)} ${esc(it.products?.base_unit ?? '')}</td>
                       <td style="color:${stok < Number(it.qty) ? 'var(--color-danger)' : 'var(--color-text-muted)'}" data-label="Stok CK">${formatNum(stok)}</td>
@@ -677,6 +688,15 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         const body = btn.parentElement.querySelector('.ord-body');
         body.hidden = !body.hidden;
       })
+    );
+
+    // Pencarian bahan per kartu order.
+    box.querySelectorAll('[data-order]').forEach((kartu) =>
+      saringTabel(
+        kartu.querySelector('.ord-cari-bahan'),
+        kartu.querySelectorAll('tbody tr[data-nama]'),
+        kartu.querySelector('.ord-cari-info')
+      )
     );
 
     // Ketuk order yang sudah jadi draft -> langsung ke draftnya, terbuka.
@@ -1047,6 +1067,8 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       // Tanpa ini, satu kali "Simpan perubahan" menghapus justru baris yang
       // paling perlu dibaca outlet: barang yang dipesan tapi tidak dikirim.
       bolehNol: true,
+      // Draft dari order bisa berisi tiga puluh baris.
+      cariBaris: true,
       initial: items.map((i) => ({ product_id: i.product_id, qty: i.sent_qty }))
     });
 
@@ -1172,6 +1194,14 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
             <div style="font-size:0.78rem;color:var(--color-text-muted)">${fmtDateTime(d.created_at)} · oleh ${esc(d.user_profiles?.full_name ?? '-')} · ketuk untuk terima ▾</div>
           </button>
           <div class="recv-body" hidden style="margin-top:10px">
+            ${
+              items.length > 5
+                ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+                     <input type="text" class="recv-cari-bahan" placeholder="Cari nama bahan…" style="flex:1 1 200px;min-width:160px" />
+                     <span class="recv-cari-info" style="font-size:0.78rem;color:var(--color-text-muted)">${items.length} bahan</span>
+                   </div>`
+                : ''
+            }
             <div class="table-scroll"><table class="data-table baris-sejajar">
               <thead><tr><th>Produk</th><th>Diminta</th><th>Dikirim</th><th>Diterima</th><th>Keterangan</th></tr></thead>
               <tbody>
@@ -1186,7 +1216,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                     // sekali.
                     const nol = Number(it.sent_qty) === 0;
                     const satuan = esc(it.products?.base_unit ?? '');
-                    return `<tr${nol ? ' class="kirim-nol"' : ''}>
+                    return `<tr${nol ? ' class="kirim-nol"' : ''} data-nama="${esc(it.products?.name ?? '')}">
                       <td data-label="Produk">${esc(it.products?.name ?? '-')}</td>
                       <td data-label="Diminta">${it.ordered_qty == null ? '<span style="color:var(--color-text-muted)">–</span>' : `${formatNum(it.ordered_qty)} ${satuan}`}</td>
                       <td data-label="Dikirim">${
@@ -1226,6 +1256,15 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         const body = btn.parentElement.querySelector('.recv-body');
         body.hidden = !body.hidden;
       })
+    );
+
+    // Pencarian bahan per kiriman yang sedang diterima.
+    box.querySelectorAll('[data-dispatch]').forEach((kartu) =>
+      saringTabel(
+        kartu.querySelector('.recv-cari-bahan'),
+        kartu.querySelectorAll('tbody tr[data-nama]'),
+        kartu.querySelector('.recv-cari-info')
+      )
     );
 
     box.querySelectorAll('.btn-save-receive').forEach((btn) =>
