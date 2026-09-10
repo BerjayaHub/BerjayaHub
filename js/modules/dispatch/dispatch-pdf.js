@@ -49,6 +49,24 @@ export async function buildSuratJalanPDF(data) {
     doc.text(`${qty(it.sent)} ${it.unit ?? ''}`, colSent, y, { align: 'right' });
     if (data.showReceived) doc.text(`${qty(it.received)} ${it.unit ?? ''}`, colRecv, y, { align: 'right' });
     y += 14;
+
+    // BARIS DI BAWAH NAMANYA: berapa yang diminta & keterangannya (0132).
+    //
+    // Surat jalan adalah dokumen yang dipegang saat barangnya diserahkan, dan
+    // di situlah perselisihan "outlet tidak pesan" versus "CK tidak kirim"
+    // terjadi. Kalau kertasnya tidak memuat jawabannya, layar yang memuatnya
+    // tidak menolong siapa pun yang sedang berdiri di depan mobil.
+    const catatan = [];
+    if (it.ordered != null && Number(it.ordered) !== Number(it.sent)) catatan.push(`diminta ${qty(it.ordered)} ${it.unit ?? ''}`);
+    if (it.keterangan) catatan.push(String(it.keterangan).slice(0, 60));
+    if (catatan.length) {
+      doc.setFontSize(8);
+      doc.setTextColor(110);
+      doc.text(catatan.join(' — '), colProduk + 10, y);
+      doc.setTextColor(0);
+      doc.setFontSize(10);
+      y += 12;
+    }
     if (y > doc.internal.pageSize.getHeight() - 60) {
       doc.addPage();
       y = M;

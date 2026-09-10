@@ -14,6 +14,7 @@ import {
   receiveDispatch,
   listIncomingDispatches,
   getDispatchItems,
+  lengkapiKeteranganKiriman,
   getDispatchForPdf,
   ORDER_STATUS,
   DISPATCH_STATUS,
@@ -629,8 +630,13 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
             <div style="font-size:0.78rem;color:var(--color-text-muted)">${fmtDateTime(o.created_at)} · oleh ${esc(o.user_profiles?.full_name ?? '-')}${o.notes ? ' · ' + esc(o.notes) : ''} · ketuk untuk proses ▾</div>
           </button>
           <div class="ord-body" hidden style="margin-top:10px">
+            <p class="report-note" style="margin:0 0 8px">
+              Kotak <strong>Dikirim</strong> sengaja <strong>kosong</strong> — isi sendiri sebanyak yang benar-benar
+              berangkat. Yang dikosongkan dihitung <strong>0</strong>, dan barisnya <strong>tetap muncul</strong> di surat
+              jalan lengkap dengan jumlah yang diminta. Itu yang menjawab "outlet tidak pesan" versus "CK tidak kirim".
+            </p>
             <div class="table-scroll"><table class="data-table baris-sejajar">
-              <thead><tr><th>Produk</th><th>Diminta</th><th>Stok CK</th><th>Dikirim</th></tr></thead>
+              <thead><tr><th>Produk</th><th>Diminta</th><th>Stok CK</th><th>Dikirim</th><th>Keterangan</th></tr></thead>
               <tbody>
                 ${items
                   .map((it) => {
@@ -639,7 +645,18 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                       <td data-label="Produk">${esc(it.products?.name ?? '-')}</td>
                       <td data-label="Diminta">${formatNum(it.qty)} ${esc(it.products?.base_unit ?? '')}</td>
                       <td style="color:${stok < Number(it.qty) ? 'var(--color-danger)' : 'var(--color-text-muted)'}" data-label="Stok CK">${formatNum(stok)}</td>
-                      <td data-label="Dikirim"><input type="number" class="ord-send-input isian-sempit" min="0" data-product="${it.product_id}" value="${round(it.qty)}" /></td>
+                      <!-- KOSONG, BUKAN TERISI SEBANYAK YANG DIMINTA.
+                           Kotak yang sudah terisi angka yang masuk akal tidak
+                           menuntut siapa pun memeriksanya — dan yang lewat
+                           tetap berangkat sebagai angka yang terlihat sengaja.
+                           Jumlah yang diminta tetap terbaca di kolom sebelah
+                           dan di placeholder, jadi tidak ada yang hilang
+                           selain otomatisnya. -->
+                      <td data-label="Dikirim"><input type="number" class="ord-send-input isian-sempit" min="0"
+                            data-product="${it.product_id}" data-diminta="${round(it.qty)}"
+                            placeholder="0" title="Diminta ${formatNum(it.qty)} ${esc(it.products?.base_unit ?? '')} — kosongkan kalau tidak dikirim" /></td>
+                      <td data-label="Keterangan"><input type="text" class="ord-ket-input" data-product="${it.product_id}"
+                            placeholder="mis. stok habis / kirim online" /></td>
                     </tr>`;
                   })
                   .join('')}
@@ -678,11 +695,34 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     box.querySelectorAll('.btn-fulfill').forEach((btn) =>
       btn.addEventListener('click', async () => {
         const card = btn.closest('[data-order]');
-        const items = [...card.querySelectorAll('.ord-send-input')]
-          .map((el) => ({ product_id: el.dataset.product, qty: Number(el.value) }))
-          .filter((i) => i.qty > 0);
+        const ket = new Map([...card.querySelectorAll('.ord-ket-input')].map((el) => [el.dataset.product, el.value]));
+
+        // SELURUH BARIS DIKIRIM, termasuk yang nol.
+        //
+        // Versi sebelumnya menyaring `qty > 0`, dan barang yang tidak dikirim
+        // lenyap dari surat jalan — bukan tercatat sebagai nol, melainkan
+        // seolah-olah tidak pernah diminta. Itulah yang melahirkan "outlet
+        // yakin sudah pesan, CK yakin tidak ada di daftar".
+        //
+        // Kotak kosong = 0. `Number('')` memang 0, tapi ditulis eksplisit
+        // supaya tidak bergantung pada kebetulan itu.
+        const items = [...card.querySelectorAll('.ord-send-input')].map((el) => ({
+          product_id: el.dataset.product,
+          qty: el.value.trim() === '' ? 0 : Number(el.value),
+          ordered_qty: Number(el.dataset.diminta) || 0,
+          keterangan: ket.get(el.dataset.product) ?? ''
+        }));
+
         if (!items.length) {
-          toast('Isi jumlah yang dikirim minimal satu produk.', 'warning');
+          toast('Order ini tidak punya barang untuk disiapkan.', 'warning');
+          return;
+        }
+        if (!items.some((i) => i.qty > 0)) {
+          // Surat jalan yang seluruh barisnya nol tidak memindahkan apa pun,
+          // tapi tetap harus diterima outlet, dicetak, dan diarsipkan. Kalau
+          // memang tidak ada yang bisa dikirim, yang benar adalah menolak
+          // ordernya beserta alasan — dan itu yang ditawarkan di sini.
+          toast('Belum ada satu pun jumlah kirim yang diisi. Kalau memang tidak ada yang bisa dikirim, pakai "Tolak Order".', 'warning');
           return;
         }
         btn.disabled = true;
@@ -1003,6 +1043,10 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       // CK boleh menambah barang lagi di sini. Dua pintu masuk ke satu daftar
       // adalah tempat bahan kembar muncul.
       tanpaDuplikat: true,
+      // Baris "dikirim 0" ikut tersimpan saat draftnya disunting (0132).
+      // Tanpa ini, satu kali "Simpan perubahan" menghapus justru baris yang
+      // paling perlu dibaca outlet: barang yang dipesan tapi tidak dikirim.
+      bolehNol: true,
       initial: items.map((i) => ({ product_id: i.product_id, qty: i.sent_qty }))
     });
 
@@ -1129,19 +1173,47 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           </button>
           <div class="recv-body" hidden style="margin-top:10px">
             <div class="table-scroll"><table class="data-table baris-sejajar">
-              <thead><tr><th>Produk</th><th>Dikirim</th><th>Diterima</th></tr></thead>
+              <thead><tr><th>Produk</th><th>Diminta</th><th>Dikirim</th><th>Diterima</th><th>Keterangan</th></tr></thead>
               <tbody>
                 ${items
-                  .map(
-                    (it) => `<tr>
+                  .map((it) => {
+                    // BARIS NOL DISOROT, bukan disembunyikan.
+                    //
+                    // Justru baris inilah yang paling perlu dibaca outlet:
+                    // "kami memang memesannya, dan CK tidak mengirimkannya".
+                    // Tanpa sorotan, angka 0 di antara belasan angka lain
+                    // terlewat persis seperti barisnya dulu terlewat sama
+                    // sekali.
+                    const nol = Number(it.sent_qty) === 0;
+                    const satuan = esc(it.products?.base_unit ?? '');
+                    return `<tr${nol ? ' class="kirim-nol"' : ''}>
                       <td data-label="Produk">${esc(it.products?.name ?? '-')}</td>
-                      <td data-label="Dikirim">${formatNum(it.sent_qty)} ${esc(it.products?.base_unit ?? '')}</td>
+                      <td data-label="Diminta">${it.ordered_qty == null ? '<span style="color:var(--color-text-muted)">–</span>' : `${formatNum(it.ordered_qty)} ${satuan}`}</td>
+                      <td data-label="Dikirim">${
+                        nol ? `<strong style="color:var(--color-danger)">0</strong> ${satuan}` : `${formatNum(it.sent_qty)} ${satuan}`
+                      }</td>
                       <td data-label="Diterima"><input type="number" class="recv-input isian-sempit" min="0" data-item="${it.id}" value="${round(it.sent_qty)}" /></td>
-                    </tr>`
-                  )
+                      <td data-label="Keterangan">${
+                        // Keterangan dari CK TIDAK bisa ditimpa — ia keterangan
+                        // pengirim. Yang kosong boleh dilengkapi outlet, persis
+                        // kasus "CK lupa mengisi" yang diminta.
+                        it.keterangan
+                          ? `<span style="font-size:0.8rem">${esc(it.keterangan)}</span>`
+                          : `<input type="text" class="recv-ket-input" data-item="${it.id}" placeholder="mis. diterima via online" />`
+                      }</td>
+                    </tr>`;
+                  })
                   .join('')}
               </tbody>
             </table></div>
+            ${
+              items.some((it) => Number(it.sent_qty) === 0)
+                ? `<p class="report-note" style="margin:8px 0 0">
+                     Baris bertanda <strong>0</strong> memang dipesan tapi <strong>tidak dikirim CK</strong>.
+                     Barisnya sengaja ditampilkan supaya jelas siapa yang belum — bukan dihilangkan.
+                   </p>`
+                : ''
+            }
             <button class="primary btn-save-receive" data-id="${d.id}" style="margin-top:10px;max-width:220px">Simpan (Terima)</button>
           </div>
         </div>`;
@@ -1160,8 +1232,24 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       btn.addEventListener('click', async () => {
         const card = btn.closest('[data-dispatch]');
         const items = [...card.querySelectorAll('.recv-input')].map((el) => ({ item_id: el.dataset.item, received_qty: Number(el.value) }));
+        const ket = [...card.querySelectorAll('.recv-ket-input')].map((el) => ({ item_id: el.dataset.item, keterangan: el.value }));
         btn.disabled = true;
         try {
+          // KETERANGAN DULU, penerimaannya belakangan.
+          //
+          // Sesudah `receive_dispatch`, kirimannya berstatus `received` dan
+          // 0128 mengunci isinya begitu diekspor ke ESB. Menyimpan keterangan
+          // lebih dulu membuat urutannya tidak pernah bergantung pada seberapa
+          // cepat orangnya menekan tombol berikutnya.
+          //
+          // Kegagalannya TIDAK menggagalkan penerimaan: keterangan adalah
+          // catatan, sementara stok yang tidak tercatat adalah barang yang
+          // hilang dari pembukuan.
+          try {
+            await lengkapiKeteranganKiriman(btn.dataset.id, ket);
+          } catch (e) {
+            toast(`Keterangan gagal disimpan (${e.message ?? e}) — penerimaannya tetap dilanjutkan.`, 'warning');
+          }
           const hasil = await receiveDispatch(btn.dataset.id, items);
           const { code, waText } = await emitSuratJalan(btn.dataset.id, { showReceived: true, title: 'BUKTI TERIMA' });
 
@@ -1205,7 +1293,15 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       dateStr: new Date(header.created_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' }),
       notes: header.notes,
       showReceived,
-      items: items.map((it) => ({ name: it.products?.name, unit: it.products?.base_unit, sent: it.sent_qty, received: it.received_qty }))
+      items: items.map((it) => ({
+        name: it.products?.name,
+        unit: it.products?.base_unit,
+        sent: it.sent_qty,
+        received: it.received_qty,
+        // Ikut ke kertas sejak 0132 — lihat catatan di `dispatch-pdf.js`.
+        ordered: it.ordered_qty,
+        keterangan: it.keterangan
+      }))
     };
     try {
       await buildSuratJalanPDF(data);

@@ -47,7 +47,14 @@ export function createItemPicker(
     initial = [],
     peringatanKurang = false,
     hargaSatuan = false,
-    tanpaDuplikat = false
+    tanpaDuplikat = false,
+    // Baris ber-jumlah NOL ikut disimpan, bukan dibuang (0132).
+    //
+    // Di surat jalan, "diminta 10, dikirim 0" adalah jawaban — dan jawaban itu
+    // yang menutup perdebatan "outlet tidak pesan" versus "CK tidak kirim".
+    // Di layar lain (nota, order) baris nol memang tidak punya arti, jadi
+    // bawaannya tetap membuang.
+    bolehNol = false
   }
 ) {
   const categories = [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
@@ -319,7 +326,11 @@ export function createItemPicker(
           // salah. Jebakan yang sama sudah beberapa kali menggigit di repo ini.
           line_total: bacaRupiah(e.line_total)
         }))
-        .filter((i) => i.product_id && i.qty > 0),
+        // Produknya WAJIB; jumlahnya boleh nol hanya kalau layar memintanya.
+        // `Number('')` adalah 0, jadi tanpa `bolehNol` baris yang belum diisi
+        // sama sekali akan ikut tersimpan sebagai nol yang tidak pernah
+        // dimaksudkan siapa pun.
+        .filter((i) => i.product_id && (bolehNol ? i.qty >= 0 : i.qty > 0)),
     /** Dipanggil layar untuk menggambar ulang totalnya saat harga diketik. */
     onUbah: (fn) => rowsBox.addEventListener('input', fn),
     reset: () => renderRows([]),

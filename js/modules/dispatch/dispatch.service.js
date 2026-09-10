@@ -1,6 +1,7 @@
 import { supabase } from '../../config/supabase-client.js';
 import { ambilSemua } from '../../core/ambil-semua.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
+import { argumenRpc } from '../../core/rpc-args.js';
 
 export const DISPATCH_STATUS = {
   draft: 'Draft (belum dikirim)',
@@ -275,10 +276,43 @@ export async function getDispatchItems(dispatchId) {
   const { data, error } = await supabase
     // baris-terbatas: item SATU dokumen kiriman.
     .from('dispatch_items')
-    .select('id, sent_qty, received_qty, product_id, products(name, base_unit)')
+    // `keterangan` & `ordered_qty` ikut sejak 0132: baris ber-qty kirim 0 harus
+    // bisa menjawab sendiri "berapa yang sebenarnya diminta" dan "kenapa nol".
+    .select('id, sent_qty, received_qty, product_id, keterangan, ordered_qty, products(name, base_unit)')
     .eq('dispatch_id', dispatchId);
-  if (error) throw error;
+  if (error) {
+    // MIGRATION 0132 BELUM DIJALANKAN -> SELURUH ISI KIRIMAN MENGHILANG.
+    //
+    // PostgREST menolak SATU permintaan karena satu kolom tidak dikenal, dan
+    // yang hilang bukan kolom itu melainkan seluruh daftar barangnya — berikut
+    // kotak isian terima. Jeda antara push dan menjalankan migration itu wajar
+    // dan sudah pernah menggigit persis begini di 0122.
+    if (!/column .* does not exist|keterangan|ordered_qty/i.test(error.message ?? '')) throw error;
+    const ulang = await supabase
+      // baris-terbatas: item SATU dokumen kiriman.
+      .from('dispatch_items')
+      .select('id, sent_qty, received_qty, product_id, products(name, base_unit)')
+      .eq('dispatch_id', dispatchId);
+    if (ulang.error) throw ulang.error;
+    return ulang.data ?? [];
+  }
   return data ?? [];
+}
+
+/**
+ * Outlet melengkapi keterangan baris kiriman yang CK lupa isi (0132).
+ *
+ * Hanya mengisi yang MASIH KOSONG — keterangan pengirim bukan milik penerima.
+ */
+export async function lengkapiKeteranganKiriman(dispatchId, items) {
+  const isi = (items ?? []).filter((i) => String(i.keterangan ?? '').trim());
+  if (!isi.length) return 0;
+  const { data, error } = await supabase.rpc(
+    'lengkapi_keterangan_kiriman',
+    argumenRpc({ p_dispatch: dispatchId, p_items: isi })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data) || 0;
 }
 
 /**

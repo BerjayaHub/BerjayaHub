@@ -3055,6 +3055,19 @@ select.sc-cell.is-off {
   color: var(--color-text);
 }
 
+/* Baris surat jalan yang DIPESAN TAPI TIDAK DIKIRIM (0132).
+
+   Disorot, bukan disembunyikan. Justru baris inilah yang paling perlu dibaca
+   outlet — "kami memang memesannya, dan CK tidak mengirimkannya" — dan angka 0
+   di antara belasan angka lain terlewat persis seperti barisnya dulu terlewat
+   sama sekali. */
+.kirim-nol {
+  background: color-mix(in srgb, var(--color-danger, #c0392b) 6%, transparent);
+}
+.kirim-nol td:first-child {
+  border-left: 3px solid var(--color-danger, #c0392b);
+}
+
 /* Nota yang DIBATALKAN — tetap terbaca, jelas tidak berlaku.
 
    Tidak disembunyikan: staff yang tidak menemukan notanya akan menginput ulang,

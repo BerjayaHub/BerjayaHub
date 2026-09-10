@@ -5615,6 +5615,41 @@ Dialog pembatalan butuh isian (alasan wajib), jadi `confirmDialog` tidak bisa di
 
 - [x] **Batal & koreksi nota** (`0131`) — stok ditarik, kas menyesuaikan, alasan wajib; 24 sabotase tertangkap
 
+## "Outlet tidak pesan" versus "CK tidak kirim"
+
+> "barang yang diorder tetapi tidak dikirim karena kosong di CK, tetap munculkan berapa order nya tetapi jumlah dikirim nya 0, ini untuk mengecek apakah outlet order barang itu atau CK yang tidak mengirimnya, jadi tidak ada saling menyalahkan"
+
+Tiga permintaan yang datang bersamaan, dan ketiganya berasal dari **satu baris kode** di `0103`:
+
+```sql
+if v_pid is null or v_qty is null or v_qty <= 0 then continue; end if;
+```
+
+Baris ber-qty nol **dibuang**. Barang yang diorder tapi tidak dikirim bukan tercatat sebagai nol — ia lenyap, seolah-olah tidak pernah diminta. Di lapangan itu berubah jadi pertanyaan yang tidak bisa dijawab siapa pun: outlet yakin sudah memesan, CK yakin tidak ada di daftar, dan tidak ada satu pun dokumen yang menengahi.
+
+Sesudah `0132`, **nol adalah jawaban, bukan ketiadaan**. "Diminta 10, dikirim 0, keterangan: stok CK habis" adalah tiga fakta yang menutup perdebatan itu — dan ketiganya muncul di layar CK, di layar outlet saat menerima, dan **di surat jalan yang dicetak**. Perselisihannya terjadi saat barang diserahkan; kalau kertasnya tidak memuat jawabannya, layar yang memuatnya tidak menolong siapa pun yang sedang berdiri di depan mobil.
+
+### Kotak "Dikirim" sengaja kosong
+
+> "ternyata di lapangan ada miss apabila stock muncul di textbox sesuai dengan jumlah order yang diminta outlet"
+
+Kotak yang sudah berisi angka masuk akal tidak menuntut siapa pun memeriksanya — dan baris yang terlewat tetap berangkat sebagai angka yang **terlihat sengaja**. Sekarang kotaknya kosong, kosong dihitung 0, dan jumlah yang diminta tetap terbaca di kolom sebelahnya serta di tooltip kotaknya. Yang hilang cuma otomatisnya.
+
+Kalau tidak ada satu pun yang bisa dikirim, layarnya menolak menerbitkan surat jalan dan mengarahkan ke **Tolak Order** beserta alasan — surat jalan bernilai nol tetap harus diterima outlet, dicetak, dan diarsipkan.
+
+### Keterangan: pengirim menulis, penerima melengkapi
+
+Outlet hanya bisa mengisi keterangan yang **masih kosong**. Keterangan dari CK adalah keterangan pengirim, dan penerima yang menimpanya menghapus tulisan orang lain tanpa ada yang tahu. Yang sudah terisi ditampilkan sebagai teks, bukan kotak isian — larangannya terlihat, bukan cuma ditegakkan server.
+
+### Dua jebakan yang tertangkap tesnya sendiri
+
+- **Batasan lama tidak jadi tercabut.** Migration-nya mencari constraint lewat teks `'> 0'`, padahal Postgres menyimpannya sebagai `CHECK ((sent_qty > (0)::numeric))`. Pencariannya tidak menemukan apa pun, migration lolos "berhasil" tanpa melakukan apa-apa, dan baris nol pertama ditolak database. Tesnya menirukan batasan produksi apa adanya, jadi ini ketahuan sebelum menyentuh server.
+- **Menyunting draft menghapus dua kolom barunya.** `ubah_draft_kiriman` mengganti isi draft seutuhnya, dan PWA lama di HP staff hanya mengirim `{product_id, qty}` — satu kali "Simpan perubahan" dari HP itu akan menghapus seluruh keterangan dan jejak jumlah yang diminta. Nilai lamanya kini diselamatkan ke jsonb sebelum barisnya dihapus.
+
+Satu sabotase lolos dan menemukan audit yang buta: mencari nama kelas `kirim-nol` tetap hijau walau sorotannya dipaksa mati, karena teksnya ada di dalam ternary. Auditnya sekarang memeriksa bahwa kelasnya **dihitung** dari `sent_qty`.
+
+- [x] **Kiriman nol & keterangan** (`0132`) — di layar CK, layar outlet, dan surat jalan cetak; 22 sabotase tertangkap
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.
