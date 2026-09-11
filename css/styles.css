@@ -1522,6 +1522,86 @@ select.sc-cell.is-off {
 @media (max-width: 768px) {
   .modal-actions { flex-direction: column-reverse; }
   .btn-inline, .btn-ghost, .btn-danger { width: 100% !important; }
+
+  /* ============ SEL TABEL DIKECUALIKAN — INI BUG-NYA ============
+     Aturan di atas dibuat untuk tombol DIALOG: di layar sempit "Batal" dan
+     "Simpan" ditumpuk selebar kartunya. Tapi selektornya tidak menyebut dialog
+     sama sekali, jadi ia kena SETIAP `.btn-danger` di halaman — termasuk tombol
+     "Hapus" yang duduk di dalam sel Aksi bersama empat tombol lain.
+
+     Akibatnya di riwayat nota: satu tombol menuntut 100% lebar sel, di baris
+     flex yang 40%-nya sudah dipakai label kartu dan tidak boleh membungkus.
+     Tombolnya terdorong keluar sel, keluar `.table-scroll` (yang di mode kartu
+     sengaja `overflow-x: visible`), dan akhirnya MELEBARKAN HALAMAN. Yang
+     terlihat oleh pemakainya: tombol Hapus terpotong di tepi kanan, dan
+     halamannya harus digeser atau diperkecil dulu supaya tombolnya kelihatan.
+
+     Tidak ada error, tidak ada yang rusak — cuma halaman yang tiba-tiba lebih
+     lebar dari layarnya. Dua modul sudah menambal sendiri dengan
+     `style="min-height:38px"` inline (bep.owner, dokumen.admin), tanda bahwa
+     bentuk kegagalan ini sudah berulang tanpa pernah ditelusuri sebabnya.
+
+     `width: auto` di sini BUKAN pelonggaran ukuran sentuh: di mode kartu sel
+     Aksi mendapat barisnya sendiri dengan tombol setinggi 40px (lihat blok
+     "TOMBOL AKSI DI DALAM SEL TABEL"). Yang dibatalkan hanya paksaan LEBAR. */
+  .data-table td .btn-inline,
+  .data-table td .btn-ghost,
+  .data-table td .btn-danger {
+    width: auto !important;
+  }
+}
+
+/* =========================================================
+   TOMBOL AKSI DI DALAM SEL TABEL
+
+   Sel "Aksi" sering memuat empat sampai lima tombol (Isi, Edit, Tunai/Tempo,
+   Ganti foto, Hapus). Ukuran tombol bawaan — padding 8px 13px, dan 12px 16px
+   untuk `.btn-danger` — dirancang untuk tombol yang berdiri sendiri di sebuah
+   formulir, bukan untuk lima tombol berjajar di dalam satu sel.
+
+   Dua akibatnya:
+
+     1. Kolom Aksi jadi kolom terlebar di tabel, mendorong kolom lain menyempit.
+     2. `.btn-danger` tampil JAUH lebih besar daripada tetangganya di sel yang
+        sama — 44px vs 34px, huruf 0.95rem vs 0.85rem. Bukan karena tindakannya
+        lebih penting, melainkan karena gayanya memang ditulis untuk dialog.
+
+   Jadi di dalam sel tabel semua tombol diseragamkan kecil. Tingginya 34px —
+   di bawah 44px, dan itu disengaja: di layar sempit sel Aksi pindah ke barisnya
+   sendiri dan tombolnya naik lagi jadi 40px (blok kartu di bawah). Yang 34px
+   hanya berlaku di layar lebar, tempat penunjuknya tetikus.
+   ========================================================= */
+/* `.menu-expand` DIKECUALIKAN. Ia bukan tombol aksi: ia nama menu yang dibuat
+   bisa ditekan untuk membuka rinciannya, dan chrome tombolnya sudah dilucuti
+   (tanpa border, tanpa latar, padding 0) supaya terbaca sebagai judul baris.
+   Menyeragamkannya bersama tombol aksi akan mengembalikan padding dan jarak
+   yang sengaja dibuang di sana. */
+.data-table td button:not(.menu-expand),
+.data-table td .tombol-tautan,
+.data-table td a.btn-inline {
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  min-height: 34px;
+  line-height: 1.25;
+  /* `button.primary` membawa `width: 100%` dari gayanya sendiri — benar untuk
+     tombol Simpan di bawah formulir, salah untuk tombol "Kirim" yang duduk di
+     sel Aksi bersama dua tombol lain. Di dalam sel, lebar tombol ditentukan
+     tulisannya. */
+  width: auto;
+  max-width: none;
+  /* Jarak antar tombol yang ikut membungkus kalau selnya menyempit. `gap`
+     tidak dipakai karena selnya harus tetap `table-cell` di layar lebar. */
+  margin: 2px 4px 2px 0;
+}
+
+/* `.btn-danger` disebut ULANG, bukan karena aturan di atas kalah — selektornya
+   sudah cukup — melainkan supaya tombol merah punya barisnya sendiri yang bisa
+   dicari dan diaudit. Tombol inilah yang paling jauh menyimpang ukurannya, dan
+   perbedaan itu yang melahirkan luapan halamannya. */
+.data-table td .btn-danger {
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  min-height: 34px;
 }
 
 /* =========================================================
@@ -2261,6 +2341,16 @@ select.sc-cell.is-off {
     align-items: baseline;
     justify-content: space-between;
     text-align: right;
+    /* JARING PENGAMAN. Tanpa `flex-wrap`, sebuah nilai yang lebih lebar dari
+       sisa sel (60%) tidak punya tempat untuk pergi: ia meluap ke kanan,
+       melewati `.table-scroll` yang di mode kartu memang `overflow-x: visible`,
+       dan MELEBARKAN HALAMAN.
+
+       Membungkus tidak mengubah apa pun selama isinya muat — yang muat tetap
+       satu baris label-nilai seperti sebelumnya. Yang berubah hanya nasib yang
+       TIDAK muat: turun ke baris berikutnya alih-alih keluar layar. */
+    flex-wrap: wrap;
+    row-gap: 4px;
   }
 
   .data-table.kartu-sempit td::before {
@@ -2279,6 +2369,48 @@ select.sc-cell.is-off {
   }
   .data-table.kartu-sempit td:not([data-label])::before {
     content: none;
+  }
+
+  /* =========================================================
+     SEL AKSI DAPAT BARISNYA SENDIRI — DI SELURUH MODUL
+
+     Modul Produksi sudah lebih dulu memerlukan ini dan menyelesaikannya sendiri
+     lewat kelas `.prod-aksi`. Tapi soalnya sama sekali tidak khusus Produksi:
+     setiap tabel di aplikasi ini punya kolom "Aksi", dan begitu isinya lebih
+     dari satu tombol, sel flex 60% yang tidak membungkus tidak sanggup
+     memuatnya. Riwayat nota punya LIMA tombol di satu sel.
+
+     Jadi aturannya dipindahkan ke sini dan dipilih lewat bentuk isinya, bukan
+     lewat kelas yang harus diingat orang untuk dipasang. `button ~ button`
+     berarti "ada tombol yang punya tombol saudara" — persis definisi sel aksi,
+     dan otomatis TIDAK kena pada sel bertombol tunggal (mis. "Lihat" foto nota,
+     "Rincian & unduh") yang memang masih pas di sebelah labelnya.
+
+     Tombolnya naik ke 40px di sini: di layar lebar sel Aksi berdesakan sehingga
+     tombol kecil yang benar, sedangkan di sini ia punya barisnya sendiri dan
+     yang menekannya jempol.
+     ========================================================= */
+  .data-table.kartu-sempit td:has(button ~ button) {
+    display: block;
+    text-align: left;
+    border-top: 1px dashed var(--color-border);
+    margin-top: 6px;
+    padding-top: 8px;
+    /* `!important` karena beberapa sel Aksi membawa `style="white-space:nowrap"`
+       inline — dipasang supaya tombolnya tidak terbelah dua baris di layar
+       lebar. Di lebar 360px justru itu yang menahan tombolnya membungkus, dan
+       gaya inline mengalahkan stylesheet. Alasannya sama dengan `min-width` di
+       atas: di bawah 560px nilainya SELALU salah. */
+    white-space: normal !important;
+  }
+  .data-table.kartu-sempit td:has(button ~ button)::before {
+    display: block;
+    flex: none;
+    text-align: left;
+    margin-bottom: 6px;
+  }
+  .data-table.kartu-sempit td:has(button ~ button) button {
+    min-height: 40px;
   }
 
   /* Sel yang membentang penuh (baris rincian yang bisa dibuka, atau pesan

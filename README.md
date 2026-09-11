@@ -5825,6 +5825,74 @@ Setelan yang cuma bekerja saat bernilai `true` adalah setelan yang tidak bekerja
 
 - [x] **Penjualan di Staff App CK** — mengikuti setelan `allow_sales`, bukan peran outlet; 17 sabotase tertangkap
 
+## Tombol yang melebarkan halaman
+
+> "ukuran tombol aksi harus disesuaikan / diperkecil saja karena berpengaruh pada ukuran halaman, jadi tidak pas harus digeser diperkecil halamannya agar terlihat tombol nya, cek juga di UI modul lain"
+
+Di riwayat "Terima dari supplier", tombol merah **Hapus** terpotong di tepi kanan. Bukan tabelnya yang kelebaran — **halamannya**, dan itu petunjuk yang menunjuk ke tempat lain daripada yang disangka.
+
+### Sebabnya satu baris yang ditulis untuk dialog
+
+```css
+@media (max-width: 768px) {
+  .btn-inline, .btn-ghost, .btn-danger { width: 100% !important; }
+}
+```
+
+Maksudnya tombol **dialog**: di layar sempit "Batal" dan "Simpan" ditumpuk selebar kartunya. Tapi selektornya tidak menyebut dialog sama sekali, jadi ia mengenai setiap `.btn-danger` di seluruh aplikasi — termasuk yang duduk di sel "Aksi" bersama empat tombol lain.
+
+Di mode kartu sel itu `display:flex` **tanpa** `flex-wrap`, dengan 40% lebarnya sudah dipakai label kartu. Satu tombol yang menuntut 100% lebar tidak punya tempat untuk pergi: ia meluap ke kanan, melewati `.table-scroll` yang di mode kartu memang sengaja `overflow-x: visible`, lalu melebarkan halaman.
+
+Dan `.btn-danger` memang tombol terbesar di sel itu bahkan tanpa paksaan lebar — 44px/0,95rem di antara tetangga 34px/0,85rem — karena gayanya ditulis untuk dialog, bukan karena tindakannya lebih penting.
+
+### Jejak yang menunjukkan ini sudah lama berulang
+
+Dua modul sudah menambal gejalanya sendiri dengan `style="min-height:38px"` inline — `bep.owner.js` dan `dokumen.admin.page.js` — tanpa pernah menemukan sebabnya. Tambalan inline itu dibuang; kalau dibiarkan, ia mengalahkan perbaikan bersama dan layar itu akan menyimpang sendiri lagi nanti.
+
+### Yang berubah
+
+- **Sel tabel dikecualikan** dari paksaan lebar penuh. Hanya lebarnya; ukuran sentuhnya tidak dikorbankan.
+- **Ukuran seragam di dalam `.data-table td`**: 34px di layar lebar (penunjuknya tetikus), naik ke 40px di mode kartu (penunjuknya jempol). `button.primary` juga berhenti merebut lebar penuh di sana.
+- **Jaring pengaman**: sel mode kartu boleh membungkus. Tidak mengubah apa pun selama isinya muat — yang berubah cuma nasib yang **tidak** muat.
+- **Sel Aksi dapat barisnya sendiri, di semua modul.** Modul Produksi sudah lebih dulu memerlukan ini dan menyelesaikannya sendiri lewat kelas `.prod-aksi`; sepuluh modul dengan soal yang sama tidak kebagian. Aturannya sekarang dipilih lewat **bentuk isinya** (`td:has(button ~ button)`), bukan lewat kelas yang harus diingat orang untuk dipasang — pola "yang mengeluh diperbaiki, sisanya menunggu keluhan berikutnya" yang sudah pernah ditulis di `audit-lebar-baris`.
+- Dua layar Penjualan memasang `white-space:nowrap` inline pada sel Aksi-nya; gaya inline mengalahkan stylesheet, jadi di mode kartu ia dikalahkan dengan `!important` — alasan yang sama dengan `min-width: 0 !important` di blok kartu.
+
+`.menu-expand` sengaja **dikecualikan**: ia bukan tombol aksi melainkan nama menu yang dibuat bisa ditekan, dan chrome tombolnya memang sudah dilucuti.
+
+Auditnya melarang ukuran inline pada tombol di dalam `<td>` hanya **satu arah** — yang membesarkan (tinggi ≥38px, lebar 100%). Tombol yang sengaja lebih kecil dari aturan bersama (bukti DP di Reservasi, `padding:2px 6px`) adalah kode yang benar, dan audit yang menuduh kode benar akan dimatikan orang.
+
+### Auditnya sendiri sempat merah untuk CSS yang benar
+
+Versi pertamanya memakai kecocokan **pertama**:
+
+```js
+css.match(/\.data-table td \.btn-danger\s*\{([^{}]*)\}/)
+```
+
+dan kecocokan pertama bukan blok ukurannya, melainkan blok pengecualian di dalam `@media (max-width: 768px)` — yang isinya memang cuma `width: auto !important` dan memang tidak seharusnya punya `min-height`.
+
+Akibatnya jauh lebih buruk daripada satu pesan palsu. Selama audit merah **tanpa syarat**, seluruh sembilan sabotase yang bersandar padanya melaporkan "tertangkap" — karena pemeriksanya memang selalu gagal, dirusak atau tidak. Sembilan centang hijau yang tidak membuktikan apa pun: bentuk kegagalan yang sama dengan yang dijaga repo ini.
+
+Aturannya sekarang mengumpulkan **semua** blok yang menyasar selektor itu dan menuntut **ada satu** yang memenuhi. Pola yang sama sudah dipakai untuk `.data-table.kartu-sempit td`, dengan sebab yang sama.
+
+- [x] **Tombol aksi tidak lagi melebarkan halaman** — tanpa migration; 9 sabotase tertangkap
+
+## Tujuan order terkunci selama draftnya berjalan
+
+Lubang yang tersisa sesudah peringatan draft dipasang, dan bentuknya halus. Indeks unik `0111` berlaku per **pasangan**:
+
+```sql
+unique (from_outlet_id, to_outlet_id) where status = 'draft'
+```
+
+Untuk outlet tanpa `served_by_outlet_id` di BU yang punya dua Central Kitchen, memilih CK yang **berbeda** dari dropdown menghasilkan draft kedua yang sah menurut database. Dua nomor order sekaligus, tanpa satu pun error — persis yang hendak dicegah.
+
+Peringatan di atas tombol tidak menutupnya: ia menjelaskan, tidak menghalangi. Sekarang selama draft masih berjalan, dropdown CK **hilang** (diganti kalimat yang menyebut tujuannya, supaya tidak terbaca sebagai pilihan yang raib) dan tujuannya diambil dari draft itu.
+
+Urutannya sengaja menaruh draft **di depan** setelan outlet: kalau `served_by_outlet_id` baru diubah ke CK lain sementara draft lama masih hidup, menuruti setelan akan membuat nomor kedua. Draft yang hidup adalah fakta; setelan cuma niat.
+
+- [x] **Tujuan order terkunci ke draft yang berjalan** — tanpa migration
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.

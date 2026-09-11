@@ -428,11 +428,31 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                  Tujuan: <strong>${servedCk ? esc(servedCk.name) : 'pilih CK'}</strong>${servedCk ? ' (otomatis dari setelan outlet)' : ''}
                </p>
                ${
+                 // DROPDOWN TUJUAN HILANG BEGITU DRAFTNYA ADA.
+                 //
+                 // Indeks unik 0111 berlaku per PASANGAN (outlet, CK):
+                 //
+                 //     unique (from_outlet_id, to_outlet_id) where status='draft'
+                 //
+                 // Jadi untuk outlet yang belum punya served_by_outlet_id di
+                 // BU dengan dua CK, memilih CK yang BERBEDA menghasilkan draft
+                 // kedua yang sah menurut database — dua nomor order sekaligus,
+                 // persis yang hendak dicegah. Peringatan di atas tombol tidak
+                 // menutup lubang itu: ia menjelaskan, tidak menghalangi.
+                 //
+                 // Selama masih ada draft, tujuannya BUKAN pilihan lagi. Ia
+                 // tetap disebut — menghilangkannya tanpa kata akan terbaca
+                 // sebagai pilihan yang hilang.
                  servedCk
                    ? ''
-                   : `<div class="field"><label>Central Kitchen tujuan</label><select id="ord-to">${ckChoices
-                       .map((o) => `<option value="${o.id}">${esc(o.name)}</option>`)
-                       .join('')}</select></div>`
+                   : keadaanOrder.draft
+                     ? `<p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 10px">
+                          Tujuan terkunci ke <strong>${esc(keadaanOrder.draft.to_outlet?.name ?? 'CK draft ini')}</strong>,
+                          mengikuti draft yang sedang berjalan. Kirim atau hapus draft itu dulu kalau mau memesan ke CK lain.
+                        </p>`
+                     : `<div class="field"><label>Central Kitchen tujuan</label><select id="ord-to">${ckChoices
+                         .map((o) => `<option value="${o.id}">${esc(o.name)}</option>`)
+                         .join('')}</select></div>`
                }
                ${
                  // PERINGATANNYA DI ATAS TOMBOL, bukan di paragraf penjelasan.
@@ -525,7 +545,13 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       box.querySelector('#ord-buka-draft').addEventListener('click', sekaliJalan(async (e) => {
         const errorEl = box.querySelector('#ord-error');
         errorEl.textContent = '';
-        const toOutlet = servedCk ? servedCk.id : box.querySelector('#ord-to')?.value;
+        // DRAFT YANG SUDAH ADA MENANG ATAS PILIHAN APA PUN.
+        //
+        // Urutannya sengaja menaruh draft di depan `servedCk`: kalau setelan
+        // outlet baru diubah ke CK lain sementara draft lama masih berjalan,
+        // menuruti setelan akan membuat nomor order KEDUA. Draft yang hidup
+        // adalah fakta; setelan cuma niat.
+        const toOutlet = keadaanOrder.draft?.to_outlet_id ?? (servedCk ? servedCk.id : box.querySelector('#ord-to')?.value);
         if (!toOutlet) {
           errorEl.textContent = 'Pilih Central Kitchen tujuan.';
           return;

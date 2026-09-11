@@ -370,8 +370,8 @@ function panelBiaya(d, state) {
             <span style="font-size:0.72rem;color:var(--color-text-muted)">${LABEL_SATUAN[b.satuan] ?? b.satuan}</span></td>
         <td>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <button data-ubah-biaya="${b.id}" style="min-height:38px">Ubah</button>
-            <button class="btn-danger" data-hapus-biaya="${b.id}" style="min-height:38px">Nonaktifkan</button>
+            <button data-ubah-biaya="${b.id}">Ubah</button>
+            <button class="btn-danger" data-hapus-biaya="${b.id}">Nonaktifkan</button>
           </div>
         </td>
       </tr>`

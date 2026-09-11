@@ -20,9 +20,10 @@ const MURNI = 'js/modules/dispatch/draft-outlet.js';
 const HAL = 'js/modules/dispatch/dispatch.page.js';
 const MIG = 'supabase/migrations/0111_draft_order_ck.sql';
 const CSS = 'css/styles.css';
+const SVC = 'js/modules/dispatch/dispatch.service.js';
 
 const asli = new Map();
-for (const rel of [MURNI, HAL, MIG, CSS]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
+for (const rel of [MURNI, HAL, MIG, CSS, SVC]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
 
 const pulih = () => {
   for (const [rel, isi] of asli) fs.writeFileSync(P(rel), isi);
@@ -201,6 +202,40 @@ sabotase(
   HAL,
   "o.status === 'draft' ? ' class=\"ord-draft-aktif\"' : ''",
   "''",
+  AUDIT
+);
+
+console.log('\n== Tujuan terkunci selama draft berjalan ==');
+
+sabotase(
+  'tujuan tidak lagi diambil dari draft — memilih CK lain membuat nomor order KEDUA',
+  HAL,
+  'const toOutlet = keadaanOrder.draft?.to_outlet_id ?? (servedCk ? servedCk.id : box.querySelector(\'#ord-to\')?.value);',
+  'const toOutlet = servedCk ? servedCk.id : box.querySelector(\'#ord-to\')?.value;',
+  AUDIT
+);
+
+sabotase(
+  'setelan outlet dibaca sebelum draft yang hidup — setelan yang baru diubah membuat nomor kedua',
+  HAL,
+  'const toOutlet = keadaanOrder.draft?.to_outlet_id ?? (servedCk ? servedCk.id : box.querySelector(\'#ord-to\')?.value);',
+  'const toOutlet = (servedCk ? servedCk.id : box.querySelector(\'#ord-to\')?.value) ?? keadaanOrder.draft?.to_outlet_id;',
+  AUDIT
+);
+
+sabotase(
+  'dropdown CK tetap tampil walau draftnya ada — pintunya terbuka lagi',
+  HAL,
+  '                   : keadaanOrder.draft\n                     ? ',
+  '                   : false\n                     ? ',
+  AUDIT
+);
+
+sabotase(
+  '`to_outlet_id` berhenti diambil — tujuan draft tidak punya sumber untuk dikunci',
+  SVC,
+  "'id, code, status, notes, reject_reason, created_at, handled_at, edited_at, to_outlet_id, ' +",
+  "'id, code, status, notes, reject_reason, created_at, handled_at, edited_at, ' +",
   AUDIT
 );
 

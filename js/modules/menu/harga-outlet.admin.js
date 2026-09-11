@@ -176,14 +176,14 @@ async function gambar(content, ctx, state, outlets) {
                          <div style="display:flex;gap:6px;flex-wrap:wrap">
                            ${
                              state.bolehUbah
-                               ? `<button class="primary" data-ubah="${h.id}" style="min-height:38px">Ubah harga</button>
-                                  <button data-perbaiki="${h.id}" style="min-height:38px">Perbaiki</button>`
+                               ? `<button class="primary" data-ubah="${h.id}">Ubah harga</button>
+                                  <button data-perbaiki="${h.id}">Perbaiki</button>`
                                : ''
                            }
-                           <button data-riwayat="${h.id}" style="min-height:38px">Riwayat</button>
+                           <button data-riwayat="${h.id}">Riwayat</button>
                            ${
                              state.bolehUbah
-                               ? `<button data-tersedia="${h.id}" data-nilai="${h.is_available ? '0' : '1'}" style="min-height:38px">
+                               ? `<button data-tersedia="${h.id}" data-nilai="${h.is_available ? '0' : '1'}">
                                     ${h.is_available ? 'Setop jual' : 'Jual lagi'}
                                   </button>`
                                : ''

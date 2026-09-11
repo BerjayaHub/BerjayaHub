@@ -140,6 +140,73 @@ if (hal) {
   if (!/ord-draft-aktif/.test(kode)) {
     salah('dispatch.page.js: baris draft di tabel "Order Saya" tidak ditandai — ia satu-satunya baris yang masih bisa ditambahi.');
   }
+
+  // ---------------------------------------------------------------
+  // TUJUAN TERKUNCI SELAMA DRAFT MASIH BERJALAN.
+  //
+  // Ini lubang yang tersisa sesudah peringatan dipasang, dan bentuknya halus:
+  // indeks unik 0111 berlaku per PASANGAN (from_outlet_id, to_outlet_id). Untuk
+  // outlet tanpa `served_by_outlet_id` di BU yang punya dua Central Kitchen,
+  // memilih CK yang BERBEDA dari dropdown menghasilkan draft kedua yang SAH
+  // menurut database. Dua nomor order sekaligus, tanpa satu pun error.
+  //
+  // Peringatan di atas tombol tidak menutupnya — ia menjelaskan, tidak
+  // menghalangi. Yang menutupnya: dropdownnya hilang, dan tujuannya diambil
+  // dari draft yang sedang berjalan.
+  // ---------------------------------------------------------------
+  if (!/keadaanOrder\.draft\?\.to_outlet_id \?\?/.test(kode)) {
+    salah(
+      'dispatch.page.js: tujuan order tidak dikunci ke draft yang sedang berjalan. ' +
+        'Indeks 0111 unik per pasangan outlet-CK, jadi memilih CK lain akan membuat NOMOR ORDER KEDUA yang sah — ' +
+        'persis dobel order yang hendak dicegah.'
+    );
+  }
+  // Urutannya penting: draft harus dibaca SEBELUM `servedCk`. Kalau setelan
+  // outlet diubah ke CK lain sementara draft lama masih hidup, menuruti setelan
+  // membuat nomor kedua.
+  const iDraftTujuan = kode.indexOf('keadaanOrder.draft?.to_outlet_id');
+  const iServed = kode.indexOf('servedCk ? servedCk.id');
+  if (iDraftTujuan >= 0 && iServed >= 0 && iDraftTujuan > iServed) {
+    salah('dispatch.page.js: setelan outlet dibaca sebelum draft yang berjalan — draft yang hidup adalah fakta, setelan cuma niat.');
+  }
+  // Dropdownnya sendiri harus berada DI BALIK pemeriksaan draft.
+  //
+  // Diperiksa lewat jarak, bukan lewat pola tunggal: yang menentukan bukan
+  // adanya kata `keadaanOrder.draft` di suatu tempat di berkas, melainkan
+  // adanya ia ANTARA cabang `servedCk` dan `<select id="ord-to">`. Kalau
+  // pemeriksaannya pindah ke tempat lain, dropdownnya kembali tampil.
+  const iSelect = kode.indexOf('id="ord-to"');
+  if (iSelect < 0) {
+    salah('dispatch.page.js: pemilih CK tujuan (`#ord-to`) hilang — outlet tanpa setelan CK tidak punya cara memesan sama sekali.');
+  } else {
+    const iServedRender = kode.lastIndexOf('servedCk', iSelect);
+    const antara = iServedRender >= 0 ? kode.slice(iServedRender, iSelect) : '';
+    // Dicari sebagai PENJAGA ternary (`: keadaanOrder.draft ?`), bukan sekadar
+    // kata `keadaanOrder.draft` di mana saja dalam potongan itu. Cabang yang
+    // terkunci menyebut nama CK-nya lewat `keadaanOrder.draft.to_outlet?.name`,
+    // jadi pemeriksaan "ada kata itu" akan tetap hijau walau penjaganya sudah
+    // diganti `false`. Sabotase pertama pada aturan ini lolos persis begitu.
+    if (!/:\s*keadaanOrder\.draft\s*\?/.test(antara)) {
+      salah(
+        'dispatch.page.js: dropdown `#ord-to` tidak disembunyikan saat draft sedang berjalan. ' +
+          'Selama ia tampil, staff berikutnya bisa memilih CK lain dan membuat nomor order kedua.'
+      );
+    }
+  }
+}
+
+// Tujuannya tidak bisa dikunci kalau id-nya tidak pernah diambil.
+const svc = baca('js/modules/dispatch/dispatch.service.js');
+if (svc) {
+  const kode = tanpaKomentar(svc);
+  const blok = kode.slice(kode.indexOf('export async function listMyOrders'));
+  if (!/to_outlet_id,/.test(blok.slice(0, 1200))) {
+    salah(
+      'dispatch.service.js `listMyOrders`: `to_outlet_id` tidak ikut diambil. ' +
+        'Tanpa id mentahnya layar cuma punya nama CK, dan tujuan draft tidak bisa dikunci — ' +
+        'satu-satunya jalan tersisa adalah membiarkan staff memilih CK lagi.'
+    );
+  }
 }
 
 const css = baca('css/styles.css');

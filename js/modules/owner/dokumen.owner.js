@@ -103,7 +103,7 @@ async function gambarDaftar(root, ctx, sub) {
                 <td data-label="Dari">${escapeHtml(d.pengunggah?.full_name ?? '-')}</td>
                 <td data-label="Masuk">${tanggal(d.created_at)}</td>
                 <td data-label="Status"><span class="badge ${escapeHtml(s.kelas)}">${escapeHtml(s.label)}</span></td>
-                <td data-label=""><button data-buka="${d.id}" style="min-height:38px">Buka</button></td>
+                <td data-label=""><button data-buka="${d.id}">Buka</button></td>
               </tr>`;
             })
             .join('')}

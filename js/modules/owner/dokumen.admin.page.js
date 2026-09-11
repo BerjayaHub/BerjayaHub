@@ -87,15 +87,15 @@ async function gambarDaftar(root, ctx) {
                 </td>
                 <td data-label="Aksi">
                   <div style="display:flex;gap:6px;flex-wrap:wrap">
-                    <button data-lihat="${escapeHtml(d.file_path)}" style="min-height:38px">📄 Asli</button>
+                    <button data-lihat="${escapeHtml(d.file_path)}">📄 Asli</button>
                     ${
                       d.status === 'menunggu'
-                        ? `<button class="primary" data-kirim="${d.id}" data-judul="${escapeHtml(d.title)}" style="min-height:38px">🔗 Kirim</button>
-                           <button class="btn-danger" data-hapus="${d.id}" style="min-height:38px">Hapus</button>`
+                        ? `<button class="primary" data-kirim="${d.id}" data-judul="${escapeHtml(d.title)}">🔗 Kirim</button>
+                           <button class="btn-danger" data-hapus="${d.id}">Hapus</button>`
                         : ''
                     }
-                    ${d.signed_path ? `<button data-lihat="${escapeHtml(d.signed_path)}" style="min-height:38px">✍️ Bertandatangan</button>` : ''}
-                    ${d.sheet_path ? `<button data-lihat="${escapeHtml(d.sheet_path)}" style="min-height:38px">🧾 Pengesahan</button>` : ''}
+                    ${d.signed_path ? `<button data-lihat="${escapeHtml(d.signed_path)}">✍️ Bertandatangan</button>` : ''}
+                    ${d.sheet_path ? `<button data-lihat="${escapeHtml(d.sheet_path)}">🧾 Pengesahan</button>` : ''}
                   </div>
                 </td>
               </tr>`;

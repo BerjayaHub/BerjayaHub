@@ -145,7 +145,14 @@ export async function listMyOrders(outletIds, { dateFrom, dateTo, limit = 300 } 
       // sendirinya. Nama pembuatnya ditampilkan supaya orang yang hendak
       // menambah tahu ia sedang menumpang pada pekerjaan rekannya, bukan
       // membuka daftar kosong miliknya sendiri.
-      'id, code, status, notes, reject_reason, created_at, handled_at, edited_at, ' +
+      // `to_outlet_id` ikut diambil MENTAH, bukan cuma embed namanya.
+      //
+      // Layar memakainya untuk mengunci tujuan saat draft sudah ada: tanpa id
+      // yang bisa dibaca, satu-satunya jalan adalah membiarkan staff memilih CK
+      // lagi dari dropdown — dan memilih CK yang BERBEDA membuat nomor order
+      // kedua yang sah menurut indeks unik 0111 (yang per pasangan
+      // outlet-CK). Persis dobel order yang hendak dicegah.
+      'id, code, status, notes, reject_reason, created_at, handled_at, edited_at, to_outlet_id, ' +
         'pembuat:user_profiles!created_by(full_name), editor:user_profiles!edited_by(full_name), ' +
         'from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name)'
     )
