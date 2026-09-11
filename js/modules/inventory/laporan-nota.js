@@ -8,7 +8,12 @@
  *
  * ============ HARGA MANA YANG DIPAKAI ============
  *
- * `unit_cost` yang tercatat DI NOTA ITU didahulukan; HPP produk cuma cadangan.
+ * Urutan lengkapnya ada di `harga-baris.js` dan dipakai bersama dengan laporan
+ * bahan masuk per rentang — satu jawaban untuk satu pertanyaan. Singkatnya:
+ * `line_total` (yang diketik orang sejak 0123) menang, lalu `unit_cost × qty`
+ * untuk baris lama, lalu HPP sebagai cadangan terakhir.
+ *
+ * Harga yang tercatat DI NOTA ITU didahulukan; HPP produk cuma cadangan.
  * Urutan ini bukan selera:
  *
  *   - `unit_cost` = harga yang BENAR-BENAR dibayar pada nota tersebut.
@@ -27,6 +32,7 @@
  */
 
 import { formatNum, formatRupiah } from '../../core/format.js';
+import { hargaBeliBaris, hargaSatuanBaris } from './harga-baris.js';
 
 export const KOLOM_NOTA = [
   { header: 'Barang', width: 2.2 },
@@ -47,11 +53,23 @@ export function susunLaporanNota({ nota, items, hpp = new Map() }) {
   let adaTanpaHarga = false;
 
   const baris = (items ?? []).map((i) => {
-    // `?? ` dan bukan `||`: harga 0 adalah harga yang sah (barang bonus/promo)
-    // dan tidak boleh jatuh ke HPP produk seolah-olah harganya belum diisi.
-    const harga = i.unit_cost ?? hpp.get(i.product_id) ?? null;
+    // NILAINYA DIAMBIL DARI `line_total`, BUKAN DIHITUNG ULANG.
+    //
+    // Sejak 0123 yang diketik orang adalah harga beli seluruh baris. `0` tetap
+    // harga yang sah (barang bonus) dan tidak boleh jatuh ke HPP — aturan
+    // lengkapnya, termasuk kenapa perkalian balik tidak selalu kembali ke angka
+    // semula, ada di `harga-baris.js`.
+    //
+    // Yang diperbaiki di sini bukan soal gaya: `nota_ringkas` dan `bayar_nota`
+    // di server sudah memakai `coalesce(line_total, qty * unit_cost)`, sedangkan
+    // baris ini masih `unit_cost * qty`. Untuk 100.000 dibagi 3, keduanya
+    // berbeda seribu rupiah — dan angka inilah yang dipakai orang berdebat
+    // dengan supplier.
     const jumlah = Number(i.qty ?? 0);
-    const nilai = harga == null ? null : harga * jumlah;
+    const nilai = hargaBeliBaris(i, hpp);
+    // Harga/satuan DITURUNKAN dari nilainya, supaya dua kolom di baris yang
+    // sama selalu saling mengalikan.
+    const harga = hargaSatuanBaris(i, hpp);
     if (nilai == null) adaTanpaHarga = true;
     else total += nilai;
     return [

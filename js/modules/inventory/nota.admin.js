@@ -13,10 +13,11 @@
 import { toast, infoDialog } from '../../core/ui.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { monthRangeWIB } from '../../core/dates.js';
-import { exportTableXLSX } from '../../core/xlsx.js';
+import { exportTableXLSX, exportSheetsXLSX } from '../../core/xlsx.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
 import { susunLaporanNota } from './laporan-nota.js';
-import { riwayatNota, itemNota, urlFotoNota } from './nota.service.js';
+import { susunBahanMasuk } from './laporan-bahan-masuk.js';
+import { riwayatNota, itemNota, itemNotaBanyak, urlFotoNota } from './nota.service.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -41,6 +42,11 @@ export async function renderNotaAdmin(container, { businessUnitId, outlets }) {
       <div class="field" style="margin:0;min-width:140px"><label>Dari</label><input type="date" id="nt-dari" value="${awal}" /></div>
       <div class="field" style="margin:0;min-width:140px"><label>Sampai</label><input type="date" id="nt-sampai" value="${akhir}" /></div>
       <button id="nt-tampil">Tampilkan</button>
+      <!-- EKSPOR SATU RENTANG, bukan satu nota.
+           Ditaruh bersebelahan dengan Tampilkan karena ia memakai filter yang
+           SAMA PERSIS - yang diekspor adalah yang sedang terlihat, bukan
+           rentang lain yang harus diisi ulang di dialog tersendiri. -->
+      <button id="nt-ekspor" class="primary">⬇ Export Excel (rentang ini)</button>
     </div>
     <div id="nt-hasil"></div>
   `;
@@ -55,6 +61,13 @@ export async function renderNotaAdmin(container, { businessUnitId, outlets }) {
     // sini tidak boleh menghalangi daftar notanya tampil.
   }
 
+  // Daftar yang SEDANG TERLIHAT, disimpan supaya tombol ekspor memakai persis
+  // itu — bukan mengambil ulang dengan filter yang dibaca lagi dari kotaknya.
+  // Kotak tanggal bisa sudah diubah orang tanpa menekan "Tampilkan", dan
+  // berkas yang isinya berbeda dari tabel di layarnya adalah bentuk kegagalan
+  // yang tidak akan pernah dicurigai.
+  let notaTampil = [];
+
   async function muat() {
     hasil.innerHTML = loadingHtml('Memuat nota…', { baris: 4 });
     let daftar = [];
@@ -63,8 +76,10 @@ export async function renderNotaAdmin(container, { businessUnitId, outlets }) {
       daftar = await riwayatNota(businessUnitId, { ...state, denganPembuat: true });
     } catch (e) {
       hasil.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
+      notaTampil = [];
       return;
     }
+    notaTampil = daftar;
     hasil.innerHTML = `
       <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 6px">${daftar.length} nota</p>
       <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
@@ -146,6 +161,88 @@ export async function renderNotaAdmin(container, { businessUnitId, outlets }) {
     state.dateTo = container.querySelector('#nt-sampai').value;
     muat();
   });
+
+  // =====================================================================
+  // EKSPOR SELURUH BAHAN MASUK PADA RENTANG INI
+  //
+  //   "admin bisa export bahan apa saja yang masuk sesuai range tanggal yang
+  //    dipilih tanpa export satu satu per nota"
+  //
+  // Sebelum ini satu-satunya jalan adalah membuka rincian tiap nota lalu
+  // menekan "Unduh Excel" — 43 berkas untuk sepuluh hari, lalu menyalin-tempel
+  // semuanya jadi satu. Selain lama, ia punya cara gagal sendiri: satu nota
+  // yang terlewat tidak meninggalkan jejak apa pun di hasil gabungannya.
+  // =====================================================================
+  container.querySelector('#nt-ekspor').addEventListener(
+    'click',
+    sekaliJalan(
+      async () => {
+        if (!notaTampil.length) {
+          toast('Tidak ada nota pada rentang ini untuk diekspor.', 'error');
+          return;
+        }
+
+        // KEGAGALANNYA TIDAK DITELAN.
+        //
+        // Layar rincian per nota memakai `.catch(() => [])` — untuk satu nota
+        // itu berarti dialog kosong yang langsung kelihatan salah. Di sini
+        // artinya berkas yang kekurangan beberapa nota tanpa satu pun tanda,
+        // dan orang yang memakainya sedang mencocokkan tagihan.
+        let items;
+        try {
+          items = await itemNotaBanyak(notaTampil.map((n) => n.id));
+        } catch (e) {
+          toast(`Gagal mengambil isi notanya: ${e.message ?? e}`, 'error');
+          return;
+        }
+
+        const namaOutlet = state.outletId
+          ? outlets.find((o) => o.id === state.outletId)?.name ?? ''
+          : 'Semua outlet';
+        const lap = susunBahanMasuk({
+          notas: notaTampil,
+          items,
+          hpp,
+          periode: { dari: state.dateFrom, sampai: state.dateTo, outlet: namaOutlet }
+        });
+
+        if (!lap.rincian.length) {
+          toast('Notanya ada, tapi tidak ada satu pun baris bahan di dalamnya.', 'error');
+          return;
+        }
+
+        await exportSheetsXLSX({
+          filename: lap.namaBerkas,
+          sheets: [
+            { name: 'Rincian', title: lap.judul, subtitle: lap.subjudul, columns: lap.kolomRincian, rows: lap.rincian },
+            {
+              name: 'Rekap per Bahan',
+              title: `${lap.judul} — rekap per bahan`,
+              subtitle: lap.subjudul,
+              columns: lap.kolomRekap,
+              rows: lap.rekap
+            }
+          ]
+        });
+
+        // Yang DIBUANG dan yang BELUM BERHARGA dikatakan, bukan didiamkan.
+        // Total yang rapi tapi lebih kecil dari seharusnya adalah kegagalan
+        // yang paling mungkin lolos di laporan pembelian.
+        const catatan = [
+          lap.ringkas.notaBatal ? `${lap.ringkas.notaBatal} nota batal tidak diikutkan` : '',
+          lap.ringkas.barisTanpaHarga ? `${lap.ringkas.barisTanpaHarga} baris belum berharga` : ''
+        ].filter(Boolean);
+        toast(
+          `${lap.ringkas.jumlahBaris} baris dari ${lap.ringkas.jumlahNota} nota diekspor.` +
+            (catatan.length ? ` (${catatan.join(', ')})` : ''),
+          // `warning` dan bukan `info`: tipe ini yang bertahan 7 detik di layar.
+          // Catatan yang hilang dalam 3 detik sama saja dengan tidak ada.
+          catatan.length ? 'warning' : 'success'
+        );
+      },
+      { teks: 'Menyiapkan…' }
+    )
+  );
 
   await muat();
 }

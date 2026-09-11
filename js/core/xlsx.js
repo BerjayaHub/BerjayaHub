@@ -71,31 +71,76 @@ export function keAngka(nilai) {
  * meminta export .xlsx alih-alih PDF.
  */
 export async function exportTableXLSX({ filename = 'laporan', sheetName = 'Laporan', columns, rows, title = '', subtitle = '' }) {
+  return exportSheetsXLSX({ filename, sheets: [{ name: sheetName, columns, rows, title, subtitle }] });
+}
+
+/**
+ * Satu berkas, BEBERAPA sheet.
+ *
+ * ============ KENAPA BUKAN BEBERAPA BERKAS ============
+ *
+ * Laporan "bahan masuk satu rentang" punya dua bentuk yang menjawab dua
+ * pertanyaan berbeda — rincian per baris nota, dan rekap per bahan. Keduanya
+ * disusun dari data yang sama pada detik yang sama.
+ *
+ * Dua berkas terpisah akan berpisah juga di folder unduhan: yang satu terkirim
+ * ke atasan, yang satu tertinggal, dan tidak ada di dalam berkasnya sendiri
+ * yang bisa dipakai memastikan keduanya dari rentang yang sama. Satu berkas dua
+ * sheet menutup seluruh kelas kesalahan itu tanpa biaya apa pun.
+ *
+ * `exportTableXLSX` sekarang memanggil fungsi ini dengan satu sheet, bukan
+ * menyalin logikanya — tiga belas layar sudah memakainya, dan dua salinan
+ * penulis xlsx pasti menyimpang pada perbaikan berikutnya (bug `Number('')`
+ * dulu memang harus diperbaiki di dua berkas sekaligus).
+ *
+ * @param {object} o
+ *   filename nama berkas tanpa ekstensi
+ *   sheets   [{ name, columns, rows, title?, subtitle? }]
+ */
+export async function exportSheetsXLSX({ filename = 'laporan', sheets = [] }) {
   const XLSX = await loadXLSX();
-
-  const aoa = [];
-  if (title) aoa.push([title]);
-  if (subtitle) aoa.push([subtitle]);
-  if (title || subtitle) aoa.push([]);
-  aoa.push(columns.map((c) => c.header));
-
-  for (const row of rows) {
-    aoa.push(
-      row.map((sel, i) => {
-        if (!columns[i]?.numeric) return sel ?? '';
-        return keAngka(sel);
-      })
-    );
-  }
-
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  // Lebar kolom mengikuti isi terpanjang, dibatasi supaya tidak melebar liar.
-  ws['!cols'] = columns.map((c, i) => {
-    const isi = [c.header, ...rows.map((r) => String(r[i] ?? ''))];
-    return { wch: Math.min(40, Math.max(10, ...isi.map((v) => String(v).length + 2))) };
-  });
+  const daftar = (sheets ?? []).filter((s) => s && Array.isArray(s.columns));
+  if (!daftar.length) throw new Error('Tidak ada sheet yang bisa diekspor.');
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31)); // Excel batasi 31 karakter
+  const terpakai = new Set();
+
+  for (const s of daftar) {
+    const columns = s.columns;
+    const rows = s.rows ?? [];
+
+    const aoa = [];
+    if (s.title) aoa.push([s.title]);
+    if (s.subtitle) aoa.push([s.subtitle]);
+    if (s.title || s.subtitle) aoa.push([]);
+    aoa.push(columns.map((c) => c.header));
+
+    for (const row of rows) {
+      aoa.push(
+        row.map((sel, i) => {
+          if (!columns[i]?.numeric) return sel ?? '';
+          return keAngka(sel);
+        })
+      );
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    // Lebar kolom mengikuti isi terpanjang, dibatasi supaya tidak melebar liar.
+    ws['!cols'] = columns.map((c, i) => {
+      const isi = [c.header, ...rows.map((r) => String(r[i] ?? ''))];
+      return { wch: Math.min(40, Math.max(10, ...isi.map((v) => String(v).length + 2))) };
+    });
+
+    // Excel membatasi nama sheet 31 karakter DAN menolak nama kembar — dua
+    // sheet bernama sama membuat berkasnya gagal dibuka sama sekali, bukan
+    // sekadar tampil aneh.
+    let nama = String(s.name ?? 'Sheet').slice(0, 31) || 'Sheet';
+    let n = 2;
+    while (terpakai.has(nama)) nama = `${nama.slice(0, 28)}(${n++})`;
+    terpakai.add(nama);
+
+    XLSX.utils.book_append_sheet(wb, ws, nama);
+  }
+
   XLSX.writeFile(wb, `${filename}.xlsx`);
 }

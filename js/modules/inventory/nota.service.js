@@ -292,6 +292,52 @@ export async function itemNota(receiptId) {
 }
 
 /**
+ * Isi BANYAK nota sekaligus — untuk ekspor satu rentang tanggal.
+ *
+ * ============ KENAPA BUKAN `itemNota()` DALAM PERULANGAN ============
+ *
+ * Sepuluh hari di satu BU sudah 43 nota. Memanggil `itemNota` per nota berarti
+ * 43 permintaan berurutan; untuk sebulan penuh bisa dua ratus lebih. Yang
+ * terjadi di jaringan outlet bukan "agak lambat" melainkan sebagian gagal
+ * dengan timeout — dan kalau kegagalannya ditelan (`.catch(() => [])`, pola
+ * yang memang sudah dipakai layar rincian), hasil ekspornya KURANG BEBERAPA
+ * NOTA tanpa satu pun tanda di berkasnya.
+ *
+ * ============ DUA BATAS YANG DIHORMATI ============
+ *
+ * 1. `ambilSemua` — PostgREST memotong diam-diam di sekitar 1000 baris. Satu
+ *    bulan pembelian mudah melewatinya, dan yang hilang adalah baris terakhir:
+ *    tidak ada error, totalnya cuma lebih kecil.
+ *
+ * 2. Id-nya dipotong per 100 — daftar `in.(uuid,uuid,…)` ikut masuk URL, dan
+ *    URL yang terlalu panjang ditolak server dengan 414, bukan dengan pesan
+ *    yang menyebut jumlah nota.
+ *
+ * @param {string[]} receiptIds
+ * @returns {Promise<object[]>} baris datar; `receipt_id` ikut supaya bisa
+ *   dipasangkan kembali ke notanya
+ */
+export async function itemNotaBanyak(receiptIds) {
+  const ids = [...new Set((receiptIds ?? []).filter(Boolean))];
+  if (!ids.length) return [];
+
+  const POTONG = 100;
+  const hasil = [];
+  for (let i = 0; i < ids.length; i += POTONG) {
+    const bagian = ids.slice(i, i + POTONG);
+    const baris = await ambilSemua((dari, sampai) =>
+      supabase
+        .from('goods_receipt_items')
+        .select('receipt_id, product_id, qty, unit_cost, line_total, notes, products(name, base_unit)', { count: 'exact' })
+        .in('receipt_id', bagian)
+        .range(dari, sampai)
+    );
+    hasil.push(...baris);
+  }
+  return hasil;
+}
+
+/**
  * Unggah foto nota. Nama berkasnya memuat outlet & waktu supaya dua nota yang
  * diunggah bersamaan tidak saling menimpa.
  */

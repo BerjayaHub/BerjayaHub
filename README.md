@@ -5907,6 +5907,50 @@ Fitur yang sudah jadi tapi tidak bisa dicapai sama saja dengan tidak ada — dan
 
 - [x] **Tujuan order terkunci ke draft yang berjalan + tombolnya benar-benar sampai** — tanpa migration
 
+## Export bahan masuk satu rentang, bukan satu nota
+
+> "sediakan export excel per range tanggal, jadi admin bisa export bahan apa saja yang masuk sesuai range tanggal yang dipilih tanpa export satu satu per nota"
+
+Sebelum ini satu-satunya jalan adalah membuka rincian tiap nota lalu menekan "Unduh Excel" — **43 berkas untuk sepuluh hari**, lalu menyalin-tempel semuanya jadi satu. Selain lama, cara itu punya kegagalannya sendiri: satu nota yang terlewat tidak meninggalkan jejak apa pun di hasil gabungannya.
+
+Tombolnya duduk bersebelahan dengan **Tampilkan** dan memakai filter yang sama persis — yang diekspor adalah yang sedang terlihat. Sengaja bukan dialog dengan rentang tersendiri: berkas yang isinya berbeda dari tabel di layarnya adalah kegagalan yang tidak akan pernah dicurigai.
+
+### Dua sheet
+
+**Rincian** — satu baris per bahan per nota: Tanggal, No. Nota, Outlet, Bahan, Jumlah, Satuan, Harga beli, Supplier. Menjawab "beras dari siapa, kapan, berapa".
+
+**Rekap per Bahan** — satu baris per bahan, dengan total qty, total rupiah, jumlah nota, dan daftar suppliernya. Menjawab "bulan ini beras masuk berapa kilo". Bisa saja dibuat sendiri dengan pivot, tapi itu pertanyaan yang paling sering ditanyakan dan tidak semua orang membuat pivot.
+
+Satu berkas, bukan dua. Dua berkas akan berpisah juga di folder unduhan — yang satu terkirim, yang satu tertinggal, dan tidak ada apa pun di dalamnya yang bisa dipakai memastikan keduanya dari rentang yang sama.
+
+### Temuan di jalan: laporan layar dan server sudah menyimpang
+
+`susunLaporanNota` masih menghitung `unit_cost × qty`, padahal sejak `0123` angka yang **diketik orang** adalah `line_total` dan `unit_cost` hanya turunannya. `nota_ringkas` dan `bayar_nota` di server sudah memakai `coalesce(line_total, qty * unit_cost)`; layarnya belum.
+
+Untuk Rp100.000 dibagi 3 kg, `unit_cost` jadi 33.333 dan perkalian baliknya **99.999**. Seribu rupiah tidak terlihat salah di layar mana pun — ia terlihat salah di meja, saat admin menyandingkan laporan dengan tagihan dan angkanya meleset tanpa sebab yang bisa ditunjuk.
+
+Jadi urutannya dipindahkan ke satu berkas (`harga-baris.js`) yang dipakai **kedua** laporan: `line_total` menang, `unit_cost × qty` untuk baris sebelum `0124`, HPP sebagai cadangan terakhir, dan `null` — bukan 0 — kalau memang belum berharga. Harga per satuan di laporan kini **diturunkan** dari nilai barisnya, supaya dua kolom di baris yang sama selalu saling mengalikan.
+
+### Tiga hal yang dibuat berisik, bukan didiamkan
+
+- **Nota batal tidak ikut** (`0131` — barangnya sudah ditarik dari stok), tapi jumlahnya disebut di subjudul berkas dan di toast. Penyaringan yang diam membuat orang mengira ada nota yang hilang.
+- **Baris tanpa harga** ditulis "-" bukan Rp0, dan jumlahnya dilaporkan per bahan. Total yang rapi tapi lebih kecil dari seharusnya adalah kegagalan yang paling mungkin lolos di laporan pembelian.
+- **Gagal mengambil isi nota membatalkan ekspornya.** Layar rincian per nota memakai `.catch(() => [])` — di sana benar, dialog kosong langsung kelihatan salah. Di sini artinya berkas yang kekurangan beberapa nota tanpa jejak, dan yang memakainya sedang mencocokkan tagihan.
+
+Pengambilannya sendiri lewat `itemNotaBanyak`: satu permintaan bertahap dengan `ambilSemua` (PostgREST memotong diam-diam di ~1000 baris) dan id-nya dipotong per 100 (URL `in.(uuid,…)` yang kepanjangan ditolak 414, dengan pesan yang tidak menyinggung jumlah nota sama sekali).
+
+### Satu sabotase lolos, dan sebabnya di alat ujinya
+
+`JSON.stringify(Infinity)` adalah **`"null"`**. Begitu juga `NaN`.
+
+Pembanding yang dipakai hampir seluruh tes di `tools/` berbentuk `JSON.stringify(dapat) !== JSON.stringify(harap)`. Saat penjaga `if (!qty) return null` dicabut, `hargaSatuanBaris` mengembalikan `Infinity` — dan pembandingnya menerjemahkannya jadi `null`, yang justru nilai yang diharapkan. Tesnya hijau untuk kode yang sudah rusak, dan sabotasenya dilaporkan "tertangkap" padahal tidak.
+
+Angka tak-hingga sekarang diberi penanda lebih dulu lewat replacer `JSON.stringify`, plus satu pemeriksaan `=== null` yang berdiri sendiri kalau replacernya suatu saat ikut disederhanakan orang.
+
+Lubang yang sama masih ada di berkas tes lain yang membandingkan dengan cara itu. Ia hanya berbahaya di tempat yang melakukan **pembagian** dan mengharapkan `null` — belum disapu, dan ditulis di sini supaya tidak dikira sudah.
+
+- [x] **Export bahan masuk per rentang tanggal** — tanpa migration; 21 sabotase tertangkap
+
 ## Kolom baru yang menyandera seluruh layar
 
 Kode yang meminta `payment_status` di-push lebih dulu daripada `0122` dijalankan. PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal, dan layar "Terima dari Supplier" kehilangan bukan kolom status — melainkan **seluruh daftar notanya**, berikut tombol Lihat, Edit, dan + Foto. Laporannya: *"aksi edit ... tidak bisa, bahkan tambah foto di nota yang sudah pernah dibuat juga tidak bisa"*.
