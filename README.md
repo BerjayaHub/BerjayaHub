@@ -5891,7 +5891,21 @@ Peringatan di atas tombol tidak menutupnya: ia menjelaskan, tidak menghalangi. S
 
 Urutannya sengaja menaruh draft **di depan** setelan outlet: kalau `served_by_outlet_id` baru diubah ke CK lain sementara draft lama masih hidup, menuruti setelan akan membuat nomor kedua. Draft yang hidup adalah fakta; setelan cuma niat.
 
-- [x] **Tujuan order terkunci ke draft yang berjalan** — tanpa migration
+### Dan tombolnya ternyata tidak pernah sampai ke draftnya
+
+> "bila di tap dia tidak beralih ke draft ... tidak bisa isi bahan untuk order"
+
+Panelnya sebenarnya **terbuka**. Yang salah bukan kode draftnya, melainkan tiga hal yang bertumpuk:
+
+1. `#ord-edit-box` berada di **paling bawah** tab — sesudah kartu penjelasan, peringatan draft, tombol, dan seluruh tabel "Order Saya". Di HP ia lahir di luar layar.
+2. `sekaliJalan` secara bawaan **mengembalikan posisi gulir** sesudah handlernya selesai (`pulihkanGulir`, dua frame kemudian). Untuk tombol ini artinya: panel dibuka di bawah, lalu layarnya ditarik kembali menjauh darinya.
+3. Kalau barisnya tidak ketemu, `…?.click()` **menelan kegagalannya** — draft sudah dibuat di server, layar diam total.
+
+Perilaku (2) benar untuk hampir semua tombol di aplikasi ini — admin yang menyimpan koreksi presensi baris ke-40 tidak boleh dilempar ke baris pertama. Ia salah persis untuk satu tombol yang seluruh gunanya adalah **memindahkan** orangnya. Jadi yang dimatikan cuma di sini (`jagaGulir: false`), panelnya menjemput layarnya sendiri (`scrollIntoView`), dan kegagalan mencari barisnya sekarang dikatakan.
+
+Fitur yang sudah jadi tapi tidak bisa dicapai sama saja dengan tidak ada — dan tidak satu pun dari ketiganya menghasilkan error.
+
+- [x] **Tujuan order terkunci ke draft yang berjalan + tombolnya benar-benar sampai** — tanpa migration
 
 ## Kolom baru yang menyandera seluruh layar
 

@@ -169,6 +169,49 @@ if (hal) {
   if (iDraftTujuan >= 0 && iServed >= 0 && iDraftTujuan > iServed) {
     salah('dispatch.page.js: setelan outlet dibaca sebelum draft yang berjalan — draft yang hidup adalah fakta, setelan cuma niat.');
   }
+  // ---------------------------------------------------------------
+  // MENEKAN TOMBOLNYA HARUS BENAR-BENAR MEMBAWA ORANGNYA KE DRAFT.
+  //
+  // Laporan lapangan: "bila di tap dia tidak beralih ke draft", "tidak bisa
+  // isi bahan untuk order". Panelnya sebenarnya terbuka — di bawah tabel, di
+  // luar layar — lalu `sekaliJalan` MENARIK LAYAR KEMBALI ke posisi semula
+  // (`pulihkanGulir`, dua frame sesudah handlernya selesai). Perilaku itu benar
+  // untuk hampir semua tombol dan salah persis untuk tombol ini.
+  //
+  // Fitur yang "sudah jadi" tapi tidak bisa dicapai sama saja dengan tidak ada.
+  // ---------------------------------------------------------------
+  const iTombolDraft = kode.indexOf("#ord-buka-draft");
+  const iKirim = kode.indexOf('.btn-kirim-order');
+  const blokTombol = iTombolDraft >= 0 && iKirim > iTombolDraft ? kode.slice(iTombolDraft, iKirim) : '';
+  if (!blokTombol) {
+    salah('dispatch.page.js: penangan tombol `#ord-buka-draft` tidak ditemukan.');
+  } else {
+    if (!/jagaGulir:\s*false/.test(blokTombol)) {
+      salah(
+        'dispatch.page.js: tombol "Buka draft" masih memakai pemulihan gulir bawaan `sekaliJalan`. ' +
+          'Panel editnya dibuka di bawah tabel, lalu layarnya ditarik kembali ke posisi semula — ' +
+          'yang terlihat: tombolnya ditekan dan tidak terjadi apa-apa.'
+      );
+    }
+    // Bentuk lamanya `…?.click()` menelan kegagalannya: draft sudah dibuat di
+    // server, barisnya tidak ketemu, dan layar diam sepenuhnya.
+    if (/\.btn-edit-order\[data-id="\$\{id\}"\]`\)\?\.click\(\)/.test(blokTombol)) {
+      salah(
+        'dispatch.page.js: pembukaan panel draft memakai `?.click()` yang menelan kegagalannya. ' +
+          'Kalau barisnya tidak ketemu, tidak ada klik dan tidak ada pesan — dan draftnya sudah terlanjur dibuat di server.'
+      );
+    }
+  }
+
+  // Panel editnya harus menjemput layarnya. Ia berada di paling bawah tab,
+  // sesudah kartu penjelasan, peringatan, tombol, dan seluruh tabel.
+  if (!/editBox\.scrollIntoView\(/.test(kode)) {
+    salah(
+      'dispatch.page.js: panel "Ubah Order" tidak menggulirkan layar ke dirinya sendiri. ' +
+        'Ia lahir di luar layar di HP, dan menekan "Tambah / Edit" jadi terlihat seperti tidak melakukan apa-apa.'
+    );
+  }
+
   // Dropdownnya sendiri harus berada DI BALIK pemeriksaan draft.
   //
   // Diperiksa lewat jarak, bukan lewat pola tunggal: yang menentukan bukan

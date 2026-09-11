@@ -231,6 +231,34 @@ sabotase(
   AUDIT
 );
 
+console.log('\n== Menekan tombolnya benar-benar sampai ke draftnya ==');
+
+sabotase(
+  'pemulihan gulir bawaan dikembalikan — layar ditarik menjauh dari panel yang baru dibuka',
+  HAL,
+  '      }, { jagaGulir: false }));',
+  '      }));',
+  AUDIT
+);
+
+sabotase(
+  'kegagalan membuka panel ditelan lagi oleh `?.click()`',
+  HAL,
+  `          const tombolEdit = contentBox.querySelector(\`.btn-edit-order[data-id="\${id}"]\`);
+          if (tombolEdit) {`,
+  `          contentBox.querySelector(\`.btn-edit-order[data-id="\${id}"]\`)?.click();
+          if (false) {`,
+  AUDIT
+);
+
+sabotase(
+  'panel edit berhenti menjemput layarnya — lahir di luar layar di HP',
+  HAL,
+  "        editBox.scrollIntoView({ behavior: 'smooth', block: 'start' });",
+  '',
+  AUDIT
+);
+
 sabotase(
   '`to_outlet_id` berhenti diambil — tujuan draft tidak punya sumber untuk dikunci',
   SVC,

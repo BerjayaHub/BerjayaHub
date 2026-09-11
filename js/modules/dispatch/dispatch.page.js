@@ -542,6 +542,26 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     );
 
     if (ckChoices.length) {
+      // `jagaGulir: false` DI SINI ADALAH INTI PERBAIKANNYA.
+      //
+      // `sekaliJalan` secara bawaan MENGEMBALIKAN posisi gulir sesudah
+      // handlernya selesai — dua frame kemudian, lewat `pulihkanGulir`. Itu
+      // benar untuk hampir semua tombol di aplikasi ini: menyimpan satu koreksi
+      // presensi tidak boleh melempar admin kembali ke baris pertama.
+      //
+      // Untuk tombol ini ia justru merusak satu-satunya hal yang diminta
+      // tombolnya. Urutannya:
+      //
+      //   1. staff menekan "Buka draft OR-…" (halaman sudah tergulir, >100px)
+      //   2. tab digambar ulang, panel editnya dibuka di bawah tabel
+      //   3. `finally` menarik layar KEMBALI ke posisi semula
+      //
+      // Yang terlihat: tombolnya ditekan, dan tidak terjadi apa-apa. Panelnya
+      // ada — di bawah, di luar layar, dan layarnya baru saja dipaksa menjauh
+      // darinya. Tidak ada error, tidak ada yang rusak.
+      //
+      // Laporan lapangannya persis itu: "bila di tap dia tidak beralih ke
+      // draft", "tidak bisa isi bahan untuk order".
       box.querySelector('#ord-buka-draft').addEventListener('click', sekaliJalan(async (e) => {
         const errorEl = box.querySelector('#ord-error');
         errorEl.textContent = '';
@@ -567,11 +587,25 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           await showTab();
           // Panel editnya langsung dibuka supaya orangnya tidak perlu mencari
           // barisnya sendiri di daftar bawah.
-          contentBox.querySelector(`.btn-edit-order[data-id="${id}"]`)?.click();
+          //
+          // KEGAGALANNYA TIDAK DITELAN. Bentuk lamanya `…?.click()` — kalau
+          // barisnya tidak ketemu, tidak ada klik, tidak ada pesan, tidak ada
+          // apa pun. Draftnya sudah dibuat di server, tapi layar diam, dan yang
+          // menekannya menyimpulkan tombolnya rusak.
+          const tombolEdit = contentBox.querySelector(`.btn-edit-order[data-id="${id}"]`);
+          if (tombolEdit) {
+            tombolEdit.click();
+          } else {
+            const galat = contentBox.querySelector('#ord-error');
+            if (galat) {
+              galat.textContent =
+                'Draftnya sudah dibuat, tapi barisnya belum muncul di daftar. Tarik layar ke bawah untuk memuat ulang.';
+            }
+          }
         } catch (error) {
           errorEl.textContent = error.message ?? 'Gagal membuka draft order.';
         }
-      }));
+      }, { jagaGulir: false }));
     }
 
     // Kirim draft ke CK — satu-satunya titik di mana order jadi terlihat CK.
@@ -654,6 +688,18 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           tanpaDuplikat: true,
           initial: items.map((it) => ({ product_id: it.product_id, qty: it.qty }))
         });
+
+        // PANELNYA MENJEMPUT LAYARNYA.
+        //
+        // `#ord-edit-box` berada di PALING BAWAH tab — sesudah kartu penjelasan,
+        // peringatan draft, tombol, dan seluruh tabel "Order Saya". Di layar HP
+        // itu berarti panelnya lahir di luar layar, dan menekan "Tambah / Edit"
+        // terlihat seperti tidak melakukan apa-apa.
+        //
+        // Dipanggil SESUDAH picker-nya dibuat, bukan sebelum: sebelum picker
+        // ada, tinggi panelnya belum final dan layarnya berhenti di tempat yang
+        // salah.
+        editBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
         editBox.querySelector('#ord-edit-cancel').addEventListener('click', () => {
           editBox.innerHTML = '';
