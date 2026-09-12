@@ -39,8 +39,23 @@ cek('yang cocok tidak dihitung sebagai selisih', staff.jumlahSelisih, 2);
 
 // ---- Dengan nilai (Admin) ----
 const admin = susunLaporanOpname({ sesi, items, hpp, denganNilai: true });
-cek('dua kolom rupiah', admin.kolom.slice(-2).map((k) => k.header), ['HPP/satuan', 'Nilai Selisih']);
-cek('ditandai numeric untuk Excel', admin.kolom.slice(-2).every((k) => k.numeric), true);
+cek('tiga kolom rupiah', admin.kolom.slice(-3).map((k) => k.header), ['HPP/satuan', 'Nilai Opname', 'Nilai Selisih']);
+cek('ditandai numeric untuk Excel', admin.kolom.slice(-3).every((k) => k.numeric), true);
+
+// ---- NILAI OPNAME = dihitung × HPP ----
+//
+// Berbeda arti dari Nilai Selisih di sebelahnya: selisih menjawab "berapa yang
+// hilang/lebih", nilai opname menjawab "berapa nilai stok yang ADA". Yang kedua
+// itulah yang dipakai laporan COGS sebagai stok akhir.
+// gula 92×15.000 + kopi 23×150.000 + susu 50×18.000
+cek('nilai opname = Σ dihitung × HPP', admin.nilaiOpname, 92 * 15000 + 23 * 150000 + 50 * 18000);
+// Yang DIHITUNG, bukan yang di sistem. Kalau tertukar, stok akhir jadi angka
+// catatan — dan seluruh gunanya opname justru karena keduanya berbeda.
+cek('bukan sistem × HPP', admin.nilaiOpname !== 100 * 15000 + 20 * 150000 + 50 * 18000, true);
+// Baris berselisih NOL tetap menyumbang nilai: susu 50 cocok, tapi stoknya ada.
+cek('baris tanpa selisih tetap ikut', admin.nilaiOpname > admin.nilaiLebih + Math.abs(admin.nilaiKurang), true);
+cek('teksnya diformat', /^Rp /.test(admin.nilaiOpnameTeks), true);
+cek('tanpa nilai: nilai opname null', staff.nilaiOpname, null);
 cek('nilai kurang = -8 x 15000', admin.nilaiKurang, -120000);
 cek('nilai lebih = +3 x 150000', admin.nilaiLebih, 450000);
 // KURANG dan LEBIH sengaja DIPISAH. Kehilangan 2 juta yang tertutup kelebihan
@@ -51,18 +66,35 @@ cek('teks rupiah diformat', admin.nilaiKurangTeks, 'Rp -120.000');
 
 // ---- Selisih tanpa HPP: "-", bukan 0 ----
 const tanpaHpp = susunLaporanOpname({ sesi, items, hpp: new Map([['kopi', 150000]]), denganNilai: true });
-cek('selisih tanpa HPP ditandai "-"', tanpaHpp.baris[0].slice(-2), ['-', '-']);
+cek('tanpa HPP: ketiga kolom rupiahnya "-"', tanpaHpp.baris[0].slice(-3), ['-', '-', '-']);
 cek('dan tidak ikut menambah total', tanpaHpp.nilaiKurang, 0);
+cek('tidak ikut menambah nilai opname juga', tanpaHpp.nilaiOpname, 23 * 150000);
 cek('ditandai supaya bisa disebut di layar', tanpaHpp.adaTanpaHpp, true);
 cek('kalau semua berHPP, tidak ditandai', admin.adaTanpaHpp, false);
-// Item yang selisihnya 0 tanpa HPP BUKAN masalah — tidak ada nilai yang hilang.
+
+// ARTI `adaTanpaHpp` MELUAS sejak ada kolom Nilai Opname.
+//
+// Dulu baris berselisih NOL tanpa HPP bukan masalah — ia menyumbang nol ke
+// satu-satunya kolom berduit. Sekarang ia tetap punya NILAI STOK: 5 unit yang
+// cocok dengan sistem tetap barang yang ada di rak, dan HPP yang kosong di situ
+// membuat total nilai opname lebih kecil tanpa satu pun tanda.
 const nolTanpaHpp = susunLaporanOpname({
   sesi,
   items: [{ product_id: 'x', system_qty: 5, counted_qty: 5, products: { name: 'X' }, sebelumnya: [] }],
   hpp: new Map(),
   denganNilai: true
 });
-cek('selisih nol tanpa HPP tidak ditandai', nolTanpaHpp.adaTanpaHpp, false);
+cek('selisih nol tapi BERSTOK tanpa HPP: ditandai', nolTanpaHpp.adaTanpaHpp, true);
+
+// Yang benar-benar tidak menyumbang apa pun tetap TIDAK ditandai — peringatan
+// yang tidak bisa ditindaklanjuti membuat orang berhenti membaca peringatan.
+const nolKosong = susunLaporanOpname({
+  sesi,
+  items: [{ product_id: 'x', system_qty: 0, counted_qty: 0, products: { name: 'X' }, sebelumnya: [] }],
+  hpp: new Map(),
+  denganNilai: true
+});
+cek('nol-nol tanpa HPP tidak ditandai', nolKosong.adaTanpaHpp, false);
 
 // ---- Hitungan yang tergantikan ditandai ----
 const bentrok = susunLaporanOpname({

@@ -53,12 +53,22 @@ export function susunLaporanOpname({ sesi, items, hpp = new Map(), denganNilai =
   if (denganNilai) {
     kolom.push(
       { header: 'HPP/satuan', width: 1, align: 'right', numeric: true },
+      // NILAI OPNAME = dihitung × HPP, yaitu nilai barang yang BENAR-BENAR ADA
+      // di rak saat dihitung.
+      //
+      // Berbeda arti dari "Nilai Selisih" di sebelahnya, dan perbedaan itu yang
+      // membuat keduanya perlu berdampingan: selisih menjawab "berapa yang
+      // hilang/lebih", nilai opname menjawab "berapa nilai stok kita sekarang".
+      // Yang kedua itulah yang dipakai sebagai stok akhir saat menghitung COGS,
+      // dan sebelum ini tidak ada satu layar pun yang menyebutkannya.
+      { header: 'Nilai Opname', width: 1.1, align: 'right', numeric: true },
       { header: 'Nilai Selisih', width: 1.1, align: 'right', numeric: true }
     );
   }
 
   let nilaiKurang = 0;
   let nilaiLebih = 0;
+  let nilaiOpname = 0;
   let adaTanpaHpp = false;
   let jumlahSelisih = 0;
   let jumlahBentrok = 0;
@@ -90,14 +100,29 @@ export function susunLaporanOpname({ sesi, items, hpp = new Map(), denganNilai =
     if (denganNilai) {
       const h = hpp.get(it.product_id);
       const nilai = h == null ? null : h * selisih;
-      if (h == null && selisih !== 0) adaTanpaHpp = true;
+      // Nilai barang yang benar-benar ada di rak — dasar "stok akhir" pada COGS.
+      const nilaiAda = h == null ? null : h * dihitung;
+      // `adaTanpaHpp` MELUAS artinya sejak ada kolom Nilai Opname.
+      //
+      // Dulu cukup menandai baris yang BERSELISIH: satu-satunya angka berduit
+      // adalah nilai selisih, dan baris tanpa selisih menyumbang nol ke sana.
+      // Sekarang baris berselisih NOL pun menyumbang nilai — 20 kg beras yang
+      // cocok dengan sistem tetap punya nilai stok — jadi HPP yang kosong di
+      // situ membuat total nilai opname lebih kecil tanpa satu pun tanda.
+      //
+      // Yang tetap TIDAK ditandai: baris yang selisihnya nol DAN dihitungnya
+      // nol. Ia tidak menyumbang apa pun ke kolom mana pun, jadi HPP-nya tidak
+      // sedang menghilangkan angka apa-apa — menandainya cuma memunculkan
+      // peringatan yang tidak bisa ditindaklanjuti.
+      if (h == null && (selisih !== 0 || dihitung !== 0)) adaTanpaHpp = true;
       if (nilai != null) {
         if (nilai < 0) nilaiKurang += nilai;
         else nilaiLebih += nilai;
       }
+      if (nilaiAda != null) nilaiOpname += nilaiAda;
       // Bahan tanpa HPP ditandai "-", bukan 0 — nol membuat total terlihat sah
-      // padahal ada selisih yang belum bernilai.
-      sel.push(h == null ? '-' : rupiah(h), nilai == null ? '-' : rupiah(nilai));
+      // padahal ada barang yang belum bernilai.
+      sel.push(h == null ? '-' : rupiah(h), nilaiAda == null ? '-' : rupiah(nilaiAda), nilai == null ? '-' : rupiah(nilai));
     }
     return sel;
   });
@@ -122,6 +147,10 @@ export function susunLaporanOpname({ sesi, items, hpp = new Map(), denganNilai =
     nilaiLebih: denganNilai ? nilaiLebih : null,
     nilaiKurangTeks: denganNilai ? rupiah(nilaiKurang) : null,
     nilaiLebihTeks: denganNilai ? rupiah(nilaiLebih) : null,
+    // Total nilai barang yang benar-benar ada saat dihitung. Inilah angka yang
+    // dipakai laporan COGS sebagai stok akhir periode.
+    nilaiOpname: denganNilai ? nilaiOpname : null,
+    nilaiOpnameTeks: denganNilai ? rupiah(nilaiOpname) : null,
     adaTanpaHpp
   };
 }

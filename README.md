@@ -5907,6 +5907,50 @@ Fitur yang sudah jadi tapi tidak bisa dicapai sama saja dengan tidak ada — dan
 
 - [x] **Tujuan order terkunci ke draft yang berjalan + tombolnya benar-benar sampai** — tanpa migration
 
+## Nilai Opname, dan COGS dari barang yang benar-benar hilang dari rak
+
+> "di opname tambahkan nilai opname, yaitu jumlah dihitung dikali hpp/satuan … lalu di modul laporan juga sediakan untuk COGS, yaitu stock awal (stock akhir bulan lalu) ditambah pembelian dikurangi stock akhir bulan ini"
+
+### Nilai Opname ≠ Nilai Selisih
+
+Laporan opname sudah punya kolom **Nilai Selisih** (selisih × HPP) yang menjawab *"berapa yang hilang atau lebih"*. Yang belum ada: **Nilai Opname** (dihitung × HPP) yang menjawab *"berapa nilai stok kita sekarang"*. Keduanya rupiah, keduanya dari HPP yang sama, dan menjawab pertanyaan yang berbeda — itu sebabnya keduanya perlu berdampingan, bukan saling menggantikan.
+
+Satu efek samping yang harus ikut diperbaiki: penanda "sebagian bahan belum punya HPP" dulu hanya menyala untuk baris yang **berselisih**, dan itu benar selama satu-satunya kolom berduit adalah selisih. Sekarang baris berselisih **nol** pun menyumbang nilai — 20 kg beras yang cocok dengan sistem tetap barang yang ada di rak — jadi HPP kosong di situ mengecilkan total tanpa satu pun tanda. Yang tetap tidak ditandai: baris yang selisihnya nol **dan** dihitungnya nol, karena ia memang tidak menghilangkan angka apa pun.
+
+### COGS berbeda arti dari Laba Kotor, dan itu justru gunanya
+
+Laporan **Laba Kotor** yang sudah ada menghitung HPP dari **resep**: tiap menu terjual dikalikan takarannya. Itu HPP *teoretis* — ia menganggap tiap porsi memakai bahan sebanyak yang tertulis.
+
+**COGS** menghitung dari barang yang **benar-benar hilang dari rak**:
+
+```
+COGS = stok awal + pembelian − stok akhir
+```
+
+Selisih antara keduanya adalah tumpahan, kelebihan takar, waste yang tidak tercatat, dan kehilangan — angka yang paling ingin diketahui pemilik, dan satu-satunya yang tidak bisa dilihat dari laporan berbasis resep.
+
+Stok awal = nilai opname tertutup terakhir **sebelum** periode. Stok akhir = nilai opname tertutup terakhir **di dalam** periode. Pembelian = total nota terima, tanpa yang dibatalkan (`0131`).
+
+### Yang paling berbahaya: opname yang tidak ada
+
+Rumusnya cuma tiga angka dan dua di antaranya dari opname. Kalau yang hilang diperlakukan nol:
+
+| Yang hilang | Akibatnya |
+|---|---|
+| stok akhir | COGS melonjak sebesar seluruh nilai stok |
+| stok awal | COGS anjlok, bisa jadi negatif |
+
+Dua-duanya menghasilkan angka yang **masih terbaca masuk akal** di laporan bulanan — tidak ada error, tidak ada baris kosong, cuma angka yang salah besar. Maka outlet yang salah satu opnamenya belum ada berbunyi **"-"** beserta sebabnya, tidak ikut ke total mana pun, dan pembeliannya juga tidak ikut — menjumlahkan pembelian tanpa stoknya membuat total tidak konsisten dengan barisnya sendiri.
+
+Empat keputusan lain yang semuanya gagal diam-diam kalau salah:
+
+- Hanya sesi **`closed`** yang dipakai. `open` belum selesai dihitung; `cancelled` sengaja ditutup **tanpa menyentuh stok** (`0085`) — keduanya bukan keadaan rak.
+- Kalau satu outlet punya beberapa opname di satu periode, yang dipakai yang **paling akhir**.
+- Stok awal diambil dari **sehari sebelum** periode. Memakai tanggal pertama periode akan mengambil opname di dalam periode sebagai stok awal, dan pembelian hari itu terhitung dua kali.
+- Nilainya dari **`counted_qty`**, bukan `system_qty`. Kalau tertukar, stok akhir jadi angka catatan — padahal seluruh guna opname justru karena keduanya berbeda.
+
+- [x] **Nilai Opname + laporan COGS** — tanpa migration; 19 sabotase
+
 ## Waste / Spoil wajib berfoto, dan rekapnya bisa dipertanggungjawabkan
 
 > "sediakan input foto bahan yang di spoil atau menu yang di waste, dan ini wajib, jika tidak diinput foto maka tidak bisa simpan … lalu di sisi admin portal sediakan rekap spoil waste berdasarkan rentang tanggal … export excel beserta foto yang sudah terkompress dan di embed ke kolom excel nya"

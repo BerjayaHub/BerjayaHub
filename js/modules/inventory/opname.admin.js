@@ -199,6 +199,12 @@ export async function renderOpnameAdmin(container, { businessUnitId, outlets }) 
           bodyHtml:
             `<p style="font-size:0.85rem;color:var(--color-text-muted)">${esc(lap.subjudul)}</p>` +
             `<p>Kurang: <strong style="color:var(--color-danger)">${lap.nilaiKurangTeks}</strong> · Lebih: <strong>${lap.nilaiLebihTeks}</strong></p>` +
+            // NILAI OPNAME ditaruh terpisah dan diberi keterangan, bukan
+            // disandingkan begitu saja dengan Kurang/Lebih. Ketiganya rupiah
+            // tapi menjawab pertanyaan yang berbeda — dan yang ini adalah
+            // angka yang dipakai laporan COGS sebagai stok akhir periode.
+            `<p style="margin-top:2px">Nilai stok saat dihitung: <strong>${lap.nilaiOpnameTeks}</strong>
+               <span style="font-size:0.8rem;color:var(--color-text-muted)">(dihitung × HPP — dipakai sebagai stok akhir di laporan COGS)</span></p>` +
             // Label kolom ikut menempel di tiap sel: dialog ini yang paling
             // sering dibuka di HP saat admin memeriksa selisih dari lapangan,
             // dan tabel delapan kolom di layar sempit hanya terbaca sebagai kartu.

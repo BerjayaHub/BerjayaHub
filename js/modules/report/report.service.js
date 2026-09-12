@@ -12,6 +12,7 @@ import { getNbmConfig, listOvertimeTiers, listHolidays, listNbmAdjustments, calc
 import { listBuStaff } from '../leave/leave.service.js';
 import { LATE_LABEL } from '../shift/shift.service.js';
 import { laporanKasUser } from '../cash/cash.service.js';
+import { nilaiOpname, barisCogs, ringkasCogs } from './cogs.js';
 
 // =========================================================
 // KATALOG LAPORAN
@@ -35,6 +36,15 @@ export const REPORTS = [
     group: 'Keuangan',
     description: 'Omzet dikurangi HPP bahan, per outlet. Beban operasional belum termasuk — lihat catatan di bawah tabel.',
     build: buildProfitLoss
+  },
+  {
+    key: 'cogs',
+    label: 'COGS (Harga Pokok Penjualan)',
+    group: 'Keuangan',
+    description:
+      'Stok awal + pembelian − stok akhir, per outlet. Stok awal & akhir diambil dari NILAI OPNAME (dihitung × HPP); ' +
+      'pembelian dari nota terima supplier. Berbeda dari Laba Kotor, yang menghitung HPP dari resep.',
+    build: buildCogs
   },
   {
     key: 'payroll_nbm',
@@ -130,6 +140,188 @@ async function fetchAttendance({ businessUnitId, outletId, from, to }) {
   );
   if (!outletId) return rows;
   return rows.filter((r) => (r.nbm_outlet_id ?? r.outlet_id) === outletId);
+}
+
+// ---------------------------------------------------------
+// 0. COGS — dari pergerakan stok nyata
+//
+//   COGS = stok awal + pembelian − stok akhir
+//
+// Stok awal & akhir = NILAI OPNAME (Σ dihitung × HPP), bukan saldo `stock_balances`.
+// Alasannya: saldo sistem adalah hasil pencatatan; opname adalah hasil MELIHAT
+// RAK. Selisih keduanya justru isi dari angka yang dicari — tumpahan, kelebihan
+// takar, waste tak tercatat, kehilangan.
+// ---------------------------------------------------------
+
+/**
+ * Opname TERTUTUP terakhir per outlet pada suatu rentang tanggal.
+ *
+ * `status = 'closed'` saja. Sesi yang masih 'open' belum selesai dihitung, dan
+ * sesi 'cancelled' sengaja ditutup TANPA menyentuh stok (0085) — memakai
+ * keduanya berarti menilai stok dari hitungan yang belum/tidak berlaku.
+ *
+ * Kalau satu outlet punya beberapa opname di rentang yang sama, yang dipakai
+ * yang PALING AKHIR: itulah keadaan rak pada ujung periode.
+ */
+async function opnameTerakhirPerOutlet({ businessUnitId, outletIds, sampai, sejak = null }) {
+  if (!outletIds?.length) return new Map();
+  const baris = await ambilSemua((dari, hingga) => {
+    let q = supabase
+      .from('stock_counts')
+      .select('id, outlet_id, code, count_date, closed_at', { count: 'exact' })
+      .eq('business_unit_id', businessUnitId)
+      .eq('status', 'closed')
+      .in('outlet_id', outletIds)
+      .lte('count_date', sampai)
+      .order('count_date', { ascending: false })
+      .order('closed_at', { ascending: false });
+    if (sejak) q = q.gte('count_date', sejak);
+    return q.range(dari, hingga);
+  });
+
+  // Urutannya sudah menurun, jadi yang PERTAMA ketemu per outlet adalah yang
+  // paling akhir. `has` dipakai supaya sisanya dilewati tanpa membandingkan
+  // tanggal lagi — perbandingan kedua adalah tempat urutan mudah tertukar.
+  const peta = new Map();
+  for (const b of baris) {
+    if (!peta.has(b.outlet_id)) peta.set(b.outlet_id, b);
+  }
+  return peta;
+}
+
+/** Nilai tiap sesi opname yang diberikan, dari isinya. */
+async function nilaiSesiOpname(sesiList, hpp) {
+  const hasil = new Map();
+  for (const sesi of sesiList) {
+    if (!sesi?.id) continue;
+    const items = await ambilSemua((dari, sampai) =>
+      supabase
+        .from('stock_count_items')
+        .select('product_id, counted_qty', { count: 'exact' })
+        .eq('count_id', sesi.id)
+        .range(dari, sampai)
+    );
+    const n = nilaiOpname(items, hpp);
+    hasil.set(sesi.id, { tanggal: sesi.count_date, kode: sesi.code, ...n });
+  }
+  return hasil;
+}
+
+async function buildCogs({ businessUnitId, outletId, from, to }) {
+  let outletQ = supabase.from('outlets').select('id, name').eq('business_unit_id', businessUnitId).order('name');
+  if (outletId) outletQ = outletQ.eq('id', outletId);
+  const [outletRes, products, recipes] = await Promise.all([
+    outletQ,
+    listProducts(businessUnitId).catch(() => []),
+    listRecipesFull(businessUnitId).catch(() => [])
+  ]);
+  if (outletRes.error) throw outletRes.error;
+
+  const outlets = outletRes.data ?? [];
+  const outletIds = outlets.map((o) => o.id);
+  const hpp = computeCosts(products, recipes);
+
+  // Sehari sebelum periode: stok awal adalah keadaan rak SEBELUM hari pertama.
+  // Memakai `from` sendiri akan mengambil opname yang dilakukan DI DALAM
+  // periode sebagai stok awal, dan pembelian hari itu jadi terhitung dua kali.
+  const sebelum = new Date(`${from}T00:00:00`);
+  sebelum.setDate(sebelum.getDate() - 1);
+  const hariSebelum = dateKey(sebelum);
+
+  const [petaAwal, petaAkhir, notaRes] = await Promise.all([
+    opnameTerakhirPerOutlet({ businessUnitId, outletIds, sampai: hariSebelum }),
+    opnameTerakhirPerOutlet({ businessUnitId, outletIds, sampai: to, sejak: from }),
+    ambilSemua((dari, sampai) => {
+      let q = supabase
+        .from('nota_ringkas')
+        .select('outlet_id, receipt_date, total, status', { count: 'exact' })
+        .eq('business_unit_id', businessUnitId)
+        .gte('receipt_date', from)
+        .lte('receipt_date', to);
+      if (outletId) q = q.eq('outlet_id', outletId);
+      return q.range(dari, sampai);
+    })
+  ]);
+
+  const nilaiSesi = await nilaiSesiOpname([...petaAwal.values(), ...petaAkhir.values()], hpp);
+
+  // Nota yang DIBATALKAN (0131) barangnya sudah ditarik — ikut menghitungnya
+  // membuat pembelian, dan karenanya COGS, lebih besar dari yang sebenarnya.
+  const pembelian = new Map();
+  for (const n of notaRes) {
+    if (n.status === 'dibatalkan') continue;
+    pembelian.set(n.outlet_id, (pembelian.get(n.outlet_id) ?? 0) + (Number(n.total) || 0));
+  }
+
+  const baris = outlets.map((o) => {
+    const sAwal = petaAwal.get(o.id);
+    const sAkhir = petaAkhir.get(o.id);
+    return {
+      outlet: o.name,
+      ...barisCogs({
+        awal: sAwal ? nilaiSesi.get(sAwal.id) : null,
+        akhir: sAkhir ? nilaiSesi.get(sAkhir.id) : null,
+        pembelian: pembelian.get(o.id) ?? 0
+      })
+    };
+  });
+
+  const total = ringkasCogs(baris);
+
+  const rows = baris.map((b) => [
+    b.outlet,
+    b.tanggalAwal || '-',
+    b.awal === null ? '-' : rp(b.awal),
+    rp(b.pembelian),
+    b.tanggalAkhir || '-',
+    b.akhir === null ? '-' : rp(b.akhir),
+    // "-" DAN BUKAN Rp0. Nol di kolom ini terbaca sebagai "tidak ada biaya
+    // pokok bulan ini" — pernyataan yang sepenuhnya berbeda dari "belum bisa
+    // dihitung", dan keduanya sama-sama terlihat wajar di laporan bulanan.
+    b.cogs === null ? '-' : rp(b.cogs),
+    b.catatan
+  ]);
+
+  if (baris.length > 1) {
+    rows.push([
+      `TOTAL (${total.outletTerhitung} outlet)`,
+      '',
+      rp(total.awal),
+      rp(total.pembelian),
+      '',
+      rp(total.akhir),
+      rp(total.cogs),
+      total.outletTerlewat ? `${total.outletTerlewat} outlet tidak ikut karena opnamenya belum ada` : ''
+    ]);
+  }
+
+  return {
+    columns: [
+      { header: 'Outlet', width: 1.6 },
+      { header: 'Opname Awal', width: 1 },
+      { header: 'Stok Awal', width: 1.2, numeric: true },
+      { header: 'Pembelian', width: 1.2, numeric: true },
+      { header: 'Opname Akhir', width: 1 },
+      { header: 'Stok Akhir', width: 1.2, numeric: true },
+      { header: 'COGS', width: 1.3, numeric: true },
+      { header: 'Catatan', width: 2 }
+    ],
+    rows,
+    bold: baris.length > 1 ? [rows.length - 1] : [],
+    summary: [
+      { label: 'Stok awal', value: rp(total.awal) },
+      { label: 'Pembelian', value: rp(total.pembelian) },
+      { label: 'Stok akhir', value: rp(total.akhir) },
+      { label: 'COGS', value: rp(total.cogs) }
+    ],
+    note:
+      'COGS = stok awal + pembelian − stok akhir. Stok awal adalah nilai opname TERTUTUP terakhir sebelum ' +
+      `${from}; stok akhir adalah nilai opname tertutup terakhir pada ${from} s/d ${to}. Keduanya = Σ (jumlah dihitung × HPP). ` +
+      'Outlet yang salah satu opnamenya belum ada TIDAK dihitung dan tidak ikut ke total — nol di kolom COGS akan ' +
+      'terbaca sebagai "tidak ada biaya pokok", yang artinya sepenuhnya berbeda. ' +
+      'Angka ini berbasis barang yang benar-benar hilang dari rak, jadi selisihnya terhadap HPP resep di laporan ' +
+      'Laba Kotor adalah tumpahan, kelebihan takar, waste tak tercatat, dan kehilangan.'
+  };
 }
 
 // ---------------------------------------------------------
