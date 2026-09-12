@@ -5931,25 +5931,34 @@ Selisih antara keduanya adalah tumpahan, kelebihan takar, waste yang tidak terca
 
 Stok awal = nilai opname tertutup terakhir **sebelum** periode. Stok akhir = nilai opname tertutup terakhir **di dalam** periode. Pembelian = total nota terima, tanpa yang dibatalkan (`0131`).
 
-### Yang paling berbahaya: opname yang tidak ada
+### Versi pertamanya salah, dan sesi perbaikan yang menunjukkannya
 
-Rumusnya cuma tiga angka dan dua di antaranya dari opname. Kalau yang hilang diperlakukan nol:
+> "stock akhir jangan diambil dari hasil opname yang paling akhir, tetapi semua sesi opname di bulan itu, karena ada case, perbaikan opname … jika ada salah jumlah bahan, saya akan buka sesi opname lagi, dan yang terisi hanya bahan yang salah saja, jadi nominalnya akan sangat kecil"
 
-| Yang hilang | Akibatnya |
-|---|---|
-| stok akhir | COGS melonjak sebesar seluruh nilai stok |
-| stok awal | COGS anjlok, bisa jadi negatif |
+Versi pertama memakai **nilai satu sesi opname** sebagai stok akhir. Cacatnya mendasar: sebuah sesi opname hanya berisi bahan yang dihitung **di sesi itu**. Sesi perbaikan berisi satu bahan — Rp54.701 dipakai sebagai "nilai seluruh stok outlet", salah beberapa ratus kali lipat, dan laporannya tetap tercetak rapi.
 
-Dua-duanya menghasilkan angka yang **masih terbaca masuk akal** di laporan bulanan — tidak ada error, tidak ada baris kosong, cuma angka yang salah besar. Maka outlet yang salah satu opnamenya belum ada berbunyi **"-"** beserta sebabnya, tidak ikut ke total mana pun, dan pembeliannya juga tidak ikut — menjumlahkan pembelian tanpa stoknya membuat total tidak konsisten dengan barisnya sendiri.
+Menggabungkan semua sesi dalam periode memperbaiki kasus itu, tapi tidak kasus yang lebih umum: bahan yang **tidak pernah** dihitung bulan itu tetap bernilai nol.
 
-Empat keputusan lain yang semuanya gagal diam-diam kalau salah:
+Jawabannya sudah ada bentuknya di repo ini. `stock_balances` (`0018`) adalah `sum(qty_delta)` dari `stock_movements`; yang kurang cuma batas tanggalnya. `0137` menambahkan `saldo_stok_pada(bu, tanggal, outlet)` — view yang sama, dilihat pada satu titik waktu.
 
-- Hanya sesi **`closed`** yang dipakai. `open` belum selesai dihitung; `cancelled` sengaja ditutup **tanpa menyentuh stok** (`0085`) — keduanya bukan keadaan rak.
-- Kalau satu outlet punya beberapa opname di satu periode, yang dipakai yang **paling akhir**.
-- Stok awal diambil dari **sehari sebelum** periode. Memakai tanggal pertama periode akan mengambil opname di dalam periode sebagai stok awal, dan pembelian hari itu terhitung dua kali.
-- Nilainya dari **`counted_qty`**, bukan `system_qty`. Kalau tertukar, stok akhir jadi angka catatan — padahal seluruh guna opname justru karena keduanya berbeda.
+Dan karena **menutup opname menulis penyesuaian ke `stock_movements`**, hasil tiap opname — termasuk sesi perbaikan — sudah ikut dengan sendirinya, tanpa perlu membaca sesinya sama sekali. Bahan yang tidak pernah dihitung tetap membawa saldo terakhirnya.
 
-- [x] **Nilai Opname + laporan COGS** — tanpa migration; 19 sabotase
+### Opname berubah peran, dari sumber jadi penanda
+
+Opname tetap tampil di laporannya, tapi bukan lagi sumber angkanya: ia menandai apakah stok itu pernah **dikunci hitungan fisik**. Outlet yang belum pernah opname tetap punya COGS — hanya sebaik pencatatannya — dan barisnya berkata `(belum ada)` beserta peringatan. Perbedaan antara "sudah diverifikasi fisik" dan "baru menurut catatan" tidak terlihat dari angkanya sendiri, jadi ia harus ditulis.
+
+Semua outlet ikut ke total, termasuk yang belum terkunci. Membuang barisnya membuat total tidak sama dengan jumlah kolomnya sendiri, dan yang membacanya akan mengira ada kesalahan penjumlahan. Berapa yang sudah terkunci disebut di kartu ringkasnya.
+
+### Empat keputusan lain yang gagal diam-diam kalau salah
+
+- Batas waktunya **akhir hari WIB**, bukan UTC. Tujuh jamnya memindahkan seluruh pergerakan sore ke tanggal berikutnya, dan stok akhir bulan tidak memuat pembelian sore tanggal terakhir.
+- Saldo **negatif tetap dibawa**. Stok boleh menembus nol di aplikasi ini (`0020`/`0134`); membuangnya membuat nilai stok lebih besar dari kenyataan.
+- Stok awal dari **sehari sebelum** periode. Memakai tanggal pertama periode membuat pembelian hari itu terhitung dua kali.
+- `saldo_stok_pada` **`security invoker`**, sama seperti `stock_balances`. Tidak ada alasan melonggarkan RLS untuk laporan yang selalu dipanggil orang yang sudah berhak atas BU-nya.
+
+Dan RPC-nya diambil dengan `ambilSemua`: RPC yang mengembalikan himpunan baris pun dipotong PostgREST di sekitar 1000 baris, sementara satu BU di sini punya 800+ produk di beberapa outlet — yang hilang cuma membuat stok akhirnya lebih kecil, tanpa satu pun error.
+
+- [x] **Nilai Opname + laporan COGS** (`0137`) — 24 sabotase
 
 ## Waste / Spoil wajib berfoto, dan rekapnya bisa dipertanggungjawabkan
 

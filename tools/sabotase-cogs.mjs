@@ -17,9 +17,10 @@ const OPN = 'js/modules/inventory/laporan-opname.js';
 const OPN_ADM = 'js/modules/inventory/opname.admin.js';
 const MURNI = 'js/modules/report/cogs.js';
 const SVC = 'js/modules/report/report.service.js';
+const MIG = 'supabase/migrations/0137_saldo_stok_pada_tanggal.sql';
 
 const asli = new Map();
-for (const rel of [OPN, OPN_ADM, MURNI, SVC]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
+for (const rel of [OPN, OPN_ADM, MURNI, SVC, MIG]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
 
 const pulih = () => {
   for (const [rel, isi] of asli) fs.writeFileSync(P(rel), isi);
@@ -95,31 +96,24 @@ sabotase('nilai opname dihitung tapi tidak pernah ditampilkan', OPN_ADM, 'lap.ni
 console.log('\nSABOTASE RUMUS COGS:');
 
 sabotase(
-  'opname yang tidak ada diam-diam jadi NOL — COGS melonjak atau jadi negatif',
-  MURNI,
-  '    cogs: bisa ? nAwal + beli - nAkhir : null,',
-  '    cogs: (nAwal ?? 0) + beli - (nAkhir ?? 0),',
-  TES
-);
-sabotase(
   'stok akhir DITAMBAHKAN, bukan dikurangi',
   MURNI,
-  '    cogs: bisa ? nAwal + beli - nAkhir : null,',
-  '    cogs: bisa ? nAwal + beli + nAkhir : null,',
+  '    cogs: nAwal + beli - nAkhir,',
+  '    cogs: nAwal + beli + nAkhir,',
   TES
 );
 sabotase(
   'stok awal dan akhir tertukar',
   MURNI,
-  '    cogs: bisa ? nAwal + beli - nAkhir : null,',
-  '    cogs: bisa ? nAkhir + beli - nAwal : null,',
+  '    cogs: nAwal + beli - nAkhir,',
+  '    cogs: nAkhir + beli - nAwal,',
   TES
 );
 sabotase(
-  'satu opname yang hilang dianggap cukup',
+  'saldo negatif dijepit ke nol — nilai stok lebih besar dari kenyataan',
   MURNI,
-  '  const bisa = nAwal !== null && nAkhir !== null;',
-  '  const bisa = nAwal !== null || nAkhir !== null;',
+  '    nilai += h * qty;',
+  '    nilai += h * Math.max(0, qty);',
   TES
 );
 sabotase(
@@ -137,11 +131,66 @@ sabotase(
   TES
 );
 sabotase(
-  'outlet tanpa opname ikut ke total — total tidak konsisten dengan barisnya',
+  'penanda "dikunci opname" dimatikan — angka menurut catatan tak bisa dibedakan dari yang diverifikasi fisik',
   MURNI,
-  '  const daftar = (Array.isArray(baris) ? baris : []).filter((b) => b?.bisaDihitung);',
-  '  const daftar = Array.isArray(baris) ? baris : [];',
+  '    terkunci: !!(opnameAwal?.tanggal && opnameAkhir?.tanggal),',
+  '    terkunci: true,',
   TES
+);
+sabotase(
+  'peringatan "stok akhir belum dikunci opname" dicabut',
+  MURNI,
+  '  if (!opnameAkhir?.tanggal) catatan.push(PERINGATAN_AKHIR_TANPA_OPNAME);',
+  '',
+  TES
+);
+sabotase(
+  'sebagian outlet dibuang dari total — total tidak sama dengan jumlah kolomnya',
+  MURNI,
+  '  const daftar = Array.isArray(baris) ? baris : [];',
+  '  const daftar = (Array.isArray(baris) ? baris : []).filter((b) => b?.terkunci);',
+  TES
+);
+
+console.log('\nSABOTASE SALDO (inti perbaikannya):');
+
+sabotase(
+  'stok kembali diambil dari SATU sesi opname — sesi perbaikan jadi "nilai seluruh stok"',
+  SVC,
+  '    nilaiStokPerOutlet({ businessUnitId, outletId, tanggal: hariSebelum, hpp }),',
+  '    Promise.resolve(new Map()),',
+  AUDIT
+);
+sabotase(
+  'saldo diambil tanpa paginasi — 800+ produk terpotong di 1000 baris',
+  SVC,
+  '  const baris = await ambilSemua((dari, sampai) =>',
+  '  const baris = await (async (dari, sampai) =>',
+  AUDIT
+);
+sabotase(
+  'batas waktunya bukan akhir hari WIB — pergerakan sore jatuh ke tanggal salah',
+  MIG,
+  "     and sm.created_at < (((p_tanggal + 1)::timestamp) at time zone 'Asia/Jakarta')",
+  '     and sm.created_at::date <= p_tanggal',
+  AUDIT
+);
+// Polanya memuat baris SESUDAHNYA supaya menyasar DEKLARASINYA, bukan kalimat
+// "`security invoker`, BUKAN definer" di komentar — yang justru kemunculan
+// pertama, dan yang diganti `String.replace` kalau polanya cuma dua kata itu.
+sabotase(
+  'fungsi saldonya jadi security definer — RLS stock_movements bisa dilewati',
+  MIG,
+  'security invoker\nset search_path = public',
+  'security definer\nset search_path = public',
+  AUDIT
+);
+sabotase(
+  'saldo negatif ikut dibuang di server',
+  MIG,
+  '  having sum(sm.qty_delta) <> 0;',
+  '  having sum(sm.qty_delta) > 0;',
+  AUDIT
 );
 
 console.log('\nSABOTASE PENGAMBILAN DATA:');
@@ -174,14 +223,8 @@ sabotase(
   '    if (false) continue;',
   AUDIT
 );
-sabotase(
-  'baris tanpa opname ditulis Rp0, bukan "-"',
-  SVC,
-  "    b.cogs === null ? '-' : rp(b.cogs),",
-  '    rp(b.cogs),',
-  AUDIT
-);
 sabotase('laporan COGS dicabut dari katalog', SVC, "    key: 'cogs',", "    key: 'cogs_nonaktif',", AUDIT);
+sabotase('catatan metodologinya dibuang — COGS dikira menggantikan Laba Kotor', SVC, '    note:\n', '    noteLama:\n', AUDIT);
 
 console.log('');
 if (gagal === 0) console.log('Semua sabotase COGS tertangkap. ✅');

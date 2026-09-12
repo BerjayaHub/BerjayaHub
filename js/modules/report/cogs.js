@@ -2,7 +2,7 @@
  * COGS — Harga Pokok Penjualan dari pergerakan stok nyata.
  *
  *   "stock awal (stock akhir bulan lalu) ditambah pembelian dikurangi stock
- *    akhir bulan ini (nilai opname bulan ini)"
+ *    akhir bulan ini"
  *
  *     COGS = stok awal + pembelian − stok akhir
  *
@@ -17,26 +17,34 @@
  * kehilangan — yaitu justru angka yang paling ingin diketahui pemilik, dan
  * satu-satunya yang tidak bisa dilihat dari laporan resep.
  *
- * ============ YANG PALING BERBAHAYA: OPNAME YANG TIDAK ADA ============
+ * ============ STOKNYA DARI SALDO, BUKAN DARI SATU SESI OPNAME ============
  *
- * Rumusnya cuma tiga angka, dan dua di antaranya berasal dari opname. Kalau
- * salah satunya tidak ada dan diperlakukan sebagai NOL:
+ * Versi pertama berkas ini memakai nilai SATU SESI opname sebagai stok akhir.
+ * Itu keliru, dan laporan lapangannya langsung menunjukkan kenapa:
  *
- *   stok akhir hilang -> COGS melonjak sebesar seluruh nilai stok
- *   stok awal hilang  -> COGS anjlok, bisa jadi negatif
+ *   "jika ada salah jumlah bahan, saya akan buka sesi opname lagi, dan yang
+ *    terisi hanya bahan yang salah saja, jadi nominalnya akan sangat kecil"
  *
- * Dua-duanya menghasilkan angka yang MASIH TERBACA MASUK AKAL di laporan
- * bulanan — tidak ada error, tidak ada baris kosong, cuma angka yang salah
- * besar. Maka opname yang tidak ada menghasilkan `null` dan barisnya berkata
- * kenapa; ia TIDAK PERNAH diam-diam jadi nol.
+ * Sesi opname hanya berisi bahan yang dihitung DI SESI ITU. Sesi perbaikan
+ * berisi satu bahan; nilainya Rp54.701 dipakai sebagai "nilai seluruh stok
+ * outlet" — salah beberapa ratus kali lipat, dan tetap tercetak rapi.
+ *
+ * Sekarang stoknya diambil dari SALDO pada tanggal itu (`saldo_stok_pada`,
+ * 0137), yaitu `stock_balances` yang sama dengan batas waktu. Menutup opname
+ * menulis penyesuaian ke `stock_movements`, jadi hasil tiap opname — termasuk
+ * sesi perbaikan — sudah ikut dengan sendirinya, dan bahan yang tidak pernah
+ * dihitung tetap membawa saldo terakhirnya.
+ *
+ * Opname tetap disebut di laporannya, tapi perannya berubah: ia bukan lagi
+ * SUMBER angkanya, melainkan penanda apakah angka itu pernah DIKUNCI hitungan
+ * fisik. Outlet yang belum pernah opname tetap punya COGS — hanya sebaik
+ * pencatatannya, dan barisnya mengatakan itu.
  *
  * Tidak ada impor dari layar di berkas ini, supaya bisa diuji tanpa browser.
  */
 
-/** Alasan sebuah baris tidak bisa dihitung — dipakai layar & tes. */
-export const SEBAB_TANPA_AWAL = 'Belum ada opname sebelum periode ini';
-export const SEBAB_TANPA_AKHIR = 'Belum ada opname di dalam periode ini';
-export const SEBAB_TANPA_KEDUANYA = 'Belum ada opname sama sekali';
+export const PERINGATAN_AWAL_TANPA_OPNAME = 'Stok awal belum dikunci opname';
+export const PERINGATAN_AKHIR_TANPA_OPNAME = 'Stok akhir belum dikunci opname';
 
 const angkaAtauNull = (v) => {
   if (v === null || v === undefined || v === '') return null;
@@ -45,30 +53,29 @@ const angkaAtauNull = (v) => {
 };
 
 /**
- * Nilai satu sesi opname = Σ (dihitung × HPP).
+ * Nilai sekumpulan saldo stok = Σ (qty × HPP).
  *
- * Bahan tanpa HPP TIDAK dihitung nol — ia dihitung jumlahnya dan dilaporkan,
- * karena nilainya yang hilang membuat stok akhir lebih kecil dan COGS lebih
- * besar, tanpa satu pun tanda di angkanya.
+ * Bahan tanpa HPP TIDAK dihitung nol diam-diam — jumlahnya dilaporkan, karena
+ * nilainya yang hilang menggeser COGS tanpa satu pun tanda di angkanya.
  *
- * @param {{product_id: string, counted_qty: number|string}[]} items
+ * @param {{product_id: string, qty: number|string}[]} saldo baris `saldo_stok_pada`
  * @param {Map<string, number>} hpp productId -> HPP per satuan
  */
-export function nilaiOpname(items, hpp = new Map()) {
+export function nilaiStok(saldo, hpp = new Map()) {
   let nilai = 0;
   let tanpaHpp = 0;
   let jumlahItem = 0;
 
-  for (const it of Array.isArray(items) ? items : []) {
-    if (!it) continue;
+  for (const b of Array.isArray(saldo) ? saldo : []) {
+    if (!b) continue;
     jumlahItem++;
-    const qty = angkaAtauNull(it.counted_qty) ?? 0;
-    const h = hpp instanceof Map ? angkaAtauNull(hpp.get(it.product_id)) : null;
+    const qty = angkaAtauNull(b.qty) ?? 0;
+    const h = hpp instanceof Map ? angkaAtauNull(hpp.get(b.product_id)) : null;
     // `??` dan bukan `||`: HPP 0 adalah angka yang sah (bahan bonus) dan tidak
     // boleh terbaca sebagai "belum punya harga".
     if (h === null) {
-      // Barang berjumlah nol tanpa HPP tidak menyumbang apa pun ke nilainya,
-      // jadi ia bukan kekurangan yang perlu dilaporkan.
+      // Saldo nol tanpa HPP tidak menyumbang apa pun, jadi bukan kekurangan
+      // yang perlu dilaporkan.
       if (qty !== 0) tanpaHpp++;
       continue;
     }
@@ -82,41 +89,40 @@ export function nilaiOpname(items, hpp = new Map()) {
  * Satu baris COGS untuk satu outlet.
  *
  * @param {object} o
- * @param {{tanggal: string, nilai: number, tanpaHpp?: number}|null} o.awal
- *   opname TERAKHIR sebelum periode — stok awal
- * @param {{tanggal: string, nilai: number, tanpaHpp?: number}|null} o.akhir
- *   opname TERAKHIR di dalam periode — stok akhir
+ * @param {{nilai: number, tanpaHpp?: number}} o.awal  saldo pada H-1 periode
+ * @param {{nilai: number, tanpaHpp?: number}} o.akhir saldo pada hari terakhir periode
  * @param {number} o.pembelian total nota terima pada periode
+ * @param {{tanggal?: string}|null} [o.opnameAwal]  opname tertutup terakhir sebelum periode
+ * @param {{tanggal?: string}|null} [o.opnameAkhir] opname tertutup terakhir di dalam periode
  */
-export function barisCogs({ awal = null, akhir = null, pembelian = 0 } = {}) {
+export function barisCogs({ awal, akhir, pembelian = 0, opnameAwal = null, opnameAkhir = null } = {}) {
   const beli = angkaAtauNull(pembelian) ?? 0;
-  const nAwal = awal ? angkaAtauNull(awal.nilai) : null;
-  const nAkhir = akhir ? angkaAtauNull(akhir.nilai) : null;
+  const nAwal = angkaAtauNull(awal?.nilai) ?? 0;
+  const nAkhir = angkaAtauNull(akhir?.nilai) ?? 0;
 
+  // PERINGATAN, BUKAN PENOLAKAN.
+  //
+  // Saldo selalu ada, jadi COGS selalu bisa dihitung — tapi angkanya hanya
+  // sebaik pencatatannya sampai ada opname yang menguncinya. Perbedaan antara
+  // "sudah diverifikasi fisik" dan "baru menurut catatan" TIDAK terlihat dari
+  // angkanya sendiri, jadi ia harus ditulis.
   const catatan = [];
-  if (nAwal === null && nAkhir === null) catatan.push(SEBAB_TANPA_KEDUANYA);
-  else {
-    if (nAwal === null) catatan.push(SEBAB_TANPA_AWAL);
-    if (nAkhir === null) catatan.push(SEBAB_TANPA_AKHIR);
-  }
+  if (!opnameAwal?.tanggal) catatan.push(PERINGATAN_AWAL_TANPA_OPNAME);
+  if (!opnameAkhir?.tanggal) catatan.push(PERINGATAN_AKHIR_TANPA_OPNAME);
 
-  // Bahan tanpa HPP membuat nilai opnamenya lebih kecil dari seharusnya —
-  // dan COGS-nya ikut bergeser. Disebut, bukan didiamkan.
   const tanpaHpp = (awal?.tanpaHpp ?? 0) + (akhir?.tanpaHpp ?? 0);
   if (tanpaHpp) catatan.push(`${tanpaHpp} bahan belum punya HPP`);
 
-  const bisa = nAwal !== null && nAkhir !== null;
   return {
     awal: nAwal,
     akhir: nAkhir,
     pembelian: beli,
-    // `null`, BUKAN 0. Nol di kolom COGS terbaca sebagai "tidak ada biaya
-    // pokok bulan ini" — pernyataan yang sepenuhnya berbeda dari "belum bisa
-    // dihitung", dan keduanya sama-sama terlihat wajar di laporan bulanan.
-    cogs: bisa ? nAwal + beli - nAkhir : null,
-    bisaDihitung: bisa,
-    tanggalAwal: awal?.tanggal ?? '',
-    tanggalAkhir: akhir?.tanggal ?? '',
+    cogs: nAwal + beli - nAkhir,
+    // Dua-duanya dikunci opname = angkanya berdiri di atas hitungan fisik di
+    // kedua ujung periode. Hanya baris seperti ini yang layak dipakai berdebat.
+    terkunci: !!(opnameAwal?.tanggal && opnameAkhir?.tanggal),
+    tanggalAwal: opnameAwal?.tanggal ?? '',
+    tanggalAkhir: opnameAkhir?.tanggal ?? '',
     catatan: catatan.join('; ')
   };
 }
@@ -124,22 +130,25 @@ export function barisCogs({ awal = null, akhir = null, pembelian = 0 } = {}) {
 /**
  * Total seluruh outlet.
  *
- * Outlet yang COGS-nya tidak bisa dihitung TIDAK ikut ke total mana pun —
- * termasuk ke total pembeliannya. Menjumlahkan pembelian sebuah outlet tanpa
- * stok awal/akhirnya menghasilkan total yang tidak konsisten dengan barisnya
- * sendiri, dan yang membacanya akan mengira ada kesalahan penjumlahan.
+ * SEMUA outlet ikut — berbeda dari versi sebelumnya, yang membuang outlet tanpa
+ * opname karena angkanya memang belum ada. Sekarang angkanya selalu ada; yang
+ * belum ada cuma penguncinya. Membuang barisnya dari total akan membuat total
+ * tidak sama dengan jumlah kolomnya sendiri, dan yang membacanya akan mengira
+ * ada kesalahan penjumlahan.
+ *
+ * Berapa outlet yang belum terkunci DISEBUT terpisah.
  */
 export function ringkasCogs(baris) {
-  const daftar = (Array.isArray(baris) ? baris : []).filter((b) => b?.bisaDihitung);
-  const jumlah = (f) => daftar.reduce((t, b) => t + (Number(b[f]) || 0), 0);
-  const semua = Array.isArray(baris) ? baris.length : 0;
+  const daftar = Array.isArray(baris) ? baris : [];
+  const jumlah = (f) => daftar.reduce((t, b) => t + (Number(b?.[f]) || 0), 0);
+  const terkunci = daftar.filter((b) => b?.terkunci).length;
   return {
     awal: jumlah('awal'),
     pembelian: jumlah('pembelian'),
     akhir: jumlah('akhir'),
     cogs: jumlah('cogs'),
-    outletTerhitung: daftar.length,
-    outletTotal: semua,
-    outletTerlewat: semua - daftar.length
+    outletTotal: daftar.length,
+    outletTerkunci: terkunci,
+    outletBelumTerkunci: daftar.length - terkunci
   };
 }

@@ -79,25 +79,26 @@ if (opnAdmin && !/nilaiOpnameTeks/.test(tanpaKomentar(opnAdmin))) {
 const murni = baca('js/modules/report/cogs.js');
 if (murni) {
   const kode = tanpaKomentar(murni);
-  for (const n of ['nilaiOpname', 'barisCogs', 'ringkasCogs']) {
+  for (const n of ['nilaiStok', 'barisCogs', 'ringkasCogs']) {
     if (!new RegExp(`export function ${n}\\(`).test(kode)) salah(`cogs.js: \`${n}\` tidak diekspor.`);
   }
-  if (!/cogs: bisa \? nAwal \+ beli - nAkhir : null,/.test(kode)) {
+  if (!/cogs: nAwal \+ beli - nAkhir,/.test(kode)) {
+    salah('cogs.js: rumus COGS berubah. Arah stok akhir paling mudah terbalik, dan hasilnya tetap terbaca wajar.');
+  }
+  // Opname bukan lagi SUMBER angkanya, melainkan penanda "sudah dikunci".
+  if (!/terkunci: !!\(opnameAwal\?\.tanggal && opnameAkhir\?\.tanggal\)/.test(kode)) {
     salah(
-      'cogs.js: rumusnya berubah, atau opname yang tidak ada tidak lagi menghasilkan `null`. ' +
-        'Nol di kolom COGS terbaca sebagai "tidak ada biaya pokok bulan ini" — pernyataan yang sepenuhnya berbeda ' +
-        'dari "belum bisa dihitung", dan keduanya sama-sama terlihat wajar.'
+      'cogs.js: penanda "dikunci opname" hilang. ' +
+        'Angka yang berdiri di atas hitungan fisik dan yang baru menurut catatan TIDAK bisa dibedakan dari ' +
+        'angkanya sendiri — perbedaan itu harus ditulis.'
     );
   }
-  if (!/const bisa = nAwal !== null && nAkhir !== null;/.test(kode)) {
-    salah('cogs.js: syarat "bisa dihitung" berubah — satu opname yang hilang cukup membuat angkanya salah besar.');
+  if (!/catatan\.push\(PERINGATAN_AKHIR_TANPA_OPNAME\)/.test(kode)) {
+    salah('cogs.js: outlet tanpa opname akhir tidak diberi peringatan apa pun.');
   }
-  // Outlet yang tidak terhitung tidak boleh menyumbang apa pun ke total.
-  if (!/\.filter\(\(b\) => b\?\.bisaDihitung\)/.test(kode)) {
-    salah(
-      'cogs.js: total ikut menjumlahkan outlet yang COGS-nya tidak bisa dihitung. ' +
-        'Pembelian tanpa stok awal/akhirnya membuat total tidak konsisten dengan barisnya sendiri.'
-    );
+  // Saldo negatif harus ikut. Stok boleh menembus nol (0020/0134).
+  if (/qty\s*<\s*0/.test(kode) || /Math\.max\(0,/.test(kode)) {
+    salah('cogs.js: saldo negatif dibuang atau dijepit ke nol — nilai stok jadi lebih besar dari kenyataannya.');
   }
 }
 
@@ -130,8 +131,19 @@ if (svc) {
     }
   }
 
+  // Dipotong sampai FUNGSI BERIKUTNYA, bukan sejumlah karakter tetap.
+  //
+  // Percobaan pertama memakai `slice(j, j + 4000)` dan auditnya merah untuk
+  // kode yang benar: `note:` berada di ujung `buildCogs`, beberapa ratus
+  // karakter di luar jendelanya. Angka ajaib seperti itu ikut menyusut artinya
+  // tiap kali fungsinya bertambah panjang — dan yang pertama terlewat selalu
+  // pemeriksaan paling ujung.
+  //
+  // Lebih buruk lagi: selama auditnya merah tanpa syarat, SETIAP sabotase yang
+  // bersandar padanya melaporkan "tertangkap" tanpa membuktikan apa pun.
   const j = kode.indexOf('async function buildCogs');
-  const blok = j >= 0 ? kode.slice(j, j + 4000) : '';
+  const jSelesai = kode.indexOf('async function buildProfitLoss');
+  const blok = j >= 0 ? kode.slice(j, jSelesai > j ? jSelesai : undefined) : '';
   if (!blok) {
     salah('report.service.js: `buildCogs` tidak ada.');
   } else {
@@ -149,12 +161,33 @@ if (svc) {
           'Barangnya sudah ditarik — pembelian, dan karenanya COGS, jadi lebih besar dari yang sebenarnya.'
       );
     }
-    if (!/counted_qty/.test(blok) && !/nilaiSesiOpname/.test(blok)) {
-      salah('report.service.js `buildCogs`: nilai opnamenya tidak dihitung dari `counted_qty`.');
+    // STOKNYA DARI SALDO, BUKAN DARI SATU SESI OPNAME.
+    //
+    // Sesi opname hanya berisi bahan yang dihitung di sesi itu; sesi perbaikan
+    // berisi satu bahan. Memakainya sebagai "nilai seluruh stok" salah
+    // beberapa ratus kali lipat, dan laporannya tetap tercetak rapi.
+    // KEDUA UJUNGNYA diperiksa, masing-masing.
+    //
+    // Percobaan pertama cuma menuntut nama `nilaiStokPerOutlet` MUNCUL, dan
+    // sabotase yang mematikan panggilan stok AWAL lolos — panggilan stok akhir
+    // masih ada, jadi auditnya puas. Satu ujung yang kembali ke nol sudah
+    // cukup membuat COGS anjlok atau melonjak.
+    for (const [ujung, pola] of [
+      ['awal', /nilaiStokPerOutlet\(\{ businessUnitId, outletId, tanggal: hariSebelum, hpp \}\)/],
+      ['akhir', /nilaiStokPerOutlet\(\{ businessUnitId, outletId, tanggal: to, hpp \}\)/]
+    ]) {
+      if (!pola.test(blok)) {
+        salah(
+          `report.service.js \`buildCogs\`: stok ${ujung} tidak diambil dari saldo. ` +
+            'Nilai satu sesi opname bukan nilai seluruh stok — sesi perbaikan hanya berisi bahan yang dibetulkan.'
+        );
+      }
     }
-    // Baris yang tidak bisa dihitung wajib berbunyi "-", bukan Rp0.
-    if (!/b\.cogs === null \? '-' : rp\(b\.cogs\)/.test(blok)) {
-      salah('report.service.js `buildCogs`: baris tanpa opname ditulis sebagai rupiah, bukan "-".');
+    if (/nilaiSesiOpname\(/.test(kode)) {
+      salah(
+        'report.service.js: `nilaiSesiOpname` hidup lagi. Itu jalur lama yang menilai stok dari SATU sesi opname, ' +
+          'dan itulah bug yang dilaporkan (sesi perbaikan bernilai Rp54.701 dipakai sebagai stok akhir).'
+      );
     }
     if (!/note:/.test(blok)) {
       salah(
@@ -163,12 +196,72 @@ if (svc) {
       );
     }
   }
+
+  const k = kode.indexOf('async function nilaiStokPerOutlet');
+  const blokSaldo = k >= 0 ? kode.slice(k, k + 1200) : '';
+  if (!blokSaldo) {
+    salah('report.service.js: `nilaiStokPerOutlet` tidak ada.');
+  } else {
+    if (!/rpc\('saldo_stok_pada'/.test(blokSaldo)) {
+      salah('report.service.js: saldo stok tidak diambil lewat `saldo_stok_pada` (0137).');
+    }
+    // RPC yang mengembalikan HIMPUNAN baris ikut dipotong PostgREST di ~1000.
+    // Satu BU di sini punya 800+ produk di beberapa outlet.
+    if (!/ambilSemua\(/.test(blokSaldo)) {
+      salah(
+        'report.service.js `nilaiStokPerOutlet`: saldo diambil tanpa `ambilSemua`. ' +
+          'RPC berhimpunan pun dipotong PostgREST di sekitar 1000 baris — stok akhirnya cuma jadi lebih kecil, tanpa error.'
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------
+// 4. Migration saldonya.
+// ---------------------------------------------------------------
+/**
+ * Komentar baris penuh DIBUANG sebelum SQL-nya diperiksa.
+ *
+ * Berkas 0137 menjelaskan keputusannya sendiri di komentar — termasuk kalimat
+ * "`security invoker`, BUKAN definer". Tanpa pembuangan ini, KALIMAT ITU yang
+ * memenuhi pemeriksaan, dan deklarasi yang sudah diganti jadi `security
+ * definer` tetap lolos. Sabotase pertama pada aturan ini lolos persis begitu.
+ *
+ * Hanya komentar SATU BARIS PENUH yang dibuang, bukan `--` di ujung baris
+ * berkode: `--` bisa muncul di dalam literal string, dan pembersih yang terlalu
+ * rakus akan merusak SQL-nya sendiri.
+ */
+const tanpaKomentarSql = (sql) => String(sql).replace(/^[ \t]*--.*$/gm, '');
+
+const mig = baca('supabase/migrations/0137_saldo_stok_pada_tanggal.sql');
+if (mig) {
+  const sql = tanpaKomentarSql(mig);
+  if (!/create or replace function saldo_stok_pada\(/.test(mig)) {
+    salah('0137: `saldo_stok_pada` tidak ada — laporan COGS tidak punya stok awal/akhir.');
+  }
+  // Batasnya akhir hari WIB. Tujuh jam menggeser seluruh pergerakan sore ke
+  // tanggal berikutnya, dan stok akhir bulan tidak memuat pembelian sore
+  // tanggal terakhir. Angkanya tetap wajar dibaca.
+  if (!/sm\.created_at < \(\(\(p_tanggal \+ 1\)::timestamp\) at time zone 'Asia\/Jakarta'\)/.test(mig)) {
+    salah("0137: batas waktunya bukan akhir hari WIB — pergerakan sore hari akan jatuh ke tanggal yang salah.");
+  }
+  // `security invoker`: RLS stock_movements tetap berlaku, sama seperti
+  // `stock_balances` (0018). Tidak ada alasan melonggarkannya.
+  if (!/security invoker/.test(sql) || /security definer/.test(sql)) {
+    salah('0137: `saldo_stok_pada` bukan `security invoker` — RLS `stock_movements` jadi bisa dilewati.');
+  }
+  if (!/having sum\(sm\.qty_delta\) <> 0/.test(mig)) {
+    salah('0137: saldo nol tidak dibuang — payloadnya jadi ratusan baris kosong per outlet.');
+  }
+  if (/having sum\(sm\.qty_delta\) > 0/.test(mig)) {
+    salah('0137: saldo NEGATIF ikut dibuang. Stok boleh menembus nol di aplikasi ini — membuangnya membuat nilai stok lebih besar dari kenyataan.');
+  }
 }
 
 if (gagal === 0) {
   console.log(
-    'Nilai Opname & COGS: dihitung dari jumlah yang BENAR-BENAR dihitung, opname yang tidak ada jadi "-" bukan nol, ' +
-      "hanya sesi 'closed' yang dipakai, dan nota batal tidak ikut. ✅"
+    'Nilai Opname & COGS: nilai opname dari jumlah yang BENAR-BENAR dihitung, stok COGS dari SALDO (bukan satu sesi ' +
+      "opname), hanya sesi 'closed' yang jadi penanda, dan nota batal tidak ikut. ✅"
   );
 }
 process.exit(gagal === 0 ? 0 : 1);

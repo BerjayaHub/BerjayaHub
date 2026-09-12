@@ -12,7 +12,7 @@ import { getNbmConfig, listOvertimeTiers, listHolidays, listNbmAdjustments, calc
 import { listBuStaff } from '../leave/leave.service.js';
 import { LATE_LABEL } from '../shift/shift.service.js';
 import { laporanKasUser } from '../cash/cash.service.js';
-import { nilaiOpname, barisCogs, ringkasCogs } from './cogs.js';
+import { nilaiStok, barisCogs, ringkasCogs } from './cogs.js';
 
 // =========================================================
 // KATALOG LAPORAN
@@ -42,8 +42,9 @@ export const REPORTS = [
     label: 'COGS (Harga Pokok Penjualan)',
     group: 'Keuangan',
     description:
-      'Stok awal + pembelian − stok akhir, per outlet. Stok awal & akhir diambil dari NILAI OPNAME (dihitung × HPP); ' +
-      'pembelian dari nota terima supplier. Berbeda dari Laba Kotor, yang menghitung HPP dari resep.',
+      'Stok awal + pembelian − stok akhir, per outlet. Stok awal & akhir = nilai SALDO STOK pada tanggalnya ' +
+      '(seluruh bahan × HPP, hasil opname sudah termasuk); pembelian dari nota terima supplier. ' +
+      'Berbeda dari Laba Kotor, yang menghitung HPP dari resep.',
     build: buildCogs
   },
   {
@@ -189,21 +190,43 @@ async function opnameTerakhirPerOutlet({ businessUnitId, outletIds, sampai, seja
   return peta;
 }
 
-/** Nilai tiap sesi opname yang diberikan, dari isinya. */
-async function nilaiSesiOpname(sesiList, hpp) {
-  const hasil = new Map();
-  for (const sesi of sesiList) {
-    if (!sesi?.id) continue;
-    const items = await ambilSemua((dari, sampai) =>
-      supabase
-        .from('stock_count_items')
-        .select('product_id, counted_qty', { count: 'exact' })
-        .eq('count_id', sesi.id)
-        .range(dari, sampai)
-    );
-    const n = nilaiOpname(items, hpp);
-    hasil.set(sesi.id, { tanggal: sesi.count_date, kode: sesi.code, ...n });
+/**
+ * Saldo stok seluruh outlet pada satu tanggal, dinilai dengan HPP.
+ *
+ * ============ KENAPA BUKAN NILAI SESI OPNAME ============
+ *
+ * Versi pertama laporan ini memakai nilai SATU SESI opname sebagai stok akhir.
+ * Sesi opname hanya berisi bahan yang dihitung DI SESI ITU — dan sesi
+ * perbaikan, yang dibuka hanya untuk membetulkan satu bahan, berisi satu baris.
+ * Nilainya Rp54.701 dipakai sebagai "nilai seluruh stok outlet".
+ *
+ * `saldo_stok_pada` (0137) adalah `stock_balances` dengan batas tanggal.
+ * Menutup opname MENULIS penyesuaian ke `stock_movements`, jadi hasil tiap
+ * opname — termasuk sesi perbaikan — sudah ikut dengan sendirinya, dan bahan
+ * yang tidak pernah dihitung tetap membawa saldo terakhirnya.
+ */
+async function nilaiStokPerOutlet({ businessUnitId, outletId, tanggal, hpp }) {
+  // `ambilSemua`, dan bukan satu panggilan polos.
+  //
+  // RPC yang mengembalikan himpunan baris ikut dipotong PostgREST di sekitar
+  // 1000 baris. Satu BU di sini punya 800+ produk di beberapa outlet; yang
+  // hilang adalah produk-produk terakhir menurut urutan, dan stok akhirnya
+  // cuma jadi lebih kecil — tanpa satu pun error.
+  const baris = await ambilSemua((dari, sampai) =>
+    supabase
+      .rpc('saldo_stok_pada', { p_bu: businessUnitId, p_tanggal: tanggal, p_outlet: outletId || null }, { count: 'exact' })
+      .order('product_id')
+      .range(dari, sampai)
+  );
+
+  const perOutlet = new Map();
+  for (const b of baris) {
+    if (!perOutlet.has(b.outlet_id)) perOutlet.set(b.outlet_id, []);
+    perOutlet.get(b.outlet_id).push(b);
   }
+
+  const hasil = new Map();
+  for (const [oid, rows] of perOutlet) hasil.set(oid, nilaiStok(rows, hpp));
   return hasil;
 }
 
@@ -228,7 +251,12 @@ async function buildCogs({ businessUnitId, outletId, from, to }) {
   sebelum.setDate(sebelum.getDate() - 1);
   const hariSebelum = dateKey(sebelum);
 
-  const [petaAwal, petaAkhir, notaRes] = await Promise.all([
+  const [stokAwal, stokAkhir, petaAwal, petaAkhir, notaRes] = await Promise.all([
+    nilaiStokPerOutlet({ businessUnitId, outletId, tanggal: hariSebelum, hpp }),
+    nilaiStokPerOutlet({ businessUnitId, outletId, tanggal: to, hpp }),
+    // Opname TIDAK lagi jadi sumber angkanya — ia penanda apakah angka itu
+    // pernah dikunci hitungan fisik. Tanggalnya tetap ditampilkan supaya admin
+    // tahu sejauh mana stoknya sudah diverifikasi.
     opnameTerakhirPerOutlet({ businessUnitId, outletIds, sampai: hariSebelum }),
     opnameTerakhirPerOutlet({ businessUnitId, outletIds, sampai: to, sejak: from }),
     ambilSemua((dari, sampai) => {
@@ -243,8 +271,6 @@ async function buildCogs({ businessUnitId, outletId, from, to }) {
     })
   ]);
 
-  const nilaiSesi = await nilaiSesiOpname([...petaAwal.values(), ...petaAkhir.values()], hpp);
-
   // Nota yang DIBATALKAN (0131) barangnya sudah ditarik — ikut menghitungnya
   // membuat pembelian, dan karenanya COGS, lebih besar dari yang sebenarnya.
   const pembelian = new Map();
@@ -253,45 +279,44 @@ async function buildCogs({ businessUnitId, outletId, from, to }) {
     pembelian.set(n.outlet_id, (pembelian.get(n.outlet_id) ?? 0) + (Number(n.total) || 0));
   }
 
-  const baris = outlets.map((o) => {
-    const sAwal = petaAwal.get(o.id);
-    const sAkhir = petaAkhir.get(o.id);
-    return {
-      outlet: o.name,
-      ...barisCogs({
-        awal: sAwal ? nilaiSesi.get(sAwal.id) : null,
-        akhir: sAkhir ? nilaiSesi.get(sAkhir.id) : null,
-        pembelian: pembelian.get(o.id) ?? 0
-      })
-    };
-  });
+  const kosong = { nilai: 0, tanpaHpp: 0, jumlahItem: 0 };
+  const baris = outlets.map((o) => ({
+    outlet: o.name,
+    ...barisCogs({
+      awal: stokAwal.get(o.id) ?? kosong,
+      akhir: stokAkhir.get(o.id) ?? kosong,
+      pembelian: pembelian.get(o.id) ?? 0,
+      opnameAwal: petaAwal.get(o.id) ? { tanggal: petaAwal.get(o.id).count_date } : null,
+      opnameAkhir: petaAkhir.get(o.id) ? { tanggal: petaAkhir.get(o.id).count_date } : null
+    })
+  }));
 
   const total = ringkasCogs(baris);
 
   const rows = baris.map((b) => [
     b.outlet,
-    b.tanggalAwal || '-',
-    b.awal === null ? '-' : rp(b.awal),
+    // Tanggal opname DITAMPILKAN walau bukan lagi sumber angkanya: ia satu-
+    // satunya petunjuk sejauh mana stoknya pernah diverifikasi fisik, dan itu
+    // tidak terlihat dari angkanya sendiri.
+    b.tanggalAwal || '(belum ada)',
+    rp(b.awal),
     rp(b.pembelian),
-    b.tanggalAkhir || '-',
-    b.akhir === null ? '-' : rp(b.akhir),
-    // "-" DAN BUKAN Rp0. Nol di kolom ini terbaca sebagai "tidak ada biaya
-    // pokok bulan ini" — pernyataan yang sepenuhnya berbeda dari "belum bisa
-    // dihitung", dan keduanya sama-sama terlihat wajar di laporan bulanan.
-    b.cogs === null ? '-' : rp(b.cogs),
+    b.tanggalAkhir || '(belum ada)',
+    rp(b.akhir),
+    rp(b.cogs),
     b.catatan
   ]);
 
   if (baris.length > 1) {
     rows.push([
-      `TOTAL (${total.outletTerhitung} outlet)`,
+      'TOTAL',
       '',
       rp(total.awal),
       rp(total.pembelian),
       '',
       rp(total.akhir),
       rp(total.cogs),
-      total.outletTerlewat ? `${total.outletTerlewat} outlet tidak ikut karena opnamenya belum ada` : ''
+      total.outletBelumTerkunci ? `${total.outletBelumTerkunci} outlet belum dikunci opname` : ''
     ]);
   }
 
@@ -312,13 +337,20 @@ async function buildCogs({ businessUnitId, outletId, from, to }) {
       { label: 'Stok awal', value: rp(total.awal) },
       { label: 'Pembelian', value: rp(total.pembelian) },
       { label: 'Stok akhir', value: rp(total.akhir) },
-      { label: 'COGS', value: rp(total.cogs) }
+      { label: 'COGS', value: rp(total.cogs) },
+      {
+        label: 'Dikunci opname',
+        value: `${total.outletTerkunci}/${total.outletTotal} outlet`
+      }
     ],
     note:
-      'COGS = stok awal + pembelian − stok akhir. Stok awal adalah nilai opname TERTUTUP terakhir sebelum ' +
-      `${from}; stok akhir adalah nilai opname tertutup terakhir pada ${from} s/d ${to}. Keduanya = Σ (jumlah dihitung × HPP). ` +
-      'Outlet yang salah satu opnamenya belum ada TIDAK dihitung dan tidak ikut ke total — nol di kolom COGS akan ' +
-      'terbaca sebagai "tidak ada biaya pokok", yang artinya sepenuhnya berbeda. ' +
+      'COGS = stok awal + pembelian − stok akhir. Stok awal = nilai SALDO STOK pada akhir hari sebelum ' +
+      `${from}; stok akhir = nilai saldo stok pada akhir hari ${to}. Keduanya = Σ (saldo × HPP), memakai ` +
+      'saldo semua bahan — bukan nilai satu sesi opname, karena sesi perbaikan hanya berisi bahan yang dibetulkan ' +
+      'dan nilainya akan jauh lebih kecil dari stok sebenarnya. Hasil opname tetap ikut dengan sendirinya: ' +
+      'menutup opname menulis penyesuaian ke pergerakan stok. ' +
+      'Kolom Opname Awal/Akhir menunjukkan kapan stoknya terakhir DIKUNCI hitungan fisik; yang berisi ' +
+      '"(belum ada)" berarti angkanya hanya sebaik pencatatannya. ' +
       'Angka ini berbasis barang yang benar-benar hilang dari rak, jadi selisihnya terhadap HPP resep di laporan ' +
       'Laba Kotor adalah tumpahan, kelebihan takar, waste tak tercatat, dan kehilangan.'
   };
