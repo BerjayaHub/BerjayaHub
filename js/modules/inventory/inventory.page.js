@@ -2,7 +2,11 @@ import { toast, formDialog, confirmDialog, fuzzyMatch } from '../../core/ui.js';
 import { bandingHarga, perluDitinjau } from './biaya-rata.js';
 import { formatNum, formatRupiah } from '../../core/format.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
-import { getBiayaRataOutlet, getOutletStockMap, recordMovement, getAllowStaffOpname, recordMenuWaste } from './inventory.service.js';
+import { getBiayaRataOutlet, getOutletStockMap, recordMovement, getAllowStaffOpname } from './inventory.service.js';
+// `recordMenuWaste` SENGAJA TIDAK DIIMPOR LAGI. Sejak 0135 fungsinya di server
+// hanya berisi penolakan yang menjelaskan, dan satu-satunya jalan masuk adalah
+// `catatWaste` yang mewajibkan foto.
+import { unggahFotoWaste, catatWaste } from './waste.service.js';
 import { renderBongkarStaff } from './bongkar-staff.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
@@ -339,10 +343,27 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
 
   const menuOptions = menuProducts.map((p) => ({ value: p.id, label: `${p.name} (${p.base_unit})` }));
 
+  // =====================================================================
+  // WASTE / SPOIL — FOTONYA WAJIB (0135)
+  //
+  //   "sediakan input foto bahan yang di spoil atau menu yang di waste, dan ini
+  //    wajib, jika tidak diinput foto maka tidak bisa simpan"
+  //
+  // `required: true` pada field foto membuat dialognya menolak menutup tanpa
+  // gambar. Itu LAPIS PERTAMA, bukan penjaganya: `catat_waste` di server juga
+  // menolak, dan trigger `trg_waste_wajib_dokumen` menutup jalur lama —
+  // insert langsung ke `stock_movements` yang dipakai versi sebelumnya.
+  //
+  // Tiga lapis karena PWA di HP staff bisa tertinggal versi berhari-hari, dan
+  // waste tanpa foto tidak menghasilkan error apa pun: stoknya berkurang, dan
+  // rekapnya cuma diam-diam tidak bisa dipertanggungjawabkan.
+  // =====================================================================
   container.querySelector('#inv-waste').addEventListener('click', sekaliJalan(async () => {
     const v = await formDialog({
       title: 'Catat Waste / Spoil',
-      description: 'Waste = menu jadi yang terbuang (bahan dipotong sesuai resep). Spoil = bahan rusak/kedaluwarsa.',
+      description:
+        'Waste = menu jadi yang terbuang (bahan dipotong sesuai resep). Spoil = bahan rusak/kedaluwarsa. ' +
+        'Fotonya wajib — itu satu-satunya bukti yang tersisa setelah barangnya dibuang.',
       fields: [
         {
           name: 'kind',
@@ -358,6 +379,13 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
         { name: 'product_spoil', label: 'Bahan', type: 'searchselect', options: productOptions },
         { name: 'product_waste', label: 'Menu', type: 'searchselect', options: menuOptions },
         { name: 'qty', label: 'Jumlah', type: 'number', required: true, min: 0 },
+        {
+          name: 'foto',
+          label: 'Foto barang yang dibuang',
+          type: 'photo',
+          required: true,
+          help: 'Wajib. Foto bahan yang rusak, atau menu yang terbuang.'
+        },
         { name: 'notes', label: 'Alasan (opsional)', type: 'text', placeholder: 'mis. kedaluwarsa / salah buat' }
       ],
       submitText: 'Simpan',
@@ -377,21 +405,37 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     if (!v) return;
     const qty = Math.abs(Number(v.qty));
     if (!(qty > 0)) return toast('Jumlah harus lebih dari 0.', 'warning');
+    if (!v.foto) return toast('Foto wajib diisi.', 'warning');
 
-    if (v.kind === 'waste') {
-      if (!v.product_waste) return toast('Pilih menu yang terbuang.', 'warning');
-      if (!menuProducts.length) return toast('Belum ada produk bertipe Menu.', 'warning');
-      try {
-        await recordMenuWaste({ businessUnitId, outletId: state.outletId, productId: v.product_waste, qty, notes: v.notes });
-        toast('Waste menu tercatat — bahan dipotong sesuai resep.', 'success');
-        stockMap = await refresh();
-      } catch (error) {
-        toast(error.message ?? 'Gagal mencatat waste menu.', 'error');
-      }
+    const jenis = v.kind === 'waste' ? 'menu' : 'spoil';
+    const productId = jenis === 'menu' ? v.product_waste : v.product_spoil;
+    if (jenis === 'menu' && !menuProducts.length) return toast('Belum ada produk bertipe Menu.', 'warning');
+    if (!productId) return toast(jenis === 'menu' ? 'Pilih menu yang terbuang.' : 'Pilih bahan yang rusak.', 'warning');
+
+    // FOTONYA DIUNGGAH DULU, catatannya dibuat sesudahnya.
+    //
+    // Urutan ini yang membuat kebijakan Storage bisa memeriksa izinnya dari
+    // nama berkasnya sendiri (`{outlet_id}/…`). Kalau unggahannya gagal,
+    // TIDAK ADA yang tersimpan — dan itu memang yang diminta: tanpa foto,
+    // tidak bisa simpan.
+    let photoPath;
+    try {
+      photoPath = await unggahFotoWaste(state.outletId, v.foto);
+    } catch (error) {
+      toast(`Fotonya gagal diunggah, jadi wastenya belum tercatat. ${error.message ?? error}`, 'error');
       return;
     }
-    if (!v.product_spoil) return toast('Pilih bahan yang rusak.', 'warning');
-    await doMovement('waste', v.product_spoil, -qty, v.notes ? `Spoil: ${v.notes}` : 'Spoil');
+
+    try {
+      await catatWaste({ outletId: state.outletId, jenis, productId, qty, photoPath, notes: v.notes });
+      toast(
+        jenis === 'menu' ? 'Waste menu tercatat — bahan dipotong sesuai resep.' : 'Spoil bahan tercatat.',
+        'success'
+      );
+      stockMap = await refresh();
+    } catch (error) {
+      toast(error.message ?? 'Gagal mencatat waste.', 'error');
+    }
   }));
 
   // ---- Stok Opname: tabel yang langsung diisi (bukan pop up per produk) ----

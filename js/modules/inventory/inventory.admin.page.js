@@ -13,11 +13,13 @@ import { renderOpnameAdmin } from './opname.admin.js';
 import { renderNotaAdmin } from './nota.admin.js';
 import { renderMenipisAdmin } from './menipis.admin.js';
 import { renderEsbAdmin } from './esb.admin.js';
+import { renderWasteAdmin } from './waste.admin.js';
 
 const TABS = [
   { key: 'stock', label: 'Stok' },
   { key: 'history', label: 'Riwayat' },
   { key: 'nota', label: 'Nota Terima' },
+  { key: 'waste', label: 'Waste / Spoil' },
   { key: 'opname', label: 'Opname' },
   { key: 'menipis', label: 'Bahan Menipis' },
   { key: 'esb', label: 'Ekspor ESB' }
@@ -45,6 +47,7 @@ export async function renderInventoryAdminPage(container, { businessUnitId }) {
     if (key === 'stock') await renderStockTab(content, businessUnitId, outlets);
     if (key === 'history') await renderHistoryTab(content, businessUnitId, outlets);
     if (key === 'nota') await renderNotaAdmin(content, { businessUnitId, outlets });
+    if (key === 'waste') await renderWasteAdmin(content, { businessUnitId, outlets });
     if (key === 'opname') await renderOpnameAdmin(content, { businessUnitId, outlets });
     if (key === 'menipis') await renderMenipisAdmin(content, { businessUnitId, outlets });
     if (key === 'esb') await renderEsbAdmin(content, { businessUnitId, outlets });

@@ -5907,6 +5907,56 @@ Fitur yang sudah jadi tapi tidak bisa dicapai sama saja dengan tidak ada — dan
 
 - [x] **Tujuan order terkunci ke draft yang berjalan + tombolnya benar-benar sampai** — tanpa migration
 
+## Waste / Spoil wajib berfoto, dan rekapnya bisa dipertanggungjawabkan
+
+> "sediakan input foto bahan yang di spoil atau menu yang di waste, dan ini wajib, jika tidak diinput foto maka tidak bisa simpan … lalu di sisi admin portal sediakan rekap spoil waste berdasarkan rentang tanggal … export excel beserta foto yang sudah terkompress dan di embed ke kolom excel nya"
+
+### Waste tidak pernah punya wujud sendiri
+
+Sebelum ini spoil adalah **satu baris** `stock_movements`, dan waste menu adalah **beberapa baris** yang dibuat `record_menu_waste` (`0032`). Tidak ada apa pun yang menyatakan bahwa lima baris itu satu kejadian — jadi tidak ada tempat untuk menaruh foto, dan menempelkan `photo_path` ke tiap baris akan menyimpan gambar yang sama lima kali sambil tetap tidak bisa menjawab "berapa kali waste bulan ini".
+
+`0135` memberi kejadiannya dokumen sendiri (`waste_runs` + `waste_items`), dan tiap pergerakan stok menunjuk balik ke dokumen itu lewat `waste_run_id`.
+
+### "Wajib" ditegakkan di tiga lapis
+
+Kewajiban yang hanya hidup di layar bertahan persis sampai PWA di HP staff tertinggal versi — dan waste tanpa foto **tidak menghasilkan error apa pun**: stoknya tetap berkurang, laporannya tetap rapi, yang hilang cuma satu-satunya bukti yang tersisa sesudah barangnya dibuang.
+
+1. **Kolomnya** — `photo_path text not null check (btrim(photo_path) <> '')`. `not null` saja tidak cukup: string kosong lolos darinya, dan string kosong persis yang dikirim form yang bidangnya tidak diisi.
+2. **RPC-nya** — `catat_waste` menolak lebih dulu dengan kalimat yang bisa ditindaklanjuti. Pesan constraint tidak memberi tahu apa yang harus dilakukan, dan yang membacanya sedang berdiri di dapur.
+3. **Trigger** — `trg_waste_wajib_dokumen` menolak baris `stock_movements` bertipe `waste` yang tidak menunjuk dokumen. **Ini yang membuat kewajibannya berarti**: ia menutup insert langsung dari klien — jalan yang dipakai versi sebelumnya — sekaligus `record_menu_waste`.
+
+`record_menu_waste` sendiri tidak dihapus, isinya diganti jadi penolakan yang menjelaskan. Dibiarkan apa adanya ia gagal lewat trigger dengan pesan yang membingungkan; dihapus, PWA lama mendapat `42883 function does not exist` yang tidak berarti apa-apa bagi staff.
+
+Baris waste **lama** tidak disentuh — triggernya hanya berlaku untuk insert baru. Menyembunyikan sejarah yang sudah ada akan terbaca sebagai data yang hilang.
+
+### Keterangan yang jadi intinya
+
+Rekapnya satu baris per **bahan**, karena itu satuan yang sama dengan cara stoknya berkurang dan satu-satunya bentuk yang bisa dipivot. Kolom Keterangan yang memisahkan artinya:
+
+| Bahan | Jumlah | Keterangan |
+|---|---|---|
+| Beras | 2,5 kg | Bahan mentah |
+| Beras | 0,4 kg | Waste menu Nasi Goreng × 2 |
+| Telur | 2 butir | Waste menu Nasi Goreng × 2 |
+
+Tanpa kolom itu, "Beras 1,2 kg" tidak bisa dibedakan antara beras karungan yang kena air (masalah penyimpanan) dan nasi goreng gosong (masalah dapur). Keduanya memotong stok beras; keduanya menuntut tindakan yang berbeda.
+
+Jumlah porsinya ikut disebut — "Waste menu Nasi Goreng" saja tidak memberi tahu apakah beras 1,2 kg itu dari dua porsi atau dua puluh, dan itu justru yang menentukan apakah angkanya masuk akal.
+
+### Fotonya tertanam, bukan ditautkan
+
+Excel-nya memakai `core/xlsx-foto.js` yang sudah ada (dibangun untuk Inventaris Aset), termasuk pembedaan yang sudah dipelajari di sana: sel kosong berarti **memang tidak berfoto**, `"(foto gagal dimuat)"` berarti berfoto tapi gambarnya tidak terambil. Kalau keduanya sama-sama dikosongkan, staff akan ditegur untuk sesuatu yang sudah ia lakukan.
+
+Tautan bertanda tangan tidak dipakai karena berkasnya dikirim lewat WhatsApp dan dibuka orang yang tidak login — tautan yang kedaluwarsa dalam sejam membuat seluruh kolom buktinya kosong tepat saat dibaca.
+
+Fotonya dikecilkan di HP sebelum diunggah (preset `aktivitas`, 900px) dan dikecilkan lagi jadi 220px saat disisipkan ke Excel. Foto waste bertambah tiap hari di tiap outlet; ukurannya menggerus kuota jauh lebih cepat daripada foto aset.
+
+### Nilai rupiahnya boleh kosong
+
+Kolom Nilai memakai biaya rata-rata per outlet (`0118`) — dan kuncinya **memuat outlet**, karena harga beli beras di Sentul bukan harga beli beras di Serpong. Bahan yang belum pernah masuk lewat nota tidak punya angka, dan ditulis "-" bukan Rp0: Rp0 membuat total kerugian terlihat lebih kecil daripada yang sebenarnya, dan itu tidak akan tampak salah.
+
+- [x] **Waste/Spoil berfoto wajib + rekap Admin Portal** (`0135`) — 25 sabotase
+
 ## Export bahan masuk satu rentang, bukan satu nota
 
 > "sediakan export excel per range tanggal, jadi admin bisa export bahan apa saja yang masuk sesuai range tanggal yang dipilih tanpa export satu satu per nota"
