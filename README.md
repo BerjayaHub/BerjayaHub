@@ -5955,7 +5955,29 @@ Fotonya dikecilkan di HP sebelum diunggah (preset `aktivitas`, 900px) dan dikeci
 
 Kolom Nilai memakai biaya rata-rata per outlet (`0118`) — dan kuncinya **memuat outlet**, karena harga beli beras di Sentul bukan harga beli beras di Serpong. Bahan yang belum pernah masuk lewat nota tidak punya angka, dan ditulis "-" bukan Rp0: Rp0 membuat total kerugian terlihat lebih kecil daripada yang sebenarnya, dan itu tidak akan tampak salah.
 
+### Dan rekapnya kosong, padahal Riwayat penuh
+
+> "di riwayat saya cek ada waste, sedangkan di tab spoil/waste yang baru kamu buat tidak ada … admin tetap perlu data ini walaupun tidak ada foto"
+
+Bug, dan saya yang membuatnya. `waste_rekap` hanya membaca `waste_runs`; waste yang dicatat sebelum `0135` hidup di `stock_movements` dengan `waste_run_id` kosong dan tidak punya satu pun jalan masuk ke view itu.
+
+Yang membuatnya pantas dicatat: kepala berkas `0135` **sudah menulis peringatannya sendiri** — *"Menyembunyikan sejarah yang sudah ada akan terbaca sebagai data yang hilang"* — lalu viewnya di berkas yang sama melakukan persis itu.
+
+Godaan memperbaikinya adalah **backfill**: membuat `waste_runs` untuk tiap baris lama. Itu menuntut `photo_path` boleh kosong — melonggarkan lapis pertama dari tiga lapis, secara permanen, demi kenyamanan sekali. Jadi datanya tidak disentuh sama sekali; `0136` cuma memperluas viewnya dengan `union all`.
+
+Jenis dan nama menunya **dipulihkan dari `notes`**, yang bentuknya konsisten karena ditulis kode, bukan diketik orang:
+
+```
+0032 record_menu_waste : 'Waste menu: NASI PUTIH x1 — Spoil'
+layar spoil lama       : 'Spoil: busuk'   (atau 'Spoil' saja)
+```
+
+Dan baris-baris satu waste menu lama dikelompokkan kembali jadi satu kejadian lewat `md5(outlet || created_at || notes)`: `now()` di Postgres adalah waktu **mulai transaksi**, jadi seluruh baris dari satu perulangan punya ketiganya identik. Tanpa itu, "berapa kali waste bulan ini" menghitung tiap bahan sebagai kejadian tersendiri.
+
+Kolom `lama` menandainya di layar — **"sebelum foto diwajibkan"**, bukan "belum ada". Yang pertama menyatakan apa yang terjadi; yang kedua menuduh staffnya lupa memfoto sesuatu yang belum pernah diminta darinya.
+
 - [x] **Waste/Spoil berfoto wajib + rekap Admin Portal** (`0135`) — 25 sabotase
+- [x] **Rekap ikut menampilkan waste sebelum foto diwajibkan** (`0136`) — 8 sabotase
 
 ## Export bahan masuk satu rentang, bukan satu nota
 

@@ -100,6 +100,7 @@ export function susunRekapWaste({ baris, biaya = new Map(), periode = {} } = {})
 
   let total = 0;
   let tanpaNilai = 0;
+  let barisLama = 0;
   const kejadian = new Set();
 
   const mentah = daftar.map((b) => {
@@ -112,10 +113,15 @@ export function susunRekapWaste({ baris, biaya = new Map(), periode = {} } = {})
     if (nilai === null) tanpaNilai++;
     else total += nilai;
     if (b?.waste_id) kejadian.add(b.waste_id);
+    if (b?.lama) barisLama++;
 
     return {
       wasteId: teks(b?.waste_id),
       photoPath: teks(b?.photo_path),
+      // Dicatat SEBELUM foto diwajibkan (0136). Bedanya penting di layar:
+      // "belum ada foto" menuduh staffnya lupa; "sebelum foto diwajibkan"
+      // menyatakan apa yang sebenarnya terjadi.
+      lama: b?.lama === true,
       tanggal: teks(b?.tanggal),
       outlet: teks(b?.outlet_nama),
       bahan: teks(b?.bahan_nama) || '(produk terhapus)',
@@ -164,7 +170,8 @@ export function susunRekapWaste({ baris, biaya = new Map(), periode = {} } = {})
     `${kejadian.size} kejadian`,
     `${rows.length} baris bahan`,
     `Total ${formatRupiah(total)}`,
-    tanpaNilai ? `${tanpaNilai} baris belum punya biaya rata-rata` : ''
+    tanpaNilai ? `${tanpaNilai} baris belum punya biaya rata-rata` : '',
+    barisLama ? `${barisLama} baris dicatat sebelum foto diwajibkan` : ''
   ]
     .filter(Boolean)
     .join(' · ');
@@ -176,11 +183,12 @@ export function susunRekapWaste({ baris, biaya = new Map(), periode = {} } = {})
     kolom: KOLOM_WASTE,
     baris: rows,
     // Sejajar indeksnya dengan `baris` — layar memakainya untuk memuat foto.
-    meta: mentah.map((r) => ({ wasteId: r.wasteId, photoPath: r.photoPath })),
+    meta: mentah.map((r) => ({ wasteId: r.wasteId, photoPath: r.photoPath, lama: r.lama })),
     ringkas: {
       jumlahKejadian: kejadian.size,
       jumlahBaris: rows.length,
       tanpaNilai,
+      barisLama,
       total,
       totalTeks: formatRupiah(total)
     }

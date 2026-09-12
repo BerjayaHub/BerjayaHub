@@ -112,6 +112,70 @@ if (mig) {
 }
 
 // ---------------------------------------------------------------
+// 1b. Rekapnya HARUS memuat catatan sebelum foto diwajibkan.
+//
+// `0135` membangun `waste_rekap` yang hanya membaca `waste_runs`, lalu tab
+// rekapnya kosong sementara tab Riwayat penuh — dan komentar di 0135 sendiri
+// sudah memperingatkan bahwa "menyembunyikan sejarah akan terbaca sebagai data
+// yang hilang". `0136` menggabungkannya lewat view, TANPA memindahkan datanya.
+// ---------------------------------------------------------------
+const mig36 = baca('supabase/migrations/0136_rekap_waste_ikut_yang_lama.sql');
+if (mig36) {
+  if (!/union all/i.test(mig36)) {
+    salah(
+      '0136: `waste_rekap` tidak lagi menggabungkan catatan lama. ' +
+        'Waste sebelum 0135 hidup di `stock_movements` tanpa dokumen — tanpa gabungan ini, tab rekapnya kosong ' +
+        'sementara tab Riwayat penuh, dan admin kehilangan data yang masih ia perlukan.'
+    );
+  }
+  if (!/where sm\.movement_type = 'waste'\s*\n\s*and sm\.waste_run_id is null/.test(mig36)) {
+    salah(
+      '0136: penyaring baris lamanya berubah. Ia harus TEPAT `movement_type = waste` DAN `waste_run_id is null` — ' +
+        'tanpa syarat kedua, tiap kejadian baru akan muncul dua kali.'
+    );
+  }
+  if (!/case when sm\.notes like 'Waste menu: %' then 'menu' else 'spoil' end as jenis/.test(mig36)) {
+    salah('0136: jenis baris lama tidak dipulihkan dari `notes` — keterangannya akan menyebut semuanya bahan mentah.');
+  }
+  if (!/md5\(sm\.outlet_id::text \|\| sm\.created_at::text \|\| coalesce\(sm\.notes, ''\)\)::uuid/.test(mig36)) {
+    salah(
+      '0136: baris-baris satu waste menu lama tidak dikelompokkan kembali. ' +
+        'Tiap bahan akan terhitung sebagai kejadian tersendiri, dan "berapa kali waste bulan ini" jadi salah berlipat.'
+    );
+  }
+  if (!/true\s+as lama/.test(mig36) || !/false\s+as lama/.test(mig36)) {
+    salah(
+      '0136: kolom `lama` hilang. Tanpa penanda itu layar menampilkan sel foto kosong, yang terbaca sebagai ' +
+        '"staffnya lupa memfoto" — padahal fotonya memang belum diwajibkan saat itu.'
+    );
+  }
+  // Datanya TIDAK boleh dipindahkan. Backfill menuntut `photo_path` boleh
+  // kosong, dan itu membuka kembali pintu untuk data BARU tanpa foto.
+  if (/insert into waste_runs/i.test(mig36)) {
+    salah(
+      '0136: ada `insert into waste_runs` — datanya dipindahkan, bukan digabung di view. ' +
+        'Backfill menuntut `photo_path` boleh kosong, dan melonggarkannya demi data lama membuka pintu untuk data baru selamanya.'
+    );
+  }
+  if (/alter table waste_runs[^;]*photo_path[^;]*drop not null/i.test(mig36)) {
+    salah('0136: `photo_path not null` dilepas — lapis pertama kewajiban fotonya hilang.');
+  }
+}
+
+const svcLama = baca('js/modules/inventory/waste.service.js');
+if (svcLama) {
+  const kode = tanpaKomentar(svcLama);
+  // Kolom baru tidak boleh menyandera seluruh layar (pelajaran 0122).
+  if (!/return await ambil\(KOLOM_DASAR\)/.test(kode)) {
+    salah(
+      'waste.service.js: tidak ada jalan cadangan saat kolom `lama` belum ada. ' +
+        'PostgREST menolak SELURUH permintaan karena satu kolom tidak dikenal — dan yang hilang bukan satu kolom, ' +
+        'melainkan seluruh rekapnya. Persis yang terjadi pada 0122.'
+    );
+  }
+}
+
+// ---------------------------------------------------------------
 // 2. Layar staff: fotonya wajib DI SINI juga, dan jalur lamanya ditinggalkan.
 // ---------------------------------------------------------------
 const hal = baca('js/modules/inventory/inventory.page.js');

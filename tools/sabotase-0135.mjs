@@ -15,6 +15,7 @@ const AKAR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const P = (rel) => path.join(AKAR, rel);
 
 const MIG = 'supabase/migrations/0135_waste_foto_wajib.sql';
+const MIG36 = 'supabase/migrations/0136_rekap_waste_ikut_yang_lama.sql';
 const MURNI = 'js/modules/inventory/laporan-waste.js';
 const HAL = 'js/modules/inventory/inventory.page.js';
 const ADM = 'js/modules/inventory/waste.admin.js';
@@ -22,7 +23,7 @@ const SVC = 'js/modules/inventory/waste.service.js';
 const TAB = 'js/modules/inventory/inventory.admin.page.js';
 
 const asli = new Map();
-for (const rel of [MIG, MURNI, HAL, ADM, SVC, TAB]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
+for (const rel of [MIG, MIG36, MURNI, HAL, ADM, SVC, TAB]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
 
 const pulih = () => {
   for (const [rel, isi] of asli) fs.writeFileSync(P(rel), isi);
@@ -160,6 +161,67 @@ sabotase(
   TES
 );
 
+console.log('\nSABOTASE 0136 — catatan lama harus tetap terlihat:');
+
+const TES36 = 'tools/test-migrasi-0136.mjs';
+
+sabotase(
+  'gabungan catatan lama dicabut — tab rekap kosong lagi sementara Riwayat penuh',
+  MIG36,
+  '  union all',
+  '  ;-- union all',
+  TES36
+);
+sabotase(
+  'penyaring `waste_run_id is null` hilang — kejadian baru muncul dua kali',
+  MIG36,
+  "   where sm.movement_type = 'waste'\n     and sm.waste_run_id is null;",
+  "   where sm.movement_type = 'waste';",
+  TES36
+);
+sabotase(
+  'jenis baris lama tidak dipulihkan — semuanya jadi "bahan mentah"',
+  MIG36,
+  "         case when sm.notes like 'Waste menu: %' then 'menu' else 'spoil' end as jenis,",
+  "         'spoil' as jenis,",
+  TES36
+);
+sabotase(
+  'nama menu lama tidak dipulihkan dari catatannya',
+  MIG36,
+  "             then coalesce(nullif(substring(sm.notes from '^Waste menu: (.+) x[0-9]'), ''), '(menu tidak tercatat)')",
+  "             then '(menu tidak tercatat)'",
+  TES36
+);
+sabotase(
+  'baris satu waste menu lama tidak dikelompokkan — jumlah kejadian berlipat',
+  MIG36,
+  "         md5(sm.outlet_id::text || sm.created_at::text || coalesce(sm.notes, ''))::uuid as waste_id,",
+  '         sm.id as waste_id,',
+  TES36
+);
+sabotase(
+  'penanda `lama` dihapus — sel foto kosong terbaca sebagai staff yang lupa memfoto',
+  MIG36,
+  '         true        as lama',
+  '         false       as lama',
+  TES36
+);
+sabotase(
+  'jumlah yang terbuang jadi negatif di rekap',
+  MIG36,
+  '         abs(sm.qty_delta) as bahan_qty,',
+  '         sm.qty_delta as bahan_qty,',
+  TES36
+);
+sabotase(
+  'jalan cadangan saat kolom `lama` belum ada dicabut',
+  SVC,
+  '    return await ambil(KOLOM_DASAR);',
+  '    throw e;',
+  AUDIT
+);
+
 console.log('\nSABOTASE ATURAN REKAP:');
 
 sabotase(
@@ -212,7 +274,10 @@ sabotase(
 sabotase('ekspornya berhenti menyisipkan foto', ADM, 'await exportTableXLSXFoto({', 'await exportTanpaFoto({', AUDIT);
 sabotase('tab Waste / Spoil dihapus dari Admin Portal', TAB, "  { key: 'waste', label: 'Waste / Spoil' },", '', AUDIT);
 sabotase('foto tidak dikecilkan sebelum diunggah', SVC, 'compressImage(file, { preset: ', 'Promise.resolve(file, { preset: ', AUDIT);
-sabotase('rekapnya terpotong di 1000 baris', SVC, '  return ambilSemua((dari, sampai) => {', '  return (async (dari, sampai) => {', AUDIT);
+// Polanya menyasar `rekapWaste` saja. `getBiayaRataBu` juga memakai
+// `ambilSemua`, tapi bentuknya tanpa `{` — jadi pola ini tidak bisa salah
+// mengenainya, dan auditnya memang sudah dipersempit ke blok `rekapWaste`.
+sabotase('rekapnya terpotong di 1000 baris', SVC, '    ambilSemua((dari, sampai) => {', '    (async (dari, sampai) => {', AUDIT);
 
 console.log('');
 if (gagal === 0) console.log('Semua sabotase 0135 tertangkap. ✅');

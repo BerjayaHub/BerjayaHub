@@ -191,6 +191,30 @@ cek('biaya outlet lain TIDAK dipakai', lintas.ringkas.tanpaNilai, 1);
 cek('kunci biaya memuat outlet', kunciBiaya('o1', 'p1'), 'o1|p1');
 
 // =====================================================================
+// CATATAN SEBELUM FOTO DIWAJIBKAN (0136)
+//
+// "belum ada foto" menuduh staffnya lupa. Catatan ini dibuat sebelum fotonya
+// diwajibkan, jadi fotonya tidak pernah ada — dan layar harus bisa mengatakan
+// yang mana, bukan menampilkan sel kosong yang sama untuk keduanya.
+// =====================================================================
+const campurLama = susunRekapWaste({
+  baris: [
+    { ...baris[0], lama: true, photo_path: null },
+    { ...baris[1], lama: false }
+  ],
+  biaya
+});
+cek('baris lama dihitung', campurLama.ringkas.barisLama, 1);
+cek('subjudul menyebutnya', /1 baris dicatat sebelum foto diwajibkan/.test(campurLama.subjudul), true);
+const metaLama = campurLama.meta.find((m) => m.lama);
+cek('meta membawa penanda lama', !!metaLama, true);
+cek('meta baris lama tanpa path foto', metaLama.photoPath, '');
+cek('baris baru TIDAK ikut ditandai lama', campurLama.meta.filter((m) => m.lama).length, 1);
+// `lama` hanya boleh true kalau memang `true` — bukan karena kolomnya belum
+// ada (jalur cadangan saat 0136 belum dijalankan mengirim `undefined`).
+cek('kolom `lama` yang belum ada tidak dianggap lama', susunRekapWaste({ baris: [baris[0]] }).ringkas.barisLama, 0);
+
+// =====================================================================
 // MASUKAN RUSAK
 // =====================================================================
 const kosong = susunRekapWaste({});
@@ -210,4 +234,7 @@ if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
-console.log('Rekap waste/spoil benar untuk 38 kasus — termasuk keterangan per jenis dan biaya yang berbeda per outlet. ✅');
+console.log(
+  'Rekap waste/spoil benar untuk 44 kasus — termasuk keterangan per jenis, biaya per outlet, ' +
+    'dan catatan sebelum foto diwajibkan. ✅'
+);

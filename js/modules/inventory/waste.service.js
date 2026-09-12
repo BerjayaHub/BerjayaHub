@@ -73,23 +73,45 @@ export async function catatWaste({ outletId, jenis, productId, qty, photoPath, n
  * dicatat lewat pukul 17.00 WIB ke tanggal berikutnya — tujuh jam yang membuat
  * rekap harian tidak pernah cocok dengan catatan tulis tangan di outlet.
  */
+const KOLOM_DASAR =
+  'waste_id, outlet_id, outlet_nama, code, jenis, tanggal, qty_kejadian, photo_path, notes, ' +
+  'sumber_nama, product_id, bahan_nama, bahan_satuan, bahan_qty, dicatat_oleh';
+
 export async function rekapWaste(businessUnitId, { outletId = null, dateFrom = null, dateTo = null } = {}) {
   if (!businessUnitId) return [];
-  return ambilSemua((dari, sampai) => {
-    let q = supabase
-      .from('waste_rekap')
-      .select(
-        'waste_id, outlet_id, outlet_nama, code, jenis, tanggal, qty_kejadian, photo_path, notes, ' +
-          'sumber_nama, product_id, bahan_nama, bahan_satuan, bahan_qty, dicatat_oleh',
-        { count: 'exact' }
-      )
-      .eq('business_unit_id', businessUnitId)
-      .order('tanggal', { ascending: false });
-    if (outletId) q = q.eq('outlet_id', outletId);
-    if (dateFrom) q = q.gte('tanggal', dateFrom);
-    if (dateTo) q = q.lte('tanggal', dateTo);
-    return q.range(dari, sampai);
-  });
+
+  const ambil = (kolom) =>
+    ambilSemua((dari, sampai) => {
+      let q = supabase
+        .from('waste_rekap')
+        .select(kolom, { count: 'exact' })
+        .eq('business_unit_id', businessUnitId)
+        .order('tanggal', { ascending: false });
+      if (outletId) q = q.eq('outlet_id', outletId);
+      if (dateFrom) q = q.gte('tanggal', dateFrom);
+      if (dateTo) q = q.lte('tanggal', dateTo);
+      return q.range(dari, sampai);
+    });
+
+  try {
+    // `lama` (0136) menandai catatan sebelum foto diwajibkan. Fotonya memang
+    // tidak pernah ada — bukan hilang — dan layar harus bisa mengatakan itu
+    // alih-alih menampilkan sel kosong yang terbaca sebagai "staffnya lupa".
+    return await ambil(`${KOLOM_DASAR}, lama`);
+  } catch (e) {
+    // KOLOM BARU TIDAK BOLEH MENYANDERA SELURUH LAYAR.
+    //
+    // Ini pernah terjadi sungguhan pada 0122: kode yang meminta kolom baru
+    // di-push lebih dulu daripada migrationnya dijalankan, PostgREST menolak
+    // SELURUH permintaan karena satu kolom tidak dikenal, dan layarnya
+    // kehilangan bukan satu kolom — melainkan seluruh daftarnya.
+    //
+    // Jeda antara push dan menjalankan migration itu wajar dan akan terjadi
+    // lagi. Kalau `lama` belum ada, rekapnya tetap tampil; yang hilang cuma
+    // penandanya.
+    if (!/\blama\b/.test(String(e?.message ?? ''))) throw e;
+    return await ambil(KOLOM_DASAR);
+  }
 }
 
 /**

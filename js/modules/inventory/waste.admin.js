@@ -81,7 +81,9 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
       // "relation does not exist" tidak memberi tahu admin apa yang harus
       // dilakukannya — bug yang sama persis pernah terjadi pada 0122.
       hasil.innerHTML = `<p class="error-text">${esc(
-        /waste_rekap/.test(pesan) ? 'Migration 0135 belum dijalankan di Supabase, jadi rekap waste belum tersedia.' : pesan
+        /waste_rekap/.test(pesan)
+          ? 'Migration 0135 & 0136 belum dijalankan di Supabase, jadi rekap waste belum tersedia.'
+          : pesan
       )}</p>`;
       lapTampil = null;
       return;
@@ -113,7 +115,13 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
                     ? `<td data-label="Foto">${
                         lap.meta[i]?.photoPath
                           ? `<button class="ws-foto" data-path="${esc(lap.meta[i].photoPath)}">Lihat</button>`
-                          : '<span style="color:var(--color-danger);font-size:0.8rem">belum ada</span>'
+                          : lap.meta[i]?.lama
+                            ? // DIBEDAKAN DARI "belum ada", dan itu bukan kerapian.
+                              // "belum ada foto" menuduh staffnya lupa memfoto;
+                              // catatan ini memang dibuat sebelum fotonya
+                              // diwajibkan, jadi fotonya tidak pernah ada.
+                              '<span style="color:var(--color-text-muted);font-size:0.76rem">sebelum foto diwajibkan</span>'
+                            : '<span style="color:var(--color-danger);font-size:0.8rem">belum ada</span>'
                       }</td>`
                     : `<td data-label="${esc(lap.kolom[j]?.header ?? '')}">${esc(sel)}</td>`
                 )
