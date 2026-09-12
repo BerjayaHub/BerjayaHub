@@ -5907,6 +5907,54 @@ Fitur yang sudah jadi tapi tidak bisa dicapai sama saja dengan tidak ada — dan
 
 - [x] **Tujuan order terkunci ke draft yang berjalan + tombolnya benar-benar sampai** — tanpa migration
 
+## Istirahat, clock out otomatis, dan satu hari kerja yang melewati tengah malam
+
+### Jam kerja dua tanggal: sudah benar, dan begini buktinya
+
+> "cek lagi apakah 1 hari jam kerja bisa 2 tanggal, dalam 1 shift, contoh : clock in tanggal 12 sept jam 22.00, lalu clock out tanggal 13 sept jam 07.00"
+
+Sudah, di ketiga lapisnya:
+
+- `calculateNbm` memakai `toDateKey(clock_in_at)` — sesi itu **satu hari kerja** milik tanggal 12.
+- Laporan presensi & NBM menyaring dengan `clock_in_at`, jadi barisnya jatuh di periode yang sama.
+- Layar presensi mengenali sesi terbuka sampai **18 jam**, jadi tombol Clock Out tetap muncul di tanggal 13 — bug yang dulu membuat orangnya malah bisa clock in lagi, dan tesnya masih ada (`test-shift-lintas-hari.mjs`).
+
+Aturan yang sama sekarang dipakai ulang oleh clock out otomatis: tanggal kerjanya diambil dari tanggal clock in menurut WIB.
+
+### Istirahat sengaja tidak menyentuh apa pun
+
+> "fitur ini tidak berpengaruh terhadap nbm sama sekali"
+
+Itu dijaga secara **struktural**, bukan cuma diingat: istirahat punya tabelnya sendiri (`attendance_breaks`), bukan kolom di `attendance_records`. NBM membaca `attendance_records`; data yang tidak boleh dipakai lebih aman berada di tempat yang tidak dibaca. Berkas aturannya juga sengaja tidak mengekspor satu pun fungsi yang berbau "jam kerja bersih" — dan auditnya menolak kalau ada.
+
+Godaan berikutnya — *"kan lebih adil kalau istirahat dipotong"* — akan datang dari orang yang tidak membaca permintaan aslinya, dan tidak ada satu pun error yang akan muncul kalau ia dituruti. Yang terjadi cuma gaji orang berkurang.
+
+**Setelannya BU-dulu, outlet-menimpa, per kolom.** Outlet yang cuma ingin mengubah jam istirahatnya tidak kehilangan jam kerja standar milik BU-nya. Outlet tanpa barisnya sendiri berbunyi "mengikuti setelan BU" di layar — kolom kosong terbaca sebagai "belum aktif", padahal artinya "ikut yang di atas".
+
+**Jendela jamnya ditegakkan server**, bukan cuma disembunyikan layar. Tombol yang disembunyikan tetap bisa ditembus PWA yang tertinggal versi — dan aturan yang cuma berlaku di tampilan bukan aturan. Jendela yang melewati tengah malam (23:00–01:00) ditangani di kedua sisi; shift malam ada di aplikasi ini.
+
+**Kembali dari istirahat sengaja TIDAK dibatasi jendela.** Menolak orang yang kembali di luar jam hanya menggantung istirahatnya sampai ditutup otomatis 2 jam — hukuman untuk orang yang justru kembali lebih awal.
+
+**Lupa kembali** ditutup di `mulai + 2 jam`, bukan di "sekarang", dan ditandai `otomatis`. Ditutup di "sekarang" membuat rekapnya berbeda dari batas yang dijanjikan ke staff di layarnya sendiri.
+
+**Istirahat tidak pernah menghalangi orang pulang** — dan pertanyaan iko soal itu menyingkap akibat yang belum tertangani. Kalau istirahatnya dibiarkan terbuka, penutup otomatis menutupnya di `mulai + 2 jam`, yang bisa jatuh **sesudah** jam pulangnya: rekapnya berbunyi *"clock out 17:00 · istirahat 16:30–18:30"*, dan total menit istirahat jadi lebih besar daripada jam kerjanya sendiri.
+
+Jadi clock out ikut menutup istirahat yang berjalan, di mana pun yang lebih awal antara jam pulang dan batas 2 jam — pulang 30 menit sesudah mulai berarti 30 menit; pulang 5 jam sesudahnya tetap 2 jam, sesuai janji yang dibaca staff. Lewat **trigger**, bukan di dalam fungsi clock out di layar: jam pulang bisa terisi dari tiga jalan (tombol staff, penutup otomatis, koreksi admin), dan aturan yang ditulis di satu jalan saja akan terlewat di dua lainnya.
+
+### 12 jam adalah pemicu, bukan jam pulang
+
+> "dianggap masuk seperti biasa tanpa lembur"
+
+Kalau barisnya ditutup **pada** jam pemicu, staff yang lupa clock out tercatat bekerja 12 jam — lembur yang tidak pernah terjadi, di sistem yang membayar lembur bertingkat (`0037`). Pemicu dan jam pulang adalah dua angka berbeda, dan menukarnya tidak menghasilkan error apa pun.
+
+Jadi: sesi yang menggantung lewat batas ditutup di **jam pulang shift** staff hari itu; yang tanpa shift terjadwal ditutup setelah **jam kerja standar** (setelan, bawaan 8 jam). Shift yang melewati tengah malam pulang di hari berikutnya — tanpa itu jam keluar jatuh sebelum jam masuk, dan durasi negatif menghasilkan angka mustahil di NBM yang tetap tercetak rapi. Ada penjaga terakhir untuk itu: jam keluar yang mendahului jam masuk jatuh kembali ke jam kerja standar.
+
+**Yang ditebak sistem ditandai.** `auto_closed_at` + alasannya, dan ⏱ di kolom Clock Out. "Pulang jam 5" dan "lupa clock out lalu ditebak jam 5" adalah dua hal berbeda — yang kedua adalah pertanyaan yang justru perlu ditanyakan ke orangnya.
+
+Penjadwalannya lewat **pg_cron langsung**, bukan Edge Function: reminder presensi (`0008`) harus lewat HTTP karena mengirim Web Push ke luar, sedangkan penutup ini murni SQL — jadi tidak butuh URL project, service role key, maupun langkah manual apa pun. Gagal menjadwalkan pun tidak menggagalkan migrationnya; fiturnya tetap terpasang dan pesannya mengatakan apa yang perlu dijadwalkan manual.
+
+- [x] **Istirahat + clock out otomatis** (`0138`) — 27 sabotase
+
 ## Nilai Opname, dan COGS dari barang yang benar-benar hilang dari rak
 
 > "di opname tambahkan nilai opname, yaitu jumlah dihitung dikali hpp/satuan … lalu di modul laporan juga sediakan untuk COGS, yaitu stock awal (stock akhir bulan lalu) ditambah pembelian dikurangi stock akhir bulan ini"

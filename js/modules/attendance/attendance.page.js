@@ -14,15 +14,20 @@ import {
   getExitTaskMode,
   redeemExitOtp,
   getMyFaceDescriptor,
-  saveMyFaceDescriptor
+  saveMyFaceDescriptor,
+  getSetelanPresensi,
+  listIstirahat,
+  mulaiIstirahat,
+  selesaiIstirahat
 } from './attendance.service.js';
+import { setelanEfektif, bolehMulaiIstirahat, totalMenitIstirahat, BATAS_ISTIRAHAT_JAM } from './istirahat.js';
 import { getShiftSettings, getMyScheduleFor, evaluateLateness, todayWIB, LATE_LABEL, resolveAutoOff, holidayMapOf } from '../shift/shift.service.js';
 import { getHolidayPolicy, listHolidays } from './nbm.service.js';
 import { openCameraCapture, formatWatermarkText } from './camera-capture.js';
 import { openFaceRegistration } from './face-registration.js';
 import { loadFaceModels, isSameFace } from './face-recognition.js';
 import { pushCardHtml, wirePushCard } from '../../core/push-card.js';
-import { loadingHtml } from '../../core/loading.js';
+import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { dapatkanLokasi, pesanAkurasiBuruk } from '../../core/geolocation.js';
 
 export async function renderAttendancePage(container, ctx) {
@@ -143,6 +148,26 @@ export async function renderAttendancePage(container, ctx) {
   // ---- Sedang bekerja -> clock out ----
   if (openSession) {
     let capturedOut = null;
+
+    // ISTIRAHAT (0138) — TIDAK BERPENGARUH KE NBM SAMA SEKALI.
+    //
+    // Diambil atau tidak, lupa kembali atau tidak, jam kerja yang dibayar tetap
+    // sama. Yang dicatat di sini hanya masuk ke rekap admin. Ditulis di layar
+    // juga (di bawah), supaya staff tidak menahan diri beristirahat karena
+    // mengira NBM-nya terpotong.
+    const setelan = await getSetelanPresensi(openSession.outlet_id).catch(() => null);
+    const setelanAktif = setelanEfektif(setelan, null);
+    const istirahat = await listIstirahat(openSession.id).catch(() => []);
+    const berjalan = istirahat.find((b) => !b.selesai_at) ?? null;
+    const rekapIstirahat = totalMenitIstirahat(istirahat);
+
+    const jamWib = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(11, 16);
+    const bolehMulai = bolehMulaiIstirahat({
+      setelan: setelanAktif,
+      jamSekarang: jamWib,
+      sedangIstirahat: !!berjalan
+    });
+
     main.innerHTML = `
       <div class="att-card fade-in">
         <div class="att-status-line"><span class="att-dot"></span> Sedang bekerja sejak <strong>${formatTime(openSession.clock_in_at)}</strong>${
@@ -151,6 +176,34 @@ export async function renderAttendancePage(container, ctx) {
           sameDayWIB(openSession.clock_in_at) ? '' : ` <span class="badge badge-pending" style="font-size:0.68rem">${esc(fmtTanggalPendek(openSession.clock_in_at))}</span>`
         }</div>
         <p class="att-hint">Lokasi: ${esc(outletName(openSession.outlet_id))}${openSession.is_storing ? ' · <strong>Tugas Luar</strong>' : ''}</p>
+
+        <div class="att-istirahat">
+          ${
+            berjalan
+              ? `<div class="att-status-line" style="color:var(--color-warning,#8a5800)">
+                   ☕ Sedang istirahat sejak <strong>${formatTime(berjalan.mulai_at)}</strong>
+                 </div>
+                 <p class="att-hint">Kalau lupa menekan Kembali, kamu otomatis dianggap kembali
+                   ${BATAS_ISTIRAHAT_JAM} jam sesudah mulai.</p>
+                 <button id="btn-istirahat-selesai">↩️ Kembali dari Istirahat</button>`
+              : `<button id="btn-istirahat-mulai"${bolehMulai.boleh ? '' : ' disabled'}>☕ Ambil Istirahat</button>
+                 ${
+                   // SEBABNYA DIKATAKAN. Tombol yang mati tanpa keterangan akan
+                   // ditekan berulang kali lalu dilaporkan sebagai aplikasi rusak.
+                   bolehMulai.boleh
+                     ? ''
+                     : `<p class="att-hint" style="color:var(--color-text-muted)">${esc(bolehMulai.sebab)}</p>`
+                 }`
+          }
+          ${
+            rekapIstirahat.menit
+              ? `<p class="att-hint">Total istirahat hari ini: <strong>${rekapIstirahat.menit} menit</strong>${
+                  rekapIstirahat.otomatis ? ' (ada yang ditutup otomatis)' : ''
+                } — <em>tidak mengurangi NBM.</em></p>`
+              : '<p class="att-hint"><em>Istirahat tidak mengurangi NBM.</em></p>'
+          }
+        </div>
+
         <div class="att-photo-row">
           <button type="button" class="att-shoot" id="btn-shoot-out"><span>📷</span> Ambil Foto Selfie</button>
           <img id="preview-out" class="selfie-preview" style="display:none" />
@@ -160,6 +213,38 @@ export async function renderAttendancePage(container, ctx) {
       </div>`;
 
     const errorEl = main.querySelector('#att-error');
+
+    // Penolakan server TIDAK ditelan: jendela jamnya ditegakkan di `mulai_istirahat`
+    // juga, dan PWA yang tertinggal versi bisa mengirim permintaan yang layar
+    // barunya sudah cegah. Pesannya datang dari server apa adanya.
+    main.querySelector('#btn-istirahat-mulai')?.addEventListener(
+      'click',
+      sekaliJalan(async () => {
+        errorEl.textContent = '';
+        try {
+          await mulaiIstirahat(openSession.id);
+          toast('Selamat istirahat. Jangan lupa tekan Kembali nanti. ☕', 'success');
+          await renderAttendancePage(container, ctx);
+        } catch (error) {
+          errorEl.textContent = error.message ?? 'Gagal memulai istirahat.';
+        }
+      })
+    );
+
+    main.querySelector('#btn-istirahat-selesai')?.addEventListener(
+      'click',
+      sekaliJalan(async () => {
+        errorEl.textContent = '';
+        try {
+          await selesaiIstirahat(openSession.id);
+          toast('Selamat bekerja kembali.', 'success');
+          await renderAttendancePage(container, ctx);
+        } catch (error) {
+          errorEl.textContent = error.message ?? 'Gagal mengakhiri istirahat.';
+        }
+      })
+    );
+
     main.querySelector('#btn-shoot-out').addEventListener('click', async () => {
       errorEl.textContent = '';
       try {

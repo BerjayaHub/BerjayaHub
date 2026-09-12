@@ -191,6 +191,155 @@ export async function getMyTodaySession() {
   return data;
 }
 
+// =========================================================
+// ISTIRAHAT (0138)
+//
+// SENGAJA TIDAK ADA satu pun fungsi di sini yang mengembalikan "jam kerja
+// setelah dipotong istirahat". Istirahat tidak berpengaruh ke NBM sama sekali —
+// dan angka bernama seperti itu adalah langkah pertama menuju NBM terpotong,
+// yang justru diminta TIDAK terjadi.
+// =========================================================
+
+/** Setelan presensi yang BERLAKU untuk sebuah outlet (penimpa outlet -> BU -> bawaan). */
+export async function getSetelanPresensi(outletId) {
+  if (!outletId) return null;
+  const { data, error } = await supabase.rpc('setelan_presensi', { p_outlet: outletId });
+  if (error) throw new Error(error.message ?? String(error));
+  return Array.isArray(data) ? (data[0] ?? null) : (data ?? null);
+}
+
+/** Baris setelan mentah sebuah BU + seluruh penimpa outletnya — untuk layar admin. */
+export async function listSetelanPresensi(businessUnitId) {
+  if (!businessUnitId) return [];
+  const { data, error } = await supabase
+    // baris-terbatas: satu baris BU + satu per outlet.
+    .from('attendance_settings')
+    .select('id, business_unit_id, outlet_id, break_mode, break_start, break_end, standard_work_hours, auto_close_after_hours, updated_at')
+    .eq('business_unit_id', businessUnitId);
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Kotak jam yang kosong/tidak sah -> `null` ("ikut yang di atas"), bukan 0. */
+function jamAtauNull(v) {
+  if (v === null || v === undefined || String(v).trim() === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Simpan setelan BU (outletId null) atau penimpa outlet. */
+export async function simpanSetelanPresensi({ businessUnitId, outletId = null, ...nilai }) {
+  const uid = await currentUserId();
+  const baris = {
+    business_unit_id: businessUnitId,
+    outlet_id: outletId,
+    // Kosong = NULL = ikut yang di atas. Menyimpannya sebagai 'bebas' akan
+    // MENIMPA mode BU dengan pilihan yang tidak pernah dibuat siapa pun.
+    break_mode: nilai.breakMode || null,
+    // Mode bebas TIDAK menyimpan jamnya.
+    //
+    // Kalau jamnya ditinggalkan saat mode diubah ke bebas, lalu suatu saat
+    // seseorang mengembalikan modenya, jendelanya hidup lagi dengan angka lama
+    // yang tidak pernah ditinjau siapa pun.
+    break_start: nilai.breakMode === 'ditentukan' ? (nilai.breakStart || null) : null,
+    break_end: nilai.breakMode === 'ditentukan' ? (nilai.breakEnd || null) : null,
+    // KOSONG DISIMPAN SEBAGAI NULL, bukan diisi bawaan.
+    //
+    // NULL berarti "ikut yang di atas". Kalau kotak yang dikosongkan admin
+    // diisi 8 di sini, baris outlet itu MENIMPA angka BU-nya dengan 8 — dan
+    // tidak ada yang pernah memilih angka itu. Bawaan aplikasinya ada di satu
+    // tempat saja: rantai `coalesce` di `setelan_presensi`.
+    standard_work_hours: jamAtauNull(nilai.standardWorkHours),
+    auto_close_after_hours: jamAtauNull(nilai.autoCloseAfterHours),
+    updated_by: uid ?? null,
+    updated_at: new Date().toISOString()
+  };
+
+  // `onConflict` tidak bisa dipakai: keunikannya dijaga DUA indeks PARSIAL
+  // (satu untuk baris BU, satu untuk baris outlet), dan PostgREST tidak bisa
+  // menamai indeks parsial di `on conflict`. Jadi diperiksa dulu, lalu
+  // update/insert.
+  const adaQ = supabase.from('attendance_settings').select('id').eq('business_unit_id', businessUnitId);
+  const { data: ada, error: e1 } = await (outletId ? adaQ.eq('outlet_id', outletId) : adaQ.is('outlet_id', null)).maybeSingle();
+  if (e1) throw e1;
+
+  if (ada?.id) {
+    const { error } = await supabase.from('attendance_settings').update(baris).eq('id', ada.id);
+    if (error) throw error;
+    return ada.id;
+  }
+  const { data, error } = await supabase.from('attendance_settings').insert(baris).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+
+/** Hapus penimpa outlet supaya ia kembali mengikuti BU-nya. */
+export async function hapusSetelanOutlet(id) {
+  const { error } = await supabase.from('attendance_settings').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/** Istirahat pada satu presensi, terbaru dulu. */
+export async function listIstirahat(attendanceId) {
+  if (!attendanceId) return [];
+  const { data, error } = await supabase
+    // baris-terbatas: istirahat SATU presensi.
+    .from('attendance_breaks')
+    .select('id, attendance_id, mulai_at, selesai_at, otomatis')
+    .eq('attendance_id', attendanceId)
+    .order('mulai_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Istirahat untuk BANYAK presensi sekaligus — untuk rekap admin. */
+export async function listIstirahatBanyak(attendanceIds) {
+  const ids = [...new Set((attendanceIds ?? []).filter(Boolean))];
+  if (!ids.length) return new Map();
+
+  const peta = new Map();
+  // Dipotong per 100: daftar `in.(uuid,…)` ikut masuk URL, dan URL yang terlalu
+  // panjang ditolak 414 — dengan pesan yang tidak menyinggung jumlah barisnya.
+  for (let i = 0; i < ids.length; i += 100) {
+    const bagian = ids.slice(i, i + 100);
+    const baris = await ambilSemua((dari, sampai) =>
+      supabase
+        .from('attendance_breaks')
+        .select('id, attendance_id, mulai_at, selesai_at, otomatis', { count: 'exact' })
+        .in('attendance_id', bagian)
+        .range(dari, sampai)
+    );
+    for (const b of baris) {
+      if (!peta.has(b.attendance_id)) peta.set(b.attendance_id, []);
+      peta.get(b.attendance_id).push(b);
+    }
+  }
+  return peta;
+}
+
+export async function mulaiIstirahat(attendanceId) {
+  const { data, error } = await supabase.rpc('mulai_istirahat', { p_attendance: attendanceId });
+  if (error) throw new Error(error.message ?? String(error));
+  return data;
+}
+
+export async function selesaiIstirahat(attendanceId) {
+  const { error } = await supabase.rpc('selesai_istirahat', { p_attendance: attendanceId });
+  if (error) throw new Error(error.message ?? String(error));
+}
+
+/**
+ * Jalankan penutup otomatis sekarang — untuk tombol "periksa sekarang" di
+ * Admin Portal. Cron sudah menjalankannya tiap jam; ini supaya hasilnya bisa
+ * dilihat tanpa menunggu, dan supaya admin punya cara memastikan ia hidup.
+ */
+export async function tutupPresensiTertinggal() {
+  const { data, error } = await supabase.rpc('tutup_presensi_tertinggal');
+  if (error) throw new Error(error.message ?? String(error));
+  const baris = Array.isArray(data) ? (data[0] ?? {}) : (data ?? {});
+  return { istirahat: Number(baris.istirahat_ditutup) || 0, presensi: Number(baris.presensi_ditutup) || 0 };
+}
+
 export async function getMyRecentAttendance(limit = 10) {
   const uid = await currentUserId();
   if (!uid) return [];
@@ -467,11 +616,15 @@ export async function reverseGeocode(lat, lng) {
  * BU tapi tetap tinggal di outlet lamanya — dan tidak ada apa pun di layar yang
  * menjelaskan kenapa.
  */
+const KOLOM_REKAP_PRESENSI =
+  'id, user_id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, clock_in_accuracy_m, shift_name, late_minutes, late_status, late_status_awal, late_menit_awal, late_dinilai_ulang_at, late_dinilai_ulang_alasan, business_unit_id, nbm_business_unit_id, nbm_outlet_id, nbm_outlet_note, outlet_id, user_profiles!user_id(full_name)';
+
 export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFrom, dateTo, outletMode = 'lokasi' }) {
+  const ambil = (kolom) =>
   // `ambilSemua`, BUKAN `.limit(200)` tunggal. Layar ini menyaring RENTANG
   // TANGGAL, jadi orangnya meminta seluruh periode itu — dan batas keras tanpa
   // paginasi memotong bagian TERTUA dari rentangnya tanpa satu pun error.
-  return ambilSemua((dari, sampai) => {
+  ambilSemua((dari, sampai) => {
   let query = supabase
     .from('attendance_records')
     // CATATAN: nama outlet/BU lokasi TIDAK di-embed di sini. RLS `outlets_select`
@@ -481,7 +634,7 @@ export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFro
     // `user_id` WAJIB ikut: dipakai UI untuk mencocokkan penanda 🔕 (status
     // langganan push). Tanpa kolom ini pencocokannya meleset diam-diam dan
     // SEMUA staff ditandai belum mengaktifkan notifikasi.
-    .select('id, user_id, clock_in_at, clock_out_at, clock_in_lat, clock_in_lng, clock_out_lat, clock_out_lng, notes, is_storing, exit_method, exit_reason, clock_in_photo_path, clock_out_photo_path, clock_in_face_match, clock_out_face_match, clock_in_accuracy_m, shift_name, late_minutes, late_status, late_status_awal, late_menit_awal, late_dinilai_ulang_at, late_dinilai_ulang_alasan, business_unit_id, nbm_business_unit_id, nbm_outlet_id, nbm_outlet_note, outlet_id, user_profiles!user_id(full_name)', { count: 'exact' })
+    .select(kolom, { count: 'exact' })
     .or(`nbm_business_unit_id.eq.${businessUnitId},and(nbm_business_unit_id.is.null,business_unit_id.eq.${businessUnitId})`)
     .order('clock_in_at', { ascending: false });
 
@@ -499,6 +652,21 @@ export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFro
 
   return query.range(dari, sampai);
   });
+
+  try {
+    // `auto_closed_*` ada sejak 0138 — penanda bahwa jam pulangnya DITEBAK
+    // sistem, bukan ditekan orang.
+    return await ambil(`${KOLOM_REKAP_PRESENSI}, auto_closed_at, auto_closed_reason`);
+  } catch (e) {
+    // KOLOM BARU TIDAK BOLEH MENYANDERA SELURUH REKAP.
+    //
+    // PostgREST menolak SELURUH permintaan karena satu kolom tidak dikenal.
+    // Ini pernah terjadi sungguhan pada 0122: yang hilang bukan satu kolom,
+    // melainkan seluruh daftarnya. Jeda antara push dan menjalankan migration
+    // itu wajar dan akan terjadi lagi.
+    if (!/auto_closed/.test(String(e?.message ?? ''))) throw e;
+    return await ambil(KOLOM_REKAP_PRESENSI);
+  }
 }
 
 /**

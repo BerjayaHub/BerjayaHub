@@ -18,8 +18,14 @@ import {
   generateExitOtp,
   listRecentExitOtp,
   getSignedPhotoUrl,
-  reverseGeocode
+  reverseGeocode,
+  listSetelanPresensi,
+  simpanSetelanPresensi,
+  hapusSetelanOutlet,
+  listIstirahatBanyak,
+  tutupPresensiTertinggal
 } from './attendance.service.js';
+import { totalMenitIstirahat } from './istirahat.js';
 import { renderNbmSettingsTab } from './nbm-settings.admin.page.js';
 import { renderNbmReportTab } from './nbm-report.admin.page.js';
 import { toast, formDialog } from '../../core/ui.js';
@@ -122,10 +128,22 @@ async function renderPresensiTab(container, businessUnitId) {
     try {
       records = await listAttendanceForAdmin(filters);
     } catch (error) {
-      body.innerHTML = `<tr><td colspan="11" class="error-text">Gagal memuat rekap presensi: ${escapeHtml(error.message ?? error)}</td></tr>`;
+      body.innerHTML = `<tr><td colspan="12" class="error-text">Gagal memuat rekap presensi: ${escapeHtml(error.message ?? error)}</td></tr>`;
       return;
     }
     lastRecords = records;
+
+    // Istirahat diambil SEKALIGUS untuk seluruh baris, bukan satu per baris:
+    // rekap sebulan bisa ratusan baris, dan satu permintaan per baris di
+    // jaringan outlet berarti sebagian gagal dengan timeout. Kegagalannya
+    // ditelan di sini dengan sadar — kolom Istirahat yang kosong tidak boleh
+    // menghalangi seluruh rekap kehadiran tampil.
+    let petaIstirahat = new Map();
+    try {
+      petaIstirahat = await listIstirahatBanyak(records.map((r) => r.id));
+    } catch {
+      /* kolomnya akan berbunyi "-" */
+    }
 
     // Urut per divisi, lalu nama, lalu waktu. BEDA dengan Jadwal Shift: yang
     // belum berdivisi TIDAK disembunyikan di sini — rekap presensi adalah bukti
@@ -147,11 +165,11 @@ async function renderPresensiTab(container, businessUnitId) {
       const d = namaDivisi(r.user_id);
       if (d !== divisiTerakhir) {
         divisiTerakhir = d;
-        potongan.push(`<tr class="shift-divisi"><td colspan="11">${escapeHtml(d ?? 'Tanpa divisi')}</td></tr>`);
+        potongan.push(`<tr class="shift-divisi"><td colspan="12">${escapeHtml(d ?? 'Tanpa divisi')}</td></tr>`);
       }
-      potongan.push(rowHtml(r, outletOf(r), pushAktif));
+      potongan.push(rowHtml(r, outletOf(r), pushAktif, petaIstirahat));
     }
-    body.innerHTML = potongan.join('') || '<tr><td colspan="11">Tidak ada data.</td></tr>';
+    body.innerHTML = potongan.join('') || '<tr><td colspan="12">Tidak ada data.</td></tr>';
 
     // Lengkapi pilihan filter outlet dengan outlet lain yang terpakai di data.
     const sel = container.querySelector('#filter-outlet');
@@ -295,6 +313,28 @@ async function renderPresensiTab(container, businessUnitId) {
       </p>
     </details>
 
+    <details class="inline-card" style="max-width:640px;margin-top:16px">
+      <summary style="cursor:pointer;font-weight:600">Istirahat &amp; Clock Out Otomatis</summary>
+      <div id="istirahat-setelan" style="margin-top:12px"></div>
+      <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:10px">
+        <strong>Istirahat tidak berpengaruh ke NBM sama sekali.</strong> Diambil atau tidak, lupa kembali atau tidak,
+        jam kerja yang dibayar tetap sama — ini hanya masuk ke rekap.
+        Staff yang lupa menekan Kembali otomatis dianggap kembali <strong>2 jam</strong> sesudah mulai.
+      </p>
+      <p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:8px">
+        <strong>Clock out otomatis:</strong> sesi yang menggantung lebih lama dari batas di atas ditutup di
+        <strong>jam pulang shift</strong> staff hari itu. Yang tidak punya shift terjadwal ditutup setelah
+        <strong>jam kerja standar</strong>. Batas jamnya adalah <em>pemicu</em>, bukan jam pulangnya — jadi yang lupa
+        clock out tercatat masuk seperti biasa, <strong>tanpa lembur</strong>.
+        Baris yang ditutup begitu ditandai ⏱ di kolom Clock Out, karena "pulang jam 5" dan "lupa clock out lalu
+        ditebak jam 5" adalah dua hal yang berbeda.
+      </p>
+      <button id="btn-tutup-tertinggal" style="margin-top:8px">⏱ Periksa &amp; tutup yang tertinggal sekarang</button>
+      <p style="font-size:0.78rem;color:var(--color-text-muted);margin-top:6px">
+        Server sudah memeriksanya otomatis tiap jam. Tombol ini untuk melihat hasilnya tanpa menunggu.
+      </p>
+    </details>
+
     <div class="inline-card" style="max-width:640px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:16px">
       <div class="field" style="margin:0">
         <label>Outlet</label>
@@ -320,7 +360,7 @@ async function renderPresensiTab(container, businessUnitId) {
 
     <div class="table-scroll"><table class="data-table table-freeze-1">
       <thead>
-        <tr><th>Staff</th><th>Outlet</th><th>Tipe</th><th>Keterangan</th><th>Shift</th><th>Clock In</th><th>Wajah</th><th>Foto</th><th>Alamat</th><th>Clock Out</th><th>Aksi</th></tr>
+        <tr><th>Staff</th><th>Outlet</th><th>Tipe</th><th>Keterangan</th><th>Shift</th><th>Clock In</th><th>Wajah</th><th>Foto</th><th>Alamat</th><th>Clock Out</th><th>Istirahat</th><th>Aksi</th></tr>
       </thead>
       <tbody id="attendance-table-body"></tbody>
     </table></div>
@@ -495,6 +535,133 @@ async function renderPresensiTab(container, businessUnitId) {
     }
   });
 
+  // =========================================================
+  // SETELAN ISTIRAHAT: satu baris BU + penimpa per outlet.
+  //
+  // Outlet yang belum punya barisnya MENGIKUTI BU — dan itu dikatakan di
+  // layarnya, bukan dibiarkan kosong. Kolom kosong pada tabel setelan terbaca
+  // sebagai "belum aktif", padahal artinya "ikut yang di atas".
+  // =========================================================
+  const kotakSetelan = document.getElementById('istirahat-setelan');
+
+  const barisSetelanHtml = (judul, baris, outletId) => {
+    const mode = baris?.break_mode ?? (outletId ? '' : 'bebas');
+    const ikutBu = outletId && !baris;
+    return `
+      <div class="inline-card" style="margin:0 0 10px;padding:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <strong style="font-size:0.92rem">${escapeHtml(judul)}</strong>
+          ${ikutBu ? '<span style="font-size:0.78rem;color:var(--color-text-muted)">mengikuti setelan BU</span>' : ''}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">
+          <div class="field" style="margin:0;min-width:150px">
+            <label>Jam istirahat</label>
+            <select data-set="mode" data-outlet="${outletId ?? ''}">
+              ${outletId ? `<option value=""${mode === '' ? ' selected' : ''}>Ikut BU</option>` : ''}
+              <option value="bebas"${mode === 'bebas' ? ' selected' : ''}>Bebas — kapan pun</option>
+              <option value="ditentukan"${mode === 'ditentukan' ? ' selected' : ''}>Ditentukan</option>
+            </select>
+          </div>
+          <div class="field" style="margin:0;max-width:120px"><label>Mulai</label>
+            <input type="time" data-set="start" data-outlet="${outletId ?? ''}" value="${escapeHtml((baris?.break_start ?? '').slice(0, 5))}" /></div>
+          <div class="field" style="margin:0;max-width:120px"><label>Sampai</label>
+            <input type="time" data-set="end" data-outlet="${outletId ?? ''}" value="${escapeHtml((baris?.break_end ?? '').slice(0, 5))}" /></div>
+          <div class="field" style="margin:0;max-width:120px"><label>Jam kerja standar</label>
+            <input type="number" step="0.5" min="1" max="24" data-set="jam" data-outlet="${outletId ?? ''}" value="${baris?.standard_work_hours ?? (outletId ? '' : 8)}" /></div>
+          <div class="field" style="margin:0;max-width:130px"><label>Tutup otomatis (jam)</label>
+            <input type="number" step="1" min="1" max="48" data-set="batas" data-outlet="${outletId ?? ''}" value="${baris?.auto_close_after_hours ?? (outletId ? '' : 12)}" /></div>
+          <button data-simpan="${outletId ?? ''}">Simpan</button>
+          ${baris && outletId ? `<button class="btn-danger" data-hapus="${baris.id}">Ikut BU lagi</button>` : ''}
+        </div>
+      </div>`;
+  };
+
+  async function gambarSetelan() {
+    if (!kotakSetelan) return;
+    kotakSetelan.innerHTML = loadingHtml('Memuat setelan…', { baris: 2 });
+    let daftar = [];
+    try {
+      daftar = await listSetelanPresensi(businessUnitId);
+    } catch (e) {
+      const pesan = String(e?.message ?? e);
+      kotakSetelan.innerHTML = `<p class="error-text">${escapeHtml(
+        /attendance_settings/.test(pesan) ? 'Migration 0138 belum dijalankan di Supabase.' : pesan
+      )}</p>`;
+      return;
+    }
+    const barisBu = daftar.find((d) => !d.outlet_id) ?? null;
+    kotakSetelan.innerHTML =
+      barisSetelanHtml('Setelan BU (bawaan seluruh outlet)', barisBu, null) +
+      (outlets ?? []).map((o) => barisSetelanHtml(o.name, daftar.find((d) => d.outlet_id === o.id) ?? null, o.id)).join('');
+
+    kotakSetelan.querySelectorAll('[data-simpan]').forEach((btn) =>
+      btn.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const oid = btn.dataset.simpan || null;
+          const amb = (k) => kotakSetelan.querySelector(`[data-set="${k}"][data-outlet="${oid ?? ''}"]`)?.value ?? '';
+          const mode = amb('mode');
+          // Outlet yang dikembalikan ke "Ikut BU" barisnya DIHAPUS, bukan
+          // disimpan kosong: baris kosong tetap menimpa BU-nya dengan bawaan
+          // aplikasi, dan hasilnya berbeda dari yang dimaksud orangnya.
+          if (oid && mode === '') {
+            const adaId = daftar.find((d) => d.outlet_id === oid)?.id;
+            if (adaId) await hapusSetelanOutlet(adaId).catch((e) => toast(e.message ?? 'Gagal', 'error'));
+            toast('Outlet ini kembali mengikuti setelan BU.', 'success');
+            return gambarSetelan();
+          }
+          try {
+            await simpanSetelanPresensi({
+              businessUnitId,
+              outletId: oid,
+              breakMode: mode || 'bebas',
+              breakStart: amb('start'),
+              breakEnd: amb('end'),
+              standardWorkHours: amb('jam'),
+              autoCloseAfterHours: amb('batas')
+            });
+            toast('Setelan presensi tersimpan.', 'success');
+            await gambarSetelan();
+          } catch (e) {
+            toast(e.message ?? 'Gagal menyimpan setelan.', 'error');
+          }
+        })
+      )
+    );
+
+    kotakSetelan.querySelectorAll('[data-hapus]').forEach((btn) =>
+      btn.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          try {
+            await hapusSetelanOutlet(btn.dataset.hapus);
+            toast('Outlet ini kembali mengikuti setelan BU.', 'success');
+            await gambarSetelan();
+          } catch (e) {
+            toast(e.message ?? 'Gagal.', 'error');
+          }
+        })
+      )
+    );
+  }
+  gambarSetelan();
+
+  document.getElementById('btn-tutup-tertinggal')?.addEventListener(
+    'click',
+    sekaliJalan(async () => {
+      try {
+        const hasil = await tutupPresensiTertinggal();
+        toast(
+          `${hasil.presensi} presensi & ${hasil.istirahat} istirahat ditutup otomatis.`,
+          hasil.presensi || hasil.istirahat ? 'warning' : 'success'
+        );
+        await refresh();
+      } catch (e) {
+        toast(e.message ?? 'Gagal menjalankan penutup otomatis.', 'error');
+      }
+    })
+  );
+
   document.getElementById('btn-filter').addEventListener('click', () => {
     filters.outletId = document.getElementById('filter-outlet').value || '';
     filters.outletMode = document.getElementById('filter-outlet-mode').value || 'lokasi';
@@ -560,7 +727,25 @@ function shiftText(r) {
   return `${r.shift_name ? r.shift_name + ' — ' : ''}${label}${r.late_minutes ? ` (${r.late_minutes} mnt)` : ''}`;
 }
 
-function rowHtml(r, outlet, pushAktif) {
+function rowHtml(r, outlet, pushAktif, petaIstirahat = new Map()) {
+  /**
+   * Kolom Istirahat — REKAP SAJA.
+   *
+   * Sengaja tidak ada kolom "jam kerja bersih" di sebelahnya: istirahat tidak
+   * berpengaruh ke NBM sama sekali, dan kolom bernama seperti itu adalah
+   * langkah pertama menuju NBM yang terpotong.
+   */
+  const istirahatTeks = (id) => {
+    const daftar = petaIstirahat.get(id) ?? [];
+    if (!daftar.length) return '<span style="color:var(--color-text-muted)">-</span>';
+    const rekap = totalMenitIstirahat(daftar);
+    const tanda = [
+      rekap.berjalan ? '<span style="color:var(--color-warning,#8a5800)"> ⏳ berjalan</span>' : '',
+      rekap.otomatis ? '<span style="color:var(--color-text-muted)"> (otomatis)</span>' : ''
+    ].join('');
+    return `${daftar.length}× · ${rekap.menit} mnt${tanda}`;
+  };
+
   const storingTag = '';
   // 🔕 = staff ini belum mengaktifkan notifikasi di device mana pun, jadi
   // reminder clock in tidak akan pernah sampai padanya. Bukan error, tapi harus
@@ -620,7 +805,23 @@ function rowHtml(r, outlet, pushAktif) {
       <td style="font-size:0.78rem;max-width:180px" class="address-cell">
         ${r.clock_in_lat != null ? '<button class="btn-view-address">Lihat Alamat</button>' : '-'}
       </td>
-      <td>${r.clock_out_at ? formatTime(r.clock_out_at) : '—'}</td>
+      <td>${
+        r.clock_out_at ? formatTime(r.clock_out_at) : '—'
+      }${
+        // ⏱ = jam pulangnya DITEBAK sistem, bukan ditekan orang (0138).
+        //
+        // Tanpa penanda ini, "pulang jam 5" dan "lupa clock out lalu ditebak
+        // jam 5" terlihat sama persis — dan yang kedua adalah pertanyaan yang
+        // justru perlu ditanyakan ke orangnya.
+        r.auto_closed_at
+          ? `<div style="font-size:0.7rem;color:var(--color-warning,#8a5800)" title="${escapeHtml(
+              r.auto_closed_reason ?? 'Ditutup otomatis'
+            )}">⏱ otomatis</div>`
+          : ''
+      }</td>
+      <td style="font-size:0.78rem">${
+        istirahatTeks(r.id)
+      }</td>
       <td><button class="btn-edit" data-record-id="${r.id}">Koreksi</button></td>
     </tr>
   `;
