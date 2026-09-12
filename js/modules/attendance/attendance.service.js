@@ -317,14 +317,31 @@ export async function listIstirahatBanyak(attendanceIds) {
   return peta;
 }
 
-export async function mulaiIstirahat(attendanceId) {
-  const { data, error } = await supabase.rpc('mulai_istirahat', { p_attendance: attendanceId });
+/**
+ * Foto & kecocokan wajah SELALU dikirim, tidak pernah `undefined`.
+ *
+ * `JSON.stringify` membuang kunci bernilai `undefined`, dan PostgREST memilih
+ * fungsi berdasarkan HIMPUNAN NAMA argumen yang dikirim — satu kunci yang
+ * hilang membuatnya mencari `mulai_istirahat` berargumen dua, yang tidak ada,
+ * lalu menjawab 42883 tentang fungsi yang tidak pernah ada. Jebakan yang sama
+ * pernah mematikan tombol Edit nota.
+ */
+export async function mulaiIstirahat(attendanceId, { photoPath = null, faceMatch = null } = {}) {
+  const { data, error } = await supabase.rpc('mulai_istirahat', {
+    p_attendance: attendanceId,
+    p_photo: photoPath ?? null,
+    p_face_match: faceMatch ?? null
+  });
   if (error) throw new Error(error.message ?? String(error));
   return data;
 }
 
-export async function selesaiIstirahat(attendanceId) {
-  const { error } = await supabase.rpc('selesai_istirahat', { p_attendance: attendanceId });
+export async function selesaiIstirahat(attendanceId, { photoPath = null, faceMatch = null } = {}) {
+  const { error } = await supabase.rpc('selesai_istirahat', {
+    p_attendance: attendanceId,
+    p_photo: photoPath ?? null,
+    p_face_match: faceMatch ?? null
+  });
   if (error) throw new Error(error.message ?? String(error));
 }
 

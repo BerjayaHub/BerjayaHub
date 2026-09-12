@@ -244,6 +244,65 @@ sabotase(
   AUDIT
 );
 
+console.log('\nSABOTASE GERBANG BUKTI ISTIRAHAT:');
+
+sabotase(
+  'foto tidak lagi wajib saat mulai istirahat',
+  MIG,
+  "  if v_foto is null then\n    raise exception 'Ambil foto selfie dulu sebelum mulai istirahat.';\n  end if;",
+  '',
+  TES
+);
+sabotase(
+  'bentuk lama tanpa foto dibiarkan hidup — pintu belakang untuk PWA lama',
+  MIG,
+  'drop function if exists mulai_istirahat(uuid);',
+  '',
+  AUDIT
+);
+sabotase(
+  'geofence tidak diperiksa saat mulai istirahat — bisa ditekan dari rumah',
+  HAL,
+  "await pastikanDiAreaOutlet(openSession, 'Istirahat');",
+  '',
+  AUDIT
+);
+sabotase(
+  'GPS yang gagal dibaca diloloskan — gerbangnya bisa dilewati dengan mematikan izin lokasi',
+  HAL,
+  '    throw new Error(`Lokasi tidak terbaca, jadi ${aksi} belum bisa dicatat. Nyalakan GPS lalu coba lagi.`);',
+  '    return;',
+  AUDIT
+);
+sabotase(
+  'kecocokan wajah tidak diperiksa saat mulai istirahat',
+  HAL,
+  "            throw new Error('Wajah tidak cocok dengan yang terdaftar. Istirahat ditolak.');",
+  '',
+  AUDIT
+);
+
+console.log('\nSABOTASE PERINGATAN & PENEGASAN:');
+
+sabotase(
+  'Clock Out tetap tampil berdampingan saat istirahat — orang pulang padahal cuma mau kembali',
+  HAL,
+  '          berjalan\n            ? `<button class="primary" id="btn-istirahat-selesai" disabled>↩️ Kembali dari Istirahat</button>`\n            : `<button class="primary" id="btn-clock-out" disabled>Clock Out</button>`',
+  '          `<button class="primary" id="btn-clock-out" disabled>Clock Out</button>`',
+  AUDIT
+);
+sabotase(
+  'peringatan tegas diganti kalimat yang meremehkan',
+  HAL,
+  '⚠️ Wajib absen kembali begitu istirahatmu selesai.',
+  'Kalau lupa, kamu otomatis dianggap kembali 2 jam sesudah mulai.',
+  AUDIT
+);
+sabotase('dialog penegasan clock in dihapus', HAL, /title: isStoring \? '🚩 Kamu sudah Clock In \(Tugas Luar\)' : '👋 Kamu sudah Clock In'/g, "title: 'x'", AUDIT);
+sabotase('dialog penegasan clock out dihapus', HAL, /title: '🙌 Kamu sudah Clock Out'/g, "title: 'x'", AUDIT);
+sabotase('dialog penegasan mulai istirahat dihapus', HAL, /title: '☕ Istirahatmu dimulai'/g, "title: 'x'", AUDIT);
+sabotase('dialog penegasan kembali istirahat dihapus', HAL, /title: '👋 Selamat bekerja kembali'/g, "title: 'x'", AUDIT);
+
 console.log('\nSABOTASE LAYAR:');
 
 // REGEX GLOBAL, bukan string.

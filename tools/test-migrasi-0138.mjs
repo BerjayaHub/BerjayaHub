@@ -168,7 +168,7 @@ await q(
     where outlet_id = $1`,
   [OUT]
 );
-const diLuar = await gagalkan(() => q(`select mulai_istirahat($1)`, [REC]));
+const diLuar = await gagalkan(() => q(`select mulai_istirahat($1, 'o/selfie.jpg', true)`, [REC]));
 benar('§2 di luar jendela: ditolak SERVER', !!diLuar);
 benar('§2 pesannya menyebut jam jendelanya', /\d{2}:\d{2}.*\d{2}:\d{2}/.test(diLuar ?? ''), diLuar ?? '');
 
@@ -181,18 +181,18 @@ await q(
     where outlet_id = $1`,
   [OUT]
 );
-const diDalam = await gagalkan(() => q(`select mulai_istirahat($1)`, [REC]));
+const diDalam = await gagalkan(() => q(`select mulai_istirahat($1, 'o/selfie.jpg', true)`, [REC]));
 benar('§2 di dalam jendela: diterima', !diDalam, diDalam ?? '');
 await q(`delete from attendance_breaks where attendance_id = $1`, [REC]);
 
 // Mode bebas: kapan pun boleh.
 await q(`update attendance_settings set break_mode = 'bebas' where outlet_id = $1`, [OUT]);
 await q(`delete from attendance_breaks where attendance_id = $1`, [REC]);
-const bebas = await gagalkan(() => q(`select mulai_istirahat($1)`, [REC]));
+const bebas = await gagalkan(() => q(`select mulai_istirahat($1, 'o/selfie.jpg', true)`, [REC]));
 benar('§2 mode bebas: diterima kapan pun', !bebas, bebas ?? '');
 
 // Satu istirahat berjalan saja.
-const kembar = await gagalkan(() => q(`select mulai_istirahat($1)`, [REC]));
+const kembar = await gagalkan(() => q(`select mulai_istirahat($1, 'o/selfie.jpg', true)`, [REC]));
 benar('§2 istirahat kedua saat yang pertama berjalan: ditolak', !!kembar);
 
 // INDEKS UNIKNYA DIPERIKSA SENDIRI, bukan disandarkan pada penolakan di atas.
@@ -213,9 +213,36 @@ benar(
   indeksSatu?.indexdef ?? ''
 );
 
+// FOTO WAJIB — gerbang yang sama dengan clock in/out.
+//
+// Tanpa ini, istirahat jadi satu-satunya tombol presensi yang bisa ditekan
+// dari rumah dan atas nama orang lain — dan justru tombol itu yang paling
+// sering ditekan dalam sehari.
+await q(`delete from attendance_breaks where attendance_id = $1`, [REC]);
+const mulaiTanpaFoto = await gagalkan(() => q(`select mulai_istirahat($1, null, true)`, [REC]));
+benar('§2 mulai istirahat tanpa foto: ditolak', !!mulaiTanpaFoto);
+benar('§2 pesannya menyuruh ambil selfie', /selfie/i.test(mulaiTanpaFoto ?? ''), mulaiTanpaFoto ?? '');
+const mulaiFotoKosong = await gagalkan(() => q(`select mulai_istirahat($1, '   ', true)`, [REC]));
+benar('§2 foto berisi spasi saja: ditolak', !!mulaiFotoKosong);
+
+await q(`select mulai_istirahat($1, 'o/selfie.jpg', true)`, [REC]);
+const selesaiTanpaFoto = await gagalkan(() => q(`select selesai_istirahat($1, null, true)`, [REC]));
+benar('§2 kembali tanpa foto: ditolak', !!selesaiTanpaFoto);
+cek(
+  '§2 dan istirahatnya MASIH berjalan',
+  Number((await satu(`select count(*)::int c from attendance_breaks where attendance_id = $1 and selesai_at is null`, [REC])).c),
+  1
+);
+
+// Bentuk LAMA (satu argumen) harus benar-benar hilang. Kalau ia hidup
+// berdampingan, PWA lama tetap bisa memanggilnya tanpa foto — dan seluruh
+// gerbang buktinya jadi opsional tanpa ada yang tahu.
+const bentukLama = await gagalkan(() => q(`select mulai_istirahat($1)`, [REC]));
+benar('§2 bentuk lama tanpa foto sudah tidak ada', !!bentukLama);
+
 // Presensi orang lain.
 await q(`select set_config('request.jwt.claim.sub', $1, false)`, [LAIN]);
-const bukanMilikku = await gagalkan(() => q(`select mulai_istirahat($1)`, [REC]));
+const bukanMilikku = await gagalkan(() => q(`select mulai_istirahat($1, 'o/selfie.jpg', true)`, [REC]));
 benar('§2 presensi orang lain ditolak', !!bukanMilikku);
 await q(`select set_config('request.jwt.claim.sub', $1, false)`, [STAFF]);
 
@@ -223,13 +250,13 @@ await q(`select set_config('request.jwt.claim.sub', $1, false)`, [STAFF]);
 // §3 KEMBALI TIDAK DIBATASI JENDELA
 // =====================================================================
 await q(`update attendance_settings set break_mode = 'ditentukan', break_start = '03:00', break_end = '03:30' where outlet_id = $1`, [OUT]);
-const kembali = await gagalkan(() => q(`select selesai_istirahat($1)`, [REC]));
+const kembali = await gagalkan(() => q(`select selesai_istirahat($1, 'o/selfie2.jpg', true)`, [REC]));
 benar('§3 kembali di luar jendela tetap boleh', !kembali, kembali ?? '');
 const b1 = await satu(`select selesai_at, otomatis from attendance_breaks where attendance_id = $1`, [REC]);
 benar('§3 istirahatnya tertutup', !!b1.selesai_at);
 cek('§3 dan TIDAK ditandai otomatis', b1.otomatis, false);
 
-const tanpaBerjalan = await gagalkan(() => q(`select selesai_istirahat($1)`, [REC]));
+const tanpaBerjalan = await gagalkan(() => q(`select selesai_istirahat($1, 'o/selfie2.jpg', true)`, [REC]));
 benar('§3 kembali tanpa istirahat berjalan: ditolak', !!tanpaBerjalan);
 
 // =====================================================================

@@ -1,4 +1,4 @@
-import { toast, formDialog, confirmDialog } from '../../core/ui.js';
+import { toast, formDialog, confirmDialog, infoDialog } from '../../core/ui.js';
 import {
   getMyTodaySession,
   getMyOpenSession,
@@ -18,7 +18,8 @@ import {
   getSetelanPresensi,
   listIstirahat,
   mulaiIstirahat,
-  selesaiIstirahat
+  selesaiIstirahat,
+  getOutletGeofence
 } from './attendance.service.js';
 import { setelanEfektif, bolehMulaiIstirahat, totalMenitIstirahat, BATAS_ISTIRAHAT_JAM } from './istirahat.js';
 import { getShiftSettings, getMyScheduleFor, evaluateLateness, todayWIB, LATE_LABEL, resolveAutoOff, holidayMapOf } from '../shift/shift.service.js';
@@ -29,6 +30,56 @@ import { loadFaceModels, isSameFace } from './face-recognition.js';
 import { pushCardHtml, wirePushCard } from '../../core/push-card.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { dapatkanLokasi, pesanAkurasiBuruk } from '../../core/geolocation.js';
+
+/**
+ * Menolak aksi presensi yang dilakukan di luar area outletnya.
+ *
+ * Dipakai Istirahat & Kembali — clock in punya jalurnya sendiri yang lebih
+ * rumit (ia masih MEMILIH outlet; di sini outletnya sudah pasti).
+ *
+ * Tiga hal yang sengaja TIDAK menolak:
+ *
+ *   - outlet tanpa koordinat  -> geofence-nya memang belum aktif, aturan yang
+ *     sama dengan clock in ("kalau koordinat belum diisi, staff bisa clock in
+ *     dari mana saja")
+ *   - sesi Tugas Luar/Storing -> orangnya memang sedang tidak di outlet
+ *   - GPS yang gagal dibaca   -> ditolak dengan pesan yang menyebut GPS, bukan
+ *     dibiarkan lolos. Kalau kegagalan GPS diloloskan, seluruh gerbang ini
+ *     bisa dilewati cukup dengan mematikan izin lokasi.
+ */
+async function pastikanDiAreaOutlet(sesi, aksi) {
+  if (sesi?.is_storing) return;
+
+  let outlet = null;
+  try {
+    outlet = await getOutletGeofence(sesi.outlet_id);
+  } catch {
+    // Gagal membaca setelan outlet bukan bukti orangnya di luar area.
+    return;
+  }
+  if (outlet?.latitude == null || outlet?.longitude == null) return;
+
+  let loc = null;
+  try {
+    loc = await dapatkanLokasi({ akurasiTarget: 50, timeoutMs: 20000 });
+  } catch {
+    loc = null;
+  }
+  if (!loc) {
+    throw new Error(`Lokasi tidak terbaca, jadi ${aksi} belum bisa dicatat. Nyalakan GPS lalu coba lagi.`);
+  }
+
+  const jarak = distanceMeters(loc.lat, loc.lng, outlet.latitude, outlet.longitude);
+  const radius = outlet.geofence_radius_m ?? 100;
+  // Ketelitian GPS ikut diberi kelonggaran — menolak orang yang BERDIRI di
+  // dalam outlet karena sinyalnya meleset 30 meter akan membuat fitur ini
+  // dimatikan dalam seminggu.
+  if (jarak > radius + Math.min(loc.accuracy ?? 0, 50)) {
+    throw new Error(
+      `Kamu ${Math.round(jarak)} m dari ${outlet.name} (radius ${radius} m), jadi ${aksi} belum bisa dicatat.`
+    );
+  }
+}
 
 export async function renderAttendancePage(container, ctx) {
   const { userId, businessUnitId, outletId } = ctx;
@@ -183,9 +234,12 @@ export async function renderAttendancePage(container, ctx) {
               ? `<div class="att-status-line" style="color:var(--color-warning,#8a5800)">
                    ☕ Sedang istirahat sejak <strong>${formatTime(berjalan.mulai_at)}</strong>
                  </div>
-                 <p class="att-hint">Kalau lupa menekan Kembali, kamu otomatis dianggap kembali
-                   ${BATAS_ISTIRAHAT_JAM} jam sesudah mulai.</p>
-                 <button id="btn-istirahat-selesai">↩️ Kembali dari Istirahat</button>`
+                 <p class="att-hint" style="color:var(--color-danger);font-weight:600">
+                   ⚠️ Wajib absen kembali begitu istirahatmu selesai.
+                 </p>
+                 <p class="att-hint">
+                   Kelalaian absen kembali tercatat di rekap dan ditandai untuk atasanmu.
+                 </p>`
               : `<button id="btn-istirahat-mulai"${bolehMulai.boleh ? '' : ' disabled'}>☕ Ambil Istirahat</button>
                  ${
                    // SEBABNYA DIKATAKAN. Tombol yang mati tanpa keterangan akan
@@ -208,77 +262,121 @@ export async function renderAttendancePage(container, ctx) {
           <button type="button" class="att-shoot" id="btn-shoot-out"><span>📷</span> Ambil Foto Selfie</button>
           <img id="preview-out" class="selfie-preview" style="display:none" />
         </div>
-        <button class="primary" id="btn-clock-out" disabled>Clock Out</button>
+        ${
+          // SAAT ISTIRAHAT, TOMBOL CLOCK OUT DISEMBUNYIKAN — bukan sekadar
+          // dinonaktifkan.
+          //
+          // Dua tombol utama berdampingan membuat orang menekan yang salah, dan
+          // di sini "yang salah" berarti pulang padahal ia cuma mau kembali
+          // bekerja. Tombol Kembali mengambil tempat dan sorotan yang sama
+          // supaya tidak ada yang perlu dibaca dua kali.
+          berjalan
+            ? `<button class="primary" id="btn-istirahat-selesai" disabled>↩️ Kembali dari Istirahat</button>`
+            : `<button class="primary" id="btn-clock-out" disabled>Clock Out</button>`
+        }
         <p class="error-text" id="att-error"></p>
       </div>`;
 
     const errorEl = main.querySelector('#att-error');
 
-    // Penolakan server TIDAK ditelan: jendela jamnya ditegakkan di `mulai_istirahat`
-    // juga, dan PWA yang tertinggal versi bisa mengirim permintaan yang layar
-    // barunya sudah cegah. Pesannya datang dari server apa adanya.
+    // ISTIRAHAT MEMAKAI GERBANG YANG SAMA DENGAN CLOCK IN/OUT.
+    //
+    // Tanpa itu, istirahat jadi satu-satunya tombol presensi yang bisa ditekan
+    // dari rumah dan atas nama orang lain — dan justru tombol itu yang paling
+    // sering ditekan dalam sehari. Foto selfie + kecocokan wajah + geofence:
+    // ketiganya sama persis dengan yang dituntut clock out.
+    const tombolAksi = main.querySelector(berjalan ? '#btn-istirahat-selesai' : '#btn-clock-out');
+
+    const labelAksi = berjalan ? 'Kembali dari Istirahat' : 'Clock Out';
+
+    main.querySelector('#btn-shoot-out').addEventListener('click', async () => {
+      errorEl.textContent = '';
+      try {
+        capturedOut = await openCameraCapture({
+          getWatermarkText: () => formatWatermarkText(outletName(openSession.outlet_id), labelAksi),
+          requireFace: true
+        });
+        const preview = main.querySelector('#preview-out');
+        preview.src = URL.createObjectURL(capturedOut.blob);
+        preview.style.display = 'block';
+        tombolAksi.disabled = false;
+        toast(`Foto siap. Lanjut ${labelAksi}.`, 'info');
+      } catch (error) {
+        errorEl.textContent = error.message ?? 'Gagal mengambil foto.';
+      }
+    });
+
+    tombolAksi.addEventListener('click', async (e) => {
+      errorEl.textContent = '';
+      e.target.disabled = true;
+      try {
+        if (!capturedOut) throw new Error('Ambil foto selfie dulu.');
+        if (!capturedOut.descriptor) throw new Error('Wajah tidak terdeteksi di foto. Ulangi dengan pencahayaan cukup & wajah menghadap kamera.');
+        if (!isSameFace(capturedOut.descriptor, myFaceDescriptor)) {
+          throw new Error(`Wajah tidak cocok dengan yang terdaftar. ${labelAksi} ditolak.`);
+        }
+        await pastikanDiAreaOutlet(openSession, labelAksi);
+
+        if (berjalan) {
+          const path = await uploadAttendanceSelfie({ outletId: openSession.outlet_id, kind: 'break_in', file: capturedOut.blob });
+          await selesaiIstirahat(openSession.id, { photoPath: path, faceMatch: true });
+          await infoDialog({
+            title: '👋 Selamat bekerja kembali',
+            bodyHtml:
+              '<p>Kamu sudah tercatat <strong>kembali dari istirahat</strong>.</p>' +
+              '<p style="color:var(--color-text-muted);font-size:0.9rem">Jangan lupa Clock Out saat jam kerjamu selesai.</p>',
+            closeText: 'Oke'
+          });
+        } else {
+          const photoPath = await uploadAttendanceSelfie({ outletId: openSession.outlet_id, kind: 'out', file: capturedOut.blob });
+          await clockOut(openSession.id, { photoPath, faceMatch: true });
+          await infoDialog({
+            title: '🙌 Kamu sudah Clock Out',
+            bodyHtml:
+              '<p>Terima kasih atas kerja kerasnya hari ini.</p>' +
+              '<p style="color:var(--color-text-muted);font-size:0.9rem">Hati-hati di jalan, sampai jumpa besok!</p>',
+            closeText: 'Oke'
+          });
+        }
+        await renderAttendancePage(container, ctx);
+      } catch (error) {
+        errorEl.textContent = error.message ?? `Gagal ${labelAksi.toLowerCase()}.`;
+        e.target.disabled = false;
+      }
+    });
+
+    // Penolakan server TIDAK ditelan: jendela jamnya ditegakkan di
+    // `mulai_istirahat` juga, dan PWA yang tertinggal versi bisa mengirim
+    // permintaan yang layar barunya sudah cegah.
     main.querySelector('#btn-istirahat-mulai')?.addEventListener(
       'click',
       sekaliJalan(async () => {
         errorEl.textContent = '';
         try {
-          await mulaiIstirahat(openSession.id);
-          toast('Selamat istirahat. Jangan lupa tekan Kembali nanti. ☕', 'success');
+          // Gerbang yang sama dengan clock out: foto, wajah, lalu lokasi.
+          if (!capturedOut) throw new Error('Ambil foto selfie dulu sebelum mulai istirahat.');
+          if (!capturedOut.descriptor) throw new Error('Wajah tidak terdeteksi di foto. Ulangi dengan pencahayaan cukup & wajah menghadap kamera.');
+          if (!isSameFace(capturedOut.descriptor, myFaceDescriptor)) {
+            throw new Error('Wajah tidak cocok dengan yang terdaftar. Istirahat ditolak.');
+          }
+          await pastikanDiAreaOutlet(openSession, 'Istirahat');
+
+          const path = await uploadAttendanceSelfie({ outletId: openSession.outlet_id, kind: 'break_out', file: capturedOut.blob });
+          await mulaiIstirahat(openSession.id, { photoPath: path, faceMatch: true });
+          await infoDialog({
+            title: '☕ Istirahatmu dimulai',
+            bodyHtml:
+              '<p>Selamat istirahat — waktumu sudah tercatat.</p>' +
+              '<p style="color:var(--color-danger);font-weight:600">Wajib absen kembali begitu istirahatmu selesai.</p>' +
+              '<p style="color:var(--color-text-muted);font-size:0.9rem">Kelalaian absen kembali tercatat di rekap dan ditandai untuk atasanmu.</p>',
+            closeText: 'Oke, saya mengerti'
+          });
           await renderAttendancePage(container, ctx);
         } catch (error) {
           errorEl.textContent = error.message ?? 'Gagal memulai istirahat.';
         }
       })
     );
-
-    main.querySelector('#btn-istirahat-selesai')?.addEventListener(
-      'click',
-      sekaliJalan(async () => {
-        errorEl.textContent = '';
-        try {
-          await selesaiIstirahat(openSession.id);
-          toast('Selamat bekerja kembali.', 'success');
-          await renderAttendancePage(container, ctx);
-        } catch (error) {
-          errorEl.textContent = error.message ?? 'Gagal mengakhiri istirahat.';
-        }
-      })
-    );
-
-    main.querySelector('#btn-shoot-out').addEventListener('click', async () => {
-      errorEl.textContent = '';
-      try {
-        capturedOut = await openCameraCapture({
-          getWatermarkText: () => formatWatermarkText(outletName(openSession.outlet_id), 'Clock Out'),
-          requireFace: true
-        });
-        const preview = main.querySelector('#preview-out');
-        preview.src = URL.createObjectURL(capturedOut.blob);
-        preview.style.display = 'block';
-        main.querySelector('#btn-clock-out').disabled = false;
-        toast('Foto siap. Lanjut Clock Out.', 'info');
-      } catch (error) {
-        errorEl.textContent = error.message ?? 'Gagal mengambil foto.';
-      }
-    });
-
-    main.querySelector('#btn-clock-out').addEventListener('click', async (e) => {
-      errorEl.textContent = '';
-      e.target.disabled = true;
-      try {
-        if (!capturedOut) throw new Error('Ambil foto selfie dulu.');
-        if (!capturedOut.descriptor) throw new Error('Wajah tidak terdeteksi di foto. Ulangi dengan pencahayaan cukup & wajah menghadap kamera.');
-        if (!isSameFace(capturedOut.descriptor, myFaceDescriptor)) throw new Error('Wajah tidak cocok dengan yang terdaftar. Clock out ditolak.');
-
-        const photoPath = await uploadAttendanceSelfie({ outletId: openSession.outlet_id, kind: 'out', file: capturedOut.blob });
-        await clockOut(openSession.id, { photoPath, faceMatch: true });
-        toast('Clock out berhasil. Terima kasih atas kerja kerasnya hari ini! 🙌', 'success');
-        await renderAttendancePage(container, ctx);
-      } catch (error) {
-        errorEl.textContent = error.message ?? 'Gagal clock out.';
-        e.target.disabled = false;
-      }
-    });
     return;
   }
 
@@ -601,12 +699,38 @@ export async function renderAttendancePage(container, ctx) {
         lateStatus: lateInfo.status
       });
 
+      // DIALOG PENEGASAN, bukan cuma toast.
+      //
+      // Toast hilang sendiri dalam tiga detik, dan di HP yang sedang dipegang
+      // sambil berjalan ia sering tidak terbaca sama sekali. Orangnya lalu
+      // menekan tombolnya lagi untuk memastikan — dan pada tombol presensi,
+      // "memastikan" itu mahal. Dialog menuntut satu ketukan sadar, dan
+      // ketukan itulah buktinya bahwa pesannya benar-benar sampai.
+      //
+      // Status terlambat SENGAJA ikut di sini, bukan disembunyikan di toast:
+      // itu hal pertama yang perlu diketahui orangnya, dan yang paling mudah
+      // terlewat kalau cuma lewat.
       if (lateInfo.status === 'late') {
-        toast(`Clock in tercatat, tapi ${lateInfo.minutes} menit melewati toleransi — ditandai Terlambat.`, 'warning');
-      } else if (lateInfo.status === 'tolerance') {
-        toast(`Clock in berhasil (${lateInfo.minutes} menit, masih dalam toleransi).`, 'success');
+        await infoDialog({
+          title: '⚠️ Kamu sudah Clock In — tercatat Terlambat',
+          bodyHtml:
+            `<p>Clock in kamu tercatat, tapi <strong>${lateInfo.minutes} menit</strong> melewati toleransi.</p>` +
+            '<p style="color:var(--color-text-muted);font-size:0.9rem">Kalau ada alasannya, sampaikan ke atasanmu supaya bisa dikoreksi.</p>',
+          closeText: 'Oke'
+        });
       } else {
-        toast(isStoring ? 'Clock in (Tugas Luar/Storing) berhasil. Hati-hati di jalan! 🚩' : 'Clock in berhasil. Selamat bekerja! 👋', 'success');
+        await infoDialog({
+          title: isStoring ? '🚩 Kamu sudah Clock In (Tugas Luar)' : '👋 Kamu sudah Clock In',
+          bodyHtml:
+            `<p>${isStoring ? 'Tugas luar kamu sudah tercatat.' : 'Kehadiranmu sudah tercatat.'}</p>` +
+            (lateInfo.status === 'tolerance'
+              ? `<p style="font-size:0.9rem">${lateInfo.minutes} menit dari jadwal — masih dalam toleransi.</p>`
+              : '') +
+            `<p style="color:var(--color-text-muted);font-size:0.9rem">${
+              isStoring ? 'Hati-hati di jalan!' : 'Selamat bekerja hari ini!'
+            }</p>`,
+          closeText: 'Oke'
+        });
       }
       await renderAttendancePage(container, ctx);
     } catch (error) {

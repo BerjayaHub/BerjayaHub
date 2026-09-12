@@ -351,7 +351,15 @@ export function formDialog({
  * kelihatan sampai ada yang mencoba menekannya. Tombol "Unduh Excel" di dalam
  * dialog rincian Opname sempat mati persis karena itu.
  */
-export function infoDialog({ title = 'Detail', bodyHtml = '', onReady } = {}) {
+/**
+ * `closeText` BAWAANNYA TETAP 'Tutup'.
+ *
+ * Dialog ini dipakai belasan layar untuk menampilkan rincian, dan di sana
+ * "Tutup" memang kata yang benar. Yang butuh "Oke" adalah dialog PENEGASAN —
+ * "kamu sudah clock in" — di mana "Tutup" terbaca seperti membatalkan sesuatu
+ * yang justru baru saja berhasil.
+ */
+export function infoDialog({ title = 'Detail', bodyHtml = '', closeText = 'Tutup', onReady } = {}) {
   return new Promise((resolve) => {
     const overlay = buildOverlay();
     overlay.innerHTML = `
@@ -359,7 +367,7 @@ export function infoDialog({ title = 'Detail', bodyHtml = '', onReady } = {}) {
         <h3 class="modal-title">${escapeHtml(title)}</h3>
         <div class="modal-info-body">${bodyHtml}</div>
         <div class="modal-actions">
-          <button type="button" class="primary btn-inline" data-act="close">Tutup</button>
+          <button type="button" class="primary btn-inline" data-act="close">${escapeHtml(closeText)}</button>
         </div>
       </div>
     `;

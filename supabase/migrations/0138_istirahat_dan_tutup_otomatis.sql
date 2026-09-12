@@ -191,6 +191,16 @@ create table if not exists attendance_breaks (
   attendance_id uuid not null references attendance_records(id) on delete cascade,
   mulai_at timestamptz not null default now(),
   selesai_at timestamptz,
+  -- BUKTI YANG SAMA DENGAN CLOCK IN/OUT.
+  --
+  -- Tanpa ini, istirahat jadi satu-satunya tombol presensi yang bisa ditekan
+  -- dari rumah dan atas nama orang lain — dan justru tombol itu yang paling
+  -- sering ditekan dalam sehari. Fotonya WAJIB untuk yang mulai; yang kembali
+  -- mengisi kolom keduanya.
+  foto_mulai text,
+  foto_selesai text,
+  wajah_mulai boolean,
+  wajah_selesai boolean,
   -- Ditutup otomatis karena lupa kembali. Dibedakan supaya rekapnya bisa
   -- berkata "2 jam (otomatis)" dan bukan berpura-pura orangnya menekan tombol.
   otomatis boolean not null default false,
@@ -234,7 +244,15 @@ comment on function batas_istirahat() is
 -- ---------------------------------------------------------
 -- (5) MULAI ISTIRAHAT.
 -- ---------------------------------------------------------
-create or replace function mulai_istirahat(p_attendance uuid)
+-- Bentuk lama (satu argumen) DIBUANG, bukan dibiarkan berdampingan.
+--
+-- PostgREST memilih fungsi berdasarkan HIMPUNAN NAMA argumen yang dikirim.
+-- Dua bentuk yang hidup bersama berarti PWA lama tetap bisa memanggil yang
+-- tanpa foto — dan seluruh gerbang buktinya jadi opsional tanpa ada yang tahu.
+drop function if exists mulai_istirahat(uuid);
+drop function if exists selesai_istirahat(uuid);
+
+create or replace function mulai_istirahat(p_attendance uuid, p_photo text, p_face_match boolean)
 returns uuid
 language plpgsql
 security definer
@@ -246,8 +264,14 @@ declare
   v_set record;
   v_jam time;
   v_id uuid;
+  v_foto text := nullif(btrim(coalesce(p_photo, '')), '');
 begin
   if v_uid is null then raise exception 'Harus login'; end if;
+  -- Fotonya diperiksa DI SINI, sebelum apa pun ditulis. Pesan constraint tidak
+  -- memberi tahu staff apa yang harus ia lakukan.
+  if v_foto is null then
+    raise exception 'Ambil foto selfie dulu sebelum mulai istirahat.';
+  end if;
 
   select * into v_rec from attendance_records where id = p_attendance;
   if v_rec.id is null then raise exception 'Presensi tidak ditemukan.'; end if;
@@ -284,13 +308,15 @@ begin
     end if;
   end if;
 
-  insert into attendance_breaks (attendance_id) values (p_attendance) returning id into v_id;
+  insert into attendance_breaks (attendance_id, foto_mulai, wajah_mulai)
+  values (p_attendance, v_foto, p_face_match)
+  returning id into v_id;
   return v_id;
 end;
 $$;
 
-revoke all on function mulai_istirahat(uuid) from public;
-grant execute on function mulai_istirahat(uuid) to authenticated;
+revoke all on function mulai_istirahat(uuid, text, boolean) from public;
+grant execute on function mulai_istirahat(uuid, text, boolean) to authenticated;
 
 -- ---------------------------------------------------------
 -- (6) KEMBALI DARI ISTIRAHAT.
@@ -299,7 +325,7 @@ grant execute on function mulai_istirahat(uuid) to authenticated;
 -- kembali di luar jam hanya menghasilkan istirahat yang menggantung, lalu
 -- ditutup otomatis 2 jam — hukuman untuk orang yang justru kembali lebih awal.
 -- ---------------------------------------------------------
-create or replace function selesai_istirahat(p_attendance uuid)
+create or replace function selesai_istirahat(p_attendance uuid, p_photo text, p_face_match boolean)
 returns void
 language plpgsql
 security definer
@@ -308,23 +334,27 @@ as $$
 declare
   v_uid uuid := auth.uid();
   v_rec attendance_records%rowtype;
+  v_foto text := nullif(btrim(coalesce(p_photo, '')), '');
 begin
   if v_uid is null then raise exception 'Harus login'; end if;
+  if v_foto is null then
+    raise exception 'Ambil foto selfie dulu sebelum kembali dari istirahat.';
+  end if;
 
   select * into v_rec from attendance_records where id = p_attendance;
   if v_rec.id is null then raise exception 'Presensi tidak ditemukan.'; end if;
   if v_rec.user_id <> v_uid then raise exception 'Itu presensi orang lain.'; end if;
 
   update attendance_breaks
-     set selesai_at = now(), otomatis = false
+     set selesai_at = now(), otomatis = false, foto_selesai = v_foto, wajah_selesai = p_face_match
    where attendance_id = p_attendance and selesai_at is null;
 
   if not found then raise exception 'Tidak ada istirahat yang sedang berjalan.'; end if;
 end;
 $$;
 
-revoke all on function selesai_istirahat(uuid) from public;
-grant execute on function selesai_istirahat(uuid) to authenticated;
+revoke all on function selesai_istirahat(uuid, text, boolean) from public;
+grant execute on function selesai_istirahat(uuid, text, boolean) to authenticated;
 
 -- ---------------------------------------------------------
 -- (6b) CLOCK OUT MENUTUP ISTIRAHAT YANG MASIH BERJALAN.

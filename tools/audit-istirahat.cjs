@@ -210,6 +210,26 @@ if (mig) {
     );
   }
 
+  // GERBANG BUKTI: foto wajib untuk mulai maupun kembali.
+  //
+  // Tanpa ini istirahat jadi satu-satunya tombol presensi yang bisa ditekan
+  // dari rumah dan atas nama orang lain — dan justru tombol itu yang paling
+  // sering ditekan dalam sehari.
+  for (const fn of ['mulai_istirahat', 'selesai_istirahat']) {
+    if (!new RegExp(`create or replace function ${fn}\\(p_attendance uuid, p_photo text, p_face_match boolean\\)`).test(sql)) {
+      salah(`0138: \`${fn}\` tidak lagi menerima foto & kecocokan wajah.`);
+    }
+    // Bentuk lama WAJIB dibuang. PostgREST memilih fungsi dari himpunan nama
+    // argumennya; dua bentuk yang hidup bersama berarti PWA lama tetap bisa
+    // memanggil yang tanpa foto, dan gerbangnya jadi opsional diam-diam.
+    if (!new RegExp(`drop function if exists ${fn}\\(uuid\\);`).test(sql)) {
+      salah(`0138: bentuk lama \`${fn}(uuid)\` tidak dibuang — ia jadi pintu belakang tanpa foto.`);
+    }
+  }
+  if (!/raise exception 'Ambil foto selfie dulu sebelum mulai istirahat\.'/.test(sql)) {
+    salah('0138 `mulai_istirahat`: foto kosong tidak ditolak dengan pesan yang bisa ditindaklanjuti.');
+  }
+
   // Penandanya wajib ada.
   if (!/auto_closed_at = now\(\)/.test(sql) || !/auto_closed_reason/.test(sql)) {
     salah(
@@ -241,6 +261,58 @@ if (hal) {
   // diri beristirahat karena mengira NBM-nya berkurang.
   if (!/tidak mengurangi NBM/i.test(hal)) {
     salah('attendance.page.js: layar tidak mengatakan bahwa istirahat tidak mengurangi NBM.');
+  }
+
+  // GERBANG YANG SAMA DENGAN CLOCK OUT untuk kedua aksi istirahat.
+  if (!/pastikanDiAreaOutlet\(openSession, 'Istirahat'\)/.test(kode)) {
+    salah('attendance.page.js: mulai istirahat tidak memeriksa geofence — tombolnya bisa ditekan dari rumah.');
+  }
+  if (!/isSameFace\(capturedOut\.descriptor, myFaceDescriptor\)[\s\S]{0,200}Istirahat ditolak/.test(kode)) {
+    salah('attendance.page.js: mulai istirahat tidak memeriksa kecocokan wajah — bisa ditekan atas nama orang lain.');
+  }
+  // GPS yang gagal dibaca harus MENOLAK, bukan diloloskan: kalau ia
+  // diloloskan, gerbangnya bisa dilewati cukup dengan mematikan izin lokasi.
+  if (!/Lokasi tidak terbaca/.test(kode)) {
+    salah('attendance.page.js: GPS yang gagal dibaca tidak menolak aksinya — geofence-nya bisa dilewati dengan mematikan izin lokasi.');
+  }
+
+  // Saat istirahat, Clock Out DISEMBUNYIKAN — bukan sekadar dinonaktifkan.
+  // Dua tombol utama berdampingan membuat orang menekan yang salah, dan di
+  // sini "yang salah" berarti pulang padahal ia cuma mau kembali bekerja.
+  if (!/berjalan\s*\n?\s*\? `<button class="primary" id="btn-istirahat-selesai"/.test(kode)) {
+    salah(
+      'attendance.page.js: tombol Clock Out tidak digantikan tombol Kembali saat istirahat berjalan. ' +
+        'Dua tombol utama berdampingan membuat orang pulang padahal ia cuma mau kembali bekerja.'
+    );
+  }
+
+  // Dialog penegasan sesudah tiap aksi. Toast hilang sendiri dalam tiga detik
+  // dan sering tidak terbaca di HP yang dipegang sambil berjalan; orangnya lalu
+  // menekan tombolnya lagi untuk memastikan — dan pada tombol presensi,
+  // "memastikan" itu mahal.
+  const dialogWajib = [
+    ['Clock In', /title: isStoring \? '🚩 Kamu sudah Clock In \(Tugas Luar\)' : '👋 Kamu sudah Clock In'/],
+    ['Clock Out', /title: '🙌 Kamu sudah Clock Out'/],
+    ['mulai istirahat', /title: '☕ Istirahatmu dimulai'/],
+    ['kembali istirahat', /title: '👋 Selamat bekerja kembali'/]
+  ];
+  for (const [nama, pola] of dialogWajib) {
+    if (!pola.test(kode)) salah(`attendance.page.js: tidak ada dialog penegasan sesudah ${nama}.`);
+  }
+
+  // Peringatan yang MENEKANKAN, bukan yang meremehkan.
+  //
+  // Kalimat "kalau lupa, kamu otomatis dianggap kembali 2 jam sesudah mulai"
+  // membaca seperti izin: staff jadi tahu ada jaring pengamannya, lalu berhenti
+  // menekan tombol Kembali. Jaring itu untuk kelalaian, bukan untuk dipakai.
+  if (/otomatis dianggap\s*\n?\s*kembali/.test(hal)) {
+    salah(
+      'attendance.page.js: layar masih menawarkan "otomatis dianggap kembali 2 jam" sebagai keterangan biasa. ' +
+        'Itu terbaca sebagai izin untuk tidak menekan Kembali.'
+    );
+  }
+  if (!/Wajib absen kembali/.test(hal)) {
+    salah('attendance.page.js: tidak ada peringatan tegas untuk absen kembali dari istirahat.');
   }
 }
 

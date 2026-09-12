@@ -5937,6 +5937,30 @@ Godaan berikutnya — *"kan lebih adil kalau istirahat dipotong"* — akan datan
 
 **Lupa kembali** ditutup di `mulai + 2 jam`, bukan di "sekarang", dan ditandai `otomatis`. Ditutup di "sekarang" membuat rekapnya berbeda dari batas yang dijanjikan ke staff di layarnya sendiri.
 
+### Istirahat dijaga sekeras clock in
+
+> "istirahat dan kembali dari istirahat juga memakai geofencing dan biometrik wajah, agar tidak disalahgunakan"
+
+Betul, dan celahnya nyata: tanpa itu istirahat jadi **satu-satunya tombol presensi** yang bisa ditekan dari rumah dan atas nama orang lain — sementara ia justru tombol yang paling sering ditekan dalam sehari. Sekarang keduanya menuntut selfie, kecocokan wajah, dan berada di area outlet, persis seperti clock out. Fotonya wajib **di server** (`mulai_istirahat`/`selesai_istirahat` menolak tanpanya), dan bentuk lama yang berargumen satu **dibuang** — dua bentuk yang hidup berdampingan berarti PWA lama tetap punya pintu belakang tanpa foto.
+
+Tiga hal yang sengaja **tidak** menolak: outlet yang koordinatnya belum diisi (geofence-nya memang belum aktif, aturan yang sama dengan clock in), sesi Tugas Luar, dan jarak yang masih dalam radius ditambah ketelitian GPS — menolak orang yang berdiri di dalam outlet karena sinyalnya meleset 30 meter akan membuat fitur ini dimatikan dalam seminggu. Tapi GPS yang **gagal dibaca** tetap menolak: kalau kegagalan GPS diloloskan, seluruh gerbang ini bisa dilewati cukup dengan mematikan izin lokasi.
+
+### Peringatan yang menekankan, bukan yang meremehkan
+
+Kalimat pertama saya — *"kalau lupa menekan Kembali, kamu otomatis dianggap kembali 2 jam sesudah mulai"* — salah nadanya, dan iko yang menangkapnya. Ia membaca seperti **izin**: staff jadi tahu ada jaring pengamannya, lalu berhenti menekan tombol Kembali. Jaring itu untuk kelalaian, bukan untuk dipakai.
+
+Ganti jadi: **"⚠️ Wajib absen kembali begitu istirahatmu selesai"**, dengan catatan bahwa kelalaiannya tercatat di rekap dan ditandai untuk atasan. Batas 2 jamnya tetap ada di server, hanya tidak lagi diiklankan.
+
+### Saat istirahat, Clock Out hilang
+
+Bukan sekadar dinonaktifkan — **digantikan** tombol "Kembali dari Istirahat" di tempat dan sorotan yang sama. Dua tombol utama berdampingan membuat orang menekan yang salah, dan di sini "yang salah" berarti pulang padahal ia cuma mau kembali bekerja.
+
+### Dialog penegasan sesudah tiap aksi
+
+Toast hilang sendiri dalam tiga detik, dan di HP yang dipegang sambil berjalan ia sering tidak terbaca sama sekali. Orangnya lalu menekan tombolnya lagi untuk memastikan — dan pada tombol presensi, "memastikan" itu mahal. Dialog menuntut satu ketukan sadar, dan ketukan itulah buktinya bahwa pesannya sampai.
+
+Status **terlambat** ikut naik ke dialognya, bukan tinggal di toast: itu hal pertama yang perlu diketahui orangnya, dan yang paling mudah terlewat kalau cuma lewat.
+
 **Istirahat tidak pernah menghalangi orang pulang** — dan pertanyaan iko soal itu menyingkap akibat yang belum tertangani. Kalau istirahatnya dibiarkan terbuka, penutup otomatis menutupnya di `mulai + 2 jam`, yang bisa jatuh **sesudah** jam pulangnya: rekapnya berbunyi *"clock out 17:00 · istirahat 16:30–18:30"*, dan total menit istirahat jadi lebih besar daripada jam kerjanya sendiri.
 
 Jadi clock out ikut menutup istirahat yang berjalan, di mana pun yang lebih awal antara jam pulang dan batas 2 jam — pulang 30 menit sesudah mulai berarti 30 menit; pulang 5 jam sesudahnya tetap 2 jam, sesuai janji yang dibaca staff. Lewat **trigger**, bukan di dalam fungsi clock out di layar: jam pulang bisa terisi dari tiga jalan (tombol staff, penutup otomatis, koreksi admin), dan aturan yang ditulis di satu jalan saja akan terlewat di dua lainnya.
