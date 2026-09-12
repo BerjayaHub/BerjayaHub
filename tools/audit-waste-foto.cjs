@@ -234,6 +234,35 @@ if (murni) {
         'Harga beli beras di Sentul bukan harga beli beras di Serpong — angkanya akan tetap masuk akal, jadi tidak ada yang memeriksanya.'
     );
   }
+  // DUA SUMBER NILAI. Barang setengah jadi tidak pernah dibeli lewat nota, jadi
+  // ia TIDAK AKAN PERNAH punya baris `biaya_rata_bahan` — yang ada cuma HPP
+  // resepnya. Versi pertama layar ini hanya melihat sumber pertama, dan seluruh
+  // barang produksi berbunyi "-" sementara Master Produk menampilkan angkanya.
+  if (!/export function hargaSatuanBahan\(/.test(kode)) {
+    salah('laporan-waste.js: `hargaSatuanBahan` tidak diekspor — nilai barang produksi tidak punya cadangan.');
+  }
+  if (!/if \(dariNota !== null\) return \{ nilai: dariNota, sumber: SUMBER_NOTA \};/.test(kode)) {
+    salah(
+      'laporan-waste.js: biaya nota tidak lagi menang lebih dulu. ' +
+        'Yang benar-benar dibayar ke supplier harus mengalahkan ongkos hitungan — kalau terbalik, laporan kerugian ' +
+        'memakai angka teoretis padahal angka sebenarnya ada.'
+    );
+  }
+  if (!/if \(dariHpp !== null\) return \{ nilai: dariHpp, sumber: SUMBER_HPP \};/.test(kode)) {
+    salah(
+      'laporan-waste.js: HPP resep tidak dipakai sebagai cadangan. ' +
+        'Barang setengah jadi tidak pernah dibeli — tanpa cadangan ini, seluruh waste barang produksi berbunyi "-".'
+    );
+  }
+  // Sumbernya harus DISEBUT. Dua-duanya rupiah, artinya berbeda: uang yang
+  // keluar ke supplier vs ongkos membuat sendiri.
+  if (!/\{ header: 'Sumber nilai'/.test(kode)) {
+    salah(
+      "laporan-waste.js: kolom 'Sumber nilai' hilang. " +
+        'Totalnya menjumlahkan dua hal yang berbeda artinya, dan tanpa kolom itu hasilnya terlihat pasti tapi tidak ' +
+        'bisa dipertanggungjawabkan.'
+    );
+  }
   if (!/r\.nilai === null \? '-'/.test(kode)) {
     salah("laporan-waste.js: nilai yang belum ada tidak ditulis \"-\". Rp0 membuat total kerugian terlihat lebih kecil dari yang sebenarnya.");
   }
@@ -268,6 +297,41 @@ if (adm) {
   }
   if (!/lapTampil/.test(kode)) {
     salah('waste.admin.js: yang diekspor bukan laporan yang sedang terlihat.');
+  }
+  // HPP-nya harus benar-benar DIHITUNG dan DITERUSKAN. `hargaSatuanBahan` boleh
+  // punya cadangan, tapi kalau petanya tidak pernah diisi ia selalu kosong —
+  // dan hasilnya sama persis dengan bug yang baru saja diperbaiki.
+  if (!/computeCosts\(products, recipes\)/.test(kode)) {
+    salah('waste.admin.js: HPP resep tidak pernah dihitung — barang produksi akan kembali berbunyi "-".');
+  }
+  if (!/susunRekapWaste\(\{[\s\S]{0,160}hpp,/.test(kode)) {
+    salah('waste.admin.js: `hpp` tidak diteruskan ke `susunRekapWaste` — cadangannya ada tapi tidak pernah terpakai.');
+  }
+  // Gagal memuat sumber nilai harus DIKATAKAN.
+  //
+  // Bentuk pertamanya `catch {}` kosong: kalau pengambilannya gagal, SELURUH
+  // kolom Nilai berbunyi "-" dan tidak ada yang membedakannya dari "memang
+  // belum ada harganya" — admin lalu mencari sebabnya di tempat yang salah.
+  //
+  // Yang diperiksa BLOK PELAPORNYA, bukan sekadar ada-tidaknya nama variabel.
+  // Sabotase pertama pada aturan ini lolos persis begitu: ia mengganti nama
+  // deklarasinya saja, dan nama lamanya masih tersisa di baris lain — jadi
+  // pemeriksaan "ada kata `sumberGagal`" tetap hijau untuk kode yang sudah
+  // berhenti melapor.
+  if (!/if \(sumberGagal\.length\) \{[\s\S]{0,220}toast\(/.test(kode)) {
+    salah(
+      'waste.admin.js: kegagalan memuat sumber nilai tidak dilaporkan ke layar. ' +
+        'Kalau pengambilannya gagal, SELURUH kolom Nilai berbunyi "-" dan tidak ada yang membedakannya dari ' +
+        '"memang belum ada harganya" — admin lalu mencari sebabnya di tempat yang salah.'
+    );
+  }
+  // KEDUA sumbernya harus melapor. Satu yang diam berarti separuh kolom Nilai
+  // bisa kosong tanpa sebab yang bisa ditunjuk.
+  if ((kode.match(/sumberGagal\.push\(/g) ?? []).length < 2) {
+    salah(
+      'waste.admin.js: hanya sebagian sumber nilai yang melaporkan kegagalannya. ' +
+        'Biaya nota dan HPP resep dimuat terpisah; yang diam akan mengosongkan barisnya sendiri tanpa jejak.'
+    );
   }
   if (!/waste_rekap/.test(kode)) {
     salah(

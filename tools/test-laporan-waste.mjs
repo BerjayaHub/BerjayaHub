@@ -11,9 +11,13 @@ import {
   susunRekapWaste,
   keteranganWaste,
   kunciBiaya,
+  hargaSatuanBahan,
   KOLOM_WASTE,
   KOLOM_FOTO,
-  KET_BAHAN_MENTAH
+  KET_BAHAN_MENTAH,
+  SUMBER_NOTA,
+  SUMBER_HPP,
+  SUMBER_TIDAK_ADA
 } from '../js/modules/inventory/laporan-waste.js';
 
 let gagal = 0;
@@ -130,6 +134,7 @@ cek('urutan kolom', lap.kolom.map((k) => k.header), [
   'Jumlah',
   'Satuan',
   'Nilai',
+  'Sumber nilai',
   'Keterangan',
   'Catatan',
   'Dicatat oleh',
@@ -147,12 +152,13 @@ cek('baris terbaru di atas', lap.baris[0][0], '2026-09-12');
 cek('baris terlama di bawah', lap.baris[2][0], '2026-09-10');
 
 const barisMenu = lap.baris.find((r) => r[2] === 'Beras' && r[0] === '2026-09-12');
-cek('keterangan menu di barisnya', barisMenu[6], 'Waste menu Nasi Goreng × 2');
+cek('keterangan menu di barisnya', barisMenu[7], 'Waste menu Nasi Goreng × 2');
 const barisSpoil = lap.baris.find((r) => r[0] === '2026-09-10');
-cek('keterangan spoil di barisnya', barisSpoil[6], KET_BAHAN_MENTAH);
-cek('catatan ikut', barisSpoil[7], 'kena air');
-cek('pencatatnya ikut', barisSpoil[8], 'Risma');
-cek('nomornya ikut', barisSpoil[9], 'WST-260912-AAAA');
+cek('keterangan spoil di barisnya', barisSpoil[7], KET_BAHAN_MENTAH);
+cek('sumber nilainya disebut', barisSpoil[6], SUMBER_NOTA);
+cek('catatan ikut', barisSpoil[8], 'kena air');
+cek('pencatatnya ikut', barisSpoil[9], 'Risma');
+cek('nomornya ikut', barisSpoil[10], 'WST-260912-AAAA');
 
 // Sel foto SENGAJA kosong: modul murni tidak menyentuh jaringan, dan mengubah
 // path jadi data URL berarti mengunduh gambarnya.
@@ -170,7 +176,46 @@ const tanpaBiaya = susunRekapWaste({ baris, biaya: new Map([[kunciBiaya(OUT_A, '
 cek('baris tanpa biaya dihitung', tanpaBiaya.ringkas.tanpaNilai, 1);
 cek('totalnya hanya yang punya biaya', tanpaBiaya.ringkas.total, 40600);
 cek('selnya "-" bukan Rp0', tanpaBiaya.baris.find((r) => r[2] === 'Telur')[5], '-');
-cek('subjudul menyebutnya', /1 baris belum punya biaya rata-rata/.test(tanpaBiaya.subjudul), true);
+cek('sumbernya ditulis "-" juga', tanpaBiaya.baris.find((r) => r[2] === 'Telur')[6], SUMBER_TIDAK_ADA);
+cek('subjudul menyebutnya', /1 baris belum punya harga sama sekali/.test(tanpaBiaya.subjudul), true);
+
+// =====================================================================
+// HPP RESEP SEBAGAI CADANGAN
+//
+// Barang setengah jadi TIDAK PERNAH DIBELI — ia diproduksi. "Danish Cinnamon
+// (WIP)" punya HPP Rp6.764/porsi di Master Produk dan nol baris biaya
+// rata-rata. Versi pertama laporan ini cuma melihat sumber pertama, jadi
+// seluruh barang produksi berbunyi "-" sementara layar sebelah menampilkan
+// angkanya dengan jelas.
+// =====================================================================
+cek(
+  'nota menang atas HPP — itu yang benar-benar dibayar',
+  hargaSatuanBahan(OUT_A, 'p-beras', biaya, new Map([['p-beras', 99999]])),
+  { nilai: 14000, sumber: SUMBER_NOTA }
+);
+cek(
+  'tanpa nota, HPP dipakai',
+  hargaSatuanBahan(OUT_A, 'p-wip', new Map(), new Map([['p-wip', 6764]])),
+  { nilai: 6764, sumber: SUMBER_HPP }
+);
+cek('tanpa keduanya -> null, bukan 0', hargaSatuanBahan(OUT_A, 'p-x', new Map(), new Map()), {
+  nilai: null,
+  sumber: SUMBER_TIDAK_ADA
+});
+// Harga 0 sah (bahan bonus) dan tidak boleh jatuh ke HPP.
+cek('biaya nota 0 tetap menang atas HPP', hargaSatuanBahan(OUT_A, 'p-b', new Map([[kunciBiaya(OUT_A, 'p-b'), 0]]), new Map([['p-b', 5000]])), {
+  nilai: 0,
+  sumber: SUMBER_NOTA
+});
+
+const wip = [{ ...baris[0], waste_id: 'w7', product_id: 'p-wip', bahan_nama: 'Danish Cinnamon (WIP)', bahan_qty: 5, bahan_satuan: 'porsi' }];
+const lapWip = susunRekapWaste({ baris: wip, biaya, hpp: new Map([['p-wip', 6764]]) });
+cek('barang produksi tidak lagi "-"', lapWip.baris[0][5] !== '-', true);
+cek('nilainya 5 x 6.764', lapWip.ringkas.total, 33820);
+cek('sumbernya disebut HPP', lapWip.baris[0][6], SUMBER_HPP);
+cek('jumlah baris ber-HPP dihitung', lapWip.ringkas.dariHpp, 1);
+cek('subjudul menyebut campurannya', /1 baris dinilai pakai HPP resep/.test(lapWip.subjudul), true);
+cek('tidak ikut dihitung sebagai tanpa harga', lapWip.ringkas.tanpaNilai, 0);
 
 // Biaya 0 adalah angka yang SAH (bahan bonus). Kalau `??` jadi `||`, nol
 // terbaca "belum ada" dan barisnya salah ditandai.
@@ -235,6 +280,6 @@ if (gagal) {
   process.exit(1);
 }
 console.log(
-  'Rekap waste/spoil benar untuk 44 kasus — termasuk keterangan per jenis, biaya per outlet, ' +
-    'dan catatan sebelum foto diwajibkan. ✅'
+  'Rekap waste/spoil benar untuk 56 kasus — termasuk keterangan per jenis, biaya per outlet, ' +
+    'HPP resep sebagai cadangan untuk barang produksi, dan catatan sebelum foto diwajibkan. ✅'
 );

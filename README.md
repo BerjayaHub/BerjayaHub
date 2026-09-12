@@ -5951,9 +5951,19 @@ Tautan bertanda tangan tidak dipakai karena berkasnya dikirim lewat WhatsApp dan
 
 Fotonya dikecilkan di HP sebelum diunggah (preset `aktivitas`, 900px) dan dikecilkan lagi jadi 220px saat disisipkan ke Excel. Foto waste bertambah tiap hari di tiap outlet; ukurannya menggerus kuota jauh lebih cepat daripada foto aset.
 
-### Nilai rupiahnya boleh kosong
+### Nilainya punya dua sumber, dan itu ketahuan dari laporan
 
-Kolom Nilai memakai biaya rata-rata per outlet (`0118`) — dan kuncinya **memuat outlet**, karena harga beli beras di Sentul bukan harga beli beras di Serpong. Bahan yang belum pernah masuk lewat nota tidak punya angka, dan ditulis "-" bukan Rp0: Rp0 membuat total kerugian terlihat lebih kecil daripada yang sebenarnya, dan itu tidak akan tampak salah.
+> "danish cinnamon di master produk sudah ada HPP sedangkan di spoil/waste tidak muncul nilai rupiahnya di kolom nilai"
+
+Versi pertama kolom Nilai hanya membaca `biaya_rata_bahan` (`0118`), yang diisi dari **harga di nota supplier**. Barang setengah jadi tidak pernah dibeli — ia **diproduksi** — jadi ia tidak akan pernah punya baris di sana. "Danish Cinnamon (WIP)" punya HPP Rp6.764/porsi dari resepnya dan nol baris biaya rata-rata, sehingga seluruh waste barang produksi berbunyi "-" sementara Master Produk menampilkan angkanya dengan jelas.
+
+Urutannya sekarang: biaya nota → HPP resep → `null`. Nota menang karena itu uang yang **benar-benar keluar**; menilai kerugian dengan angka teoretis padahal angka sebenarnya ada adalah kemunduran.
+
+Dan sumbernya **disebut** di kolomnya sendiri. Dua-duanya rupiah tapi artinya berbeda — uang yang keluar ke supplier vs ongkos membuat sendiri — dan menjumlahkan keduanya tanpa menyebutkan mana yang mana menghasilkan satu angka yang terlihat pasti dan tidak bisa dipertanggungjawabkan. Subjudulnya ikut menyebut berapa baris yang memakai HPP.
+
+Kuncinya **memuat outlet**, karena harga beli beras di Sentul bukan harga beli beras di Serpong. Yang tidak punya keduanya ditulis "-" bukan Rp0: Rp0 membuat total kerugian terlihat lebih kecil daripada yang sebenarnya, dan itu tidak akan tampak salah.
+
+Satu lagi yang ikut diperbaiki: pengambilan sumber nilainya dulu dibungkus `catch {}` kosong. Kalau ia gagal, **seluruh** kolom Nilai berbunyi "-" dan tidak ada apa pun yang membedakannya dari "memang belum ada harganya" — admin lalu mencari sebabnya di tempat yang salah. Sekarang kegagalannya dikatakan lewat toast, menyebut sumber mana yang tidak termuat.
 
 ### Dan rekapnya kosong, padahal Riwayat penuh
 

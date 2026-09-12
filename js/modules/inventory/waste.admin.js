@@ -21,6 +21,7 @@ import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { imageToDataUrl } from '../../core/pdf.js';
 import { exportTableXLSXFoto } from '../../core/xlsx-foto.js';
+import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
 import { susunRekapWaste, KOLOM_FOTO } from './laporan-waste.js';
 import { rekapWaste, getBiayaRataBu, urlFotoWaste, urlFotoWasteBanyak } from './waste.service.js';
 
@@ -62,12 +63,36 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
   // kegagalan yang tidak akan pernah dicurigai.
   let lapTampil = null;
 
+  // DUA SUMBER NILAI, dan keduanya memang perlu.
+  //
+  // `biaya_rata_bahan` (0118) diisi dari harga di nota supplier — ia hanya ada
+  // untuk barang yang pernah DIBELI. Barang setengah jadi tidak pernah dibeli;
+  // "Danish Cinnamon (WIP)" punya HPP Rp6.764/porsi dari resepnya dan nol baris
+  // biaya rata-rata. Versi pertama layar ini cuma melihat sumber pertama, jadi
+  // seluruh barang produksi berbunyi "-" sementara Master Produk menampilkan
+  // angkanya dengan jelas — dan itulah yang dilaporkan.
   let biaya = new Map();
+  let hpp = new Map();
+  // KEGAGALANNYA DIKATAKAN, tidak ditelan.
+  //
+  // Bentuk pertamanya `catch {}` kosong: kalau pengambilan biayanya gagal,
+  // SELURUH kolom Nilai berbunyi "-" dan tidak ada apa pun yang membedakannya
+  // dari "memang belum ada harganya". Admin lalu mencari sebabnya di tempat
+  // yang salah — persis yang baru saja terjadi.
+  const sumberGagal = [];
   try {
     biaya = await getBiayaRataBu(businessUnitId);
-  } catch {
-    // Nilai rupiah cuma pembanding. Gagal mengambilnya tidak boleh menghalangi
-    // rekapnya tampil — kolom Nilai akan berbunyi "-", dan itu jujur.
+  } catch (e) {
+    sumberGagal.push(`biaya rata-rata nota (${e.message ?? e})`);
+  }
+  try {
+    const [products, recipes] = await Promise.all([listProducts(businessUnitId), listRecipesFull(businessUnitId)]);
+    hpp = computeCosts(products, recipes);
+  } catch (e) {
+    sumberGagal.push(`HPP resep (${e.message ?? e})`);
+  }
+  if (sumberGagal.length) {
+    toast(`Kolom Nilai tidak lengkap — gagal memuat ${sumberGagal.join(' & ')}.`, 'warning');
   }
 
   async function muat() {
@@ -93,6 +118,7 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
     const lap = susunRekapWaste({
       baris,
       biaya,
+      hpp,
       periode: { dari: state.dateFrom, sampai: state.dateTo, outlet: namaOutlet }
     });
     lapTampil = lap;
@@ -193,9 +219,11 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
           rows
         });
 
-        const catatan = lapTampil.ringkas.tanpaNilai
-          ? ` (${lapTampil.ringkas.tanpaNilai} baris belum punya biaya rata-rata, nilainya "-")`
-          : '';
+        const rincianCatatan = [
+          lapTampil.ringkas.dariHpp ? `${lapTampil.ringkas.dariHpp} baris dinilai pakai HPP resep` : '',
+          lapTampil.ringkas.tanpaNilai ? `${lapTampil.ringkas.tanpaNilai} baris belum punya harga, nilainya "-"` : ''
+        ].filter(Boolean);
+        const catatan = rincianCatatan.length ? ` (${rincianCatatan.join(', ')})` : '';
         toast(
           `${lapTampil.ringkas.jumlahBaris} baris dari ${lapTampil.ringkas.jumlahKejadian} kejadian diekspor.${catatan}`,
           catatan ? 'warning' : 'success'

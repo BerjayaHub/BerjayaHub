@@ -23,12 +23,33 @@
  * bentuk yang bisa dipivot: "bulan ini beras terbuang berapa kilo, dari spoil
  * atau dari menu?" Satu baris per kejadian akan mengubur bahannya di dalam teks.
  *
- * ============ NILAI RUPIAHNYA BOLEH KOSONG ============
+ * ============ DUA SUMBER NILAI, DAN KENAPA KEDUANYA PERLU ============
  *
- * Biaya rata-rata (`0118`) hanya ada untuk bahan yang pernah dibeli lewat nota
- * di outlet itu. Bahan yang belum pernah masuk lewat nota TIDAK punya angka —
- * dan angkanya ditulis "-" , bukan Rp0. Rp0 membuat total kerugian terlihat
- * lebih kecil daripada yang sebenarnya, dan itu tidak akan tampak salah.
+ * `biaya_rata_bahan` (`0118`) diisi dari HARGA DI NOTA SUPPLIER. Ia hanya ada
+ * untuk barang yang pernah DIBELI di outlet itu.
+ *
+ * Barang setengah jadi tidak pernah dibeli — ia DIPRODUKSI. "Danish Cinnamon
+ * (WIP)" punya HPP Rp6.764/porsi di Master Produk, dihitung dari resepnya, dan
+ * TIDAK punya satu pun baris biaya rata-rata. Versi pertama laporan ini cuma
+ * melihat sumber pertama, jadi seluruh barang produksi berbunyi "-" sementara
+ * layar sebelah menampilkan angkanya dengan jelas.
+ *
+ * Jadi urutannya:
+ *
+ *   1. biaya rata-rata nota  — yang BENAR-BENAR dibayar di outlet itu
+ *   2. HPP resep             — untuk yang tidak pernah dibeli
+ *   3. null                  — bukan 0
+ *
+ * ============ SUMBERNYA DISEBUT, TIDAK DICAMPUR DIAM-DIAM ============
+ *
+ * Keduanya rupiah, tapi artinya berbeda: yang satu uang yang keluar ke
+ * supplier, yang satu ongkos membuatnya sendiri. Menjumlahkan keduanya tanpa
+ * menyebutkan mana yang mana menghasilkan satu angka yang terlihat pasti dan
+ * tidak bisa dipertanggungjawabkan. Kolom "Sumber nilai" yang menutup itu.
+ *
+ * Yang tidak punya keduanya ditulis "-", bukan Rp0. Rp0 membuat total kerugian
+ * terlihat lebih kecil daripada yang sebenarnya, dan itu tidak akan tampak
+ * salah.
  *
  * Tidak ada impor dari layar di berkas ini, supaya bisa diuji tanpa browser.
  */
@@ -52,6 +73,7 @@ export const KOLOM_WASTE = [
   { header: 'Jumlah', width: 0.9, align: 'right', numeric: true },
   { header: 'Satuan', width: 0.7 },
   { header: 'Nilai', width: 1.2, align: 'right', numeric: true },
+  { header: 'Sumber nilai', width: 1 },
   { header: 'Keterangan', width: 2.2 },
   { header: 'Catatan', width: 1.8 },
   { header: 'Dicatat oleh', width: 1.4 },
@@ -89,29 +111,60 @@ export function kunciBiaya(outletId, productId) {
   return `${teks(outletId)}|${teks(productId)}`;
 }
 
+export const SUMBER_NOTA = 'Nota';
+export const SUMBER_HPP = 'HPP';
+export const SUMBER_TIDAK_ADA = '-';
+
+/** `null`/`undefined`/`''` berarti kosong. `0` TIDAK — barang bonus itu sah. */
+function angkaAtauNull(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Harga satuan satu bahan, beserta DARI MANA angkanya.
+ *
+ * @param {string} outletId
+ * @param {string} productId
+ * @param {Map<string, number>} biaya kunciBiaya() -> rata-rata dari nota (0118)
+ * @param {Map<string, number>} hpp   productId -> HPP dari resep
+ * @returns {{nilai: number|null, sumber: string}}
+ */
+export function hargaSatuanBahan(outletId, productId, biaya, hpp) {
+  const dariNota = biaya instanceof Map ? angkaAtauNull(biaya.get(kunciBiaya(outletId, productId))) : null;
+  if (dariNota !== null) return { nilai: dariNota, sumber: SUMBER_NOTA };
+
+  const dariHpp = hpp instanceof Map ? angkaAtauNull(hpp.get(productId)) : null;
+  if (dariHpp !== null) return { nilai: dariHpp, sumber: SUMBER_HPP };
+
+  return { nilai: null, sumber: SUMBER_TIDAK_ADA };
+}
+
 /**
  * @param {object} o
  * @param {object[]} o.baris baris view `waste_rekap`
  * @param {Map<string, number>} [o.biaya] kunciBiaya() -> rata per satuan
  * @param {{dari?: string, sampai?: string, outlet?: string}} [o.periode]
  */
-export function susunRekapWaste({ baris, biaya = new Map(), periode = {} } = {}) {
+export function susunRekapWaste({ baris, biaya = new Map(), hpp = new Map(), periode = {} } = {}) {
   const daftar = Array.isArray(baris) ? baris : [];
 
   let total = 0;
   let tanpaNilai = 0;
   let barisLama = 0;
+  let dariHpp = 0;
   const kejadian = new Set();
 
   const mentah = daftar.map((b) => {
     const qty = Number(b?.bahan_qty ?? 0) || 0;
-    const rata = biaya instanceof Map ? biaya.get(kunciBiaya(b?.outlet_id, b?.product_id)) : undefined;
-    // `??` dan bukan `||`: biaya 0 adalah angka yang sah (bahan bonus) dan tidak
-    // boleh terbaca sebagai "belum punya harga".
-    const satuan = rata === null || rata === undefined ? null : Number(rata);
-    const nilai = satuan === null || !Number.isFinite(satuan) ? null : satuan * qty;
+    // Biaya nota lebih dulu, HPP resep sebagai cadangan — barang setengah jadi
+    // tidak pernah dibeli, jadi ia hanya punya yang kedua.
+    const { nilai: satuan, sumber } = hargaSatuanBahan(b?.outlet_id, b?.product_id, biaya, hpp);
+    const nilai = satuan === null ? null : satuan * qty;
     if (nilai === null) tanpaNilai++;
     else total += nilai;
+    if (sumber === SUMBER_HPP) dariHpp++;
     if (b?.waste_id) kejadian.add(b.waste_id);
     if (b?.lama) barisLama++;
 
@@ -128,6 +181,7 @@ export function susunRekapWaste({ baris, biaya = new Map(), periode = {} } = {})
       satuanNama: teks(b?.bahan_satuan),
       qty,
       nilai,
+      sumber,
       keterangan: keteranganWaste(b),
       catatan: teks(b?.notes),
       oleh: teks(b?.dicatat_oleh),
@@ -151,6 +205,7 @@ export function susunRekapWaste({ baris, biaya = new Map(), periode = {} } = {})
     formatNum(r.qty),
     r.satuanNama,
     r.nilai === null ? '-' : formatRupiah(r.nilai),
+    r.sumber,
     r.keterangan,
     r.catatan,
     r.oleh,
@@ -170,7 +225,11 @@ export function susunRekapWaste({ baris, biaya = new Map(), periode = {} } = {})
     `${kejadian.size} kejadian`,
     `${rows.length} baris bahan`,
     `Total ${formatRupiah(total)}`,
-    tanpaNilai ? `${tanpaNilai} baris belum punya biaya rata-rata` : '',
+    // Campuran dua sumber nilai DISEBUT. Totalnya menjumlahkan uang yang keluar
+    // ke supplier dengan ongkos membuat sendiri — dua hal yang berbeda, dan
+    // yang membacanya berhak tahu perbandingannya.
+    dariHpp ? `${dariHpp} baris dinilai pakai HPP resep` : '',
+    tanpaNilai ? `${tanpaNilai} baris belum punya harga sama sekali` : '',
     barisLama ? `${barisLama} baris dicatat sebelum foto diwajibkan` : ''
   ]
     .filter(Boolean)
@@ -189,6 +248,7 @@ export function susunRekapWaste({ baris, biaya = new Map(), periode = {} } = {})
       jumlahBaris: rows.length,
       tanpaNilai,
       barisLama,
+      dariHpp,
       total,
       totalTeks: formatRupiah(total)
     }

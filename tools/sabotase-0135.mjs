@@ -232,6 +232,49 @@ sabotase(
   TES_MURNI
 );
 sabotase(
+  'HPP resep dicabut — barang setengah jadi kembali berbunyi "-" padahal Master Produk menampilkan angkanya',
+  MURNI,
+  '  const dariHpp = hpp instanceof Map ? angkaAtauNull(hpp.get(productId)) : null;\n  if (dariHpp !== null) return { nilai: dariHpp, sumber: SUMBER_HPP };',
+  '',
+  TES_MURNI
+);
+sabotase(
+  'HPP menang atas harga nota — kerugian dinilai pakai angka teoretis padahal angka sebenarnya ada',
+  MURNI,
+  '  const dariNota = biaya instanceof Map ? angkaAtauNull(biaya.get(kunciBiaya(outletId, productId))) : null;\n  if (dariNota !== null) return { nilai: dariNota, sumber: SUMBER_NOTA };',
+  '',
+  TES_MURNI
+);
+sabotase(
+  'sumber nilainya tidak lagi disebut — dua arti berbeda dijumlahkan diam-diam',
+  MURNI,
+  "  { header: 'Sumber nilai', width: 1 },",
+  '',
+  TES_MURNI
+);
+sabotase('layar berhenti menghitung HPP', ADM, 'computeCosts(products, recipes)', 'new Map()', AUDIT);
+sabotase(
+  'HPP tidak diteruskan ke laporannya — cadangannya ada tapi tidak pernah terpakai',
+  ADM,
+  '      biaya,\n      hpp,\n      periode:',
+  '      biaya,\n      periode:',
+  AUDIT
+);
+sabotase(
+  'gagal memuat sumber nilai ditelan lagi — kolom Nilai kosong tanpa sebab',
+  ADM,
+  "  if (sumberGagal.length) {\n    toast(`Kolom Nilai tidak lengkap — gagal memuat ${sumberGagal.join(' & ')}.`, 'warning');\n  }",
+  '',
+  AUDIT
+);
+sabotase(
+  'salah satu sumber nilai berhenti melapor — separuh kolom kosong tanpa jejak',
+  ADM,
+  '    sumberGagal.push(`biaya rata-rata nota (${e.message ?? e})`);',
+  '    /* diam */',
+  AUDIT
+);
+sabotase(
   'kunci biaya kehilangan outletnya — harga outlet lain terpakai',
   MURNI,
   '  return `${teks(outletId)}|${teks(productId)}`;',
