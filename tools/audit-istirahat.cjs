@@ -210,6 +210,26 @@ if (mig) {
     );
   }
 
+  // KOLOM BARU PADA TABEL BER-`if not exists` WAJIB PUNYA `add column`.
+  //
+  // `create table if not exists` tidak menyentuh tabel yang sudah ada. Kolom
+  // yang ditambahkan ke blok `create table` SESUDAH sebagian orang menjalankan
+  // berkas ini tidak akan pernah lahir di database mereka — migrationnya
+  // "berhasil", lalu tombolnya gagal dengan `column … does not exist` di HP
+  // staff.
+  //
+  // Ini sudah terjadi dua kali di berkas yang sama: sekali pada
+  // `attendance_settings`, lalu terulang pada `attendance_breaks`.
+  for (const kolom of ['foto_mulai', 'foto_selesai', 'wajah_mulai', 'wajah_selesai']) {
+    if (!new RegExp(`alter table attendance_breaks add column if not exists ${kolom}\\b`).test(sql)) {
+      salah(
+        `0138: kolom \`${kolom}\` hanya ada di blok \`create table if not exists\`. ` +
+          'Database yang sudah menjalankan versi sebelumnya tidak akan pernah mendapatkannya, dan kegagalannya ' +
+          'baru muncul di HP staff saat tombolnya ditekan.'
+      );
+    }
+  }
+
   // GERBANG BUKTI: foto wajib untuk mulai maupun kembali.
   //
   // Tanpa ini istirahat jadi satu-satunya tombol presensi yang bisa ditekan

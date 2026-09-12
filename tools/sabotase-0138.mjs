@@ -247,6 +247,13 @@ sabotase(
 console.log('\nSABOTASE GERBANG BUKTI ISTIRAHAT:');
 
 sabotase(
+  'kolom bukti cuma ada di `create table` — database yang sudah terpasang tidak akan mendapatkannya',
+  MIG,
+  'alter table attendance_breaks add column if not exists foto_selesai text;',
+  '',
+  AUDIT
+);
+sabotase(
   'foto tidak lagi wajib saat mulai istirahat',
   MIG,
   "  if v_foto is null then\n    raise exception 'Ambil foto selfie dulu sebelum mulai istirahat.';\n  end if;",

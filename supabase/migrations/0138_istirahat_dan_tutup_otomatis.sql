@@ -207,6 +207,22 @@ create table if not exists attendance_breaks (
   created_at timestamptz not null default now(),
   constraint istirahat_urut check (selesai_at is null or selesai_at >= mulai_at)
 );
+-- `create table if not exists` TIDAK MENYENTUH TABEL YANG SUDAH ADA.
+--
+-- Kolom bukti di atas ditambahkan sesudah sebagian orang menjalankan versi
+-- pertama berkas ini, dan tabelnya sudah terlanjur ada di sana. Tanpa baris di
+-- bawah, `create table` dilewati begitu saja dan kolomnya tidak pernah lahir —
+-- migrationnya "berhasil", lalu tombol Kembali dari Istirahat gagal dengan
+-- `column "foto_selesai" does not exist` di HP staff.
+--
+-- Kesalahan yang sama sudah ditangani untuk `attendance_settings` beberapa
+-- puluh baris di atas, dan tetap terulang di tabel sebelahnya. Tiap kolom baru
+-- pada tabel ber-`if not exists` WAJIB punya pasangan `add column` seperti ini.
+alter table attendance_breaks add column if not exists foto_mulai text;
+alter table attendance_breaks add column if not exists foto_selesai text;
+alter table attendance_breaks add column if not exists wajah_mulai boolean;
+alter table attendance_breaks add column if not exists wajah_selesai boolean;
+
 create index if not exists idx_breaks_attendance on attendance_breaks(attendance_id);
 -- SATU istirahat berjalan per presensi. Tanpa ini, dua ketukan tombol yang
 -- beruntun di sinyal lemah menghasilkan dua istirahat terbuka, dan yang kedua

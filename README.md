@@ -5945,6 +5945,12 @@ Betul, dan celahnya nyata: tanpa itu istirahat jadi **satu-satunya tombol presen
 
 Tiga hal yang sengaja **tidak** menolak: outlet yang koordinatnya belum diisi (geofence-nya memang belum aktif, aturan yang sama dengan clock in), sesi Tugas Luar, dan jarak yang masih dalam radius ditambah ketelitian GPS — menolak orang yang berdiri di dalam outlet karena sinyalnya meleset 30 meter akan membuat fitur ini dimatikan dalam seminggu. Tapi GPS yang **gagal dibaca** tetap menolak: kalau kegagalan GPS diloloskan, seluruh gerbang ini bisa dilewati cukup dengan mematikan izin lokasi.
 
+### `create table if not exists` tidak menambahkan kolom
+
+Kolom bukti di atas ditambahkan **sesudah** `0138` sempat dijalankan sekali. `create table if not exists` melewati tabel yang sudah ada begitu saja — jadi migrationnya berkata "berhasil", lalu tombol Kembali dari Istirahat gagal di HP staff dengan `column "foto_selesai" does not exist`.
+
+Yang membuatnya pantas dicatat: jebakan ini sudah ditangani beberapa puluh baris di atas untuk `attendance_settings` (lewat `alter column … drop not null`), lalu terulang persis di tabel sebelahnya dalam berkas yang sama. Aturannya sekarang punya auditnya sendiri: **tiap kolom baru pada tabel ber-`if not exists` wajib punya pasangan `add column if not exists`.**
+
 ### Peringatan yang menekankan, bukan yang meremehkan
 
 Kalimat pertama saya — *"kalau lupa menekan Kembali, kamu otomatis dianggap kembali 2 jam sesudah mulai"* — salah nadanya, dan iko yang menangkapnya. Ia membaca seperti **izin**: staff jadi tahu ada jaring pengamannya, lalu berhenti menekan tombol Kembali. Jaring itu untuk kelalaian, bukan untuk dipakai.
