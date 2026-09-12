@@ -61,6 +61,17 @@ if (murni) {
   for (const n of ['setelanEfektif', 'bolehMulaiIstirahat', 'jamTutupOtomatis', 'totalMenitIstirahat', 'dalamJendela']) {
     if (!new RegExp(`export function ${n}\\(`).test(kode)) salah(`istirahat.js: \`${n}\` tidak diekspor.`);
   }
+  // Satu istirahat per hari kerja, DAN sebabnya diperiksa sebelum jendela jam.
+  // Kalau jatahnya sudah dipakai, "di luar jam istirahat" adalah sebab yang
+  // salah: orangnya akan menunggu sampai jamnya tiba lalu ditolak lagi.
+  if (!/if \(sudahIstirahat\) \{/.test(kode)) {
+    salah('istirahat.js: aturan "satu istirahat per hari kerja" tidak ada di layar — tombolnya tetap hidup sesudah dipakai.');
+  }
+  const iSudah = kode.indexOf('if (sudahIstirahat)');
+  const iJendela = kode.indexOf('MODE_DITENTUKAN');
+  if (iSudah >= 0 && iJendela >= 0 && iSudah > kode.indexOf('breakMode !== MODE_DITENTUKAN')) {
+    salah('istirahat.js: "sudah dipakai" diperiksa SESUDAH jendela jam — sebab yang ditampilkan jadi yang salah.');
+  }
   // Berkas aturan ini TIDAK boleh punya fungsi yang mengurangi jam kerja.
   const berbahaya = (kode.match(/export (?:function|const) (\w+)/g) ?? []).filter((m) =>
     /bersih|dipotong|kurangiJam|jamKerjaEfektif|netto/i.test(m)
@@ -163,9 +174,26 @@ if (mig) {
       }
     }
   }
-  // Satu istirahat berjalan per presensi.
-  if (!/create unique index if not exists attendance_breaks_satu_berjalan/.test(sql)) {
-    salah('0138: dua istirahat terbuka sekaligus tidak dicegah — yang kedua tidak akan bisa ditutup dari layar.');
+  // SATU ISTIRAHAT PER HARI KERJA — indeksnya PENUH, bukan parsial.
+  //
+  // Indeks parsial `where selesai_at is null` hanya melarang dua istirahat
+  // TERBUKA bersamaan; staff tetap bisa istirahat, kembali, lalu istirahat
+  // lagi berulang kali sehari. Satu baris presensi = satu hari kerja, jadi
+  // indeks unik pada `attendance_id` saja yang menyatakan aturannya.
+  if (!/create unique index if not exists attendance_breaks_satu_per_hari\s*\n?\s*on attendance_breaks\(attendance_id\);/.test(sql)) {
+    salah(
+      '0138: indeks unik "satu istirahat per hari kerja" hilang atau berubah bentuk. ' +
+        'Indeks parsial hanya melarang dua istirahat TERBUKA bersamaan — istirahat berulang kali sehari tetap lolos.'
+    );
+  }
+  if (/attendance_breaks_satu_per_hari[\s\S]{0,120}where/.test(sql)) {
+    salah('0138: indeks "satu per hari" dibuat PARSIAL — ia kembali cuma melarang dua yang terbuka bersamaan.');
+  }
+  if (!/raise exception 'Istirahat hanya bisa diambil sekali dalam satu hari kerja/.test(sql)) {
+    salah(
+      '0138 `mulai_istirahat`: istirahat kedua ditolak hanya oleh indeks, tanpa pesan yang bisa dibaca staff. ' +
+        'Pesan pelanggaran indeks unik tidak memberi tahu apa pun kepada orang yang sedang berdiri di dapur.'
+    );
   }
   // Lupa kembali -> mulai + 2 jam, BUKAN "sekarang".
   if (!/set selesai_at = b\.mulai_at \+ batas_istirahat\(\)/.test(sql)) {

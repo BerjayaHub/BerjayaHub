@@ -216,7 +216,10 @@ export async function renderAttendancePage(container, ctx) {
     const bolehMulai = bolehMulaiIstirahat({
       setelan: setelanAktif,
       jamSekarang: jamWib,
-      sedangIstirahat: !!berjalan
+      sedangIstirahat: !!berjalan,
+      // Satu istirahat per hari kerja. Satu baris presensi = satu hari kerja,
+      // termasuk yang melewati tengah malam.
+      sudahIstirahat: istirahat.length > 0
     });
 
     main.innerHTML = `
@@ -251,10 +254,10 @@ export async function renderAttendancePage(container, ctx) {
           }
           ${
             rekapIstirahat.menit
-              ? `<p class="att-hint">Total istirahat hari ini: <strong>${rekapIstirahat.menit} menit</strong>${
-                  rekapIstirahat.otomatis ? ' (ada yang ditutup otomatis)' : ''
+              ? `<p class="att-hint">Istirahat hari ini: <strong>${rekapIstirahat.menit} menit</strong>${
+                  rekapIstirahat.otomatis ? ' (ditutup otomatis)' : ''
                 } — <em>tidak mengurangi NBM.</em></p>`
-              : '<p class="att-hint"><em>Istirahat tidak mengurangi NBM.</em></p>'
+              : '<p class="att-hint"><em>Istirahat sekali per hari kerja, dan tidak mengurangi NBM.</em></p>'
           }
         </div>
 

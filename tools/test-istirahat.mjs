@@ -103,6 +103,29 @@ cek('mode bebas: kapan pun boleh', bolehMulaiIstirahat({ setelan: bebas, jamSeka
 cek('sudah clock out: tidak boleh', bolehMulaiIstirahat({ setelan: bebas, jamSekarang: '12:00', sudahClockOut: true }).boleh, false);
 cek('sedang istirahat: tidak boleh', bolehMulaiIstirahat({ setelan: bebas, jamSekarang: '12:00', sedangIstirahat: true }).boleh, false);
 
+// SATU ISTIRAHAT PER HARI KERJA — ditolak walau yang pertama sudah SELESAI.
+const sudahDipakai = bolehMulaiIstirahat({ setelan: bebas, jamSekarang: '12:00', sudahIstirahat: true });
+cek('jatah hari ini sudah dipakai: tidak boleh', sudahDipakai.boleh, false);
+cek('sebabnya menyebut sekali sehari', /sekali dalam satu hari kerja/i.test(sudahDipakai.sebab), true);
+
+// Diperiksa SEBELUM jendela jam. Kalau jatahnya sudah dipakai, "di luar jam
+// istirahat" adalah sebab yang salah — orangnya akan menunggu sampai jamnya
+// tiba lalu menekan lagi, dan ditolak lagi tanpa tahu kenapa.
+const sudahDanDiLuarJam = bolehMulaiIstirahat({
+  setelan: setelanEfektif({ break_mode: MODE_DITENTUKAN, break_start: '12:00:00', break_end: '13:00:00' }, null),
+  jamSekarang: '20:00',
+  sudahIstirahat: true
+});
+cek('sebab "sudah dipakai" menang atas "di luar jam"', /sekali dalam satu hari kerja/i.test(sudahDanDiLuarJam.sebab), true);
+
+// "Masih berjalan" dan "sudah dipakai" adalah dua keadaan berbeda, dan
+// menuntut tindakan berbeda dari yang membacanya.
+cek(
+  'sedang berjalan tetap punya sebabnya sendiri',
+  bolehMulaiIstirahat({ setelan: bebas, jamSekarang: '12:00', sedangIstirahat: true, sudahIstirahat: true }).sebab,
+  'Istirahatmu masih berjalan.'
+);
+
 const ditentukan = setelanEfektif({ break_mode: MODE_DITENTUKAN, break_start: '12:00:00', break_end: '13:00:00' }, null);
 cek('mode ditentukan: di dalam jam -> boleh', bolehMulaiIstirahat({ setelan: ditentukan, jamSekarang: '12:30' }).boleh, true);
 const diTolak = bolehMulaiIstirahat({ setelan: ditentukan, jamSekarang: '15:00' });
@@ -210,6 +233,6 @@ if (gagal) {
   process.exit(1);
 }
 console.log(
-  'Istirahat & clock out otomatis benar untuk 52 kasus — termasuk shift lintas tengah malam, ' +
+  'Istirahat & clock out otomatis benar untuk 57 kasus — termasuk satu istirahat per hari kerja, shift lintas tengah malam, ' +
     'jam keluar yang tidak boleh mendahului masuk, dan kolom null yang berarti "ikut yang di atas". ✅'
 );

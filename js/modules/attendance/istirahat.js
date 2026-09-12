@@ -121,9 +121,23 @@ export function dalamJendela(jam, mulai, selesai) {
  * @param {boolean} o.sedangIstirahat
  * @param {boolean} o.sudahClockOut
  */
-export function bolehMulaiIstirahat({ setelan, jamSekarang, sedangIstirahat = false, sudahClockOut = false } = {}) {
+export function bolehMulaiIstirahat({
+  setelan,
+  jamSekarang,
+  sedangIstirahat = false,
+  sudahIstirahat = false,
+  sudahClockOut = false
+} = {}) {
   if (sudahClockOut) return { boleh: false, sebab: 'Kamu sudah clock out.' };
   if (sedangIstirahat) return { boleh: false, sebab: 'Istirahatmu masih berjalan.' };
+  // SATU ISTIRAHAT PER HARI KERJA.
+  //
+  // Diperiksa SEBELUM jendela jamnya: kalau jatahnya sudah dipakai, "di luar
+  // jam istirahat" adalah sebab yang salah — orangnya akan menunggu sampai
+  // jamnya tiba lalu menekan lagi, dan ditolak lagi tanpa tahu kenapa.
+  if (sudahIstirahat) {
+    return { boleh: false, sebab: 'Istirahat hanya sekali dalam satu hari kerja, dan kamu sudah memakainya hari ini.' };
+  }
   if (setelan?.breakMode !== MODE_DITENTUKAN) return { boleh: true, sebab: '' };
 
   if (!setelan.breakStart || !setelan.breakEnd) {

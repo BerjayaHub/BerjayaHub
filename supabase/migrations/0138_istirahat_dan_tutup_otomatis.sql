@@ -224,11 +224,23 @@ alter table attendance_breaks add column if not exists wajah_mulai boolean;
 alter table attendance_breaks add column if not exists wajah_selesai boolean;
 
 create index if not exists idx_breaks_attendance on attendance_breaks(attendance_id);
--- SATU istirahat berjalan per presensi. Tanpa ini, dua ketukan tombol yang
--- beruntun di sinyal lemah menghasilkan dua istirahat terbuka, dan yang kedua
--- tidak akan pernah bisa ditutup dari layar.
-create unique index if not exists attendance_breaks_satu_berjalan
-  on attendance_breaks(attendance_id) where selesai_at is null;
+-- SATU ISTIRAHAT PER HARI KERJA — bukan sekadar satu yang berjalan.
+--
+-- Satu baris `attendance_records` adalah satu hari kerja, termasuk yang
+-- melewati tengah malam (22:00–07:00 tetap satu hari, milik tanggal masuknya).
+-- Jadi indeks unik pada `attendance_id` SAJA sudah tepat menyatakan aturannya.
+--
+-- Versi pertama memakai indeks PARSIAL `where selesai_at is null`, yang hanya
+-- melarang dua istirahat TERBUKA bersamaan. Staff tetap bisa istirahat,
+-- kembali, lalu istirahat lagi — berulang kali sehari, dan rekapnya cuma
+-- bertambah panjang tanpa ada yang menyalahi aturan apa pun.
+--
+-- Indeks penuh ini sekaligus tetap menutup kasus yang dijaga versi parsialnya:
+-- dua ketukan tombol beruntun di sinyal lemah yang keduanya lolos pemeriksaan
+-- sebelum salah satunya menulis.
+drop index if exists attendance_breaks_satu_berjalan;
+create unique index if not exists attendance_breaks_satu_per_hari
+  on attendance_breaks(attendance_id);
 
 alter table attendance_breaks enable row level security;
 
@@ -296,8 +308,16 @@ begin
     raise exception 'Kamu sudah clock out, jadi tidak bisa mulai istirahat.';
   end if;
 
+  -- DUA KEADAAN YANG BERBEDA, DUA PESAN YANG BERBEDA.
+  --
+  -- "masih berjalan" dan "jatah hari ini sudah dipakai" menuntut tindakan yang
+  -- berbeda dari orang yang membacanya. Satu pesan untuk keduanya akan membuat
+  -- staff yang sudah selesai istirahat mencari tombol Kembali yang tidak ada.
   if exists (select 1 from attendance_breaks b where b.attendance_id = p_attendance and b.selesai_at is null) then
     raise exception 'Istirahatmu masih berjalan — tekan Kembali dulu.';
+  end if;
+  if exists (select 1 from attendance_breaks b where b.attendance_id = p_attendance) then
+    raise exception 'Istirahat hanya bisa diambil sekali dalam satu hari kerja, dan kamu sudah memakainya hari ini.';
   end if;
 
   select * into v_set from setelan_presensi(v_rec.outlet_id);

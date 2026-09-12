@@ -5937,6 +5937,18 @@ Godaan berikutnya — *"kan lebih adil kalau istirahat dipotong"* — akan datan
 
 **Lupa kembali** ditutup di `mulai + 2 jam`, bukan di "sekarang", dan ditandai `otomatis`. Ditutup di "sekarang" membuat rekapnya berbeda dari batas yang dijanjikan ke staff di layarnya sendiri.
 
+### Satu istirahat per hari kerja
+
+> "istirahat hanya bisa dilakukan satu kali dalam satu hari jam kerja ya, apakah sudah seperti itu?"
+
+Belum — dan bedanya halus. Yang dijaga semula cuma **satu istirahat yang berjalan**, lewat indeks unik parsial `where selesai_at is null`. Staff tetap bisa istirahat, kembali, lalu istirahat lagi, berulang kali sehari; rekapnya cuma bertambah panjang tanpa ada yang menyalahi aturan apa pun.
+
+Indeksnya sekarang **penuh** pada `attendance_id`. Satu baris presensi adalah satu hari kerja — termasuk yang melewati tengah malam — jadi indeks itu menyatakan aturannya persis, sekaligus tetap menutup kasus yang dijaga versi parsialnya: dua ketukan tombol beruntun di sinyal lemah yang keduanya lolos pemeriksaan sebelum salah satunya menulis.
+
+Dua keadaan diberi **dua pesan berbeda**: "istirahatmu masih berjalan — tekan Kembali dulu" dan "istirahat hanya sekali dalam satu hari kerja, dan kamu sudah memakainya hari ini". Satu pesan untuk keduanya akan membuat staff yang sudah selesai mencari tombol Kembali yang tidak ada.
+
+Di layar, "sudah dipakai" diperiksa **sebelum** jendela jamnya. Kalau urutannya terbalik, staff yang jatahnya sudah habis akan dibilang "di luar jam istirahat", lalu menunggu sampai jamnya tiba dan ditolak lagi tanpa tahu sebabnya.
+
 ### Istirahat dijaga sekeras clock in
 
 > "istirahat dan kembali dari istirahat juga memakai geofencing dan biometrik wajah, agar tidak disalahgunakan"

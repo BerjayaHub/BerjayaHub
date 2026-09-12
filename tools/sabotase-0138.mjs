@@ -152,7 +152,28 @@ sabotase(
 // menulis. `mulai_istirahat` sudah memeriksanya lebih dulu, jadi penolakan
 // biasa tetap terjadi walau indeksnya dicabut — sabotase pertama lolos persis
 // begitu. Sekarang tesnya memeriksa keberadaan indeksnya sendiri.
-sabotase('dua istirahat terbuka sekaligus dibiarkan', MIG, 'create unique index if not exists attendance_breaks_satu_berjalan', 'create unique index if not exists attendance_breaks_nonaktif', TES);
+sabotase('dua istirahat terbuka sekaligus dibiarkan', MIG, 'create unique index if not exists attendance_breaks_satu_per_hari', 'create unique index if not exists attendance_breaks_nonaktif', TES);
+sabotase(
+  'indeksnya dikembalikan PARSIAL — istirahat berulang kali sehari lolos lagi',
+  MIG,
+  '  on attendance_breaks(attendance_id);',
+  '  on attendance_breaks(attendance_id) where selesai_at is null;',
+  TES
+);
+sabotase(
+  'istirahat kedua ditolak tanpa pesan yang bisa dibaca staff',
+  MIG,
+  "    raise exception 'Istirahat hanya bisa diambil sekali dalam satu hari kerja, dan kamu sudah memakainya hari ini.';",
+  '    null;',
+  TES
+);
+sabotase(
+  'layar berhenti mengunci istirahat kedua — tombolnya hidup lagi sesudah dipakai',
+  MURNI,
+  '  if (sudahIstirahat) {',
+  '  if (false) {',
+  TES_MURNI
+);
 sabotase(
   'clock out tidak lagi menutup istirahat yang berjalan — rekap berisi istirahat yang berakhir sesudah pulang',
   MIG,

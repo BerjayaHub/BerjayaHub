@@ -201,16 +201,38 @@ benar('§2 istirahat kedua saat yang pertama berjalan: ditolak', !!kembar);
 // terjadi walau indeksnya dicabut — dan sabotase yang mencabut indeksnya lolos
 // persis begitu. Yang dijaga indeks ini adalah hal yang TIDAK BISA diuji dari
 // satu koneksi: dua ketukan tombol beruntun di sinyal lemah, yang keduanya
-// lolos pemeriksaan sebelum salah satunya menulis. Istirahat kedua yang
-// terlanjur masuk tidak akan pernah bisa ditutup dari layar.
+// lolos pemeriksaan sebelum salah satunya menulis.
 const indeksSatu = await satu(
-  `select indexdef from pg_indexes where indexname = 'attendance_breaks_satu_berjalan'`
+  `select indexdef from pg_indexes where indexname = 'attendance_breaks_satu_per_hari'`
 );
-benar('§2 indeks unik "satu istirahat berjalan" ada', !!indeksSatu);
+benar('§2 indeks unik "satu istirahat per hari kerja" ada', !!indeksSatu);
+// PENUH, bukan parsial. Indeks parsial `where selesai_at is null` hanya
+// melarang dua istirahat TERBUKA bersamaan — staff tetap bisa istirahat,
+// kembali, lalu istirahat lagi berulang kali sehari.
 benar(
-  '§2 dan ia PARSIAL (hanya yang belum selesai)',
-  /where \(selesai_at is null\)/i.test(indeksSatu?.indexdef ?? ''),
+  '§2 dan ia PENUH, bukan parsial',
+  !!indeksSatu && !/where/i.test(indeksSatu.indexdef ?? ''),
   indeksSatu?.indexdef ?? ''
+);
+benar(
+  '§2 indeks parsial yang lama sudah dibuang',
+  !(await satu(`select 1 as a from pg_indexes where indexname = 'attendance_breaks_satu_berjalan'`))
+);
+
+// SATU ISTIRAHAT PER HARI KERJA — yang kedua ditolak walau yang pertama sudah
+// SELESAI. Inilah bedanya dari aturan "satu yang berjalan".
+await q(`select selesai_istirahat($1, 'o/selfie2.jpg', true)`, [REC]);
+const keduaSetelahSelesai = await gagalkan(() => q(`select mulai_istirahat($1, 'o/selfie3.jpg', true)`, [REC]));
+benar('§2 istirahat KEDUA setelah yang pertama selesai: ditolak', !!keduaSetelahSelesai);
+benar(
+  '§2 pesannya menyebut "sekali dalam satu hari kerja"',
+  /sekali dalam satu hari kerja/i.test(keduaSetelahSelesai ?? ''),
+  keduaSetelahSelesai ?? ''
+);
+cek(
+  '§2 dan tetap hanya ada SATU baris istirahat',
+  Number((await satu(`select count(*)::int c from attendance_breaks where attendance_id = $1`, [REC])).c),
+  1
 );
 
 // FOTO WAJIB — gerbang yang sama dengan clock in/out.
@@ -263,15 +285,25 @@ benar('§3 kembali tanpa istirahat berjalan: ditolak', !!tanpaBerjalan);
 // §4 LUPA KEMBALI -> DITUTUP DI MULAI + 2 JAM
 // =====================================================================
 await q(`update attendance_settings set break_mode = 'bebas' where outlet_id = $1`, [OUT]);
+// PRESENSI BARU, bukan `REC`.
+//
+// `REC` sudah memakai jatah istirahat harinya, dan sejak aturan "sekali per
+// hari kerja" indeks uniknya menolak baris kedua. Memaksakan baris kedua di
+// sini akan menguji sesuatu yang memang tidak boleh terjadi.
+const REC_LUPA = (await satu(
+  `insert into attendance_records (user_id, business_unit_id, outlet_id, clock_in_at)
+   values ($1,$2,$3, now() - interval '7 hours') returning id`,
+  [STAFF, BU, OUT]
+)).id;
 await q(
   `insert into attendance_breaks (attendance_id, mulai_at) values ($1, now() - interval '5 hours')`,
-  [REC]
+  [REC_LUPA]
 );
 let hasil = await satu(`select * from tutup_presensi_tertinggal()`);
 cek('§4 satu istirahat ditutup', Number(hasil.istirahat_ditutup), 1);
 const b2 = await satu(
   `select mulai_at, selesai_at, otomatis from attendance_breaks where attendance_id = $1 and otomatis order by mulai_at desc limit 1`,
-  [REC]
+  [REC_LUPA]
 );
 cek('§4 tepat 2 jam sesudah mulai', (new Date(b2.selesai_at) - new Date(b2.mulai_at)) / 3600000, 2);
 cek('§4 ditandai otomatis', b2.otomatis, true);
