@@ -436,3 +436,66 @@ export async function laporanKasUser({ from, to, userId = null, outletId = null,
   if (error) throw error;
   return data ?? [];
 }
+
+/**
+ * Kantong kas yang barisnya boleh dilihat orang ini (0140) — untuk dropdown
+ * filter laporan Rincian Mutasi Kas.
+ *
+ * BUKAN `daftarKantongKas()`: yang itu super admin saja, sementara laporan ini
+ * juga dipakai admin BU/outlet. Baris ber-`account_id` null adalah **Kas
+ * Utama**, tempat uang pemegang berjatah satu kantong sebenarnya berada.
+ */
+export async function listKantongKasTerlihat() {
+  const { data, error } = await supabase.rpc('kantong_kas_terlihat');
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Rincian mutasi kas PER ITEM (0140).
+ *
+ * `ambilSemua`, BUKAN satu panggilan polos: RPC yang mengembalikan himpunan
+ * baris ikut dipotong PostgREST di sekitar 1.000 baris. Satu bulan belanja
+ * bahan satu BU sudah melewati angka itu — dan yang hilang bukan error, cuma
+ * baris-baris terakhir menurut urutan, sehingga totalnya jadi lebih kecil
+ * tanpa ada yang menyadarinya.
+ *
+ * `tanpaKantong` DIBEDAKAN dari `accountId` kosong: yang satu berarti "hanya
+ * uang yang tidak berada di kantong mana pun (Kas Utama)", yang lain berarti
+ * "semua kantong".
+ */
+export async function rincianMutasiKas({
+  from,
+  to,
+  userId = null,
+  accountId = null,
+  tanpaKantong = false,
+  outletId = null,
+  categoryId = null
+}) {
+  return ambilSemua((dari, sampai) =>
+    supabase
+      .rpc(
+        'rincian_mutasi_kas',
+        {
+          p_from: from,
+          p_to: to,
+          p_user: userId || null,
+          p_account: accountId || null,
+          p_tanpa_kantong: !!tanpaKantong,
+          p_outlet: outletId || null,
+          p_category: categoryId || null
+        },
+        { count: 'exact' }
+      )
+      // Urutan WAJIB deterministik, dan `baris_id` yang membuatnya begitu:
+      // satu nota boleh memuat bahan yang sama dua kali, jadi tanggal + nama
+      // saja masih bisa seri — dan penomoran halaman yang urutannya seri
+      // melewatkan baris sekaligus menggandakan baris lain.
+      .order('entry_date')
+      .order('holder_name')
+      .order('entry_id')
+      .order('baris_id')
+      .range(dari, sampai)
+  );
+}

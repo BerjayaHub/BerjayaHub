@@ -584,6 +584,7 @@ Laporan yang sudah tersedia:
 - **Rekap Penggajian (NBM)** (SDM) — satu baris per staff: hari hadir, hari libur, storing, NBM dasar, lembur, bonus storing, **penyesuaian manual** (selisih terhadap hitungan otomatis dari tab Rekap NBM), dan total. Ada baris TOTAL.
 - **Rekap Presensi & Disiplin** (SDM) — satu baris per staff: hadir, tepat waktu, toleransi, terlambat, total menit terlambat, tugas luar, hari cuti (dari pengajuan disetujui yang jatuh di periode), dan sesi belum clock out. Diurutkan dari yang paling sering terlambat, dan **staff dengan 0 hari hadir tetap ditampilkan**.
 - **Hak Cuti Pengganti (PH)** (SDM) — staff yang tetap masuk di tanggal yang terdaftar sebagai hari libur nasional, beserta hak cuti penggantinya (dari `ph_replacement_days` outlet basis) dan daftar tanggalnya.
+- **Rincian Mutasi Kas (per item)** (Keuangan) — keluar-masuk kas dirinci **per item, bukan per nota** (`0140`). Lihat bagiannya sendiri di bawah.
 
 Laporan SDM mengikuti **BU/outlet basis** staff (tanda ★ di Master User), bukan lokasi absen fisik — konsisten dengan Rekap NBM.
 
@@ -6422,3 +6423,52 @@ Aturannya dipisah ke `order-draft.js` (9 pemeriksaan) dan kabelnya dikunci `audi
 - [x] **Tabel stok diurut dari yang paling sedikit** — minus di atas, stok tak diketahui di bawah, nama sebagai pemecah seri; satu aturan dipakai Staff App & Admin Portal
 - [x] **Halaman Owner (`owner.html`)** — dibuka super admin, KPI empat kelompok, **BEP ditimbang bauran penjualan nyata**, Pricing Engine tiga metode, dan **tanda tangan online** dengan Lembar Pengesahan + tombol Tolak beralasan
 - [x] **Kartu Inventory di Staff App jadi "Bahan"** — hanya labelnya, lewat `pakaiLabelStaff()`; nama di tabel `modules` tidak diubah karena juga dipakai layar admin
+
+## Rincian mutasi kas: per item, bukan per nota
+
+> "rincian mutasi kas, yaitu keluar masuk saldo, dengan rincian … saya filter pemegang kas iis, kantong kas kas iis ck, lalu disana akan muncul rincian per bahan dan per keluar, seperti lombok 1 kg 10.000, karcis parkir 1 5000, jadi bukan per nota, tetapi per item … saya ingin semua muncul dengan mapping, bahan bila dikeluarkan dari modul bahan, lalu bila keluar dari cash ledger sesuai dengan mapping nya"
+
+Laporan **Kas per Pemegang** yang sudah ada menjawab pertanyaan lain: satu baris per **entri**. Pembayaran nota tampil sebagai *"Pembayaran nota NT-0012 — Rp1.240.000"*, dan isi belanjaannya tidak ada di sana sama sekali. Pertanyaan "bulan ini kas Iis habis untuk apa saja" karenanya hanya bisa dijawab dengan membuka nota satu per satu.
+
+`0140` menambahkan `rincian_mutasi_kas()`, yang memecah tiap entri kas menjadi baris-baris itemnya:
+
+| Sumber | Isinya | Mapping kategorinya |
+| --- | --- | --- |
+| **Bahan** | satu baris `goods_receipt_items` dari nota yang dilunasi entri itu | kategori kas entrinya, atau `Pembelian bahan` |
+| **Kas** | entri buku kas yang tidak melunasi nota apa pun — parkir, bensin, setoran, transfer, pindah antar kantong, penyesuaian nota | kategori kas yang dipilih saat mencatat |
+
+Filternya: **pemegang kas + kantong + outlet peruntukan + kategori + periode**, dengan Export PDF & Excel yang sudah ada di kerangka Laporan.
+
+### Pembedanya `payment_entry_id`, bukan `untuk_nota`
+
+Ada kolom `cash_entries.untuk_nota` yang kelihatannya persis untuk ini. Memakainya salah, dan salahnya senyap: entri **penyesuaian** dari `koreksi_nota`/`batalkan_nota` (`0131`) juga ber-`untuk_nota` true, padahal tidak ada nota yang menunjuknya. Ia akan ikut disaring keluar dari bagian kas-ledger sekaligus tidak punya baris bahan untuk dipecah — dan yang hilang dari laporan justru **koreksinya**, bagian yang paling perlu terlihat.
+
+Jadi yang dipakai adalah pertanyaan sungguhannya: *apakah ada nota yang menunjuk entri ini lewat `payment_entry_id`?*
+
+### Satu entri, dua nilai, dan lima belas ribu yang tidak pernah terjadi
+
+Nota yang **dikoreksi sesudah dibayar** membuat tiga angka hidup bersamaan:
+
+- entri pembayarannya bernilai total **lama** — uang yang benar-benar keluar hari itu;
+- isi notanya sekarang bernilai total **baru**;
+- selisihnya berjalan lewat entri **penyesuaian** tersendiri.
+
+Menjumlahkan baris bahan begitu saja menghitung selisih itu **dua kali**: sekali di baris bahannya, sekali di entri penyesuaiannya. Nota Rp185.000 yang dikoreksi jadi Rp200.000 muncul sebagai Rp215.000 keluar — dan tidak ada satu pun angka di layar itu yang terlihat salah.
+
+Karena itu RPC-nya ikut mengembalikan `entry_amount`, nominal entri induknya, dan `mutasi-kas.js` mencocokkan tiap kelompok baris bahan dengannya. Bedanya **ditulis sebagai baris tersendiri** yang menyebut sebabnya, bukan ditelan. Pada nota yang tidak pernah dikoreksi, baris itu tidak pernah muncul.
+
+Satu perkecualian yang sengaja: kalau ada baris **belum berharga** di kelompok itu, rekonsiliasinya dibatalkan. Selisihnya sudah punya penjelasan — harganya memang belum diisi — dan menuliskannya sebagai "koreksi nota" berarti menuduh hal yang tidak terjadi. Jumlah baris tanpa harga disebut di catatan laporan.
+
+### "Kas Utama" bukan "semua kantong"
+
+Uang pemegang berjatah satu kantong berada di `account_id` **NULL**. NULL juga yang berarti "jangan saring kantongnya" — jadi satu parameter tidak bisa mewakili dua pertanyaan itu sekaligus. `p_tanpa_kantong boolean` yang membedakannya; layar mengirim penanda `'utama'` dari dropdown dan menerjemahkannya sebelum memanggil. Sentinel uuid nol **tidak** dipilih: ia terlihat seperti id sungguhan di log, di URL, dan di kepala orang yang membacanya enam bulan lagi.
+
+Dropdown kantongnya diisi `kantong_kas_terlihat()` — diturunkan dari entri yang memang terlihat, bukan dari `daftar_kantong_kas()` (`0121`) yang super-admin saja. Daftarnya ikut menyempit saat pemegangnya dipilih; tanpa itu, kantong milik orang sebelumnya tetap terpilih dan hasilnya kosong tanpa sebab yang terlihat di layar.
+
+### Yang sengaja tidak muncul di sini
+
+Nota yang dilunasi **Pusat** (`payment_source = 'pusat'`, `0125`) tidak meninggalkan satu baris pun di `cash_entries`. Ia memang tidak menyentuh kas siapa pun, jadi ia bukan mutasi kas — pertanyaan "berapa total belanja bahan bulan ini" dijawab laporan **Bahan Masuk** di modul Bahan, dan catatan laporannya mengatakan itu alih-alih membiarkan orang menyimpulkan sendiri.
+
+Aturan keterlihatannya ditarik ke `boleh_lihat_kas(holder, outlet)` dan dipakai bersama `laporan_kas_user` (`0063`) — bukan disalin. Dua salinan aturan izin cepat atau lambat berbeda, dan bedanya muncul sebagai baris yang hilang tanpa pesan apa pun.
+
+- [x] **Rincian Mutasi Kas per item** (`0140`) — 30 sabotase

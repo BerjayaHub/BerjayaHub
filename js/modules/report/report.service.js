@@ -11,8 +11,9 @@ import { getNbmConfig, listOvertimeTiers, listHolidays, listNbmAdjustments, calc
 // tanpa ada penjelasan kenapa.
 import { listBuStaff } from '../leave/leave.service.js';
 import { LATE_LABEL } from '../shift/shift.service.js';
-import { laporanKasUser } from '../cash/cash.service.js';
+import { laporanKasUser, rincianMutasiKas } from '../cash/cash.service.js';
 import { nilaiStok, barisCogs, ringkasCogs } from './cogs.js';
+import { susunMutasiKas } from './mutasi-kas.js';
 
 // =========================================================
 // KATALOG LAPORAN
@@ -75,6 +76,21 @@ export const REPORTS = [
     description:
       'Transaksi kas per pemegang: kantong, outlet peruntukan, kategori, keterangan, jumlah barang & satuan, nominal, dan bukti nota.',
     build: buildCashByUser
+  },
+  {
+    key: 'cash_mutation_detail',
+    label: 'Rincian Mutasi Kas (per item)',
+    group: 'Keuangan',
+    pakaiFilterUser: true,
+    pakaiFilterKategori: true,
+    // Hanya laporan ini yang memecah per kantong; `pakaiFilterKantong` yang
+    // memunculkan dropdown-nya di halaman laporan.
+    pakaiFilterKantong: true,
+    description:
+      'Keluar-masuk kas dirinci PER ITEM, bukan per nota: pembayaran nota supplier dipecah menjadi baris bahannya ' +
+      '(lombok 1 kg Rp10.000), pengeluaran buku kas tampil dengan kategorinya (karcis parkir Rp5.000). ' +
+      'Bisa disaring per pemegang kas dan per kantong.',
+    build: buildCashMutationDetail
   },
   {
     key: 'ph_replacement',
@@ -792,4 +808,29 @@ async function buildCashByUser({ outletId, userId, categoryId, from, to }) {
       'Kas masuk tidak punya peruntukan, jadi kolomnya kosong; menyaring per outlet otomatis menyisihkan baris kas masuk. ' +
       'Transfer antar pemegang dan perpindahan antar kantong sendiri tidak memerlukan nota, karena tidak ada nota yang bisa difoto.'
   };
+}
+
+// ---------------------------------------------------------
+// 6. Rincian Mutasi Kas — per ITEM, bukan per nota
+//
+// Seluruh penyusunannya ada di `mutasi-kas.js` (modul murni, bisa diuji tanpa
+// browser). Yang tersisa di sini hanya pengambilan datanya.
+//
+// `businessUnitId` SENGAJA tidak dipakai, sama seperti Kas per Pemegang: sejak
+// 0040 saldo kas melekat pada USER dan tidak menyimpan BU. Menyaringnya per BU
+// akan membuang baris milik orang yang sama hanya karena ia juga bekerja di BU
+// lain — dan yang terbuang adalah uang yang sungguhan keluar.
+// ---------------------------------------------------------
+
+async function buildCashMutationDetail({ outletId, userId, categoryId, accountId, tanpaKantong, from, to }) {
+  const baris = await rincianMutasiKas({
+    from,
+    to,
+    userId,
+    accountId,
+    tanpaKantong,
+    outletId,
+    categoryId
+  });
+  return susunMutasiKas({ baris, periode: { dari: from, sampai: to } });
 }

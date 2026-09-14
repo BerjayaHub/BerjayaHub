@@ -2,7 +2,7 @@ import { toast } from '../../core/ui.js';
 import { exportTablePDF } from '../../core/pdf.js';
 import { exportTableXLSX } from '../../core/xlsx.js';
 import { listBuStaff } from '../leave/leave.service.js';
-import { listCashCategories } from '../cash/cash.service.js';
+import { listCashCategories, listKantongKasTerlihat } from '../cash/cash.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { REPORTS, getReport } from './report.service.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
@@ -18,7 +18,7 @@ import { loadingHtml } from '../../core/loading.js';
  */
 export async function renderReportAdminPage(container, { businessUnitId }) {
   const range = monthRangeWIB();
-  const state = { key: REPORTS[0].key, outletId: '', userId: '', categoryId: '', from: range.from, to: range.to };
+  const state = { key: REPORTS[0].key, outletId: '', userId: '', categoryId: '', accountId: '', from: range.from, to: range.to };
   let last = null; // { report, data, subtitle }
 
   const outlets = await listMyOutlets(businessUnitId).catch(() => []);
@@ -57,6 +57,10 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
         <label for="rp-user">Pemegang kas</label>
         <select id="rp-user"><option value="">Semua orang</option></select>
       </div>
+      <div class="field" style="margin:0;max-width:220px" id="rp-kantong-wrap" hidden>
+        <label for="rp-kantong">Kantong kas</label>
+        <select id="rp-kantong"><option value="">Semua kantong</option></select>
+      </div>
       <div class="field" style="margin:0;max-width:220px" id="rp-kat-wrap" hidden>
         <label for="rp-kat">Kategori</label>
         <select id="rp-kat"><option value="">Semua kategori</option></select>
@@ -79,8 +83,12 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
   const userSel = container.querySelector('#rp-user');
   const katWrap = container.querySelector('#rp-kat-wrap');
   const katSel = container.querySelector('#rp-kat');
+  const kantongWrap = container.querySelector('#rp-kantong-wrap');
+  const kantongSel = container.querySelector('#rp-kantong');
   let staffDimuat = false;
   let katDimuat = false;
+  let kantongDimuat = false;
+  let daftarKantong = [];
 
   /**
    * Dropdown pemegang kas hanya muncul untuk laporan yang memang memakainya.
@@ -126,6 +134,49 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
     }
   }
 
+  /**
+   * Dropdown kantong kas. Nilai `utama` BUKAN id — ia penanda "uang yang tidak
+   * berada di kantong mana pun", yang di database berupa `account_id` NULL.
+   * Dibedakan dari pilihan kosong ("semua kantong") karena keduanya pertanyaan
+   * yang sangat berbeda, dan NULL tidak bisa mewakili dua-duanya.
+   */
+  function isiOpsiKantong() {
+    // Dipersempit mengikuti pemegang yang dipilih: daftar kantong milik orang
+    // lain di dropdown yang sudah difilter per orang hanya menghasilkan
+    // kombinasi yang pasti kosong.
+    const dipakai = state.userId ? daftarKantong.filter((k) => k.holder_id === state.userId) : daftarKantong;
+    const adaUtama = dipakai.some((k) => !k.account_id);
+    const nyata = dipakai.filter((k) => k.account_id);
+    const label = (k) =>
+      `${state.userId ? '' : `${k.holder_name ?? '-'} — `}${k.account_name}${k.outlet_name ? ` (${k.outlet_name})` : ''}`;
+    kantongSel.innerHTML =
+      '<option value="">Semua kantong</option>' +
+      (adaUtama ? `<option value="utama">${esc(state.userId ? 'Kas Utama' : 'Kas Utama (semua pemegang)')}</option>` : '') +
+      nyata.map((k) => `<option value="${esc(k.account_id)}">${esc(label(k))}</option>`).join('');
+    // Pilihan sebelumnya dipertahankan kalau masih ada; kalau tidak, state ikut
+    // dikosongkan. Membiarkan `state.accountId` menunjuk kantong yang sudah
+    // hilang dari daftar membuat laporan kosong tanpa alasan yang terlihat.
+    const masihAda = [...kantongSel.options].some((o) => o.value === state.accountId);
+    if (!masihAda) state.accountId = '';
+    kantongSel.value = state.accountId;
+  }
+
+  async function syncFilterKantong() {
+    const perlu = !!getReport(state.key)?.pakaiFilterKantong;
+    kantongWrap.hidden = !perlu;
+    if (!perlu) return;
+    if (!kantongDimuat) {
+      kantongDimuat = true;
+      try {
+        daftarKantong = await listKantongKasTerlihat();
+      } catch {
+        kantongDimuat = false;
+        daftarKantong = [];
+      }
+    }
+    isiOpsiKantong();
+  }
+
   const showDesc = () => {
     desc.textContent = getReport(sel.value).description ?? '';
   };
@@ -135,15 +186,25 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
     // laporan berikutnya dan menghasilkan angka yang tidak bisa dijelaskan.
     state.userId = '';
     state.categoryId = '';
+    state.accountId = '';
     userSel.value = '';
     katSel.value = '';
+    kantongSel.value = '';
     showDesc();
     syncFilterUser();
     syncFilterKategori();
+    syncFilterKantong();
     run();
   });
   container.querySelector('#rp-outlet').addEventListener('change', (e) => (state.outletId = e.target.value));
-  userSel.addEventListener('change', (e) => (state.userId = e.target.value));
+  userSel.addEventListener('change', (e) => {
+    state.userId = e.target.value;
+    // Ganti pemegang -> daftar kantongnya ikut menyempit. Tanpa ini, kantong
+    // milik orang sebelumnya tetap terpilih dan hasilnya kosong tanpa sebab
+    // yang terlihat di layar.
+    if (!kantongWrap.hidden) isiOpsiKantong();
+  });
+  kantongSel.addEventListener('change', (e) => (state.accountId = e.target.value));
   katSel.addEventListener('change', (e) => (state.categoryId = e.target.value));
   container.querySelector('#rp-from').addEventListener('change', (e) => (state.from = e.target.value));
   container.querySelector('#rp-to').addEventListener('change', (e) => (state.to = e.target.value));
@@ -155,7 +216,8 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
     const outlet = state.outletId ? outletNames.get(state.outletId) ?? '-' : 'Semua outlet';
     const orang = state.userId ? ` · ${userSel.options[userSel.selectedIndex]?.text ?? ''}` : '';
     const kategori = state.categoryId ? ` · ${katSel.options[katSel.selectedIndex]?.text ?? ''}` : '';
-    return `${outlet}${orang}${kategori} · Periode ${fmtDate(state.from)} – ${fmtDate(state.to)}`;
+    const kantong = state.accountId && !kantongWrap.hidden ? ` · ${kantongSel.options[kantongSel.selectedIndex]?.text ?? ''}` : '';
+    return `${outlet}${orang}${kantong}${kategori} · Periode ${fmtDate(state.from)} – ${fmtDate(state.to)}`;
   }
 
   async function run() {
@@ -171,6 +233,11 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
         outletId: state.outletId,
         userId: state.userId || null,
         categoryId: state.categoryId || null,
+        // `utama` BUKAN id kantong — ia berarti "tidak berada di kantong mana
+        // pun". Dikirim sebagai bendera tersendiri supaya `accountId` kosong
+        // tetap bisa berarti "semua kantong".
+        accountId: state.accountId === 'utama' ? null : state.accountId || null,
+        tanpaKantong: state.accountId === 'utama',
         from: state.from,
         to: state.to
       });
@@ -221,6 +288,7 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
   showDesc();
   await syncFilterUser();
   await syncFilterKategori();
+  await syncFilterKantong();
   await run();
 }
 
