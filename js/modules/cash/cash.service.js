@@ -326,7 +326,14 @@ export async function listMyCashEntries(limit = 50) {
   if (!uid) return [];
   const { data, error } = await supabase
     .from('cash_entries')
-    .select('id, entry_type, amount, notes, qty, unit, entry_date, proof_path, created_at, cash_categories(name), cash_accounts(name), outlets!outlet_id(name), counterpart:user_profiles!counterpart_id(full_name)')
+    // `penyesuaian_nota` IKUT DIAMBIL (0131). Entri koreksi menyebut notanya
+    // di kolom itu dan TIDAK ditunjuk `payment_entry_id` mana pun — tanpa
+    // kolom ini, baris "Penyesuaian nota TRM-…" di riwayat tidak punya nota
+    // untuk dibuka, padahal nomornya tertulis persis di layar.
+    .select(
+      'id, entry_type, amount, notes, qty, unit, entry_date, proof_path, penyesuaian_nota, created_at, ' +
+        'cash_categories(name), cash_accounts(name), outlets!outlet_id(name), counterpart:user_profiles!counterpart_id(full_name)'
+    )
     .eq('holder_id', uid)
     .order('created_at', { ascending: false })
     .limit(limit);

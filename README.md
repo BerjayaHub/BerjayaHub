@@ -6472,3 +6472,44 @@ Nota yang dilunasi **Pusat** (`payment_source = 'pusat'`, `0125`) tidak meningga
 Aturan keterlihatannya ditarik ke `boleh_lihat_kas(holder, outlet)` dan dipakai bersama `laporan_kas_user` (`0063`) — bukan disalin. Dua salinan aturan izin cepat atau lambat berbeda, dan bedanya muncul sebagai baris yang hilang tanpa pesan apa pun.
 
 - [x] **Rincian Mutasi Kas per item** (`0140`) — 30 sabotase
+
+## Kas: kepala yang tinggal diam, dan nomor nota yang bisa diketuk
+
+> "saya ingin header berisi saldo dan tombol tombol di freeze dan tabel riwayat saya bisa di scroll / lalu nomor nota di kolom keterangan saya ingin bisa di klik atau tap dan saat di klik muncul pop up rincian nota nya dan foto nota"
+
+### Yang menggulir sekarang cuma riwayatnya
+
+Saldo dan tombol Kas Masuk/Keluar/Transfer dipakai berulang kali; riwayatnya panjang. Sebelum ini, memeriksa riwayat lalu mencatat pengeluaran berarti menggulir balik ke atas tiap kali — dan saldo yang tidak terlihat saat menekan "Kas Keluar" justru angka yang sedang dipertimbangkan orangnya.
+
+Tinggi wadah riwayat **diukur** (`ukurRiwayat`), bukan dipatok `60vh`: tinggi kepalanya berubah-ubah karena rincian kantong muncul kalau jatahnya lebih dari satu, dan panel Kelola Kas bisa dibuka. Angka tetap akan meninggalkan ruang kosong di satu keadaan dan memaksa halaman ikut menggulir di keadaan lain.
+
+Judul kolomnya ikut dibekukan. Riwayat yang digulir tanpa itu kehilangan "Jumlah" dan "Outlet" sesudah sepuluh baris, dan angka tanpa judul kolom bisa dibaca sebagai kolom yang salah.
+
+**Semuanya di dalam `@media (min-width: 561px)`.** Di bawah ambang itu barisnya sudah jadi kartu dan `.table-scroll` sengaja `overflow-x: visible`; menyetel `overflow-y` di sana memaksa `overflow-x` ikut jadi `auto` — persis jalan masuk bug "tombol melebarkan halaman" yang sudah pernah diperbaiki.
+
+### Nomor notanya dicocokkan, bukan ditebak
+
+Keterangan kas adalah teks bebas: *"Pembayaran nota TRM-260912-56F0"*, *"Pembayaran nota TRM-1, TRM-2"*, *"Penyesuaian nota TRM-3 — koreksi isi nota"*, atau kalimat yang diketik orangnya sendiri. Yang dicari **bukan polanya** melainkan kode nota yang memang terkait dengan entri itu — jadi tidak ada regex yang bisa salah mengenali.
+
+Dua keputusan di `keterangan-nota.js`:
+
+- **Kode terpanjang menang saat posisinya seri.** `TRM-1` adalah awalan `TRM-12`. Kalau yang pendek dicocokkan lebih dulu, ia memotong yang panjang di tengah dan sisanya (`2`) jadi teks biasa — yang terlihat cuma nomor yang sedikit terpotong, dan yang terbuka saat diketuk adalah **nota yang lain**.
+- **Nota yang kodenya tidak tertulis tetap ditawarkan**, sebagai baris "Nota:" kecil di bawah keterangannya. Keterangan boleh diganti orangnya saat membayar ("Belanja mingguan"), dan satu entri bisa melunasi lima nota sementara kalimatnya menyebut dua.
+
+### Dua jalur, dan kenapa satu saja tidak cukup
+
+Entri yang **melunasi** nota ditunjuk lewat `goods_receipts.payment_entry_id`. Entri **koreksi** dari `koreksi_nota`/`batalkan_nota` (`0131`) menyebut notanya sendiri lewat `cash_entries.penyesuaian_nota` dan **tidak ditunjuk siapa pun**. Memakai jalur pertama saja membuat baris "Penyesuaian nota TRM-…" tidak punya nota untuk dibuka — padahal nomornya tertulis persis di layar. Kegagalannya senyap: tulisannya cuma tidak bisa diketuk.
+
+### Dialognya dibuka dulu, fotonya menyusul
+
+URL bertanda tangan butuh satu perjalanan ke server. Menunggunya sebelum membuka dialog berarti mengetuk nomor nota **tidak menghasilkan apa pun** selama satu-dua detik — dan orang akan mengetuknya lagi.
+
+Foto yang tidak bisa dibuka **punya sebab, dan sebabnya dikatakan**: kebijakan `receipt-photos` (`0084`) menuntut wewenang di **outlet** notanya, bukan sekadar di BU-nya. Pemegang kas yang kantongnya dibebani staff outlet lain (`0120`/`0126`) memang bisa melihat notanya tapi tidak fotonya — keadaan yang sah, dan yang harus ditulis alih-alih ditampilkan sebagai ikon gambar rusak, yang terbaca seperti "notanya tidak ada".
+
+Nilai tiap baris lewat `hargaBeliBaris()` — rumus yang sama dengan `nota_ringkas` di server. Dialog ini dibuka justru saat orang menyandingkan pengeluaran kasnya dengan tagihan supplier; mengalikan balik dari `unit_cost` meleset ribuan rupiah pada qty yang tidak membagi habis, dan tidak ada satu pun angka di layar yang akan terlihat salah.
+
+Gagal mengambil notanya **tidak boleh mengosongkan riwayat kas**. Angka yang benar hilang demi tautan yang cuma pelengkap adalah pertukaran yang salah arah.
+
+Satu sabotase sempat lolos, dan sebabnya sudah berulang di repo ini: auditnya cuma menuntut kata `photo_path` **muncul di berkasnya**, sementara `riwayatNota` dan parameter `p_photo_path` masih memuatnya beberapa ratus baris jauhnya. Pemeriksaannya kini dipersempit ke isi `KOLOM_NOTA_RINGKAS` saja, dan keempat kolom yang dibutuhkan dialog diperiksa satu per satu.
+
+- [x] **Kepala Kas dibekukan & nomor nota bisa diketuk** — 39 sabotase

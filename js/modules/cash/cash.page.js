@@ -21,6 +21,9 @@ import {
   todayWIB
 } from './cash.service.js';
 import { loadingHtml, tombolSibuk, sekaliJalan } from '../../core/loading.js';
+import { notaTerkaitEntriKas } from '../inventory/nota.service.js';
+import { bukaDialogNota } from '../inventory/nota-dialog.js';
+import { pecahKeterangan, petaNotaPerEntri } from './keterangan-nota.js';
 
 /**
  * Penanda "Kas Utama" di dalam <select>.
@@ -66,7 +69,15 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
   const namaSaya = members.find((s) => s.user_id === userId)?.full_name ?? 'Kas saya';
   const pakaiKantong = limit > 1;
 
+  // KEPALA HALAMAN DIBEKUKAN, RIWAYATNYA YANG MENGGULIR.
+  //
+  // Saldo dan tombol Kas Masuk/Keluar/Transfer adalah satu-satunya bagian yang
+  // dipakai berulang kali; riwayatnya panjang. Tanpa pembekuan, mencatat
+  // pengeluaran sesudah memeriksa riwayat berarti menggulir balik ke atas tiap
+  // kali — dan saldo yang tidak terlihat saat menekan "Kas Keluar" adalah
+  // justru angka yang sedang dipertimbangkan orangnya.
   container.innerHTML = `
+    <div class="kas-header">
     <h1>Kas</h1>
     <div class="inline-card" style="max-width:460px">
       <h3 style="margin-top:0;font-size:0.95rem">Saldo Kas Saya</h3>
@@ -86,6 +97,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       <h2 style="font-size:1rem;margin:0">Riwayat Kas</h2>
       <button id="cash-pdf" style="max-width:150px">⇩ Export PDF</button>
     </div>
+    </div>
     <div id="cash-history"></div>
   `;
 
@@ -103,6 +115,62 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
   // (account_id NULL) kalau memang ada uang di sana.
   let saldoKantong = [];
 
+  /**
+   * Keterangan dengan nomor notanya jadi tombol.
+   *
+   * Potongannya disusun modul murni `pecahKeterangan`; di sini tinggal
+   * meng-escape dan membungkusnya. Meng-escape di SINI, sesudah pemecahan,
+   * bukan sebelumnya: kalau teksnya di-escape lebih dulu, kode nota yang
+   * memuat `&` atau `<` tidak akan pernah cocok dengan kode aslinya.
+   */
+  function ketHtml(ket, notas) {
+    const { bagian, tambahan } = pecahKeterangan(ket, notas ?? []);
+    const tombol = (t) => `<button type="button" class="btn-nota" data-id="${escapeHtml(t.notaId)}">${escapeHtml(t.teks)}</button>`;
+    const utama = bagian.map((b) => (b.notaId ? tombol(b) : escapeHtml(b.teks))).join('');
+    // Nota yang kodenya tidak tertulis di keterangan tetap ditawarkan, supaya
+    // tidak ada nota yang mustahil dibuka hanya karena kalimatnya tidak
+    // menyebutnya.
+    const ekor = tambahan.length
+      ? `<div class="kas-nota-ekor">Nota: ${tambahan.map(tombol).join(' ')}</div>`
+      : '';
+    return (utama || escapeHtml(ket ?? '-')) + ekor;
+  }
+
+  /**
+   * Tinggi wadah riwayat = sisa layar di bawah kepala yang dibekukan.
+   *
+   * Diukur, bukan dipatok `60vh`: tinggi kepalanya berubah-ubah — kartu
+   * kantong muncul kalau jatahnya lebih dari satu, panel Kelola Kas bisa
+   * dibuka. Angka tetap akan meninggalkan ruang kosong di satu keadaan dan
+   * memaksa halaman ikut menggulir di keadaan lain.
+   *
+   * Di mode kartu (<=560px) TIDAK dipakai: barisnya sudah jadi kartu, wadahnya
+   * sengaja `overflow-x: visible` di CSS, dan menyetel tinggi di situ akan
+   * memaksa `overflow-x` ikut jadi `auto` — persis bug "tombol melebarkan
+   * halaman" yang sudah pernah diperbaiki.
+   */
+  function ukurRiwayat() {
+    // Halamannya bisa sudah diganti modul lain sementara pendengar `resize`
+    // masih terpasang. Tanpa pelepasan ini, tiap kali orang berpindah modul
+    // satu pendengar tertinggal — dan yang terkumpul mengukur simpul yang
+    // sudah tidak ada di layar.
+    if (!container.isConnected) {
+      window.removeEventListener('resize', ukurRiwayat);
+      return;
+    }
+    const kotak = container.querySelector('.kas-riwayat');
+    if (!kotak) return;
+    if (window.innerWidth <= 560) {
+      kotak.style.maxHeight = '';
+      return;
+    }
+    const atas = kotak.getBoundingClientRect().top;
+    // Minimal 220px: di layar yang sangat pendek, wadah setinggi 40px lebih
+    // buruk daripada halaman yang ikut menggulir sedikit.
+    kotak.style.maxHeight = `${Math.max(220, window.innerHeight - atas - 16)}px`;
+  }
+  window.addEventListener('resize', ukurRiwayat);
+
   async function refresh() {
     try {
       const [balance, entries, saldoAkun] = await Promise.all([
@@ -113,6 +181,19 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       entriTampil = entries;
       saldoKantong = saldoAkun;
       container.querySelector('#cash-balance').textContent = formatRupiah(balance);
+
+      // Nota yang terkait entri-entri ini, supaya nomornya bisa diketuk.
+      //
+      // Gagal mengambilnya TIDAK boleh mematikan riwayatnya: `notaTerkaitEntriKas`
+      // sudah mengembalikan daftar kosong alih-alih melempar, dan `.catch` di
+      // sini menjaga kegagalan jaringan. Yang hilang cuma tautannya — angkanya
+      // tetap benar, dan riwayat kas yang kosong karena satu query tambahan
+      // gagal jauh lebih buruk daripada nomor yang tidak bisa diketuk.
+      const notas = await notaTerkaitEntriKas(
+        entries.map((e) => e.id),
+        entries.map((e) => e.penyesuaian_nota)
+      ).catch(() => []);
+      const notaPerEntri = petaNotaPerEntri(entries, notas);
 
       // Panel kelola ikut digambar ulang kalau sedang terbuka, supaya saldonya
       // tidak tertinggal setelah ada transaksi baru.
@@ -134,7 +215,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
 
       const box = container.querySelector('#cash-history');
       box.innerHTML = entries.length
-        ? `<div class="table-scroll">
+        ? `<div class="table-scroll kas-riwayat">
             <table class="data-table table-freeze-1 kartu-sempit">
             <thead><tr><th>Keterangan</th><th>Tanggal</th><th>Jenis</th>${pakaiKantong ? '<th>Kantong</th>' : ''}<th>Outlet</th><th>Jumlah</th><th></th></tr></thead>
             <tbody>
@@ -147,7 +228,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
                     e.cash_categories?.name ||
                     (e.counterpart?.full_name ? `${amt >= 0 ? 'dari' : 'ke'} ${e.counterpart.full_name}` : '-');
                   return `<tr>
-                    <td data-label="Keterangan"><strong>${escapeHtml(ket)}</strong>
+                    <td data-label="Keterangan"><strong>${ketHtml(ket, notaPerEntri.get(e.id))}</strong>
                       ${e.cash_categories?.name ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${escapeHtml(e.cash_categories.name)}</div>` : ''}
                       ${e.qty ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${formatNum(e.qty)} ${escapeHtml(e.unit ?? '')}</div>` : ''}</td>
                     <td style="font-size:0.82rem" data-label="Tanggal">${fmtDate(e.entry_date)}</td>
@@ -173,6 +254,16 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
           }
         })
       );
+
+      // Nomor notanya dibuka dari peta yang SUDAH ada di tangan, bukan diambil
+      // ulang saat diketuk: dialognya harus muncul seketika, dan nota yang
+      // isinya menyusul sudah ditangani `bukaDialogNota` sendiri.
+      const semuaNota = new Map(notas.map((n) => [n.id, n]));
+      box.querySelectorAll('.btn-nota').forEach((btn) =>
+        btn.addEventListener('click', () => bukaDialogNota(semuaNota.get(btn.dataset.id)))
+      );
+
+      ukurRiwayat();
     } catch (error) {
       container.querySelector('#cash-history').innerHTML = `<p class="error-text">${escapeHtml(error.message ?? error)}</p>`;
     }
@@ -448,6 +539,8 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     const panel = container.querySelector('#cash-kelola');
     panel.hidden = !panel.hidden;
     if (!panel.hidden) gambarKelola();
+    // Kepalanya berubah tinggi -> sisa layar untuk riwayat ikut berubah.
+    ukurRiwayat();
   }
 
   function gambarKelola() {

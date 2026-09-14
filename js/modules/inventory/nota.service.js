@@ -337,6 +337,58 @@ export async function itemNotaBanyak(receiptIds) {
   return hasil;
 }
 
+/** Kolom yang cukup untuk menggambar rincian satu nota di dialog. */
+const KOLOM_NOTA_RINGKAS =
+  'id, code, receipt_date, supplier, invoice_no, photo_path, notes, status, alasan_batal, ' +
+  'payment_status, payment_source, payment_entry_id, outlet_id, outlets!outlet_id(name)';
+
+/**
+ * Nota yang TERKAIT dengan sekumpulan entri kas.
+ *
+ * ============ DUA JALUR, DAN KENAPA KEDUANYA PERLU ============
+ *
+ *   `payment_entry_id`  — entri kas yang MELUNASI nota itu (`bayar_nota`, 0122).
+ *                         Satu entri bisa melunasi beberapa nota sekaligus.
+ *   `penyesuaian_nota`  — entri KOREKSI yang lahir saat isi nota berubah
+ *                         sesudah dibayar, atau saat notanya dibatalkan (0131).
+ *                         Entri ini TIDAK ditunjuk `payment_entry_id` mana pun.
+ *
+ * Memakai jalur pertama saja membuat baris "Penyesuaian nota TRM-…" di riwayat
+ * kas tidak punya nota untuk dibuka — padahal nomornya tertulis di layar.
+ * Kegagalannya senyap: tulisannya cuma tidak bisa diketuk.
+ *
+ * Id-nya dipotong per 100. Daftar `in.(uuid,uuid,…)` ikut masuk URL, dan URL
+ * yang terlalu panjang ditolak server dengan 414 — galat yang tidak menyebut
+ * jumlah nota sama sekali.
+ *
+ * @param {string[]} entryIds id `cash_entries` yang melunasi nota
+ * @param {string[]} notaIds  id nota yang ditunjuk `penyesuaian_nota`
+ * @returns {Promise<object[]>} baris nota, tanpa duplikat
+ */
+export async function notaTerkaitEntriKas(entryIds = [], notaIds = []) {
+  const POTONG = 100;
+  const hasil = new Map();
+
+  const kumpulkan = async (ids, kolom) => {
+    const bersih = [...new Set((ids ?? []).filter(Boolean))];
+    for (let i = 0; i < bersih.length; i += POTONG) {
+      const bagian = bersih.slice(i, i + POTONG);
+      const { data, error } = await supabase.from('goods_receipts').select(KOLOM_NOTA_RINGKAS).in(kolom, bagian);
+      // Gagal SEBAGIAN tidak boleh mematikan seluruh riwayat kas. Yang hilang
+      // cuma kemampuan mengetuk nomornya; angkanya tetap benar.
+      if (error) {
+        console.warn('[kas] gagal mengambil nota terkait:', error.message);
+        return;
+      }
+      for (const n of data ?? []) hasil.set(n.id, n);
+    }
+  };
+
+  await kumpulkan(entryIds, 'payment_entry_id');
+  await kumpulkan(notaIds, 'id');
+  return [...hasil.values()];
+}
+
 /**
  * Unggah foto nota. Nama berkasnya memuat outlet & waktu supaya dua nota yang
  * diunggah bersamaan tidak saling menimpa.

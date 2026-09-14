@@ -139,8 +139,8 @@ h4 { font-size: var(--teks-sm); line-height: 1.4; }
 }
 
 /* Tombol sekunder (default) diseragamkan biar rapi & elegan */
-.app-content button:not(.primary):not(.tab-btn):not(.btn-ghost):not(.btn-danger):not(.btn-whatsapp):not(.scope-remove):not(.scope-edit):not(.scope-primary):not(.ln-remove),
-.staff-main button:not(.primary):not(.tab-btn):not(.btn-ghost):not(.btn-danger):not(.btn-whatsapp):not(.topbar-btn):not(.module-card):not(.scope-remove):not(.scope-edit):not(.scope-primary):not(.ln-remove) {
+.app-content button:not(.primary):not(.tab-btn):not(.btn-ghost):not(.btn-danger):not(.btn-whatsapp):not(.btn-nota):not(.scope-remove):not(.scope-edit):not(.scope-primary):not(.ln-remove),
+.staff-main button:not(.primary):not(.tab-btn):not(.btn-ghost):not(.btn-danger):not(.btn-whatsapp):not(.btn-nota):not(.topbar-btn):not(.module-card):not(.scope-remove):not(.scope-edit):not(.scope-primary):not(.ln-remove) {
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
@@ -687,6 +687,113 @@ button.primary:active { transform: translateY(1px); }
   border-style: solid;
   border-color: #e0a800;
   background: #fff8e1;
+}
+
+/* =========================================================
+   KAS — kepala dibekukan, riwayatnya yang menggulir.
+
+   > "saya ingin header berisi saldo dan tombol tombol di freeze dan tabel
+   >  riwayat saya bisa di scroll"
+
+   Saldo dan tombol Kas Masuk/Keluar/Transfer dipakai berulang kali; riwayatnya
+   panjang. Tanpa ini, mencatat pengeluaran sesudah memeriksa riwayat berarti
+   menggulir balik ke atas tiap kali — dan saldo yang tidak terlihat saat
+   menekan "Kas Keluar" justru angka yang sedang dipertimbangkan orangnya.
+
+   TINGGINYA DIUKUR DI JS (`ukurRiwayat`), bukan dipatok di sini: tinggi
+   kepalanya berubah-ubah karena kartu kantong dan panel Kelola Kas. `max-height`
+   di bawah cuma jaring pengaman kalau pengukurannya tidak sempat jalan.
+
+   SEMUANYA DI DALAM @media (min-width: 561px). Di bawah itu barisnya sudah jadi
+   kartu dan `.table-scroll` sengaja `overflow-x: visible`; menyetel
+   `overflow-y` di sana memaksa `overflow-x` ikut jadi `auto` — persis jalan
+   masuk bug "tombol melebarkan halaman" yang sudah pernah diperbaiki.
+   ========================================================= */
+@media (min-width: 561px) {
+  .kas-header {
+    position: -webkit-sticky;
+    position: sticky;
+    top: 0;
+    z-index: 6;
+    /* Latar SOLID wajib: tanpa ini baris riwayat terlihat menembus saldo. */
+    background: var(--color-bg);
+    padding-bottom: 10px;
+  }
+
+  .table-scroll.kas-riwayat {
+    overflow-y: auto;
+    max-height: 62vh;
+  }
+
+  /* Judul kolom ikut dibekukan. Riwayat yang digulir tanpa ini kehilangan
+     "Jumlah" dan "Outlet" sesudah sepuluh baris, dan angka tanpa judul kolom
+     bisa dibaca sebagai kolom yang salah. */
+  .table-scroll.kas-riwayat thead th {
+    position: -webkit-sticky;
+    position: sticky;
+    top: 0;
+    z-index: 4;
+    background: var(--color-bg);
+  }
+
+  /* Sudut kiri atas bertemu dua sticky sekaligus (kolom beku `.table-freeze-1`
+     ber-z-index 3). Ia harus di atas keduanya, kalau tidak baris yang lewat
+     menembusnya. */
+  .kas-riwayat .table-freeze-1 thead th:first-child {
+    z-index: 5;
+  }
+}
+
+/* Nomor nota di dalam keterangan: TAUTAN, bukan tombol berkotak.
+   Tombol berkotak di dalam sel tabel menuntut lebar sendiri dan sudah pernah
+   melebarkan halaman (lihat catatan .btn-danger di bawah). `display: inline`
+   membuatnya mengalir bersama kalimatnya. */
+.btn-nota {
+  display: inline;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.btn-nota:hover { text-decoration-thickness: 2px; }
+
+.kas-nota-ekor {
+  font-size: 0.74rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+/* ---- Dialog rincian nota ---- */
+.nota-info {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 0 0 4px;
+  font-size: 0.84rem;
+}
+.nota-info dt { color: var(--color-text-muted); }
+.nota-info dd { margin: 0; }
+
+.nota-foto { margin-top: 10px; }
+.nota-foto img {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+}
+.nota-foto-status {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  margin: 6px 0 0;
 }
 
 /* ---- Shift / Jadwal ---- */
