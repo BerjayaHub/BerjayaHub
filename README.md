@@ -5907,6 +5907,25 @@ Fitur yang sudah jadi tapi tidak bisa dicapai sama saja dengan tidak ada — dan
 
 - [x] **Tujuan order terkunci ke draft yang berjalan + tombolnya benar-benar sampai** — tanpa migration
 
+## Filter outlet yang cuma menyaring separuhnya
+
+> "apabila saya filter outlet nya, tetap semua staff di BU tersebut akan tampil tetapi nilainya 0 semua"
+
+Rekap Presensi & Disiplin menyaring **presensinya** per outlet, tapi daftar staffnya diambil per-BU. Satu outlet berisi 5 orang menampilkan 30 baris, 25 di antaranya nol semua.
+
+Yang membuatnya bukan sekadar berisik: baris nol hari hadir punya **arti sendiri** di laporan disiplin — *"orang ini tidak pernah masuk"*. Begitu ia bercampur dengan orang yang memang bertugas di outlet lain, pembacanya kehilangan cara membedakan keduanya, dan laporan itu berhenti bisa dipakai menilai siapa pun.
+
+`0139` menambahkan `p_outlet_id` pada `list_bu_staff_for_admin`. Dua keputusan di dalamnya:
+
+- **Cakupan level BU tidak ikut** saat sebuah outlet dipilih. Orang seperti itu bisa ditugaskan ke outlet mana pun, jadi memasukkannya mengembalikan daftar panjang yang justru sedang dipersempit.
+- **Tapi siapa pun yang punya presensi di outlet itu tetap muncul.** Tanpa bagian kedua, staff bercakupan BU yang memang bekerja di sana hilang dari laporan **beserta angkanya**, dan total di kartu ringkas berhenti cocok dengan isi tabelnya. Kalau daftar per-outletnya gagal dimuat, laporannya kembali menampilkan semua — tabel yang kelebihan baris masih bisa dibaca; yang kekurangan baris diam-diam tidak.
+
+Bentuk lama `list_bu_staff_for_admin(uuid, boolean)` **dibuang**, bukan dibiarkan berdampingan. PostgREST memilih fungsi dari himpunan nama argumennya; dua bentuk yang hidup bersama membuat panggilan dua argumen jadi ambigu dan ditolak — yang mematikan **setiap** layar yang memakai daftar staff, bukan cuma laporannya. Migrationnya memeriksa sendiri bahwa sesudah dipasang hanya ada satu bentuk.
+
+Dua laporan lain yang juga memakai `listBuStaff` — Rekap Penggajian dan Hak Cuti Pengganti — **tidak** kena bug ini: keduanya membangun barisnya dari presensi yang benar-benar ada, jadi daftar staff di sana cuma dipakai mencari nama.
+
+- [x] **Rekap disiplin ikut menyaring staff per outlet** (`0139`) — 8 sabotase
+
 ## Istirahat, clock out otomatis, dan satu hari kerja yang melewati tengah malam
 
 ### Jam kerja dua tanggal: sudah benar, dan begini buktinya

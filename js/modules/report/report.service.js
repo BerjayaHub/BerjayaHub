@@ -546,9 +546,13 @@ async function buildPayrollNbm({ businessUnitId, outletId, from, to }) {
 // ---------------------------------------------------------
 
 async function buildAttendanceDiscipline({ businessUnitId, outletId, from, to }) {
-  const [records, staff, leaveRes] = await Promise.all([
+  const [records, staff, staffOutlet, leaveRes] = await Promise.all([
     fetchAttendance({ businessUnitId, outletId, from, to }),
+    // Seluruh staff BU tetap diambil — dari sinilah NAMA-nya.
     listBuStaff(businessUnitId, { includeInactive: true }).catch(() => []),
+    // Dan yang cakupannya di outlet terpilih (0139). Tanpa filter outlet,
+    // daftar ini tidak dipakai sama sekali.
+    outletId ? listBuStaff(businessUnitId, { includeInactive: true, outletId }).catch(() => null) : Promise.resolve(null),
     supabase
       .from('leave_requests')
       .select('user_id, start_date, end_date, status, leave_types(name)')
@@ -586,8 +590,25 @@ async function buildAttendanceDiscipline({ businessUnitId, outletId, from, to })
     } else b.tanpaJadwal++; // no_schedule / off_day / outlet tanpa modul Shift
   }
 
-  // Semua staff BU ikut ditampilkan — staff yang 0 hari hadir justru penting terlihat.
+  // SIAPA YANG DITAMPILKAN.
+  //
+  // Tanpa filter outlet: seluruh staff BU — baris nol hari hadir justru yang
+  // paling penting terlihat di laporan disiplin.
+  //
+  // DENGAN filter outlet: hanya yang cakupannya DI OUTLET ITU, ditambah siapa
+  // pun yang benar-benar punya presensi di sana pada periode ini. Bagian kedua
+  // itu bukan kelonggaran — tanpanya, staff bercakupan level BU yang memang
+  // bekerja di outlet tersebut akan hilang dari laporan BESERTA angkanya, dan
+  // total di kartu ringkas tidak akan cocok dengan jumlah barisnya.
+  //
+  // Gagal memuat daftar outletnya (`null`) berarti kembali menampilkan semua —
+  // laporan yang kelebihan baris masih bisa dibaca; yang kekurangan baris
+  // diam-diam tidak.
+  const cakupanOutlet = staffOutlet ? new Set(staffOutlet.map((s) => s.user_id)) : null;
+  const tampil = (uid) => !cakupanOutlet || cakupanOutlet.has(uid) || agg.has(uid);
+
   const baris = staff
+    .filter((s) => tampil(s.user_id))
     .map((s) => ({
       nama: s.full_name,
       aktif: s.is_active !== false,

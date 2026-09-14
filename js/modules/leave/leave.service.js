@@ -313,10 +313,22 @@ export async function listLeaveTypesForAdmin(businessUnitId) {
  * terhitung di laporan bulan lalu. Menyembunyikannya berarti menulis ulang
  * sejarah: total jam dan gaji jadi tidak cocok dengan kenyataan.
  */
-export async function listBuStaff(businessUnitId, { includeInactive = false } = {}) {
+/**
+ * @param {object} [opsi]
+ * @param {boolean} [opsi.includeInactive]
+ * @param {string|null} [opsi.outletId] saring ke staff yang cakupannya di
+ *   outlet itu (0139). `null` = seluruh BU, perilaku sebelumnya.
+ */
+export async function listBuStaff(businessUnitId, { includeInactive = false, outletId = null } = {}) {
+  // `p_outlet_id` SELALU dikirim, tidak pernah `undefined`.
+  //
+  // `JSON.stringify` membuang kunci bernilai `undefined`, dan PostgREST memilih
+  // fungsi berdasarkan HIMPUNAN NAMA argumen yang dikirim. Kunci yang hilang
+  // bukan berarti "pakai defaultnya" — ia mengubah fungsi mana yang dicari.
   const { data, error } = await supabase.rpc('list_bu_staff_for_admin', {
     p_business_unit_id: businessUnitId,
-    p_include_inactive: includeInactive
+    p_include_inactive: includeInactive,
+    p_outlet_id: outletId ?? null
   });
   if (error) throw error;
   return (data ?? []).sort((a, b) => String(a.full_name).localeCompare(String(b.full_name)));
