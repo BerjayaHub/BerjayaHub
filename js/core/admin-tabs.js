@@ -24,9 +24,19 @@ export const ADMIN_TAB_CATALOG = [
   // Sengaja DI LUAR grup User: menu User kini khusus super admin, sedangkan
   // persetujuan cuti tetap harus bisa dikerjakan admin BU/outlet (PIC).
   { code: 'leave', label: 'Pengajuan Cuti', group: 'Modul lain' },
-  // Kas melekat pada USER lintas BU (0040) -> data tingkat organisasi,
-  // hanya super admin. Sama seperti Master User, tidak bisa diberikan ke role lain.
-  { code: 'cash_ledger', label: 'Kas (semua pemegang)', group: 'User', superAdminOnly: true },
+
+  // KAS BERDIRI SENDIRI, dan sejak 0141 TIDAK lagi super-admin-only.
+  //
+  // 0040 memutuskan kas adalah data tingkat organisasi dan menutupnya dari
+  // admin BU. Itu dibalik atas permintaan: admin BU perlu memeriksa dan
+  // membetulkan kas anak buahnya. Cakupannya tetap sempit — RLS
+  // `cash_entries_select_bu_admin` (0141) hanya membuka kas orang yang punya
+  // keanggotaan di BU yang ia admini, bukan seluruh organisasi.
+  //
+  // Grupnya sendiri, bukan 'User': menu User kini khusus super admin, dan
+  // menaruh Kas di dalamnya berarti ia ikut tersembunyi untuk orang yang
+  // justru sedang diberi aksesnya.
+  { code: 'cash_ledger', label: 'Kas (semua pemegang)', group: 'Kas' },
 
   { code: 'inventory', label: 'Stok & Riwayat', group: 'Inventory' },
   { code: 'master_product', label: 'Master Produk', group: 'Inventory' },

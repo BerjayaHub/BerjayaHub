@@ -11,11 +11,18 @@ import {
   listCashEntriesAdmin,
   getCashProofUrl,
   daftarKantongKas,
-  aturKantongKas
+  aturKantongKas,
+  alasanTolakKoreksiKas,
+  ubahKas,
+  coretKas
 } from './cash.service.js';
 import { listMyOutletsAllBu } from '../../core/my-outlets.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
+import { notaTerkaitEntriKas } from '../inventory/nota.service.js';
+import { bukaDialogNota } from '../inventory/nota-dialog.js';
+import { pecahKeterangan, petaNotaPerEntri } from './keterangan-nota.js';
+import { keadaanKoreksi, totalKas } from './koreksi-kas.js';
 
 const DIRECTIONS = [
   { value: 'both', label: 'Masuk & Keluar' },
@@ -30,15 +37,23 @@ const TABS = [
 ];
 
 /**
- * Kas melekat pada USER (migration 0040), jadi halaman ini lintas BU:
- * menampilkan SEMUA pemegang kas di organisasi. Aksesnya dibatasi Super Admin
- * lewat `admin-tabs.js` + RLS `cash_entries_select_super`.
+ * Kas melekat pada USER (migration 0040), jadi halaman ini lintas BU.
+ *
+ * SEJAK 0141 BUKAN LAGI SUPER-ADMIN-ONLY. Admin BU boleh membukanya, dan yang
+ * ia lihat dibatasi RLS `cash_entries_select_bu_admin`: kas orang yang punya
+ * keanggotaan di BU yang ia admini, bukan seluruh organisasi. Super admin tetap
+ * melihat semuanya lewat kebijakan lamanya.
+ *
+ * Karena itu kalimat pembuka halaman ini SENGAJA tidak lagi menjanjikan
+ * "seluruh pemegang kas di organisasi" — janji yang tidak ditepati untuk admin
+ * BU akan terbaca sebagai data yang hilang.
  */
 export async function renderCashAdminPage(container) {
   container.innerHTML = `
     <h1>Kas</h1>
     <p style="font-size:0.82rem;color:var(--color-text-muted);margin-top:0">
-      Kas melekat pada orang, bukan BU/outlet — daftar di bawah mencakup seluruh pemegang kas di organisasi.
+      Kas melekat pada orang, bukan BU/outlet. Super admin melihat seluruh pemegang kas di organisasi;
+      admin BU melihat pemegang kas yang bernaung di BU yang ia kelola — tanpa memandang outlet basisnya.
     </p>
     <div class="tab-bar">
       ${TABS.map((t, i) => `<button class="tab-btn ${i === 0 ? 'active' : ''}" data-tab="${t.key}">${t.label}</button>`).join('')}
@@ -115,34 +130,53 @@ async function loadMutasi(content) {
     result.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
     return;
   }
-  let masuk = 0;
-  let keluar = 0;
-  for (const r of rows) {
-    const a = Number(r.amount) || 0;
-    if (a >= 0) masuk += a;
-    else keluar += Math.abs(a);
-  }
+
+  // Nota terkait + izin koreksi, keduanya sekali untuk seluruh halaman.
+  //
+  // Gagal salah satunya TIDAK boleh mengosongkan tabel mutasinya: yang hilang
+  // cuma tautan nomor nota dan keterangan di tombol. Angka-angkanya — satu-
+  // satunya alasan orang membuka layar ini — tetap benar.
+  const [notas, tolak] = await Promise.all([
+    notaTerkaitEntriKas(
+      rows.map((r) => r.id),
+      rows.map((r) => r.penyesuaian_nota)
+    ).catch(() => []),
+    alasanTolakKoreksiKas(rows.map((r) => r.id))
+  ]);
+  const notaPerEntri = petaNotaPerEntri(rows, notas);
+  // `alasan_tolak` ditempelkan ke barisnya supaya `keadaanKoreksi` — modul
+  // murni yang sama dengan Staff App — bisa dipakai apa adanya di sini.
+  for (const r of rows) r.alasan_tolak = tolak.get(r.id) ?? null;
+
+  const { masuk, keluar, dicoret } = totalKas(rows);
   result.innerHTML = `
-    <p style="margin:12px 0 6px;font-weight:600">Masuk ${formatRupiah(masuk)} · Keluar ${formatRupiah(keluar)} · Net ${formatRupiah(masuk - keluar)}</p>
-    <table class="data-table">
-      <thead><tr><th>Tanggal</th><th>Pemegang</th><th>Jenis</th><th>Kategori / Lawan</th><th>Jumlah</th><th></th></tr></thead>
+    <p style="margin:12px 0 6px;font-weight:600">Masuk ${formatRupiah(masuk)} · Keluar ${formatRupiah(keluar)} · Net ${formatRupiah(masuk - keluar)}${
+      dicoret ? ` · ${dicoret} dihapus (tidak dihitung)` : ''
+    }</p>
+    <div class="table-scroll"><table class="data-table kartu-sempit">
+      <thead><tr><th>Tanggal</th><th>Pemegang</th><th>Jenis</th><th>Kategori / Lawan</th><th>Jumlah</th><th>Bukti</th><th>Aksi</th></tr></thead>
       <tbody>
         ${rows
           .map((r) => {
             const amt = Number(r.amount);
+            const k = keadaanKoreksi(r);
             const ket = r.cash_categories?.name ?? (r.counterpart?.full_name ? `${amt >= 0 ? 'dari' : 'ke'} ${r.counterpart.full_name}` : '-');
-            return `<tr>
-              <td style="font-size:0.82rem">${fmtDate(r.entry_date)}</td>
-              <td>${esc(r.holder?.full_name ?? '-')}</td>
-              <td>${ENTRY_LABEL[r.entry_type] ?? r.entry_type}</td>
-              <td>${esc(ket)}${r.notes ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${esc(r.notes)}</div>` : ''}</td>
-              <td style="color:${amt >= 0 ? 'var(--color-primary)' : 'var(--color-danger)'};font-weight:600">${amt >= 0 ? '+' : '−'}${formatRupiah(Math.abs(amt))}</td>
-              <td>${r.proof_path ? `<button class="btn-proof" data-path="${r.proof_path}">Bukti</button>` : ''}</td>
+            const warna = k.dicoret ? 'var(--color-text-muted)' : amt >= 0 ? 'var(--color-primary)' : 'var(--color-danger)';
+            return `<tr${k.dicoret ? ' class="kas-dicoret"' : ''}>
+              <td style="font-size:0.82rem" data-label="Tanggal">${fmtDate(r.entry_date)}</td>
+              <td data-label="Pemegang"><strong>${esc(r.holder?.full_name ?? '-')}</strong></td>
+              <td data-label="Jenis">${ENTRY_LABEL[r.entry_type] ?? r.entry_type}</td>
+              <td data-label="Kategori / Lawan">${esc(ket)}
+                ${r.notes ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${ketHtml(r.notes, notaPerEntri.get(r.id))}</div>` : ''}
+                ${k.jejak ? `<div class="kas-jejak">${esc(k.jejak)}</div>` : ''}</td>
+              <td style="color:${warna};font-weight:600;white-space:nowrap" data-label="Jumlah">${amt >= 0 ? '+' : '−'}${formatRupiah(Math.abs(amt))}</td>
+              <td data-label="Bukti">${r.proof_path ? `<button class="btn-proof" data-path="${esc(r.proof_path)}">Bukti</button>` : '<span style="color:var(--color-text-muted)">—</span>'}</td>
+              <td data-label="Aksi">${tombolKoreksi(r, k)}</td>
             </tr>`;
           })
-          .join('') || '<tr><td colspan="6">Tidak ada data.</td></tr>'}
+          .join('') || '<tr><td colspan="7">Tidak ada data.</td></tr>'}
       </tbody>
-    </table>
+    </table></div>
   `;
   result.querySelectorAll('.btn-proof').forEach((btn) =>
     btn.addEventListener('click', async () => {
@@ -154,6 +188,125 @@ async function loadMutasi(content) {
       }
     })
   );
+
+  const semuaNota = new Map(notas.map((n) => [n.id, n]));
+  result.querySelectorAll('.btn-nota').forEach((btn) =>
+    btn.addEventListener('click', () => bukaDialogNota(semuaNota.get(btn.dataset.id)))
+  );
+
+  const perId = new Map(rows.map((r) => [r.id, r]));
+  result.querySelectorAll('.btn-kas-ubah').forEach((btn) =>
+    btn.addEventListener('click', () => ubahEntriAdmin(perId.get(btn.dataset.id), content))
+  );
+  result.querySelectorAll('.btn-kas-hapus').forEach((btn) =>
+    btn.addEventListener('click', () => hapusEntriAdmin(perId.get(btn.dataset.id), content))
+  );
+}
+
+/**
+ * Keterangan dengan nomor notanya jadi tombol — modul murni yang SAMA dengan
+ * Staff App (`pecahKeterangan`). Meniru aturannya di sini akan membuat nomor
+ * nota yang sama bisa diketuk di satu layar dan tidak di layar lainnya.
+ */
+function ketHtml(ket, notas) {
+  const { bagian, tambahan } = pecahKeterangan(ket, notas ?? []);
+  const tombol = (t) => `<button type="button" class="btn-nota" data-id="${esc(t.notaId)}">${esc(t.teks)}</button>`;
+  const utama = bagian.map((b) => (b.notaId ? tombol(b) : esc(b.teks))).join('');
+  const ekor = tambahan.length ? `<div class="kas-nota-ekor">Nota: ${tambahan.map(tombol).join(' ')}</div>` : '';
+  return (utama || esc(ket ?? '-')) + ekor;
+}
+
+/** Sama persis dengan Staff App: tombol yang tidak boleh ditekan tetap digambar. */
+function tombolKoreksi(r, k) {
+  if (k.dicoret) return '<span style="color:var(--color-text-muted)">—</span>';
+  if (!k.bolehKoreksi) {
+    const sebab = esc(k.alasanTolak);
+    return `<button class="btn-kas-info" disabled title="${sebab}" aria-label="${sebab}">🔒</button>`;
+  }
+  const id = esc(r.id);
+  return `<button class="btn-kas-ubah" data-id="${id}" title="Ubah entri ini">✎</button>
+          <button class="btn-kas-hapus btn-danger" data-id="${id}" title="Hapus entri ini">🗑</button>`;
+}
+
+/**
+ * Ubah entri kas milik ORANG LAIN.
+ *
+ * Outletnya dipilih dari daftar outlet ADMIN YANG LOGIN, bukan milik
+ * pemegangnya — dan itu memang batasnya: admin hanya bisa menunjuk outlet yang
+ * ia kenal. Kalau outlet lama tidak ada di daftarnya, nilainya dipertahankan
+ * sebagai pilihan tersendiri supaya menyimpan perubahan keterangan tidak
+ * diam-diam MEMINDAHKAN peruntukan entrinya ke outlet lain.
+ */
+async function ubahEntriAdmin(r, content) {
+  if (!r) return;
+  const keluar = r.entry_type === 'out';
+  let outlets = [];
+  if (keluar) outlets = await listMyOutletsAllBu().catch(() => []);
+  const opsiOutlet = outlets.map((o) => ({
+    value: o.id,
+    label: o.business_unit_name ? `${o.business_unit_name} — ${o.name}` : o.name
+  }));
+  if (keluar && r.outlet_id && !opsiOutlet.some((o) => o.value === r.outlet_id)) {
+    opsiOutlet.unshift({ value: r.outlet_id, label: '(outlet asalnya — di luar aksesmu)' });
+  }
+
+  const values = await formDialog({
+    title: `Ubah entri kas ${r.holder?.full_name ?? ''}`.trim(),
+    description:
+      'Pemegang, kantong, jenis, dan foto notanya tidak bisa diubah dari sini. Perubahan ini tercatat atas namamu ' +
+      'dan terlihat oleh pemegang kasnya.',
+    fields: [
+      { name: 'amount', label: 'Jumlah uang (Rp)', type: 'money', required: true, value: Math.abs(Number(r.amount) || 0) },
+      { name: 'notes', label: 'Keterangan', type: 'text', required: true, value: r.notes ?? '' },
+      ...(keluar
+        ? [{ name: 'outlet_id', label: 'Untuk outlet', type: 'select', required: true, value: r.outlet_id ?? '', options: opsiOutlet }]
+        : []),
+      { name: 'date', label: 'Tanggal', type: 'date', value: r.entry_date ?? '' }
+    ],
+    submitText: 'Simpan perubahan'
+  });
+  if (!values) return;
+  if (!(values.amount > 0)) return toast('Jumlah uang harus lebih dari 0.', 'warning');
+  try {
+    await ubahKas({
+      id: r.id,
+      amount: values.amount,
+      // Kategori, qty & satuan SENGAJA dikirim apa adanya dari barisnya: dialog
+      // ini tidak menampilkannya, dan `ubah_kas` menulis PENUH — field yang
+      // tidak disebut akan terhapus (bug 0119).
+      categoryId: r.category_id ?? null,
+      outletId: values.outlet_id ?? r.outlet_id,
+      notes: values.notes,
+      qty: r.qty ?? null,
+      unit: r.unit ?? null,
+      date: values.date
+    });
+    toast('Entri kas diperbarui.', 'success');
+    await loadMutasi(content);
+  } catch (error) {
+    toast(error.message ?? 'Gagal menyimpan.', 'error');
+  }
+}
+
+async function hapusEntriAdmin(r, content) {
+  if (!r) return;
+  const values = await formDialog({
+    title: 'Hapus Entri Kas?',
+    description:
+      `${r.holder?.full_name ?? '-'} · ${r.notes ?? '-'} · ${formatRupiah(Math.abs(Number(r.amount) || 0))}. ` +
+      'Barisnya TIDAK dibuang — ia tetap terlihat di sini dan di Staff App pemegangnya, ditandai dihapus beserta ' +
+      'namamu dan alasannya, dan berhenti menghitung saldo.',
+    fields: [{ name: 'alasan', label: 'Alasan penghapusan', type: 'text', required: true, placeholder: 'mis. salah input, dobel' }],
+    submitText: 'Hapus'
+  });
+  if (!values) return;
+  try {
+    await coretKas(r.id, values.alasan);
+    toast('Entri kas dihapus. Jejaknya tetap tersimpan.', 'success');
+    await loadMutasi(content);
+  } catch (error) {
+    toast(error.message ?? 'Gagal menghapus.', 'error');
+  }
 }
 
 // ---- Tab: Kantong Kas ----

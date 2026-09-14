@@ -82,10 +82,7 @@ const GROUPS = {
     icon: '👤',
     tabs: [
       { code: 'master_user', label: 'Master User', render: renderMasterUserPage, core: true },
-      { code: 'staff_data', label: 'Data Staff', render: renderStaffDataPage, core: true },
-      // core: true -> kas tidak lagi tergantung toggle modul per BU, karena
-      // saldonya milik user dan lintas BU. Aksesnya dijaga superAdminOnly.
-      { code: 'cash_ledger', label: 'Kas', render: renderCashAdminPage, core: true }
+      { code: 'staff_data', label: 'Data Staff', render: renderStaffDataPage, core: true }
     ]
   },
   grp_inventory: {
@@ -122,7 +119,18 @@ const CORE_ADMIN_MENU = [
   // `core: true` lewat daftar ini — pengesahan dokumen bukan modul operasional
   // yang di-toggle per BU, dan BU yang tidak memakainya cukup tidak
   // mengunggah apa-apa. Aksesnya tetap bisa dibatasi lewat Izin Admin.
-  { code: 'dokumen_ttd', name: 'Dokumen untuk Owner' }
+  { code: 'dokumen_ttd', name: 'Dokumen untuk Owner' },
+  // KAS DIKELUARKAN DARI GRUP "User" (0141).
+  //
+  // Dua hal sekaligus berubah, dan keduanya perlu:
+  //   - grup User kini khusus super admin, jadi Kas yang duduk di dalamnya ikut
+  //     tersembunyi dari orang yang justru sedang diberi aksesnya;
+  //   - `superAdminOnly` dicabut di `admin-tabs.js`, jadi izinnya bisa
+  //     diberikan per user seperti menu lain.
+  //
+  // Tetap `core`: saldonya milik USER dan lintas BU (0040), jadi tidak masuk
+  // akal ia hidup-mati mengikuti toggle modul per BU.
+  { code: 'cash_ledger', name: 'Kas' }
 ];
 
 /**

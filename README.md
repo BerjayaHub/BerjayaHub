@@ -6513,3 +6513,47 @@ Gagal mengambil notanya **tidak boleh mengosongkan riwayat kas**. Angka yang ben
 Satu sabotase sempat lolos, dan sebabnya sudah berulang di repo ini: auditnya cuma menuntut kata `photo_path` **muncul di berkasnya**, sementara `riwayatNota` dan parameter `p_photo_path` masih memuatnya beberapa ratus baris jauhnya. Pemeriksaannya kini dipersempit ke isi `KOLOM_NOTA_RINGKAS` saja, dan keempat kolom yang dibutuhkan dialog diperiksa satu per satu.
 
 - [x] **Kepala Kas dibekukan & nomor nota bisa diketuk** — 39 sabotase
+
+## Kolom Outlet yang kosong, dan kas yang akhirnya bisa dibetulkan
+
+> "di staff app, ada kolom yang kosong, ini diinput oleh outlet diluar pemegang kas tapi memakai kantong kas dia … keluarkan modul kas dari tab modul user agar berdiri sendiri, dan bisa diakses selain super admin … buat aksi untuk edit dan hapus … dengan keterangan diedit atau dihapus oleh user siapa, tanpa melihat basis outlet"
+
+### Kolomnya kosong karena izin, bukan karena data
+
+Risma (Serpong) menerima barang untuk outletnya dan membayarnya dari kantong **Kas Iis CK**. `bayar_nota` menyimpan `outlet_id` = outlet **notanya**, jadi datanya benar: entri itu memang berperuntukan Serpong.
+
+Yang salah adalah cara layar membacanya. Riwayat kas mengambil nama outlet lewat embed PostgREST (`outlets!outlet_id(name)`), dan `outlets_select` (`0001`) menuntut `has_outlet_scope`. Iis hanya bercakupan di Central Kitchen, jadi baris outlet Serpong **tidak terbaca olehnya** — PostgREST tidak menolak permintaannya, ia hanya mengembalikan `null` untuk embed itu.
+
+Kolom kosong, tanpa satu pun error, untuk data yang lengkap. Jalan keluarnya bukan melonggarkan `outlets_select` — itu membuka seluruh daftar outlet demi satu kolom. `riwayat_kas_saya()` (`0141`) menyelesaikan namanya di server, persis seperti `laporan_kas_user` (`0063`) sudah melakukannya.
+
+### "Hapus" berarti dicoret, dan itu bukan kompromi
+
+Yang diminta adalah jejak *dihapus oleh siapa*. Baris yang benar-benar hilang tidak bisa menyimpan keterangan apa pun tentang dirinya sendiri — jadi hapus permanen dan permintaan itu saling meniadakan. Entri yang dicoret **tetap ada**, ditandai, dan berhenti menghitung saldo.
+
+Konsekuensinya harus dikatakan: **setiap** tempat yang menjumlahkan `cash_entries.amount` wajib ikut menyaring `dicoret_at is null`. Satu yang terlewat tidak melempar error — ia cuma menjawab angka yang berbeda dari tetangganya, dan yang membacanya tidak punya cara tahu mana yang benar. Karena itu kelimanya dikerjakan sekaligus di `0141`: `cash_balances`, `cash_account_balances`, `daftar_kantong_kas` (`0121`), `laporan_kas_user` (`0063`), dan `rincian_mutasi_kas` (`0140`).
+
+### Admin BU boleh — pembalikan sadar dari `0040`
+
+`0040` menulis: *"Admin BU tidak lagi bisa melihat kas siapa pun — kas dianggap data tingkat organisasi."* Itu dibalik di sini, dan pembalikannya disengaja.
+
+Cakupannya tetap sempit: admin BU melihat kas orang yang punya keanggotaan **di BU yang ia admini**, bukan seluruh organisasi. Yang berubah cuma satu — kas berhenti jadi rahasia super admin.
+
+`boleh_koreksi_kas()` memakai `is_bu_admin` **tanpa menyebut outlet sama sekali**. Itu inti permintaannya: Seruni berbasis outlet Admin Divisi tapi bu_admin di Awal Bermula Cafe, dan ia berhak memeriksa kas Iis yang berada di Central Kitchen. Menambahkan syarat outlet akan menutup persis kasus yang sedang dibuka — dan gejalanya cuma "tidak bisa", tanpa sebab yang bisa ditelusuri. Auditnya karena itu **melarang** kata `outlet` muncul di dalam fungsi itu.
+
+Di menu, Kas dikeluarkan dari grup **User** dan `superAdminOnly`-nya dicabut. Dua-duanya perlu: grup User kini khusus super admin, jadi Kas yang duduk di dalamnya ikut tersembunyi dari orang yang justru sedang diberi aksesnya.
+
+### Entri pembayaran nota tidak bisa disentuh dari modul Kas
+
+Nominalnya milik notanya. Mengubahnya dari sini meninggalkan nota berstatus **LUNAS** dengan angka yang sudah tidak cocok, dan tidak ada satu pun layar yang akan menunjukkan ketidakcocokan itu.
+
+Jalurnya sudah ada dan menangani stok sekalian: **Bahan → Nota Terima → Batalkan Pembayaran**. Penolakannya **menyebut jalur itu**, bukan sekadar berkata tidak boleh — penolakan tanpa jalan keluar terbaca sebagai aplikasi yang rusak. Hal yang sama berlaku untuk transfer & pindah antar kantong (berpasangan dengan baris di kas lain) dan entri penyesuaian nota (`0131`).
+
+Tombolnya tetap **digambar, mati, dengan sebabnya di tooltip**. Menyembunyikannya berarti orang mencari tombol yang ada di baris sebelahnya, tidak menemukannya, dan menyimpulkan aplikasinya rusak.
+
+### Satu jebakan yang hampir terulang
+
+`ubah_kas` menulis **penuh** — tidak ada parameter yang berarti "jangan sentuh". Dialog admin hanya menyunting nominal, keterangan, dan outlet; kalau ia tidak mengirim ulang kategori, jumlah barang, dan satuannya, ketiganya akan **terhapus** saat orang membetulkan satu salah ketik. Itu bug `0119` ("+ Foto menghapus supplier") dalam bentuk lain, dan `listCashEntriesAdmin` karena itu mengambil kolom yang layarnya sendiri tidak tampilkan.
+
+Satu sabotase sempat lolos, dan sebabnya kecil sekali: auditnya mencari kebijakan `cash_entries_select_bu_admin`, sementara sabotasenya menamainya `cash_entries_select_bu_admin_nonaktif` — nama yang dicari masih jadi **awalan** nama barunya, jadi `indexOf` tetap menemukannya dan seluruh pemeriksaan di bawahnya lulus untuk kebijakan yang sudah tidak ada. Sekarang namanya disebut lengkap sampai ` on cash_entries`.
+
+- [x] **Koreksi kas + akses admin BU** (`0141`) — 44 sabotase

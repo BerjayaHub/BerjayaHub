@@ -321,6 +321,78 @@ export async function getMyCashBalance() {
   return Number(data?.balance ?? 0);
 }
 
+/**
+ * Riwayat kas milikku (0141).
+ *
+ * Lewat RPC, bukan `.from('cash_entries')` dengan embed — dan sebabnya bukan
+ * kerapian:
+ *
+ * Kolom **Outlet** kosong untuk entri yang dicatat orang lain ke kantongku.
+ * Risma (Serpong) membayar notanya dari "Kas Iis CK", jadi `outlet_id` entri itu
+ * = Serpong. Embed `outlets!outlet_id(name)` tunduk pada `outlets_select`
+ * (`has_outlet_scope`), dan Iis hanya bercakupan di Central Kitchen — PostgREST
+ * tidak menolak permintaannya, ia mengembalikan `null` untuk embed-nya.
+ * Hasilnya kolom kosong, tanpa error, untuk data yang lengkap.
+ *
+ * RPC-nya juga membawa jejak koreksi dan `alasan_tolak` per baris, supaya layar
+ * tidak perlu menebak sendiri tombol mana yang boleh digambar.
+ */
+export async function riwayatKasSaya(limit = 50) {
+  const { data, error } = await supabase.rpc('riwayat_kas_saya', { p_limit: limit });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Ubah entri kas. TULIS PENUH — semua field dikirim, tidak ada yang berarti
+ * "jangan sentuh". Alasannya sama dengan `aturKantongKas`: field yang tidak
+ * disebut akan terhapus, dan itu bug 0119 lagi.
+ */
+export async function ubahKas({ id, amount, categoryId, outletId, notes, qty, unit, date }) {
+  const { error } = await supabase.rpc('ubah_kas', {
+    p_entry: id,
+    p_amount: amount,
+    p_category: categoryId || null,
+    p_outlet: outletId || null,
+    p_notes: notes ?? '',
+    p_qty: qty === '' || qty == null ? null : Number(qty),
+    p_unit: unit?.trim() || null,
+    p_date: date || null
+  });
+  if (error) throw error;
+}
+
+/**
+ * Coret entri kas — barisnya TETAP ADA, ditandai, dan berhenti menghitung saldo.
+ *
+ * Bukan `delete`. Yang diminta adalah jejak "dihapus oleh siapa", dan baris yang
+ * benar-benar dibuang tidak bisa menyimpan keterangan apa pun tentang dirinya.
+ */
+export async function coretKas(id, alasan) {
+  const { error } = await supabase.rpc('coret_kas', { p_entry: id, p_alasan: alasan ?? '' });
+  if (error) throw error;
+}
+
+/**
+ * Sebab penolakan koreksi untuk BANYAK entri sekaligus (layar admin).
+ *
+ * Gagal = Map kosong, bukan lempar: daftar mutasi tetap harus tampil. Yang
+ * hilang cuma keterangan di tombolnya, dan servernya tetap menolak dengan
+ * pesan yang benar kalau tombolnya ditekan.
+ *
+ * @returns {Promise<Map<string, string>>} entry_id -> alasan (yang boleh tidak masuk peta)
+ */
+export async function alasanTolakKoreksiKas(entryIds) {
+  const ids = [...new Set((entryIds ?? []).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const { data, error } = await supabase.rpc('alasan_tolak_koreksi_kas_banyak', { p_entries: ids });
+  if (error) {
+    console.warn('[kas] gagal membaca izin koreksi:', error.message);
+    return new Map();
+  }
+  return new Map((data ?? []).filter((r) => r.alasan).map((r) => [r.entry_id, r.alasan]));
+}
+
 export async function listMyCashEntries(limit = 50) {
   const uid = await currentUserId();
   if (!uid) return [];
@@ -394,11 +466,20 @@ export async function listCashEntriesAdmin({ holderId, entryType, dateFrom, date
   // keras tanpa paginasi memotongnya diam-diam — dan karena urutannya menurun,
   // yang hilang selalu bagian TERTUA dari rentang. Persis gejala Rekap NBM:
   // filter 31 Agustus-5 September tampil, 31 Agustusnya tidak ada.
-  return ambilSemua((dari, sampai) => {
+  const baris = await ambilSemua((dari, sampai) => {
     let query = supabase
       .from('cash_entries')
       .select(
-        'id, entry_type, amount, notes, entry_date, proof_path, created_at, holder:user_profiles!holder_id(full_name), counterpart:user_profiles!counterpart_id(full_name), cash_categories(name)',
+        // `category_id`, `outlet_id`, `qty`, `unit` IKUT DIAMBIL walau tidak
+        // ditampilkan. `ubah_kas` menulis PENUH — field yang tidak dikirim akan
+        // TERHAPUS. Dialog admin hanya menyunting nominal/keterangan/outlet dan
+        // mengirim sisanya apa adanya; tanpa kolom-kolom ini ia akan mengirim
+        // `undefined` dan diam-diam menghapus kategori & jumlah barangnya.
+        // Itu bug 0119 ("+ Foto menghapus supplier") dalam bentuk lain.
+        'id, holder_id, entry_type, amount, notes, entry_date, proof_path, penyesuaian_nota, created_at, ' +
+          'category_id, outlet_id, qty, unit, dicoret_at, alasan_coret, diubah_at, ' +
+          'holder:user_profiles!holder_id(full_name), counterpart:user_profiles!counterpart_id(full_name), ' +
+          'pencoret:user_profiles!dicoret_by(full_name), pengubah:user_profiles!diubah_by(full_name), cash_categories(name)',
         { count: 'exact' }
       )
       .order('entry_date', { ascending: false })
@@ -409,6 +490,16 @@ export async function listCashEntriesAdmin({ holderId, entryType, dateFrom, date
     if (dateTo) query = query.lte('entry_date', dateTo);
     return query.range(dari, sampai);
   });
+
+  // Diratakan ke nama yang sama dengan RPC `riwayat_kas_saya`, supaya modul
+  // murni `koreksi-kas.js` bisa dipakai APA ADANYA oleh kedua layar. Tanpa ini,
+  // jejak "dihapus oleh siapa" muncul di Staff App dan hilang di Admin Portal —
+  // tanpa error, dan justru di layar yang dipakai memeriksanya.
+  return baris.map((r) => ({
+    ...r,
+    dicoret_oleh: r.pencoret?.full_name ?? '',
+    diubah_oleh: r.pengubah?.full_name ?? ''
+  }));
 }
 
 export async function listRecentCashActivity({ limit = 25, before = null } = {}) {

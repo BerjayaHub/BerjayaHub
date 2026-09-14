@@ -9,7 +9,6 @@ import {
   recordCashEntry,
   transferCash,
   getMyCashBalance,
-  listMyCashEntries,
   getCashProofUrl,
   getCashProofUrls,
   listMyCashAccounts,
@@ -18,8 +17,12 @@ import {
   hapusKantongKas,
   listMyCashAccountBalances,
   pindahKas,
+  riwayatKasSaya,
+  ubahKas,
+  coretKas,
   todayWIB
 } from './cash.service.js';
+import { keadaanKoreksi, jejakKoreksi, totalKas } from './koreksi-kas.js';
 import { loadingHtml, tombolSibuk, sekaliJalan } from '../../core/loading.js';
 import { notaTerkaitEntriKas } from '../inventory/nota.service.js';
 import { bukaDialogNota } from '../inventory/nota-dialog.js';
@@ -137,6 +140,102 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
   }
 
   /**
+   * Tombol Ubah & Hapus untuk satu baris.
+   *
+   * TOMBOL YANG TIDAK BOLEH DITEKAN TETAP DIGAMBAR, mati, dengan sebabnya di
+   * `title`. Menyembunyikannya berarti orang mencari tombol yang ada di baris
+   * sebelahnya, tidak menemukannya, dan menyimpulkan aplikasinya rusak —
+   * sedangkan sebab sebenarnya (entri ini pembayaran nota, perbaikannya di
+   * modul Bahan) adalah keterangan yang justru perlu dia baca.
+   */
+  function tombolKoreksi(e, k) {
+    if (k.dicoret) return '<span style="color:var(--color-text-muted)">—</span>';
+    if (!k.bolehKoreksi) {
+      const sebab = escapeHtml(k.alasanTolak);
+      return `<button class="btn-kas-info" disabled title="${sebab}" aria-label="${sebab}">🔒</button>`;
+    }
+    const id = escapeHtml(e.id);
+    return `<button class="btn-kas-ubah" data-id="${id}" title="Ubah entri ini">✎</button>
+            <button class="btn-kas-hapus btn-danger" data-id="${id}" title="Hapus entri ini">🗑</button>`;
+  }
+
+  async function bukaUbahKas(e) {
+    if (!e) return;
+    const keluar = e.entry_type === 'out';
+    const values = await formDialog({
+      title: 'Ubah Entri Kas',
+      description:
+        'Pemegang, kantong, jenis, dan foto notanya tidak bisa diubah dari sini — memindahkan uang ke kas lain ' +
+        'bukan koreksi, itu transfer. Perubahan ini tercatat atas namamu.',
+      fields: [
+        { name: 'amount', label: 'Jumlah uang (Rp)', type: 'money', required: true, value: Math.abs(Number(e.amount) || 0) },
+        { name: 'notes', label: 'Keterangan', type: 'text', required: true, value: e.notes ?? '' },
+        ...(keluar
+          ? [
+              {
+                name: 'outlet_id',
+                label: 'Untuk outlet',
+                type: 'select',
+                required: true,
+                value: e.outlet_id ?? '',
+                options: outlets.map((o) => ({
+                  value: o.id,
+                  label: o.business_unit_name ? `${o.business_unit_name} — ${o.name}` : o.name
+                }))
+              },
+              { name: 'category_id', label: 'Kategori biaya', type: 'select', value: e.category_id ?? '', options: catOptions('out') },
+              { name: 'qty', label: 'Jumlah barang', type: 'qty', value: e.qty ?? '' },
+              { name: 'unit', label: 'Satuan', type: 'text', value: e.unit ?? '' }
+            ]
+          : []),
+        { name: 'date', label: 'Tanggal', type: 'date', value: e.entry_date ?? todayWIB() }
+      ],
+      submitText: 'Simpan perubahan'
+    });
+    if (!values) return;
+    if (!(values.amount > 0)) return toast('Jumlah uang harus lebih dari 0.', 'warning');
+    try {
+      await ubahKas({
+        id: e.id,
+        amount: values.amount,
+        categoryId: values.category_id,
+        outletId: values.outlet_id,
+        notes: values.notes,
+        qty: values.qty,
+        unit: values.unit,
+        date: values.date
+      });
+      toast('Entri kas diperbarui.', 'success');
+      await refresh();
+    } catch (error) {
+      toast(error.message ?? 'Gagal menyimpan.', 'error');
+    }
+  }
+
+  async function bukaHapusKas(e) {
+    if (!e) return;
+    const values = await formDialog({
+      title: 'Hapus Entri Kas?',
+      description:
+        `${escapeHtml(e.notes ?? '-')} · ${formatRupiah(Math.abs(Number(e.amount) || 0))}. ` +
+        'Barisnya TIDAK dibuang — ia tetap terlihat di riwayat, ditandai dihapus beserta namamu dan alasannya, ' +
+        'dan berhenti menghitung saldo. Itulah yang membuat koreksinya bisa ditelusuri.',
+      fields: [
+        { name: 'alasan', label: 'Alasan penghapusan', type: 'text', required: true, placeholder: 'mis. salah input, dobel' }
+      ],
+      submitText: 'Hapus'
+    });
+    if (!values) return;
+    try {
+      await coretKas(e.id, values.alasan);
+      toast('Entri kas dihapus. Jejaknya tetap tersimpan.', 'success');
+      await refresh();
+    } catch (error) {
+      toast(error.message ?? 'Gagal menghapus.', 'error');
+    }
+  }
+
+  /**
    * Tinggi wadah riwayat = sisa layar di bawah kepala yang dibekukan.
    *
    * Diukur, bukan dipatok `60vh`: tinggi kepalanya berubah-ubah — kartu
@@ -175,7 +274,10 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     try {
       const [balance, entries, saldoAkun] = await Promise.all([
         getMyCashBalance(),
-        listMyCashEntries(),
+        // `riwayatKasSaya`, BUKAN `listMyCashEntries`: kolom Outlet kosong untuk
+        // entri yang dicatat orang lain ke kantongku, karena embed PostgREST
+        // tunduk pada `outlets_select`. Alasan panjangnya di cash.service.js.
+        riwayatKasSaya(),
         pakaiKantong ? listMyCashAccountBalances().catch(() => []) : Promise.resolve([])
       ]);
       entriTampil = entries;
@@ -217,26 +319,29 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       box.innerHTML = entries.length
         ? `<div class="table-scroll kas-riwayat">
             <table class="data-table table-freeze-1 kartu-sempit">
-            <thead><tr><th>Keterangan</th><th>Tanggal</th><th>Jenis</th>${pakaiKantong ? '<th>Kantong</th>' : ''}<th>Outlet</th><th>Jumlah</th><th></th></tr></thead>
+            <thead><tr><th>Keterangan</th><th>Tanggal</th><th>Jenis</th>${pakaiKantong ? '<th>Kantong</th>' : ''}<th>Outlet</th><th>Jumlah</th><th>Bukti</th><th>Aksi</th></tr></thead>
             <tbody>
               ${entries
                 .map((e) => {
                   const amt = Number(e.amount);
-                  const color = amt >= 0 ? 'var(--color-primary)' : 'var(--color-danger)';
+                  const k = keadaanKoreksi(e);
+                  const color = k.dicoret ? 'var(--color-text-muted)' : amt >= 0 ? 'var(--color-primary)' : 'var(--color-danger)';
                   const ket =
                     e.notes ||
-                    e.cash_categories?.name ||
-                    (e.counterpart?.full_name ? `${amt >= 0 ? 'dari' : 'ke'} ${e.counterpart.full_name}` : '-');
-                  return `<tr>
+                    e.category_name ||
+                    (e.counterpart_name ? `${amt >= 0 ? 'dari' : 'ke'} ${e.counterpart_name}` : '-');
+                  return `<tr${k.dicoret ? ' class="kas-dicoret"' : ''}>
                     <td data-label="Keterangan"><strong>${ketHtml(ket, notaPerEntri.get(e.id))}</strong>
-                      ${e.cash_categories?.name ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${escapeHtml(e.cash_categories.name)}</div>` : ''}
-                      ${e.qty ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${formatNum(e.qty)} ${escapeHtml(e.unit ?? '')}</div>` : ''}</td>
+                      ${e.category_name ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${escapeHtml(e.category_name)}</div>` : ''}
+                      ${e.qty ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${formatNum(e.qty)} ${escapeHtml(e.unit ?? '')}</div>` : ''}
+                      ${k.jejak ? `<div class="kas-jejak">${escapeHtml(k.jejak)}</div>` : ''}</td>
                     <td style="font-size:0.82rem" data-label="Tanggal">${fmtDate(e.entry_date)}</td>
                     <td style="font-size:0.82rem" data-label="Jenis">${escapeHtml(ENTRY_LABEL[e.entry_type] ?? e.entry_type)}</td>
-                    ${pakaiKantong ? `<td style="font-size:0.82rem" data-label="Kantong">${escapeHtml(e.cash_accounts?.name ?? 'Kas Utama')}</td>` : ''}
-                    <td style="font-size:0.82rem" data-label="Outlet">${escapeHtml(e.outlets?.name ?? '-')}</td>
+                    ${pakaiKantong ? `<td style="font-size:0.82rem" data-label="Kantong">${escapeHtml(e.account_name ?? 'Kas Utama')}</td>` : ''}
+                    <td style="font-size:0.82rem" data-label="Outlet">${escapeHtml(e.outlet_name ?? '-')}</td>
                     <td style="color:${color};font-weight:600;white-space:nowrap" data-label="Jumlah">${amt >= 0 ? '+' : '−'}${formatRupiah(Math.abs(amt))}</td>
                     <td data-label="Bukti">${e.proof_path ? `<button class="btn-proof" data-path="${escapeHtml(e.proof_path)}">Bukti</button>` : '<span style="color:var(--color-text-muted)">—</span>'}</td>
+                    <td data-label="Aksi">${tombolKoreksi(e, k)}</td>
                   </tr>`;
                 })
                 .join('')}
@@ -261,6 +366,14 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       const semuaNota = new Map(notas.map((n) => [n.id, n]));
       box.querySelectorAll('.btn-nota').forEach((btn) =>
         btn.addEventListener('click', () => bukaDialogNota(semuaNota.get(btn.dataset.id)))
+      );
+
+      const perId = new Map(entries.map((e) => [e.id, e]));
+      box.querySelectorAll('.btn-kas-ubah').forEach((btn) =>
+        btn.addEventListener('click', () => bukaUbahKas(perId.get(btn.dataset.id)))
+      );
+      box.querySelectorAll('.btn-kas-hapus').forEach((btn) =>
+        btn.addEventListener('click', () => bukaHapusKas(perId.get(btn.dataset.id)))
       );
 
       ukurRiwayat();
@@ -309,17 +422,19 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       const rows = entriTampil.map((e) => {
         const amt = Number(e.amount) || 0;
         const ket =
-          e.notes ||
-          e.cash_categories?.name ||
-          (e.counterpart?.full_name ? `${amt >= 0 ? 'dari' : 'ke'} ${e.counterpart.full_name}` : '-');
+          e.notes || e.category_name || (e.counterpart_name ? `${amt >= 0 ? 'dari' : 'ke'} ${e.counterpart_name}` : '-');
         const jumlah = e.qty ? `${formatNum(e.qty)} ${e.unit ?? ''}`.trim() : '-';
         const gbr = foto.get(e.id);
+        // Entri yang DICORET ikut tercetak, ditandai. PDF yang diam-diam
+        // kehilangan satu baris tidak bisa dibedakan dari PDF yang lengkap —
+        // dan yang hilang justru koreksinya.
+        const jejak = jejakKoreksi(e);
         return [
           fmtDate(e.entry_date),
-          ket,
+          jejak ? `${ket}\n[${jejak}]` : ket,
           ENTRY_LABEL[e.entry_type] ?? e.entry_type,
-          ...(pakaiKantong ? [e.cash_accounts?.name ?? 'Kas Utama'] : []),
-          e.outlets?.name ?? '-',
+          ...(pakaiKantong ? [e.account_name ?? 'Kas Utama'] : []),
+          e.outlet_name ?? '-',
           jumlah,
           // Tanda − (minus panjang) diganti tanda hubung biasa: helvetica bawaan
           // jsPDF tidak punya glyph-nya dan mencetaknya sebagai kotak.
@@ -328,13 +443,17 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
         ];
       });
 
-      const masuk = entriTampil.reduce((t, e) => t + Math.max(0, Number(e.amount) || 0), 0);
-      const keluar = entriTampil.reduce((t, e) => t + Math.min(0, Number(e.amount) || 0), 0);
+      // Totalnya mengabaikan yang dicoret, sama seperti saldo di kartu atasnya.
+      // Dua angka berbeda untuk hal yang sama di satu halaman selalu terbaca
+      // sebagai salah satunya rusak.
+      const { masuk, keluar, dicoret } = totalKas(entriTampil);
 
       await exportTablePDF({
         orientation: 'portrait',
         title: 'Riwayat Kas',
-        subtitle: `${namaSaya} · ${entriTampil.length} transaksi · Masuk ${formatRupiah(masuk)} · Keluar ${formatRupiah(Math.abs(keluar))}`,
+        subtitle:
+          `${namaSaya} · ${entriTampil.length} transaksi · Masuk ${formatRupiah(masuk)} · Keluar ${formatRupiah(keluar)}` +
+          (dicoret ? ` · ${dicoret} dihapus (tidak dihitung)` : ''),
         columns: [
           { header: 'Tanggal', width: 0.9 },
           { header: 'Keterangan', width: 2 },

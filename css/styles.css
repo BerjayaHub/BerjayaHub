@@ -762,6 +762,32 @@ button.primary:active { transform: translateY(1px); }
 }
 .btn-nota:hover { text-decoration-thickness: 2px; }
 
+/* Entri kas yang DICORET (0141): tetap terlihat, jelas tidak berlaku.
+   Dicoret, bukan disembunyikan — jejak "dihapus oleh siapa" adalah seluruh
+   alasan barisnya tidak dibuang. */
+.data-table tr.kas-dicoret td {
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-danger) 4%, transparent);
+}
+.data-table tr.kas-dicoret td:first-child strong {
+  text-decoration: line-through;
+}
+
+.kas-jejak {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--color-danger);
+  margin-top: 2px;
+}
+
+/* Tombol koreksi yang MATI tetap digambar, dengan sebabnya di title.
+   Menyembunyikannya membuat orang mencari tombol yang ada di baris sebelahnya,
+   tidak menemukannya, dan menyimpulkan aplikasinya rusak. */
+.btn-kas-info[disabled] {
+  cursor: help;
+  opacity: 0.55;
+}
+
 .kas-nota-ekor {
   font-size: 0.74rem;
   font-weight: 400;
