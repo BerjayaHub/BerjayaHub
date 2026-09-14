@@ -1,4 +1,4 @@
-import { escapeHtml } from './core/ui.js';
+import { escapeHtml, infoDialog } from './core/ui.js';
 import { pasangNavigasi, dorongLapis, bersihkanLapis, bersihkanIsian } from './core/navigasi.js';
 import { ingatModul, ingatLayar, ingatKonteks, mulaiModul, pulihkanGulir, pasangPencatatGulir } from './core/ingatan-layar.js';
 import { pasangPerekamDraf, tawarkanDraf } from './core/pasang-draf.js';
@@ -329,6 +329,14 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
         <ul>${menuItems || '<li>Belum ada modul aktif</li>'}</ul>
         <button id="btn-change-password" style="margin-top:16px;width:100%">Ubah Password</button>
         <div id="change-password-wrap"></div>
+        <!-- DIAGNOSA AKSES.
+             Menjawab satu pertanyaan yang sangat sulit dijawab dari jauh:
+             "kenapa modul X tidak muncul untuk akun ini?" Selama ini jawabannya
+             cuma bisa ditebak dari kode, dan tebakan yang salah menghasilkan
+             perbaikan untuk sesuatu yang tidak rusak. Panel ini menampilkan
+             nilai yang BENAR-BENAR dihitung shell-nya untuk akun yang sedang
+             login, jadi yang terdampak bisa mengirimkannya apa adanya. -->
+        <button id="btn-diagnosa" style="margin-top:8px;width:100%">🔍 Diagnosa Akses</button>
         <button class="primary" id="btn-logout" style="margin-top:8px">Keluar</button>
       </nav>
       <div class="app-body">
@@ -377,6 +385,57 @@ async function renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin
       // abaikan kalau localStorage diblokir
     }
     renderShellForBu(context, adminScopes, availableBUs, isSuperAdmin, newBu);
+  });
+
+  // DIAGNOSA AKSES — menampilkan apa yang BENAR-BENAR dihitung shell ini.
+  //
+  // Pertanyaan "kenapa modul X tidak muncul untuk akun ini" punya lima jawaban
+  // yang mungkin (scope, BU aktif, `bu_modules`, `admin_tab_access`, dan
+  // penyaringan menunya sendiri), dan dari luar kelimanya terlihat sama:
+  // menu yang pendek. Menebak satu lalu memperbaikinya menghasilkan perubahan
+  // pada sesuatu yang tidak rusak.
+  document.getElementById('btn-diagnosa').addEventListener('click', () => {
+    const scopeBaris = (context.scopes ?? [])
+      .map(
+        (s) =>
+          `<tr><td>${escapeHtml(s.business_units?.name ?? '(BU?)')}</td>` +
+          `<td>${escapeHtml(s.outlets?.name ?? '— level BU —')}</td>` +
+          `<td>${escapeHtml(s.role)}</td>` +
+          `<td>${s.is_primary ? '★ basis' : ''}</td></tr>`
+      )
+      .join('');
+
+    const daftar = (isi) =>
+      isi.length
+        ? `<code style="font-size:0.76rem;word-break:break-all">${escapeHtml(isi.join(', '))}</code>`
+        : '<em style="color:var(--color-danger)">kosong</em>';
+
+    infoDialog({
+      title: '🔍 Diagnosa Akses',
+      bodyHtml:
+        `<p style="font-size:0.86rem">BU yang sedang aktif: <strong>${escapeHtml(activeBu?.name ?? '—')}</strong><br />
+           Peran di BU ini: <strong>${escapeHtml(role)}</strong>${isSuperAdmin ? ' (super admin)' : ''}</p>` +
+        '<p style="font-size:0.86rem;margin-bottom:4px"><strong>Cakupan akun ini:</strong></p>' +
+        `<div class="table-scroll"><table class="data-table kartu-sempit">
+           <thead><tr><th>BU</th><th>Outlet</th><th>Peran</th><th></th></tr></thead>
+           <tbody>${scopeBaris || '<tr><td colspan="4">tidak ada</td></tr>'}</tbody>
+         </table></div>` +
+        `<p style="font-size:0.86rem;margin-top:10px"><strong>Modul aktif di BU ini</strong> (dari <code>bu_modules</code>):<br />
+           ${daftar(modules.map((m) => m.code))}</p>` +
+        `<p style="font-size:0.86rem"><strong>Izin tab per user</strong> (dari <code>admin_tab_access</code>):<br />
+           ${
+             allowedTabs.size
+               ? daftar([...allowedTabs])
+               : '<em>belum diatur — berarti SEMUA tab boleh</em>'
+           }</p>` +
+        `<p style="font-size:0.86rem"><strong>Menu yang akhirnya tergambar:</strong><br />
+           ${daftar(allMenu.map((m) => m.code))}</p>` +
+        '<p style="font-size:0.8rem;color:var(--color-text-muted);margin-top:10px">' +
+        'Kalau "Modul aktif di BU ini" <strong>kosong</strong> padahal admin sudah mengaktifkannya, masalahnya ada di ' +
+        '<code>bu_modules</code> atau izin bacanya. Kalau daftarnya panjang tapi "Menu yang akhirnya tergambar" pendek, ' +
+        'masalahnya ada di <code>admin_tab_access</code>.</p>',
+      closeText: 'Tutup'
+    });
   });
 
   document.getElementById('btn-change-password').addEventListener('click', () => {
