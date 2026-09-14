@@ -80,12 +80,16 @@ await db.exec(`
     id uuid primary key default gen_random_uuid(),
     receipt_id uuid, product_id uuid, qty numeric, unit_cost numeric, line_total numeric);
 
-  -- `security definer` WAJIB, persis seperti aslinya di 0001.
+  -- "security definer" WAJIB, persis seperti aslinya di 0001.
   --
-  -- Tanpa itu, `outlets_select` memanggil `has_outlet_scope` sebagai role
-  -- `authenticated`, badannya membaca `membership_scopes` langsung, dan tesnya
+  -- Tanpa itu, kebijakan outlets_select memanggil has_outlet_scope sebagai role
+  -- "authenticated", badannya membaca membership_scopes langsung, dan tesnya
   -- mati dengan "permission denied for table membership_scopes" — galat yang
   -- sama sekali tidak menyebut kebijakan outlet maupun kolom yang sedang diuji.
+  --
+  -- TANPA TANDA KUTIP MIRING di komentar ini: seluruh blok ini berada di dalam
+  -- template literal JS, dan satu backtick saja menutupnya lebih awal. Sudah
+  -- menggigit enam kali di repo ini.
   create or replace function is_super_admin(p_uid uuid) returns boolean
     language sql security definer stable as $$
       select exists (select 1 from membership_scopes where user_id = p_uid and role = 'super_admin') $$;
@@ -340,10 +344,10 @@ benar(
   '§4 kas keluar tanpa outlet ditolak',
   (await galat(`select ubah_kas($1, 1000, null, null, 'x', null, null, null)`, [ENTRI_UBAH]) ?? '').includes('outlet peruntukan')
 );
+// Kas MASUK tidak punya peruntukan (0063) — outlet yang dikirim layar
+// diabaikan, bukan disimpan diam-diam.
+const MASUK = await buatEntri({ type: 'in', amount: 100000, outlet: null, notes: 'Setoran' });
 {
-  // Kas MASUK tidak punya peruntukan (0063) — outlet yang dikirim layar
-  // diabaikan, bukan disimpan diam-diam.
-  const MASUK = await buatEntri({ type: 'in', amount: 100000, outlet: null, notes: 'Setoran' });
   await q(`select ubah_kas($1, 250000, null, $2, 'Setoran owner', null, null, null)`, [MASUK, CK]);
   const e = await satu(`select amount, outlet_id from cash_entries where id = $1`, [MASUK]);
   cek('§4 kas masuk tetap bertanda plus', Number(e.amount), 250000);
@@ -361,9 +365,22 @@ benar('§5 dan entri biasanya memang boleh', !(await satu(`select alasan_tolak_k
   const e = await satu(`select dicoret_by from cash_entries where id = $1`, [ENTRI_UBAH]);
   cek('§5 dan namanya yang tercatat', e.dicoret_by, SERUNI);
 }
-// Seruni TIDAK punya cakupan outlet di Central Kitchen — kalau aturannya
-// memakai outlet, seluruh §5 gagal. Dibuktikan langsung supaya jelas.
-cek('§5 padahal Seruni tidak bercakupan di Central Kitchen', (await satu(`select has_outlet_scope($1,$2) as b`, [SERUNI, CK])).b, false);
+// Seruni tidak punya SATU PUN baris cakupan yang menyebut Central Kitchen —
+// basisnya di outlet Admin, BU yang lain. Haknya murni datang dari peran
+// bu_admin-nya di Awal Bermula Cafe.
+cek(
+  '§5 Seruni tidak punya cakupan outlet di Central Kitchen',
+  (await satu(`select count(*)::int as n from membership_scopes where user_id = $1 and outlet_id = $2`, [SERUNI, CK])).n,
+  0
+);
+
+// INI yang membuat aturan berbasis outlet mustahil dipakai: KAS MASUK tidak
+// punya peruntukan sama sekali (0063), jadi `has_outlet_scope(x, NULL)` selalu
+// false. Aturan apa pun yang menyebut outlet akan diam-diam menutup SELURUH
+// baris kas masuk — bug yang persis sama sudah pernah terjadi di
+// `laporan_kas_user` dan diperbaiki di 0063.
+cek('§5 entri kas MASUK memang tanpa outlet', (await satu(`select outlet_id from cash_entries where id = $1`, [MASUK])).outlet_id, null);
+benar('§5 dan Seruni tetap boleh mengoreksinya', !(await satu(`select alasan_tolak_koreksi_kas($1) as a`, [MASUK])).a);
 
 await sebagai(LUAR);
 cek('§5 orang tanpa peran admin tidak boleh', (await satu(`select boleh_koreksi_kas($1) as b`, [IIS])).b, false);
@@ -375,11 +392,12 @@ await sebagai(SERUNI);
 {
   const baris = (await q(`select * from laporan_kas_user('2026-09-01','2026-09-30',$1,null,null)`, [IIS])).rows;
   benar('§6 laporan kas tidak memuat entri yang dicoret', !baris.some((r) => r.notes === 'Bensin dobel'));
-  benar('§6 tapi tetap memuat yang biasa', baris.some((r) => r.notes === 'Karcis parkir'));
+  benar('§6 tapi tetap memuat yang biasa', baris.some((r) => r.notes === 'Setoran owner'));
 }
 {
   const baris = (await q(`select * from rincian_mutasi_kas('2026-09-01','2026-09-30',$1,null,false,null,null)`, [IIS])).rows;
   benar('§6 rincian mutasi kas juga tidak memuatnya', !baris.some((r) => r.item === 'Bensin dobel'));
+  benar('§6 dan tetap memuat yang biasa', baris.some((r) => r.item === 'Setoran owner'));
 }
 
 // =====================================================================

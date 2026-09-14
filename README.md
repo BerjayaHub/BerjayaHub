@@ -6538,7 +6538,11 @@ Konsekuensinya harus dikatakan: **setiap** tempat yang menjumlahkan `cash_entrie
 
 Cakupannya tetap sempit: admin BU melihat kas orang yang punya keanggotaan **di BU yang ia admini**, bukan seluruh organisasi. Yang berubah cuma satu — kas berhenti jadi rahasia super admin.
 
-`boleh_koreksi_kas()` memakai `is_bu_admin` **tanpa menyebut outlet sama sekali**. Itu inti permintaannya: Seruni berbasis outlet Admin Divisi tapi bu_admin di Awal Bermula Cafe, dan ia berhak memeriksa kas Iis yang berada di Central Kitchen. Menambahkan syarat outlet akan menutup persis kasus yang sedang dibuka — dan gejalanya cuma "tidak bisa", tanpa sebab yang bisa ditelusuri. Auditnya karena itu **melarang** kata `outlet` muncul di dalam fungsi itu.
+`boleh_koreksi_kas()` memakai `is_bu_admin` **tanpa menyebut outlet sama sekali**, dan auditnya melarang kata `outlet` muncul di dalamnya.
+
+Alasan yang saya tulis pertama kali untuk larangan itu **salah**, dan sabotasenya yang membuktikannya. Saya menulis bahwa syarat outlet akan menutup kasus Seruni — lalu sabotase yang menambahkan `has_outlet_scope` ke fungsi itu **lolos**: `has_outlet_scope` (`0001`) ternyata sudah memperlakukan bu_admin sebagai bercakupan di **seluruh outlet BU-nya**, jadi syarat itu tidak mengubah apa pun untuk Seruni.
+
+Alasan yang sebenarnya lebih dalam: **kas masuk tidak punya outlet peruntukan** (`0063`). Aturan apa pun yang menyeret outlet **entrinya** — kesalahan yang jauh lebih mudah dilakukan orang ("sekalian pastikan ia admin outletnya") — membuat `is_admin_of_outlet(x, NULL)` selalu false, dan **seluruh baris kas masuk** berhenti bisa dikoreksi siapa pun, termasuk pemegangnya sendiri. Kas keluar tetap jalan, jadi setengah fiturnya mati tanpa satu pun error. Sabotasenya sekarang menyasar itu, dan tertangkap.
 
 Di menu, Kas dikeluarkan dari grup **User** dan `superAdminOnly`-nya dicabut. Dua-duanya perlu: grup User kini khusus super admin, jadi Kas yang duduk di dalamnya ikut tersembunyi dari orang yang justru sedang diberi aksesnya.
 

@@ -78,11 +78,24 @@ const AUDIT = 'tools/audit-koreksi-kas.cjs';
 
 console.log('SABOTASE IZIN KOREKSI:');
 
+// SABOTASE INI SEMPAT SALAH SASARAN, dan itu layak dicatat.
+//
+// Versi pertamanya menambahkan `has_outlet_scope(auth.uid(), ms.outlet_id)` ke
+// dalam `boleh_koreksi_kas` dan LOLOS — ternyata `has_outlet_scope` (0001)
+// sudah memperlakukan bu_admin sebagai bercakupan di SELURUH outlet BU-nya,
+// jadi syarat itu tidak mengubah apa pun untuk kasus Seruni. Alasan yang saya
+// tulis di komentar migrationnya waktu itu keliru.
+//
+// Yang BENAR-BENAR berbahaya adalah menyeret OUTLET ENTRINYA ke dalam aturan
+// izin — kesalahan yang jauh lebih mudah dilakukan orang ("sekalian pastikan ia
+// admin outletnya"). Kas MASUK tidak punya outlet peruntukan (0063), jadi
+// `is_admin_of_outlet(x, NULL)` selalu false dan SELURUH baris kas masuk
+// berhenti bisa dikoreksi siapa pun — termasuk pemegangnya sendiri.
 sabotase(
-  'izin koreksi menuntut cakupan OUTLET juga — kasus Seruni tertutup kembali',
+  'izin koreksi menyeret outlet ENTRINYA — seluruh kas masuk berhenti bisa dikoreksi',
   MIG,
-  '    or exists (\n      select 1\n      from membership_scopes ms\n      where ms.user_id = p_holder\n        and ms.business_unit_id is not null\n        and is_bu_admin(auth.uid(), ms.business_unit_id)\n    );',
-  '    or exists (\n      select 1\n      from membership_scopes ms\n      where ms.user_id = p_holder\n        and ms.business_unit_id is not null\n        and is_bu_admin(auth.uid(), ms.business_unit_id)\n        and has_outlet_scope(auth.uid(), ms.outlet_id)\n    );',
+  '  if not boleh_koreksi_kas(v.holder_id) then',
+  '  if not (boleh_koreksi_kas(v.holder_id) and is_admin_of_outlet(auth.uid(), v.outlet_id)) then',
   TES_MIG
 );
 sabotase(

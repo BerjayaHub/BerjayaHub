@@ -91,13 +91,17 @@ if (mig) {
     ]) {
       if (!pola.test(blokIzin)) salah(`0141 \`boleh_koreksi_kas\`: cabang "${apa}" hilang.`);
     }
-    // INTI permintaannya. Seruni berbasis outlet Admin Divisi tapi bu_admin di
-    // Awal Bermula Cafe; syarat outlet apa pun di sini menutup persis kasus
-    // yang sedang dibuka, dan gejalanya cuma "tidak bisa".
+    // TIDAK BOLEH MENYEBUT OUTLET SAMA SEKALI.
+    //
+    // Kas MASUK tidak punya peruntukan (0063): `outlet_id`-nya NULL. Syarat
+    // outlet apa pun akan diam-diam menutup SELURUH baris kas masuk sementara
+    // kas keluar tetap terbuka — laporan yang separuhnya hilang tanpa pesan apa
+    // pun, dan angkanya tetap terlihat wajar. Bug yang persis sama sudah
+    // terjadi di `laporan_kas_user` dan diperbaiki di 0063.
     if (/outlet/i.test(blokIzin)) {
       salah(
         '0141 `boleh_koreksi_kas`: ada syarat OUTLET di dalamnya. Aturannya harus murni per-BU — ' +
-          'Seruni berbasis outlet Admin Divisi tapi berhak atas kas Iis di Central Kitchen.'
+          'kas MASUK tidak punya outlet peruntukan, jadi syarat outlet akan menutup seluruh barisnya diam-diam.'
       );
     }
   }

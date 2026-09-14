@@ -123,9 +123,21 @@ as $$
     is_super_admin(auth.uid())
     -- Pemegangnya sendiri: ia yang menanggung selisihnya.
     or p_holder = auth.uid()
-    -- Admin BU mana pun tempat pemegangnya bernaung. SENGAJA tanpa syarat
-    -- outlet: Seruni berbasis outlet Admin Divisi tapi bu_admin di Awal
-    -- Bermula Cafe, dan kas Iis berada di Central Kitchen.
+    -- Admin BU mana pun tempat pemegangnya bernaung.
+    --
+    -- SENGAJA TANPA SYARAT OUTLET, dan sebabnya bukan sekadar kerapian:
+    --
+    --   1. KAS MASUK TIDAK PUNYA PERUNTUKAN (0063) — `outlet_id`-nya NULL.
+    --      Aturan apa pun yang menyebut outlet akan diam-diam menutup SELURUH
+    --      baris kas masuk, sementara kas keluar tetap terbuka. Laporan yang
+    --      separuhnya hilang tanpa pesan apa pun; bug yang persis sama sudah
+    --      terjadi di `laporan_kas_user` dan diperbaiki di 0063.
+    --   2. Outlet pada barisnya menyatakan UNTUK SIAPA uang itu dibelanjakan,
+    --      bukan siapa yang berhak mengauditnya. Dua pertanyaan berbeda.
+    --
+    -- Kasus yang memicunya: Seruni berbasis outlet Admin Divisi tapi bu_admin
+    -- di Awal Bermula Cafe, dan ia berhak memeriksa kas Iis di Central Kitchen
+    -- — outlet yang tidak disebut satu pun baris cakupannya.
     or exists (
       select 1
       from membership_scopes ms
