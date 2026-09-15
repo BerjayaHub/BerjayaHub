@@ -9,7 +9,8 @@ import { cocokSaringan, daftarKategori, daftarSubKategori } from './saringan.js'
 import { susunBukuResep } from './buku-resep.js';
 import { susunPanelBahan } from './panel-bahan.js';
 import { exportTablePDF } from '../../core/pdf.js';
-import { exportTableXLSX } from '../../core/xlsx.js';
+import { exportTableXLSX, exportSheetsXLSX } from '../../core/xlsx.js';
+import { susunEksporProduk } from './ekspor-produk.js';
 import { importProducts, importRecipes, downloadProductTemplate, downloadRecipeTemplate } from './product-import.js';
 import { openRecipeEditor, MODE_LABEL, modesForType } from './recipe-editor.js';
 import {
@@ -90,6 +91,7 @@ async function renderProductsTab(content, businessUnitId) {
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button id="btn-tpl-product">Template</button>
         <button id="btn-import-product">Import Excel</button>
+        <button id="btn-export-product">⇩ Export Excel</button>
         <button class="primary" id="btn-new-product" style="max-width:180px">+ Tambah Produk</button>
       </div>
     </div>
@@ -124,6 +126,38 @@ async function renderProductsTab(content, businessUnitId) {
   });
   document.getElementById('btn-new-product').addEventListener('click', () => openProductDialog(content, businessUnitId, null));
   document.getElementById('btn-tpl-product').addEventListener('click', downloadProductTemplate);
+
+  // EKSPOR MENGIKUTI SARINGAN YANG SEDANG AKTIF.
+  //
+  // Alasannya sama dengan export PDF di modul Kas: berkas yang isinya BERBEDA
+  // dari yang dilihat orangnya adalah perbedaan yang tidak akan pernah ia
+  // sadari. Saringannya dibaca dari kotak isiannya sendiri, bukan dari salinan
+  // di memori, supaya tidak ada dua sumber kebenaran soal "apa yang sedang
+  // tampil". Yang disaring keluar disebut jumlahnya di subjudul berkasnya.
+  document.getElementById('btn-export-product').addEventListener(
+    'click',
+    sekaliJalan(async () => {
+      const b = susunEksporProduk({
+        produk: products,
+        hpp: costs,
+        saring: {
+          nama: content.querySelector('#cari-produk')?.value ?? '',
+          tipe: content.querySelector('#tipe-produk')?.value ?? '',
+          kategori: content.querySelector('#kat-produk')?.value ?? '',
+          subKategori: content.querySelector('#sub-produk')?.value ?? ''
+        }
+      });
+      if (!b.rincian.length) return toast('Tidak ada produk yang cocok dengan saringan ini.', 'info');
+      await exportSheetsXLSX({
+        filename: b.namaBerkas,
+        sheets: [
+          { name: 'Produk', columns: b.kolomRincian, rows: b.rincian, title: b.judul, subtitle: b.subjudul },
+          { name: 'Rekap', columns: b.kolomRekap, rows: b.rekap, title: 'Rekap kelengkapan data', subtitle: b.subjudul }
+        ]
+      });
+      toast(`${b.rincian.length} produk terunduh.`, 'success');
+    }, { teks: 'Menyiapkan…' })
+  );
   document.getElementById('btn-import-product').addEventListener('click', () =>
     openImport(content, businessUnitId, 'products', () => renderProductsTab(content, businessUnitId))
   );

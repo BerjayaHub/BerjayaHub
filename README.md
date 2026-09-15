@@ -6561,3 +6561,40 @@ Tombolnya tetap **digambar, mati, dengan sebabnya di tooltip**. Menyembunyikanny
 Satu sabotase sempat lolos, dan sebabnya kecil sekali: auditnya mencari kebijakan `cash_entries_select_bu_admin`, sementara sabotasenya menamainya `cash_entries_select_bu_admin_nonaktif` — nama yang dicari masih jadi **awalan** nama barunya, jadi `indexOf` tetap menemukannya dan seluruh pemeriksaan di bawahnya lulus untuk kebijakan yang sudah tidak ada. Sekarang namanya disebut lengkap sampai ` on cash_entries`.
 
 - [x] **Koreksi kas + akses admin BU** (`0141`) — 44 sabotase
+
+## Master Produk bisa diunduh — dan diunggah kembali
+
+> "sediakan export excel di master produk, untuk saya mendownload data bahan dan produk dari berjaya hub"
+
+**Tidak perlu migration.** Tombol **⇩ Export Excel** di Master Produk → Produk, di samping Template dan Import Excel.
+
+### Sembilan kolom pertamanya bukan pilihan bebas
+
+Kolom 1–9 sama persis dengan `template-produk.csv` — judulnya, urutannya, dan ejaan tipenya (*Bahan Baku* / *Setengah Jadi* / *Menu*, yang dikenali `TYPE_MAP` pengimpor).
+
+Sebabnya: *"download data"* hampir selalu berarti *"sunting di Excel lalu masukkan lagi"*. Berkas ekspor yang judul kolomnya bergeser sedikit **tidak gagal dengan jelas** — ia terimpor sebagian, kolom yang judulnya tidak dikenali dibaca sebagai kosong, dan harga beli ratusan produk lenyap tanpa satu pun pesan.
+
+Karena itu judulnya tidak ditulis dua kali: `KOLOM_PRODUK` memakai `KOLOM_IMPOR` apa adanya, dan audit membandingkan `KOLOM_IMPOR` **langsung dengan baris template di `product-import.js`** — bukan dengan daftar ketiga yang ditulis ulang di auditnya. Sabotase menjaga kedua arah: judul ekspor yang bergeser, **dan** template yang berubah lalu ekspornya tertinggal.
+
+Kolom sesudahnya — HPP/Satuan, Margin, Margin %, Status, Catatan — turunan. Pengimpor mengabaikan kolom yang tidak dikenalnya, jadi keduanya aman dalam satu berkas.
+
+### Kosong itu dua arti, dan keduanya tidak boleh tertukar
+
+| Di mana | Kosong ditulis | Artinya |
+| --- | --- | --- |
+| Kolom 1–9 (bisa diimpor) | sel **kosong** | belum diisi |
+| Kolom turunan | **"-"** | tidak bisa dihitung |
+
+Menulis "-" di kolom impor membuat orang mengetiknya balik apa adanya lalu mengunggahnya. Mengosongkan kolom HPP membuatnya terlihat seperti isian yang terlupa, padahal ia memang tidak bisa dihitung — dan kolom **Catatan** menyebut sebabnya per baris: *"Harga beli belum diisi"*, *"Isi per Satuan Beli belum diisi"*, *"Belum punya resep, atau ada bahannya yang belum berharga"*, peringatan **harga terlihat terbalik** (dipakai apa adanya dari `harga-curiga.js`, bukan ditulis ulang), dan *"Produk nonaktif"*.
+
+Catatan itu **tidak** memanggil `sebabHppKosong()`. Fungsi itu membangun ulang seluruh graf resep tiap panggilan; untuk 785 produk berarti 785 pembangunan graf, dan tabnya menggantung belasan detik tanpa satu pun tanda. Yang ditulis di berkas adalah sebab yang bisa dibaca dari barisnya sendiri — penjelasan berantainya tetap ada di layar.
+
+### Berkasnya mengaku kalau ia sebagian
+
+Ekspor **mengikuti saringan yang sedang aktif** — sama seperti export PDF di modul Kas, karena berkas yang isinya berbeda dari yang dilihat orangnya adalah perbedaan yang tidak akan pernah ia sadari. Saringannya dibaca dari kotak isiannya sendiri, bukan dari salinan di memori.
+
+Dan subjudulnya menyebutnya: *"Saringan: Menu · Minuman · 2 dari 785 produk"*. Berkas 40 baris yang terkirim lewat WhatsApp tidak punya cara lain memberi tahu penerimanya bahwa ada saringan yang aktif.
+
+Sheet kedua, **Rekap**, menjawab pertanyaan yang biasanya jadi alasan orang mengunduh master: *mana yang belum lengkap*. Per tipe × kategori: jumlah, nonaktif, belum ada HPP, menu tanpa harga jual, dan harga beli yang perlu dicek. Kategori kosong jadi kelompok sendiri — kalau ia menyatu dengan kategori lain, ia tidak akan pernah dibetulkan.
+
+- [x] **Export Excel Master Produk** — 28 sabotase
