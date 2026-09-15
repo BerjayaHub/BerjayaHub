@@ -6598,3 +6598,34 @@ Dan subjudulnya menyebutnya: *"Saringan: Menu · Minuman · 2 dari 785 produk"*.
 Sheet kedua, **Rekap**, menjawab pertanyaan yang biasanya jadi alasan orang mengunduh master: *mana yang belum lengkap*. Per tipe × kategori: jumlah, nonaktif, belum ada HPP, menu tanpa harga jual, dan harga beli yang perlu dicek. Kategori kosong jadi kelompok sendiri — kalau ia menyatu dengan kategori lain, ia tidak akan pernah dibetulkan.
 
 - [x] **Export Excel Master Produk** — 28 sabotase
+
+## Satu judul kolom yang mengalikan HPP 1800 kali
+
+> "sediakan juga export excel untuk bagian resep"
+
+Tombolnya **sudah ada** — **⬇ Excel** di tab Resep, sejak lama. Yang ditemukan saat memeriksanya jauh lebih penting daripada menambah tombol kedua.
+
+### Bug-nya
+
+Pengimpor resep membaca kolom berdasarkan **nama**: `r['yield']`, `r['bahan']`, `r['jumlah']`. Kolom di berkas hasil ekspor bertuliskan **`Hasil/Yield`**.
+
+Nama itu tidak pernah ditemukan. `num(undefined)` → `null`, dan `g.yield` tetap di nilai bawaannya: **1**.
+
+Jadi berkas yang diunduh dari tab Resep, diisi, lalu diunggah kembali — untuk mengisi resep yang kosong karena penyimpanan terputus (`0082`), atau untuk menyalin resep ke BU baru — menyetel yield **1800 menjadi 1**. HPP produknya lalu 1800 kali lipat, dan harga jual ditentukan di atasnya.
+
+Tidak ada error. Tidak ada baris merah. Impornya melaporkan berhasil.
+
+Yang membuatnya bertahan lama: berkas itu **hampir** benar. Empat dari lima kolom yang dibaca pengimpor sudah cocok (`Produk`, `Varian`, `Bahan`, `Jumlah`), jadi resepnya memang masuk — cuma takarannya yang salah. Kegagalan yang separuh berhasil jauh lebih sulit terlihat daripada yang gagal total.
+
+### Perbaikannya
+
+`KOLOM_IMPOR_RESEP` sekarang konstanta tersendiri yang dibandingkan audit **langsung dengan baris `template-resep.csv`** di `product-import.js` — dan sabotasenya menjaga kedua arah: judul ekspor yang bergeser, dan template yang berubah lalu ekspornya tertinggal. Urutan kolom tetap boleh diatur demi keterbacaan, karena pengimpor membaca berdasarkan nama; yang tidak boleh adalah ejaannya.
+
+Dua hal lain ikut dibetulkan:
+
+- **Penanda resep kosong pindah dari kolom Bahan ke kolom Catatan.** Dulu ditulis `(resep kosong — bahannya tidak tersimpan)` di kolom Bahan, jadi berkas yang diunggah balik mencari bahan bernama itu — satu baris galat untuk tiap resep kosong, tepat pada berkas yang dipakai **memperbaiki** resep kosong.
+- **Unduhannya mengikuti saringan yang tampil** dan mengakuinya di subjudul (*"Saringan: Menu · 1 dari 2 varian resep"*), sama seperti export Master Produk dan export PDF di modul Kas.
+
+Ditambah kolom **Catatan** per baris (bahan yang harganya belum ada, bahan yang sudah dihapus dari master), sheet **Rekap** per tipe × varian, dan `Yield` & `Jumlah` ditandai `numeric` supaya bisa dipivot di Excel.
+
+- [x] **Export Excel buku resep + perbaikan judul kolom Yield** — 24 sabotase

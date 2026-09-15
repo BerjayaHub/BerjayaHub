@@ -737,20 +737,37 @@ async function renderRecipesTab(content, businessUnitId) {
   // menyusun barisnya sendiri-sendiri, takarannya akan menyimpang, dan resep
   // yang angkanya berbeda antara file Excel dan lembar di dapur tidak bisa
   // dipakai memeriksa apa pun.
+  // Saringan dibaca dari kotak isiannya sendiri, bukan dari salinan di memori:
+  // dua sumber kebenaran soal "apa yang sedang tampil" pasti menyimpang, dan
+  // berkas yang isinya berbeda dari layarnya adalah perbedaan yang tidak akan
+  // pernah disadari orangnya.
   const susun = () =>
     susunBukuResep({
       products,
       recipes,
       hppVarian: (id, mode) => costForMode(products, recipes, id, mode),
       hppBahan: (id) => costForMode(products, recipes, id, null),
-      denganNilai: true
+      denganNilai: true,
+      saring: {
+        nama: content.querySelector('#cari-resep')?.value ?? '',
+        tipe: content.querySelector('#tipe-resep')?.value ?? '',
+        kategori: content.querySelector('#kat-resep')?.value ?? '',
+        subKategori: content.querySelector('#sub-resep')?.value ?? ''
+      }
     });
   content.querySelector('#btn-unduh-resep-xlsx').addEventListener(
     'click',
     sekaliJalan(async () => {
       const b = susun();
-      if (!b.baris.length) return toast('Belum ada resep untuk diunduh.', 'info');
-      await exportTableXLSX({ filename: b.namaBerkas, sheetName: 'Resep', title: b.judul, subtitle: b.subjudul, columns: b.kolom, rows: b.baris });
+      if (!b.baris.length) return toast('Tidak ada resep yang cocok dengan saringan ini.', 'info');
+      await exportSheetsXLSX({
+        filename: b.namaBerkas,
+        sheets: [
+          { name: 'Resep', columns: b.kolom, rows: b.baris, title: b.judul, subtitle: b.subjudul },
+          { name: 'Rekap', columns: b.kolomRekap, rows: b.rekap, title: 'Rekap resep per varian', subtitle: b.subjudul }
+        ]
+      });
+      toast(`${b.jumlahVarian} varian resep terunduh.`, 'success');
     })
   );
   content.querySelector('#btn-unduh-resep-pdf').addEventListener(
