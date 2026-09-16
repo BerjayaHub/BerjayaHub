@@ -18,10 +18,10 @@ import {
   getSetelanPresensi,
   listIstirahat,
   mulaiIstirahat,
-  selesaiIstirahat,
-  getOutletGeofence
+  selesaiIstirahat
 } from './attendance.service.js';
 import { setelanEfektif, bolehMulaiIstirahat, totalMenitIstirahat, BATAS_ISTIRAHAT_JAM } from './istirahat.js';
+import { cariOutletArea, bolehAksiPresensi, berkoordinat, AKURASI_MAKS_TOLERANSI } from './area-outlet.js';
 import { getShiftSettings, getMyScheduleFor, evaluateLateness, todayWIB, LATE_LABEL, resolveAutoOff, holidayMapOf } from '../shift/shift.service.js';
 import { getHolidayPolicy, listHolidays } from './nbm.service.js';
 import { openCameraCapture, formatWatermarkText } from './camera-capture.js';
@@ -32,32 +32,37 @@ import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { dapatkanLokasi, pesanAkurasiBuruk } from '../../core/geolocation.js';
 
 /**
- * Menolak aksi presensi yang dilakukan di luar area outletnya.
+ * Menolak aksi presensi yang dilakukan di luar area outlet TERDAFTAR MANA PUN.
  *
- * Dipakai Istirahat & Kembali — clock in punya jalurnya sendiri yang lebih
- * rumit (ia masih MEMILIH outlet; di sini outletnya sudah pasti).
+ * ============ TIDAK LAGI TERIKAT OUTLET CLOCK IN ============
  *
- * Tiga hal yang sengaja TIDAK menolak:
+ *   "staff seharusnya bisa clock in CK dan clock out di Sentul ... asal outlet
+ *    ini geofencingnya sudah saya daftarkan, walaupun clock in di outlet A lalu
+ *    clock out nya di outlet B"
  *
- *   - outlet tanpa koordinat  -> geofence-nya memang belum aktif, aturan yang
- *     sama dengan clock in ("kalau koordinat belum diisi, staff bisa clock in
- *     dari mana saja")
- *   - sesi Tugas Luar/Storing -> orangnya memang sedang tidak di outlet
- *   - GPS yang gagal dibaca   -> ditolak dengan pesan yang menyebut GPS, bukan
- *     dibiarkan lolos. Kalau kegagalan GPS diloloskan, seluruh gerbang ini
- *     bisa dilewati cukup dengan mematikan izin lokasi.
+ * Versi sebelumnya memeriksa jarak ke `sesi.outlet_id` saja, jadi orang yang
+ * clock in di Central Kitchen lalu pulang lewat Sentul ditolak dengan "Kamu
+ * 47501 m dari Central Kitchen Tangerang" — padahal ia sedang BERDIRI di dalam
+ * outlet yang geofence-nya terdaftar.
+ *
+ * NBM-nya tidak ikut berubah dan memang tidak perlu: `clockIn` sudah menyimpan
+ * `outlet_id` (tempat fisik) TERPISAH dari `nbm_outlet_id` (outlet basis ★),
+ * dan seluruh laporan SDM membaca `nbm_outlet_id ?? outlet_id`.
+ *
+ * Aturannya sendiri ada di `area-outlet.js` — SATU aturan yang juga dipakai
+ * deteksi clock in. Sebelum ini keduanya ditulis terpisah dan sudah menyimpang:
+ * yang satu melonggarkan `radius + min(akurasi, 50)`, yang lain `d - akurasi <=
+ * radius` dengan batas 250 m.
+ *
+ * @returns {object|null} outlet tempat aksinya diterima (null = tidak diperiksa)
  */
-async function pastikanDiAreaOutlet(sesi, aksi) {
-  if (sesi?.is_storing) return;
-
-  let outlet = null;
-  try {
-    outlet = await getOutletGeofence(sesi.outlet_id);
-  } catch {
-    // Gagal membaca setelan outlet bukan bukti orangnya di luar area.
-    return;
-  }
-  if (outlet?.latitude == null || outlet?.longitude == null) return;
+async function pastikanDiAreaPresensi({ sesi, aksi, outlets, outletSesi }) {
+  if (sesi?.is_storing) return null;
+  if (!berkoordinat(outlets).length) return null;
+  // Outlet sesi ini sendiri belum ber-geofence -> perilaku lama dipertahankan:
+  // staffnya memang selama ini bebas. Mempersempitnya diam-diam akan mengunci
+  // orang yang baik-baik saja, di luar jam kerja admin.
+  if (outletSesi && outletSesi.latitude == null) return null;
 
   let loc = null;
   try {
@@ -65,20 +70,10 @@ async function pastikanDiAreaOutlet(sesi, aksi) {
   } catch {
     loc = null;
   }
-  if (!loc) {
-    throw new Error(`Lokasi tidak terbaca, jadi ${aksi} belum bisa dicatat. Nyalakan GPS lalu coba lagi.`);
-  }
 
-  const jarak = distanceMeters(loc.lat, loc.lng, outlet.latitude, outlet.longitude);
-  const radius = outlet.geofence_radius_m ?? 100;
-  // Ketelitian GPS ikut diberi kelonggaran — menolak orang yang BERDIRI di
-  // dalam outlet karena sinyalnya meleset 30 meter akan membuat fitur ini
-  // dimatikan dalam seminggu.
-  if (jarak > radius + Math.min(loc.accuracy ?? 0, 50)) {
-    throw new Error(
-      `Kamu ${Math.round(jarak)} m dari ${outlet.name} (radius ${radius} m), jadi ${aksi} belum bisa dicatat.`
-    );
-  }
+  const hasil = bolehAksiPresensi({ sesi, outlets, loc, jarak: distanceMeters, aksi, outletSesi });
+  if (!hasil.boleh) throw new Error(hasil.alasan);
+  return hasil.outlet;
 }
 
 export async function renderAttendancePage(container, ctx) {
@@ -208,7 +203,28 @@ export async function renderAttendancePage(container, ctx) {
     // mengira NBM-nya terpotong.
     const setelan = await getSetelanPresensi(openSession.outlet_id).catch(() => null);
     const setelanAktif = setelanEfektif(setelan, null);
-    const istirahat = await listIstirahat(openSession.id).catch(() => []);
+
+    // STATUS ISTIRAHAT YANG GAGAL DIBACA TIDAK BOLEH MENYAMAR JADI "TIDAK
+    // SEDANG ISTIRAHAT".
+    //
+    // Versi sebelumnya: `listIstirahat(...).catch(() => [])`. Daftar kosong
+    // berarti `berjalan = null`, dan layar menggambar tombol **Clock Out**
+    // untuk orang yang sedang istirahat — persis tombol yang tidak boleh ia
+    // tekan. Sebabnya bisa apa saja: sinyal putus, atau migration `0138` belum
+    // dijalankan sehingga tabel `attendance_breaks` belum ada.
+    //
+    // Yang benar: MENGAKU tidak tahu. Tombolnya tidak dikunci — clock out
+    // adalah satu-satunya aksi yang tidak boleh pernah terhalang, dan server
+    // menutup istirahat yang menggantung dengan sendirinya saat clock out
+    // (`tutup_istirahat_saat_pulang`, 0138). Jadi yang ditambahkan peringatan,
+    // bukan gembok.
+    let istirahat = [];
+    let istirahatTerbaca = true;
+    try {
+      istirahat = await listIstirahat(openSession.id);
+    } catch {
+      istirahatTerbaca = false;
+    }
     const berjalan = istirahat.find((b) => !b.selesai_at) ?? null;
     const rekapIstirahat = totalMenitIstirahat(istirahat);
 
@@ -232,6 +248,18 @@ export async function renderAttendancePage(container, ctx) {
         <p class="att-hint">Lokasi: ${esc(outletName(openSession.outlet_id))}${openSession.is_storing ? ' · <strong>Tugas Luar</strong>' : ''}</p>
 
         <div class="att-istirahat">
+          ${
+            // Status istirahat yang tidak terbaca DIAKUI, bukan ditebak.
+            // Menggambar "Ambil Istirahat" untuk orang yang sedang istirahat —
+            // atau Clock Out padahal ia harusnya menekan Kembali — adalah cara
+            // tercepat membuat orang menekan tombol yang salah.
+            istirahatTerbaca
+              ? ''
+              : `<p class="att-hint" style="color:var(--color-danger);font-weight:600">
+                   ⚠️ Status istirahatmu tidak bisa dibaca sekarang (sinyal, atau fitur istirahat belum diaktifkan admin).
+                   Kalau kamu sedang istirahat, muat ulang halaman ini dulu sebelum menekan apa pun.
+                 </p>`
+          }
           ${
             berjalan
               ? `<div class="att-status-line" style="color:var(--color-warning,#8a5800)">
@@ -318,7 +346,11 @@ export async function renderAttendancePage(container, ctx) {
         if (!isSameFace(capturedOut.descriptor, myFaceDescriptor)) {
           throw new Error(`Wajah tidak cocok dengan yang terdaftar. ${labelAksi} ditolak.`);
         }
-        await pastikanDiAreaOutlet(openSession, labelAksi);
+        // Outlet SESI ini diambil sekali di sini, bukan di dalam gerbangnya:
+        // yang dibutuhkan cuma "apakah geofence-nya aktif", dan itu menentukan
+        // apakah perilaku lama (bebas dari mana saja) dipertahankan.
+        const outletSesi = allOutlets.find((o) => o.id === openSession.outlet_id) ?? null;
+        await pastikanDiAreaPresensi({ sesi: openSession, aksi: labelAksi, outlets: allOutlets, outletSesi });
 
         if (berjalan) {
           const path = await uploadAttendanceSelfie({ outletId: openSession.outlet_id, kind: 'break_in', file: capturedOut.blob });
@@ -362,7 +394,12 @@ export async function renderAttendancePage(container, ctx) {
           if (!isSameFace(capturedOut.descriptor, myFaceDescriptor)) {
             throw new Error('Wajah tidak cocok dengan yang terdaftar. Istirahat ditolak.');
           }
-          await pastikanDiAreaOutlet(openSession, 'Istirahat');
+          await pastikanDiAreaPresensi({
+            sesi: openSession,
+            aksi: 'Istirahat',
+            outlets: allOutlets,
+            outletSesi: allOutlets.find((o) => o.id === openSession.outlet_id) ?? null
+          });
 
           const path = await uploadAttendanceSelfie({ outletId: openSession.outlet_id, kind: 'break_out', file: capturedOut.blob });
           await mulaiIstirahat(openSession.id, { photoPath: path, faceMatch: true });
@@ -520,23 +557,9 @@ export async function renderAttendancePage(container, ctx) {
     toast('Mode Tugas Luar aktif. Silakan ambil foto selfie.', 'success');
   }
 
-  /**
-   * Ambang ketelitian yang masih boleh dipakai untuk MENERIMA presensi lewat
-   * lingkaran ketelitian. Di atas ini, angkanya terlalu kabur untuk berarti
-   * apa pun — HP yang bilang "saya di suatu tempat dalam radius 1 km" tidak
-   * sedang membuktikan dia ada di outlet.
-   *
-   * KONSEKUENSINYA HARUS DISADARI: radius efektif jadi `radius + akurasi`,
-   * paling jauh `radius + 250 m`. Itu kelonggaran yang nyata, dan dipilih
-   * sadar — fix berbasis wifi/menara di dalam gedung memang jatuh di kisaran
-   * 50-250 m, dan itulah kasus orang jujur yang selama ini tertolak.
-   *
-   * Yang di atas 250 m (mis. "Lokasi Presisi" mati, yang memberi 1-3 km) TIDAK
-   * dilonggarkan — orangnya justru diberi tahu cara membetulkannya. Menerima
-   * angka sekabur itu tidak akan menolong siapa pun; ia hanya memindahkan
-   * kesalahan ke tempat yang lebih sulit dilihat.
-   */
-  const AKURASI_MAKS_TOLERANSI = 250;
+  // Ambang ketelitiannya ada di `area-outlet.js` beserta alasannya — SATU
+  // angka untuk clock in maupun clock out. Sebelumnya ia konstanta lokal di
+  // sini, dan gerbang clock out memakai angka yang lain (`min(akurasi, 50)`).
 
   async function runDetection() {
     banner.className = 'detect-banner';
@@ -561,40 +584,19 @@ export async function renderAttendancePage(container, ctx) {
     }
     lokasiAkurasi = loc?.accuracy ?? null;
 
-    const withCoords = allOutlets.filter((o) => o.latitude != null && o.longitude != null);
-    let best = null;
-    let bestDist = Infinity;
-    let terdekat = null;
-    let jarakTerdekat = Infinity;
-    let lewatToleransi = false;
-
-    if (loc) {
-      for (const o of withCoords) {
-        const d = distanceMeters(loc.lat, loc.lng, o.latitude, o.longitude);
-        const radius = o.geofence_radius_m ?? 100;
-        if (d < jarakTerdekat) {
-          jarakTerdekat = d;
-          terdekat = o;
-        }
-        // Diterima kalau titiknya di dalam radius, ATAU kalau lingkaran
-        // ketelitiannya masih menyentuh area outlet. Alasannya: HP yang
-        // melaporkan "±300 m" tidak sedang mengatakan orangnya di luar — ia
-        // sedang mengatakan tidak tahu. Menolak ketidaktahuan sebagai
-        // pelanggaran adalah cara membuat orang yang benar-benar hadir tidak
-        // bisa absen.
-        //
-        // Kelonggaran ini dibatasi AKURASI_MAKS_TOLERANSI dan angka akurasinya
-        // IKUT DISIMPAN (0075), jadi bisa dipertanggungjawabkan — bukan
-        // kelonggaran diam-diam.
-        const cocok = d <= radius;
-        const cocokLonggar = !cocok && loc.accuracy <= AKURASI_MAKS_TOLERANSI && d - loc.accuracy <= radius;
-        if ((cocok || cocokLonggar) && d < bestDist) {
-          best = o;
-          bestDist = d;
-          lewatToleransi = !cocok;
-        }
-      }
-    }
+    // ATURANNYA DIPINJAM, BUKAN DITULIS ULANG.
+    //
+    // Sebelum ini deteksi clock in dan gerbang clock out punya rumus
+    // kelonggaran masing-masing, dan keduanya sudah menyimpang — staff yang
+    // bisa clock in lewat kelonggaran ketelitian belum tentu bisa clock out di
+    // outlet yang sama, tanpa satu pun keterangan di layar. Sekarang keduanya
+    // memanggil `cariOutletArea()` yang sama.
+    const hasilArea = loc ? cariOutletArea({ loc, outlets: allOutlets, jarak: distanceMeters }) : null;
+    const best = hasilArea?.outlet ?? null;
+    const bestDist = hasilArea?.jarak ?? Infinity;
+    const terdekat = hasilArea?.terdekat ?? null;
+    const jarakTerdekat = hasilArea?.jarakTerdekat ?? Infinity;
+    const lewatToleransi = hasilArea?.lewatToleransi ?? false;
 
     if (best) {
       detected = best;

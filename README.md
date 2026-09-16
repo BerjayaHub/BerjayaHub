@@ -6629,3 +6629,51 @@ Dua hal lain ikut dibetulkan:
 Ditambah kolom **Catatan** per baris (bahan yang harganya belum ada, bahan yang sudah dihapus dari master), sheet **Rekap** per tipe × varian, dan `Yield` & `Jumlah` ditandai `numeric` supaya bisa dipivot di Excel.
 
 - [x] **Export Excel buku resep + perbaikan judul kolom Yield** — 24 sabotase
+
+## Clock in di CK, clock out di Sentul
+
+> "staff seharusnya bisa clock in CK dan clock out di Sentul misalnya … asal outlet ini geofencingnya sudah saya daftarkan, walaupun clock in di outlet A lalu clock out nya di outlet B / kecuali BU dengan mode tugas luar yang tanpa OTP"
+
+**Tidak perlu migration.** Yang berubah hanya aturan di layar.
+
+### Yang sudah benar sejak awal
+
+NBM **memang** sudah mengikuti outlet basis. `clockIn` menyimpan dua kolom yang berbeda:
+
+| Kolom | Isinya |
+| --- | --- |
+| `outlet_id` | outlet tempat orangnya **berdiri** saat clock in |
+| `nbm_outlet_id` | outlet **basis** (★ di Master User) |
+
+Dan seluruh laporan SDM membaca `nbm_outlet_id ?? outlet_id`. Jadi clock in di mana pun tidak pernah memindahkan NBM siapa pun — asumsi itu benar, dan tidak ada yang perlu diubah.
+
+### Yang memang salah
+
+Gerbang geofence untuk **clock out, istirahat, dan kembali** memeriksa jarak ke `sesi.outlet_id` — outlet tempat orangnya clock in. Jadi staff yang clock in di Central Kitchen lalu pulang lewat Sentul ditolak dengan *"Kamu 47501 m dari Central Kitchen Tangerang"*, padahal ia sedang **berdiri di dalam** outlet yang geofence-nya terdaftar.
+
+Sekarang gerbangnya menerima **outlet terdaftar mana pun**. Tiga pengecualian dipertahankan dan diuji satu per satu: mode **Tugas Luar/Storing** (orangnya memang tidak di outlet), BU yang belum mendaftarkan geofence sama sekali, dan outlet sesi yang sendirinya belum ber-geofence — staffnya selama ini memang bebas, dan mempersempitnya diam-diam akan mengunci orang yang baik-baik saja di luar jam kerja admin. Yang **tetap** ditolak: GPS yang gagal dibaca, karena kalau itu diloloskan seluruh gerbangnya bisa dilewati cukup dengan mematikan izin lokasi.
+
+### Satu aturan yang ternyata sudah jadi dua
+
+Memeriksanya menemukan hal yang tidak dilaporkan siapa pun: aturan "apakah titik ini di dalam area outlet" **ditulis dua kali**, dan keduanya sudah menyimpang.
+
+| | Kelonggaran ketelitian GPS |
+| --- | --- |
+| Deteksi **clock in** | `d − akurasi ≤ radius`, dibatasi 250 m |
+| Gerbang **clock out** | `radius + min(akurasi, 50)` |
+
+Artinya staff yang bisa clock in di sebuah outlet lewat kelonggaran ketelitian **belum tentu bisa clock out di outlet yang sama** — dan tidak ada apa pun di layar yang menjelaskan kenapa. Keduanya sekarang memanggil `area-outlet.js` yang sama.
+
+### Tombol Clock Out yang muncul saat istirahat
+
+Kodenya **sudah** mengganti Clock Out dengan "Kembali dari Istirahat" saat istirahat berjalan. Yang membuatnya tidak terjadi ada satu baris sebelumnya:
+
+```js
+const istirahat = await listIstirahat(openSession.id).catch(() => []);
+```
+
+Daftar kosong berarti `berjalan = null`, yang berarti **"tidak sedang istirahat"** — jadi kegagalan membaca (sinyal putus, atau migration `0138` yang belum dijalankan sehingga tabel `attendance_breaks` belum ada) terlihat persis sama dengan tidak istirahat, dan layar menggambar tombol yang tidak boleh ditekan.
+
+Sekarang kegagalannya **mengaku**: peringatan merah yang menyuruh muat ulang sebelum menekan apa pun. Tombolnya **tidak** dikunci — clock out adalah satu-satunya aksi yang tidak boleh pernah terhalang, dan server sudah menutup istirahat yang menggantung dengan sendirinya saat clock out (`tutup_istirahat_saat_pulang`, `0138`).
+
+- [x] **Clock out lintas outlet + status istirahat yang tidak lagi ditebak** — 26 sabotase
