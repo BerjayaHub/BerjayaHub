@@ -6677,3 +6677,59 @@ Daftar kosong berarti `berjalan = null`, yang berarti **"tidak sedang istirahat"
 Sekarang kegagalannya **mengaku**: peringatan merah yang menyuruh muat ulang sebelum menekan apa pun. Tombolnya **tidak** dikunci — clock out adalah satu-satunya aksi yang tidak boleh pernah terhalang, dan server sudah menutup istirahat yang menggantung dengan sendirinya saat clock out (`tutup_istirahat_saat_pulang`, `0138`).
 
 - [x] **Clock out lintas outlet + status istirahat yang tidak lagi ditebak** — 26 sabotase
+
+## Kotak yang sudah terisi sebelum ada yang menghitung
+
+> "Di terima bahan dari CK di sisi outlet. Bagaimana solusinya bila staff melakukan pengecekan secara terpisah di satu waktu dalam satu SJ yang sama"
+
+Yang ditanyakan adalah pengecekan yang dicicil. Yang ditemukan saat memeriksanya lebih besar.
+
+### Bug yang sudah ada sebelum pertanyaannya
+
+Kotak **"Diterima"** di layar terima sudah terisi angka kiriman sejak layarnya dibuka. Artinya **"belum dicek" tidak bisa dibedakan dari "sudah dicek dan pas"**: staff yang menekan Simpan tanpa menghitung apa pun menghasilkan catatan yang identik dengan staff yang menghitung seluruhnya dengan teliti.
+
+Susutnya nol, laporannya rapi, dan selisihnya baru muncul berminggu-minggu kemudian sebagai angka opname yang tidak bisa dijelaskan siapa pun. Pengecekan terpisah hanya memperbesar peluangnya — bugnya sudah ada bahkan untuk satu orang.
+
+### Tiga keadaan, bukan dua
+
+| `dicek_qty` | Artinya |
+| --- | --- |
+| **NULL** | belum dicek — bukan nol, bukan "sesuai kiriman" |
+| **0** | sudah dihitung, dan barangnya memang tidak datang |
+| **> 0** | sudah dihitung sebanyak itu |
+
+Perbedaan NULL versus 0 itulah seluruh isi `0142`. `Number('')` adalah **0**, jadi kalau pembedanya hilang, kotak yang dibiarkan kosong tercatat sebagai *"barangnya tidak datang sama sekali"* — salah ke arah yang berlawanan, dan sama diamnya.
+
+Supaya kotak kosong tidak jadi siksaan: tombol **"Semua sesuai kiriman"** untuk seluruh SJ dan **"= dikirim"** per baris. Kiriman yang memang pas tetap selesai dalam satu ketukan — bedanya, ketukan itu sekarang **pernyataan**, bukan nilai bawaan yang tersimpan tanpa pernah ada yang melihatnya. Tombol borongan itu **tidak** menimpa baris yang sudah diisi orang lain.
+
+### `received_qty` sengaja tidak dipakai menampung cicilan
+
+Kolomnya sudah ada dan kosong sampai kiriman diterima, jadi ia kelihatan seperti tempat yang pas. Ia tidak dipakai: `received_qty` berarti satu hal yang tepat — *yang benar-benar diterima saat SJ ditutup* — dan itu dipakai menghitung susut, mencetak Bukti Terima, serta diekspor ke ESB. Menitipkan angka setengah jadi ke dalamnya membuat satu kolom punya dua arti tergantung status kirimannya, dan setiap pembacanya harus tahu bedanya. Yang lupa tidak akan mendapat error — ia akan mendapat angka.
+
+### Kunci yang tidak ada ≠ nilai null
+
+`simpan_cek_kiriman` menyimpan **per baris**, dan itu yang membuat dua staff bisa mengecek bagian berbeda tanpa saling menimpa. Tapi ada satu jebakan JSON di dalamnya:
+
+```sql
+if not (it ? 'dicek_qty') then continue; end if;
+```
+
+`it->>'dicek_qty'` menghasilkan NULL **baik saat nilainya JSON null maupun saat kuncinya tidak ada sama sekali**. Dua hal itu berbeda: yang pertama berarti *"batalkan ceknya"*, yang kedua berarti *"baris ini tidak sedang saya sentuh"*. Tanpa pembeda itu, staff kedua yang menyimpan bagiannya sendiri akan **menghapus hitungan staff pertama**.
+
+### Jejak pengecek hanya berpindah kalau angkanya berubah
+
+Staff B yang menyimpan seluruh formulir setelah A mengecek separuh akan ikut mengirim baris-baris A. Kalau `dicek_by` ditulis ulang tanpa syarat, nama A hilang dari baris yang ia hitung sendiri — justru nama yang dicari saat ada selisih. Jadi jejaknya hanya berpindah saat angkanya benar-benar berubah; itu hitungan baru, dan yang bertanggung jawab atasnya orang yang baru.
+
+### Terima berhenti menebak
+
+`receive_dispatch` **menolak** selama masih ada baris ber-`dicek_qty` NULL, dan **menyebut nama barangnya** — *"3 bahan belum dicek"* membuat orangnya menyisir ulang seluruh tabel. Layarnya bertanya lebih dulu dengan tiga pilihan: batal, tandai sesuai kiriman, atau tandai 0. Dua jawaban terakhir sama-sama sah; yang tidak sah adalah memilihkannya tanpa memberi tahu.
+
+Stok tetap bergerak **sekali**, di `receive_dispatch`, seperti sebelumnya. Alternatif yang tidak dipilih: memindahkan stok per baris begitu dicek — benar-benar paralel, tapi SJ bisa berhenti di tengah selamanya, stok CK separuh terpotong dan separuh tidak, tanpa satu momen pun yang bisa disebut "diterima".
+
+### Tiga sabotase lolos, dan ketiganya salah auditnya
+
+1. **Muatan yang menyaring baris kosong** — auditnya mencocokkan bentuk objeknya, yang tidak berubah. Yang bisa melihat bedanya cuma menjalankan fungsinya; pemeriksanya dipindah ke tes murni.
+2. **`coalesce(dicek_qty, sent_qty)`** — baris itu **tidak pernah tercapai** selama penjaga "belum dicek" di atasnya berdiri, jadi tesnya memang tidak merah, dan itu benar. Ia lapis kedua; auditlah satu-satunya yang bisa menjaganya, dan sekarang ia melakukannya.
+3. **Kelas tombol diganti nama** jadi `btn-save-cek-nonaktif` — nama lama masih jadi **awalan** nama barunya, jadi `indexOf` tetap menemukannya. Jebakan yang persis sama sudah meloloskan sabotase kebijakan `cash_entries_select_bu_admin` di `0141`; auditnya kini menyebut kelasnya berikut tanda kutip penutupnya.
+
+- [x] **Pengecekan kiriman bisa dicicil** (`0142`) — 30 sabotase

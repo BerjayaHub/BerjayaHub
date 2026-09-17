@@ -139,8 +139,8 @@ h4 { font-size: var(--teks-sm); line-height: 1.4; }
 }
 
 /* Tombol sekunder (default) diseragamkan biar rapi & elegan */
-.app-content button:not(.primary):not(.tab-btn):not(.btn-ghost):not(.btn-danger):not(.btn-whatsapp):not(.btn-nota):not(.scope-remove):not(.scope-edit):not(.scope-primary):not(.ln-remove),
-.staff-main button:not(.primary):not(.tab-btn):not(.btn-ghost):not(.btn-danger):not(.btn-whatsapp):not(.btn-nota):not(.topbar-btn):not(.module-card):not(.scope-remove):not(.scope-edit):not(.scope-primary):not(.ln-remove) {
+.app-content button:not(.primary):not(.tab-btn):not(.btn-ghost):not(.btn-danger):not(.btn-whatsapp):not(.btn-nota):not(.btn-samakan):not(.scope-remove):not(.scope-edit):not(.scope-primary):not(.ln-remove),
+.staff-main button:not(.primary):not(.tab-btn):not(.btn-ghost):not(.btn-danger):not(.btn-whatsapp):not(.btn-nota):not(.btn-samakan):not(.topbar-btn):not(.module-card):not(.scope-remove):not(.scope-edit):not(.scope-primary):not(.ln-remove) {
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
@@ -820,6 +820,50 @@ button.primary:active { transform: translateY(1px); }
   font-size: 0.78rem;
   color: var(--color-text-muted);
   margin: 6px 0 0;
+}
+
+/* =========================================================
+   TERIMA KIRIMAN — kemajuan pengecekan yang bisa dicicil (0142)
+   ========================================================= */
+.recv-kemajuan {
+  background: var(--color-bg);
+  border-left: 3px solid var(--color-warning, #e0a800);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  font-size: 0.84rem;
+}
+.recv-kemajuan-siap {
+  border-left-color: var(--color-primary);
+}
+.recv-kemajuan-belum {
+  font-size: 0.76rem;
+  color: var(--color-text-muted);
+  margin-top: 3px;
+}
+
+/* Jejak "dicek siapa" duduk di bawah kotak isian, bukan di kolom sendiri —
+   kolom tambahan akan mendorong tabel ini melewati lebar layar HP, dan tabel
+   terima sudah punya lima kolom. */
+.recv-jejak {
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+/* "= dikirim" adalah TAUTAN, bukan tombol berkotak: tombol berkotak di dalam
+   sel tabel menuntut lebar sendiri dan sudah pernah melebarkan halaman. */
+.btn-samakan {
+  display: inline;
+  border: none;
+  background: none;
+  padding: 0;
+  margin-left: 6px;
+  font: inherit;
+  font-size: 0.7rem;
+  color: var(--color-primary);
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 /* ---- Shift / Jadwal ---- */

@@ -7,6 +7,7 @@ import { createItemPicker } from './item-picker.js';
 import { saringTabel } from './saring-tabel.js';
 import { keadaanOrderKeCk, labelTombolDraft, pesanKeadaan } from './draft-outlet.js';
 import { petaDraftPerOrder, keadaanOrder, ringkasOrder } from './order-draft.js';
+import { ringkasCek, teksKemajuan, pengecekTerakhir, muatanCek } from './cek-kiriman.js';
 import {
   buatDraftKiriman,
   ubahDraftKiriman,
@@ -14,6 +15,7 @@ import {
   kirimDraftKiriman,
   listDraftKiriman,
   receiveDispatch,
+  simpanCekKiriman,
   listIncomingDispatches,
   getDispatchItems,
   lengkapiKeteranganKiriman,
@@ -1409,6 +1411,11 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
             <div style="font-size:0.78rem;color:var(--color-text-muted)">${fmtDateTime(d.created_at)} · oleh ${esc(d.user_profiles?.full_name ?? '-')} · ketuk untuk terima ▾</div>
           </button>
           <div class="recv-body" hidden style="margin-top:10px">
+            <div class="recv-kemajuan" data-kemajuan="${d.id}"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px">
+              <button class="btn-semua-sesuai" data-id="${d.id}">✓ Semua sesuai kiriman</button>
+              <button class="btn-kosongkan-cek" data-id="${d.id}">↺ Kosongkan</button>
+            </div>
             ${
               items.length > 5
                 ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
@@ -1437,7 +1444,23 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                       <td data-label="Dikirim">${
                         nol ? `<strong style="color:var(--color-danger)">0</strong> ${satuan}` : `${formatNum(it.sent_qty)} ${satuan}`
                       }</td>
-                      <td data-label="Diterima"><input type="number" class="recv-input isian-sempit" min="0" data-item="${it.id}" value="${round(it.sent_qty)}" /></td>
+                      <td data-label="Diterima">
+                        <!-- KOTAKNYA MULAI KOSONG (0142).
+                             Sebelumnya ia terisi angka kiriman, jadi "belum
+                             dicek" tidak bisa dibedakan dari "dicek dan pas".
+                             Nilai yang ADA di sini hanya datang dari hasil cek
+                             yang sudah tersimpan — hitungan orang, bukan
+                             tebakan layar. -->
+                        <input type="number" class="recv-input isian-sempit" min="0" data-item="${it.id}"
+                               data-kirim="${round(it.sent_qty)}" placeholder="belum dicek"
+                               value="${it.dicek_qty == null ? '' : round(it.dicek_qty)}" />
+                        <button type="button" class="btn-samakan" data-item="${it.id}" title="Isi sama dengan jumlah yang dikirim">= dikirim</button>
+                        ${
+                          it.pengecek?.full_name
+                            ? `<div class="recv-jejak">dicek ${esc(it.pengecek.full_name)}</div>`
+                            : ''
+                        }
+                      </td>
                       <td data-label="Keterangan">${
                         // Keterangan dari CK TIDAK bisa ditimpa — ia keterangan
                         // pengirim. Yang kosong boleh dilengkapi outlet, persis
@@ -1460,6 +1483,12 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                 : ''
             }
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+              <!-- SIMPAN SEMENTARA mendahului tombol Terima, sengaja.
+                   Yang paling sering dibutuhkan saat pengecekan dicicil adalah
+                   menyimpan tanpa menutup SJ — dan tombol yang lebih jarang
+                   dipakai tidak boleh berdiri di tempat yang lebih mudah
+                   terpencet. -->
+              <button class="btn-save-cek" data-id="${d.id}" style="max-width:220px">💾 Simpan Sementara</button>
               <button class="primary btn-save-receive" data-id="${d.id}" style="max-width:220px">Simpan (Terima)</button>
               <!-- SALAH ALAMAT: penerima juga boleh menolak (0133).
                    Sampai 0133 tidak ada tombol ini sama sekali — kiriman yang
@@ -1487,6 +1516,100 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         kartu.querySelector('.recv-cari-bahan'),
         kartu.querySelectorAll('tbody tr[data-nama]'),
         kartu.querySelector('.recv-cari-info')
+      )
+    );
+
+    // ---- Kemajuan pengecekan, dihitung dari APA YANG DILIHAT ORANGNYA ----
+    //
+    // Nilai yang sedang diketik menang atas yang tersimpan: kalau layar
+    // menghitung dari server saja, ia akan berkata "3 belum dicek" sementara
+    // ketiganya sudah terisi di depan mata orangnya.
+    const itemsPer = new Map(incoming.map((d, i) => [d.id, itemsByDispatch[i]]));
+
+    function isianKartu(kartu) {
+      const peta = new Map();
+      for (const el of kartu.querySelectorAll('.recv-input')) peta.set(el.dataset.item, el.value);
+      return peta;
+    }
+
+    function gambarKemajuan(kartu) {
+      const id = kartu.dataset.dispatch;
+      const items = itemsPer.get(id) ?? [];
+      const r = ringkasCek(items, isianKartu(kartu));
+      const el = kartu.querySelector(`[data-kemajuan="${id}"]`);
+      if (!el) return;
+      const jejak = pengecekTerakhir(items, (t) => fmtDateTime(t));
+      el.className = `recv-kemajuan${r.selesai ? ' recv-kemajuan-siap' : ''}`;
+      el.innerHTML =
+        `<strong>${esc(teksKemajuan(r, jejak))}</strong>` +
+        (r.belum
+          ? `<div class="recv-kemajuan-belum">Belum dicek: ${esc(r.namaBelum.slice(0, 6).join(', '))}${
+              r.namaBelum.length > 6 ? `, +${r.namaBelum.length - 6} lagi` : ''
+            }</div>`
+          : r.susut
+          ? `<div class="recv-kemajuan-belum">Selisih kurang dari kiriman: ${formatNum(r.susut)}</div>`
+          : '');
+    }
+
+    box.querySelectorAll('[data-dispatch]').forEach((kartu) => {
+      gambarKemajuan(kartu);
+      kartu.addEventListener('input', (e) => {
+        if (e.target.classList.contains('recv-input')) gambarKemajuan(kartu);
+      });
+    });
+
+    // "= dikirim" per baris, dan "Semua sesuai kiriman" untuk seluruh SJ.
+    //
+    // Ini yang membuat kotak kosong tidak jadi siksaan: kiriman yang memang pas
+    // tetap selesai dalam satu ketukan. Bedanya, ketukan itu sekarang PERNYATAAN
+    // — bukan nilai bawaan yang tersimpan tanpa ada yang pernah melihatnya.
+    box.querySelectorAll('.btn-samakan').forEach((btn) =>
+      btn.addEventListener('click', () => {
+        const kartu = btn.closest('[data-dispatch]');
+        const input = kartu.querySelector(`.recv-input[data-item="${btn.dataset.item}"]`);
+        if (!input) return;
+        input.value = input.dataset.kirim;
+        gambarKemajuan(kartu);
+      })
+    );
+    box.querySelectorAll('.btn-semua-sesuai').forEach((btn) =>
+      btn.addEventListener('click', () => {
+        const kartu = btn.closest('[data-dispatch]');
+        // Baris yang SUDAH diisi tidak ditimpa: hitungan orang lain tidak boleh
+        // hilang hanya karena tombol borongan ditekan.
+        for (const el of kartu.querySelectorAll('.recv-input')) if (el.value.trim() === '') el.value = el.dataset.kirim;
+        gambarKemajuan(kartu);
+        toast('Baris yang belum terisi disamakan dengan jumlah kiriman.', 'info');
+      })
+    );
+    box.querySelectorAll('.btn-kosongkan-cek').forEach((btn) =>
+      btn.addEventListener('click', () => {
+        const kartu = btn.closest('[data-dispatch]');
+        for (const el of kartu.querySelectorAll('.recv-input')) el.value = '';
+        gambarKemajuan(kartu);
+      })
+    );
+
+    // ---- SIMPAN SEMENTARA ----
+    box.querySelectorAll('.btn-save-cek').forEach((btn) =>
+      btn.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const kartu = btn.closest('[data-dispatch]');
+          try {
+            const ket = [...kartu.querySelectorAll('.recv-ket-input')].map((el) => ({ item_id: el.dataset.item, keterangan: el.value }));
+            try {
+              await lengkapiKeteranganKiriman(btn.dataset.id, ket);
+            } catch {
+              // Keterangan adalah catatan; hitungannya yang penting.
+            }
+            const hasil = await simpanCekKiriman(btn.dataset.id, muatanCek(isianKartu(kartu)));
+            toast(`Tersimpan sementara — ${hasil.dicek ?? 0} dari ${hasil.total ?? 0} bahan sudah dicek. Stok belum bergerak.`, 'success');
+            await renderIncoming();
+          } catch (error) {
+            toast(error.message ?? 'Gagal menyimpan hasil cek.', 'error');
+          }
+        }, { teks: 'Menyimpan…' })
       )
     );
 
@@ -1537,7 +1660,47 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     box.querySelectorAll('.btn-save-receive').forEach((btn) =>
       btn.addEventListener('click', async () => {
         const card = btn.closest('[data-dispatch]');
-        const items = [...card.querySelectorAll('.recv-input')].map((el) => ({ item_id: el.dataset.item, received_qty: Number(el.value) }));
+        const isian = isianKartu(card);
+
+        // BARIS YANG BELUM DICEK TIDAK PERNAH DITEBAK.
+        //
+        // Dulu kotaknya terisi angka kiriman, jadi menekan Terima tanpa
+        // menghitung apa pun menghasilkan catatan yang sama persis dengan
+        // hitungan yang teliti. Sekarang yang kosong DITANYAKAN — dan dua
+        // jawabannya sama-sama sah; yang tidak sah adalah memilihkannya tanpa
+        // memberi tahu.
+        const r = ringkasCek(itemsPer.get(btn.dataset.id) ?? [], isian);
+        if (r.belum) {
+          const daftar = r.namaBelum.slice(0, 8).join(', ') + (r.namaBelum.length > 8 ? `, +${r.namaBelum.length - 8} lagi` : '');
+          const pilih = await formDialog({
+            title: `${r.belum} bahan belum dicek`,
+            description: `Belum ada hitungannya: ${daftar}. Bagaimana baris-baris itu dicatat?`,
+            fields: [
+              {
+                name: 'aksi',
+                label: 'Untuk bahan yang belum dicek',
+                type: 'select',
+                value: 'batal',
+                options: [
+                  { value: 'batal', label: 'Batal — saya cek dulu' },
+                  { value: 'sesuai', label: 'Tandai diterima SESUAI jumlah kiriman' },
+                  { value: 'nol', label: 'Tandai diterima 0 (barangnya tidak ada)' }
+                ]
+              }
+            ],
+            submitText: 'Lanjut'
+          });
+          if (!pilih || pilih.aksi === 'batal') return;
+          for (const el of card.querySelectorAll('.recv-input')) {
+            if (el.value.trim() !== '') continue;
+            el.value = pilih.aksi === 'sesuai' ? el.dataset.kirim : '0';
+          }
+          gambarKemajuan(card);
+          isian.clear();
+          for (const [k, v] of isianKartu(card)) isian.set(k, v);
+        }
+
+        const items = muatanCek(isian).map((i) => ({ item_id: i.item_id, received_qty: i.dicek_qty, dicek_qty: i.dicek_qty }));
         const ket = [...card.querySelectorAll('.recv-ket-input')].map((el) => ({ item_id: el.dataset.item, keterangan: el.value }));
         btn.disabled = true;
         try {

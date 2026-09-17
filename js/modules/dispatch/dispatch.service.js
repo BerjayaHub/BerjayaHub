@@ -224,6 +224,20 @@ export async function kirimDraftKiriman(dispatchId) {
  * Selisih yang tidak pernah dikatakan akan ditemukan berminggu-minggu kemudian
  * sebagai angka opname yang tidak bisa dijelaskan.
  */
+/**
+ * SIMPAN SEMENTARA — cicilan pengecekan (0142).
+ *
+ * Tidak menutup SJ dan tidak menggerakkan satu gram stok pun. Penyimpanannya
+ * PER BARIS, jadi dua staff yang mengecek bagian berbeda dari satu SJ tidak
+ * saling menimpa, dan pekerjaan yang setengah jadi tidak hilang saat halamannya
+ * ditutup atau HP-nya berpindah tangan.
+ */
+export async function simpanCekKiriman(dispatchId, items) {
+  const { data, error } = await supabase.rpc('simpan_cek_kiriman', { p_dispatch: dispatchId, p_items: items });
+  if (error) throw error;
+  return data ?? {};
+}
+
 export async function receiveDispatch(dispatchId, items) {
   const { data, error } = await supabase.rpc('receive_dispatch', {
     p_dispatch: dispatchId,
@@ -285,7 +299,13 @@ export async function getDispatchItems(dispatchId) {
     .from('dispatch_items')
     // `keterangan` & `ordered_qty` ikut sejak 0132: baris ber-qty kirim 0 harus
     // bisa menjawab sendiri "berapa yang sebenarnya diminta" dan "kenapa nol".
-    .select('id, sent_qty, received_qty, product_id, keterangan, ordered_qty, products(name, base_unit)')
+    // `dicek_*` ikut sejak 0142: hasil pengecekan yang dicicil, siapa yang
+    // menghitungnya, dan kapan. `dicek_qty` NULL berarti BELUM DICEK — bukan
+    // nol, dan bukan "sesuai kiriman".
+    .select(
+      'id, sent_qty, received_qty, product_id, keterangan, ordered_qty, dicek_qty, dicek_at, ' +
+        'pengecek:user_profiles!dicek_by(full_name), products(name, base_unit)'
+    )
     .eq('dispatch_id', dispatchId);
   if (error) {
     // MIGRATION 0132 BELUM DIJALANKAN -> SELURUH ISI KIRIMAN MENGHILANG.
@@ -294,7 +314,7 @@ export async function getDispatchItems(dispatchId) {
     // yang hilang bukan kolom itu melainkan seluruh daftar barangnya — berikut
     // kotak isian terima. Jeda antara push dan menjalankan migration itu wajar
     // dan sudah pernah menggigit persis begini di 0122.
-    if (!/column .* does not exist|keterangan|ordered_qty/i.test(error.message ?? '')) throw error;
+    if (!/column .* does not exist|keterangan|ordered_qty|dicek_qty|dicek_at|dicek_by/i.test(error.message ?? '')) throw error;
     const ulang = await supabase
       // baris-terbatas: item SATU dokumen kiriman.
       .from('dispatch_items')
