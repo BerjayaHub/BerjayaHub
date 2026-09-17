@@ -822,6 +822,14 @@ button.primary:active { transform: translateY(1px); }
   margin: 6px 0 0;
 }
 
+/* Baris pemetaan ESB yang belum punya padanan. Sudah naik ke atas urutannya;
+   sorotan ini yang membuatnya tetap terlihat sesudah orangnya mengetik di
+   kotak cari — hasil pencarian mencampur yang sudah dan belum dipetakan. */
+.data-table tr.esb-belum td:first-child {
+  border-left: 3px solid var(--color-danger);
+  font-weight: 600;
+}
+
 /* =========================================================
    TERIMA KIRIMAN — kemajuan pengecekan yang bisa dicicil (0142)
    ========================================================= */

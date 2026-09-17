@@ -6733,3 +6733,33 @@ Stok tetap bergerak **sekali**, di `receive_dispatch`, seperti sebelumnya. Alter
 3. **Kelas tombol diganti nama** jadi `btn-save-cek-nonaktif` — nama lama masih jadi **awalan** nama barunya, jadi `indexOf` tetap menemukannya. Jebakan yang persis sama sudah meloloskan sabotase kebijakan `cash_entries_select_bu_admin` di `0141`; auditnya kini menyebut kelasnya berikut tanda kutip penutupnya.
 
 - [x] **Pengecekan kiriman bisa dicicil** (`0142`) — 30 sabotase
+
+## Delapan baris di antara enam ratus empat puluh tujuh
+
+> "yang bagian 'Unduh' saya ingin ada di paling atas, setelahnya 'Daftar induk ESB' lalu 'pemetaan'. dibagian pemetaan, saya ingin otomatis sort ke bagian yang belum dipetakan berada di paling atas, lalu berikan filter nama agar mudah mencari nama item nya"
+
+**Tidak perlu migration.**
+
+### Urutan langkah mengikuti seberapa sering dikerjakan
+
+Impor daftar induk dan pemetaan adalah **penyiapan** — dikerjakan sekali, saat ESB berubah. Yang dikerjakan **tiap periode** adalah mengunduhnya. Menaruh dua langkah penyiapan di atasnya berarti menggulir melewati pekerjaan yang sudah selesai, setiap kali.
+
+Urutannya kini **1. Unduh → 2. Daftar induk ESB → 3. Pemetaan**, dan kalimat *"pemetaan di langkah 2 tidak ikut terhapus"* ikut diperbarui jadi langkah 3 — nomor yang tertinggal menunjuk langkah yang salah, dan auditnya menjaga keduanya bergerak bersama.
+
+### Lencananya sudah menyebut jumlahnya; yang kurang cara sampai ke barisnya
+
+Kelompok Item berisi **647 baris**, dan yang belum dipetakan **delapan**. Lencana "8 belum dipetakan" sudah ada sejak dulu — tapi delapan baris yang tersebar di antara 639 baris lain praktis mustahil ditemukan dengan menggulir. Dan justru delapan itu yang membuat dokumennya tidak ikut terunduh.
+
+Sekarang yang belum dipetakan **naik ke atas**, dan di dalam tiap kelompok diurut **alfabetis**. Alfabetisnya bukan hiasan: tanpa itu, 639 baris yang sudah dipetakan mengikuti urutan datangnya dari database — yang tidak dijamin sama antar pemuatan, jadi mencari satu nama berarti menyisir ulang seluruh daftar tiap kali.
+
+**Diurut saat digambar, bukan saat dipetakan.** Baris yang baru saja dipilih padanannya **tidak melompat turun** — ia baru saja disentuh, dan barisnya lenyap dari bawah jari orangnya. Untuk 647 baris itu bukan gangguan kecil. Urutannya menyesuaikan diri saat halaman digambar ulang.
+
+Ditambah sorotan merah di baris yang belum dipetakan: sesudah orangnya mengetik di kotak cari, hasilnya mencampur yang sudah dan belum — dan urutan saja tidak lagi cukup membedakan.
+
+### Pencariannya menyembunyikan, bukan menggambar ulang
+
+Kotak cari muncul di tiap kelompok yang lebih dari 8 baris, mencocokkan **kedua sisi** — nama Berjaya Hub maupun nama ESB-nya, tergantung mana yang sedang dipegang orangnya.
+
+Ia memakai `saringTabel` dari modul Pengiriman, dan alasannya penting: penyaring itu **menyembunyikan** baris, tidak menggambar ulang tabelnya. Baris pemetaan memuat `<select>` yang sudah dipasangi penangan `change`; menggambar ulang akan membuangnya dari DOM, dan **pemetaan berhenti tersimpan tanpa satu pun error**. Sabotase untuk itu ada dan tertangkap.
+
+- [x] **Ekspor ESB: Unduh di atas, yang belum dipetakan naik & bisa dicari** — 18 sabotase

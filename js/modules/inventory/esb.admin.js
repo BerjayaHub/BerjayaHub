@@ -23,6 +23,13 @@ import { loadXLSX } from '../../core/xlsx.js';
 import { listProducts } from '../product/product.service.js';
 import { sayaAdminBu } from '../../core/base-scope.js';
 import { KOLOM_ESB, JENIS_PETA, buatPeta, barisEsbPurchase, ringkasEkspor } from './esb-purchase.js';
+import { susunBarisPemetaan, perluCari } from './urut-pemetaan.js';
+// `saringTabel` tinggal di modul Pengiriman karena di sanalah ia lahir, dan
+// aturannya — MENYEMBUNYIKAN baris, bukan menggambar ulang — persis yang
+// dibutuhkan di sini: baris pemetaan memuat `<select>` yang sudah dipasangi
+// penangan `change`. Memindahkannya ke `core/` berarti menyentuh tiga berkas
+// verifikasi yang sudah hijau tanpa satu pun perubahan perilaku.
+import { saringTabel } from '../dispatch/saring-tabel.js';
 import { KOLOM_TRANSFER, barisEsbTransfer, ringkasTransfer } from './esb-transfer.js';
 import {
   listEsbMaster,
@@ -138,11 +145,6 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
     item: [...new Set(produk.filter((p) => p.product_type === 'raw' || p.product_type === 'semi').map((p) => p.name))].sort()
   };
 
-  const belum = (j) => {
-    const m = petaPer(j);
-    return lokal[j].filter((k) => !m.has(normal(k)));
-  };
-
   container.innerHTML = `
     <h2 style="font-size:1.05rem">Ekspor ke ESB</h2>
     <p style="font-size:0.82rem;color:var(--color-text-muted);max-width:760px">
@@ -153,11 +155,38 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       sel kosong yang ditolak ESB belakangan.
     </p>
 
+    <!-- UNDUH DI PALING ATAS.
+         Impor & pemetaan adalah pekerjaan PENYIAPAN — dikerjakan sekali saat
+         ESB berubah. Yang dikerjakan berulang setiap periode adalah
+         mengunduhnya. Menaruh dua langkah penyiapan di atasnya berarti
+         menggulir melewati pekerjaan yang sudah selesai, setiap kali. -->
     <div class="inline-card" style="max-width:820px">
-      <h3 style="margin-top:0;font-size:0.95rem">1. Daftar induk ESB</h3>
+      <h3 style="margin-top:0;font-size:0.95rem">1. Unduh</h3>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="field" style="margin:0"><label>Jenis dokumen</label>
+          <select id="esb-dokumen">
+            <option value="purchase">Simple Purchase — nota supplier</option>
+            <option value="transfer">Simple Transfer — kiriman antar-outlet</option>
+          </select>
+        </div>
+        <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="esb-from" value="${range.from}" /></div>
+        <div class="field" style="margin:0"><label>Sampai tanggal</label><input type="date" id="esb-to" value="${range.to}" /></div>
+        <div class="field" style="margin:0"><label>Outlet</label>
+          <select id="esb-outlet"><option value="">Semua outlet</option>${outlets
+            .map((o) => `<option value="${o.id}">${esc(o.name)}</option>`)
+            .join('')}</select>
+        </div>
+        <button class="primary" id="esb-pratinjau" style="max-width:140px">Pratinjau</button>
+      </div>
+      <p style="font-size:0.8rem;color:var(--color-text-muted);margin:8px 0 0" id="esb-dokumen-ket"></p>
+      <div id="esb-hasil" style="margin-top:10px"></div>
+    </div>
+
+    <div class="inline-card" style="max-width:820px;margin-top:12px">
+      <h3 style="margin-top:0;font-size:0.95rem">2. Daftar induk ESB</h3>
       <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 8px">
         Unggah berkas <em>ekspor dari ESB</em> apa adanya — Master Branch, Master Unit of Material, Master Product Data.
-        Diimpor ulang kapan pun ESB berubah; <strong>pemetaan di langkah 2 tidak ikut terhapus</strong>.
+        Diimpor ulang kapan pun ESB berubah; <strong>pemetaan di langkah 3 tidak ikut terhapus</strong>.
       </p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <input type="file" id="esb-file" accept=".xlsx,.xls" />
@@ -178,32 +207,10 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
 
     <div class="inline-card" style="max-width:820px;margin-top:12px">
       <div class="page-header" style="margin-bottom:6px">
-        <h3 style="margin:0;font-size:0.95rem">2. Pemetaan</h3>
+        <h3 style="margin:0;font-size:0.95rem">3. Pemetaan</h3>
         <button id="esb-cocokkan" title="Cocokkan otomatis berdasarkan kemiripan nama">⚡ Cocokkan otomatis</button>
       </div>
       <div id="esb-peta"></div>
-    </div>
-
-    <div class="inline-card" style="max-width:820px;margin-top:12px">
-      <h3 style="margin-top:0;font-size:0.95rem">3. Unduh</h3>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-        <div class="field" style="margin:0"><label>Jenis dokumen</label>
-          <select id="esb-dokumen">
-            <option value="purchase">Simple Purchase — nota supplier</option>
-            <option value="transfer">Simple Transfer — kiriman antar-outlet</option>
-          </select>
-        </div>
-        <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="esb-from" value="${range.from}" /></div>
-        <div class="field" style="margin:0"><label>Sampai tanggal</label><input type="date" id="esb-to" value="${range.to}" /></div>
-        <div class="field" style="margin:0"><label>Outlet</label>
-          <select id="esb-outlet"><option value="">Semua outlet</option>${outlets
-            .map((o) => `<option value="${o.id}">${esc(o.name)}</option>`)
-            .join('')}</select>
-        </div>
-        <button class="primary" id="esb-pratinjau" style="max-width:140px">Pratinjau</button>
-      </div>
-      <p style="font-size:0.8rem;color:var(--color-text-muted);margin:8px 0 0" id="esb-dokumen-ket"></p>
-      <div id="esb-hasil" style="margin-top:10px"></div>
     </div>
   `;
 
@@ -259,18 +266,32 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
     box.innerHTML = JENIS_PETA.map((j) => {
       const m = petaPer(j);
       const pilihan = masterPer(j);
-      const kurang = belum(j).length;
+      // YANG BELUM DIPETAKAN NAIK KE ATAS.
+      //
+      // Kelompok Item berisi 647 baris dan yang belum dipetakan delapan.
+      // Lencana "8 belum dipetakan" sudah menyebut jumlahnya sejak dulu; yang
+      // belum ada adalah cara sampai ke barisnya.
+      const { baris, belum: kurang, total } = susunBarisPemetaan(lokal[j], (k) => m.get(normal(k)) ?? '');
       return `
         <details ${kurang ? 'open' : ''} style="margin-bottom:6px">
           <summary style="cursor:pointer;font-size:0.88rem">
             <strong>${LABEL_JENIS[j]}</strong> —
             ${kurang ? `<span class="nota-telat">${kurang} belum dipetakan</span>` : '<span class="nota-lunas">lengkap</span>'}
+            <span style="color:var(--color-text-muted);font-size:0.8rem">· ${total} baris</span>
           </summary>
+          ${
+            perluCari(total)
+              ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0">
+                   <input type="search" class="esb-cari" data-jenis="${j}" placeholder="Cari nama ${esc(LABEL_JENIS[j])}…"
+                          autocomplete="off" style="flex:1 1 220px;min-width:180px" />
+                   <span class="esb-cari-info" data-jenis="${j}" style="font-size:0.78rem;color:var(--color-text-muted)"></span>
+                 </div>`
+              : ''
+          }
           <div class="table-scroll"><table class="data-table kartu-sempit">
             <thead><tr><th>Berjaya Hub</th><th>ESB</th></tr></thead>
-            <tbody>${lokal[j]
-              .map((k) => {
-                const kini = m.get(normal(k)) ?? '';
+            <tbody data-baris="${j}">${baris
+              .map(({ kunci: k, nilai: kini, dipetakan }) => {
                 const opsi = pilihan.length
                   ? `<select class="esb-pilih" data-jenis="${j}" data-kunci="${esc(k)}">
                        <option value=""${kini ? '' : ' selected'}>— belum dipetakan —</option>
@@ -283,12 +304,28 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
                     // ikut tersandera oleh impor yang belum dilakukan.
                     `<input type="text" class="esb-ketik" data-jenis="${j}" data-kunci="${esc(k)}"
                             value="${esc(kini)}" placeholder="ketik nilai ESB" />`;
-                return `<tr><td data-label="Berjaya Hub">${esc(k)}</td><td data-label="ESB">${opsi}</td></tr>`;
+                // `data-nama` memuat KEDUA sisi: orang mencari lewat nama
+                // Berjaya Hub maupun nama ESB-nya, tergantung mana yang ia
+                // pegang saat itu.
+                return `<tr data-nama="${esc(k)} ${esc(kini)}"${dipetakan ? '' : ' class="esb-belum"'}>
+                          <td data-label="Berjaya Hub">${esc(k)}</td><td data-label="ESB">${opsi}</td>
+                        </tr>`;
               })
               .join('')}</tbody>
           </table></div>
         </details>`;
     }).join('');
+
+    // Pencarian MENYEMBUNYIKAN baris, tidak menggambar ulang tabelnya —
+    // barisnya memuat `<select>` yang nilainya sedang dipakai, dan baris yang
+    // lenyap dari DOM kehilangan penangan `change`-nya.
+    box.querySelectorAll('.esb-cari').forEach((kotak) =>
+      saringTabel(
+        kotak,
+        box.querySelectorAll(`tbody[data-baris="${kotak.dataset.jenis}"] tr`),
+        box.querySelector(`.esb-cari-info[data-jenis="${kotak.dataset.jenis}"]`)
+      )
+    );
 
     const simpan = async (el) => {
       try {
