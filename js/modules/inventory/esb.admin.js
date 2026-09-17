@@ -31,6 +31,15 @@ import { susunBarisPemetaan, perluCari } from './urut-pemetaan.js';
 // verifikasi yang sudah hijau tanpa satu pun perubahan perilaku.
 import { saringTabel } from '../dispatch/saring-tabel.js';
 import { KOLOM_TRANSFER, barisEsbTransfer, ringkasTransfer } from './esb-transfer.js';
+import { pasangFormatTanggal } from './tanggal-excel.js';
+import {
+  alasanSah,
+  jejakBatal,
+  susunDaftarBertanda,
+  hasilPembatalan,
+  PERINGATAN_ESB,
+  PANJANG_ALASAN_MIN
+} from './batal-tanda-esb.js';
 import {
   listEsbMaster,
   gantiEsbMaster,
@@ -39,7 +48,11 @@ import {
   notaUntukEsb,
   tandaiNotaEsb,
   kirimanUntukEsb,
-  tandaiKirimanEsb
+  tandaiKirimanEsb,
+  notaBertandaEsb,
+  kirimanBertandaEsb,
+  batalkanTandaEsb,
+  batalkanTandaKirimanEsb
 } from './esb.service.js';
 
 const esc = (s) =>
@@ -51,11 +64,36 @@ const LABEL_JENIS = {
   payment_method: 'Payment Method',
   coa: 'COANo',
   unit: 'Unit',
-  item: 'Item'
+  item: 'Item',
+  // Tiga di bawah ini BUKAN pemetaan — tidak ada dropdown untuk memperbaikinya.
+  // Ia muncul di tabel "belum dipetakan" karena tabel itulah satu-satunya
+  // tempat alasan sebuah dokumen tertahan bisa terbaca. Perbaikannya di nota
+  // atau kirimannya sendiri, dan labelnya menyebutkan itu.
+  tanggal: 'Tanggal nota (perbaiki di notanya)',
+  'tanggal-terima': 'Tanggal terima (perbaiki di kirimannya)',
+  harga: 'Harga satuan (perbaiki di notanya)',
+  'qty-terima': 'Qty diterima (perbaiki di kirimannya)'
 };
 
 /** Cara bayar lokal yang selalu perlu padanan, apa pun isi notanya. */
 const CARA_BAYAR = ['kas', 'tempo', 'pusat'];
+
+// `receipt_date` bertipe DATE dan datang sebagai 'YYYY-MM-DD'. Sufiks
+// 'T00:00:00' membuatnya dibaca sebagai waktu LOKAL — tanpa itu ia dibaca
+// sebagai UTC, dan tanggal nota bergeser satu hari mundur di layar orang WIB.
+const fmtTanggal = (d) => {
+  if (!d) return '-';
+  const t = new Date(`${String(d).slice(0, 10)}T00:00:00`);
+  return Number.isNaN(t.getTime()) ? String(d) : t.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+const fmtTanggalJam = (t) => {
+  if (!t) return '-';
+  const d = new Date(t);
+  return Number.isNaN(d.getTime())
+    ? String(t)
+    : d.toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+};
 
 /**
  * Dua jenis dokumen ESB, satu layar, **satu pemetaan**.
@@ -182,11 +220,45 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       <div id="esb-hasil" style="margin-top:10px"></div>
     </div>
 
+    <!-- JALAN KELUARNYA, DI TEMPAT YANG BISA DITEMUKAN.
+         Fungsinya ada di database sejak 0127, dan komentar di sana sendiri
+         menulis bahwa tanpa jalan keluar ini satu-satunya cara adalah SQL
+         Editor — "itu bukan jalan keluar; itu ketiadaan jalan keluar". Lalu
+         layarnya tidak pernah dibuat, jadi jalan keluarnya memang tetap SQL
+         Editor sampai hari ini.
+
+         Ditaruh di urutan KEDUA, bukan di dasar halaman: yang membukanya
+         sedang menunggu jawaban staff yang tidak bisa memperbaiki notanya. -->
     <div class="inline-card" style="max-width:820px;margin-top:12px">
-      <h3 style="margin-top:0;font-size:0.95rem">2. Daftar induk ESB</h3>
+      <h3 style="margin-top:0;font-size:0.95rem">2. Batalkan tanda ekspor</h3>
+      <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 8px">
+        Nota atau kiriman yang sudah diekspor <strong>terkunci isinya</strong> — staff tidak bisa memperbaikinya.
+        Buka tandanya di sini supaya bisa diperbaiki, lalu unggah ulang berkasnya.
+      </p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="field" style="margin:0"><label>Jenis dokumen</label>
+          <select id="batal-dokumen">
+            <option value="purchase">Nota supplier</option>
+            <option value="transfer">Kiriman antar-outlet</option>
+          </select>
+        </div>
+        <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="batal-from" value="${range.from}" /></div>
+        <div class="field" style="margin:0"><label>Sampai tanggal</label><input type="date" id="batal-to" value="${range.to}" /></div>
+        <div class="field" style="margin:0"><label>Outlet</label>
+          <select id="batal-outlet"><option value="">Semua outlet</option>${outlets
+            .map((o) => `<option value="${o.id}">${esc(o.name)}</option>`)
+            .join('')}</select>
+        </div>
+        <button class="primary" id="batal-cari" style="max-width:220px">Tampilkan yang sudah diekspor</button>
+      </div>
+      <div id="batal-hasil" style="margin-top:10px"></div>
+    </div>
+
+    <div class="inline-card" style="max-width:820px;margin-top:12px">
+      <h3 style="margin-top:0;font-size:0.95rem">3. Daftar induk ESB</h3>
       <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 8px">
         Unggah berkas <em>ekspor dari ESB</em> apa adanya — Master Branch, Master Unit of Material, Master Product Data.
-        Diimpor ulang kapan pun ESB berubah; <strong>pemetaan di langkah 3 tidak ikut terhapus</strong>.
+        Diimpor ulang kapan pun ESB berubah; <strong>pemetaan di langkah 4 tidak ikut terhapus</strong>.
       </p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <input type="file" id="esb-file" accept=".xlsx,.xls" />
@@ -207,7 +279,7 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
 
     <div class="inline-card" style="max-width:820px;margin-top:12px">
       <div class="page-header" style="margin-bottom:6px">
-        <h3 style="margin:0;font-size:0.95rem">3. Pemetaan</h3>
+        <h3 style="margin:0;font-size:0.95rem">4. Pemetaan</h3>
         <button id="esb-cocokkan" title="Cocokkan otomatis berdasarkan kemiripan nama">⚡ Cocokkan otomatis</button>
       </div>
       <div id="esb-peta"></div>
@@ -255,6 +327,139 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       } catch (e) {
         errEl.textContent = e.message ?? 'Gagal mengimpor.';
       }
+    })
+  );
+
+  // ---------------------------------------------------------------
+  // 1b. Batalkan tanda ekspor
+  // ---------------------------------------------------------------
+  container.querySelector('#batal-cari').addEventListener(
+    'click',
+    sekaliJalan(async () => {
+      const box = container.querySelector('#batal-hasil');
+      box.innerHTML = loadingHtml('Mencari…', { baris: 3 });
+      const jenis = container.querySelector('#batal-dokumen').value;
+      const from = container.querySelector('#batal-from').value;
+      const to = container.querySelector('#batal-to').value;
+      const outletId = container.querySelector('#batal-outlet').value || null;
+      const satuan = jenis === 'transfer' ? 'kiriman' : 'nota';
+
+      let baris = [];
+      try {
+        baris =
+          jenis === 'transfer'
+            ? await kirimanBertandaEsb({ businessUnitId, from, to, outletId })
+            : await notaBertandaEsb({ businessUnitId, from, to, outletId });
+      } catch (e) {
+        box.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
+        return;
+      }
+
+      // Disaring lewat modul murni, bukan dipercaya apa adanya dari query.
+      // Baris yang tandanya sudah dibuka orang lain sedetik yang lalu masih
+      // bisa ikut terbawa, dan menampilkannya sebagai "bisa dibatalkan" cuma
+      // menghasilkan "0 dari 3 terbuka" yang membingungkan.
+      const daftar = susunDaftarBertanda(baris);
+      if (!daftar.length) {
+        box.innerHTML = `<p style="color:var(--color-text-muted);font-size:0.88rem">Tidak ada ${esc(satuan)} bertanda ekspor di rentang itu.</p>`;
+        return;
+      }
+
+      box.innerHTML = `
+        <p class="nota-total-kurang" style="margin:0 0 8px">⚠ ${esc(PERINGATAN_ESB)}</p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 8px">
+          <input type="search" id="batal-cari-kode" placeholder="Cari kode ${esc(satuan)}…" autocomplete="off"
+                 style="flex:1 1 220px;min-width:180px" />
+          <span id="batal-cari-info" style="font-size:0.78rem;color:var(--color-text-muted)"></span>
+        </div>
+        <div class="table-scroll" style="margin-bottom:8px"><table class="data-table kartu-sempit">
+          <thead><tr><th style="width:34px"></th><th>Kode</th><th>Tanggal</th><th>Outlet</th><th>Diekspor</th></tr></thead>
+          <tbody id="batal-baris">${daftar
+            .map((r) => {
+              const jejak = jejakBatal(r, fmtTanggalJam);
+              return (
+                `<tr data-nama="${esc(r.code)} ${esc(r.supplier ?? '')} ${esc(r.outlet_name)}">` +
+                `<td><input type="checkbox" class="batal-pilih" value="${esc(r.id)}" /></td>` +
+                `<td data-label="Kode">${esc(r.code ?? '')}${r.supplier ? `<br><span style="font-size:0.78rem;color:var(--color-text-muted)">${esc(r.supplier)}</span>` : ''}</td>` +
+                `<td data-label="Tanggal">${esc(fmtTanggal(r.receipt_date))}</td>` +
+                `<td data-label="Outlet" style="font-size:0.82rem">${esc(r.outlet_name)}</td>` +
+                `<td data-label="Diekspor" style="font-size:0.8rem">${esc(fmtTanggalJam(r.esb_exported_at))}${
+                  // Jejak pembatalan LAMA ditampilkan apa adanya sebagai
+                  // "pernah dibuka, lalu diekspor lagi". Menampilkannya sebagai
+                  // "tandanya terbuka" akan membuat orangnya membukanya lagi.
+                  jejak
+                    ? `<br><span style="font-size:0.76rem;color:var(--color-text-muted)">pernah dibuka ${esc(jejak.waktu)} oleh ${esc(jejak.oleh)}${
+                        jejak.alasan ? ` — ${esc(jejak.alasan)}` : ''
+                      }, lalu diekspor lagi</span>`
+                    : ''
+                }</td></tr>`
+              );
+            })
+            .join('')}</tbody>
+        </table></div>
+        <div class="field" style="margin:0 0 8px">
+          <label for="batal-alasan">Alasan (wajib, minimal ${PANJANG_ALASAN_MIN} huruf)</label>
+          <textarea id="batal-alasan" rows="2" placeholder="mis. berkasnya ditolak ESB, belum masuk ke sana"></textarea>
+        </div>
+        <button class="btn-danger" id="batal-jalankan" style="max-width:280px">Batalkan tanda yang dicentang</button>
+        <p class="error-text" id="batal-error" style="margin:8px 0 0"></p>
+      `;
+
+      // Pencariannya MENYEMBUNYIKAN barisnya, tidak menggambar ulang — sama
+      // seperti di pemetaan. Baris di sini memuat checkbox yang sudah dicentang
+      // orangnya; menggambar ulang akan membuang centangnya diam-diam, dan
+      // yang hilang dari DOM tidak ikut terkirim.
+      saringTabel(
+        box.querySelector('#batal-cari-kode'),
+        box.querySelectorAll('#batal-baris tr'),
+        box.querySelector('#batal-cari-info')
+      );
+
+      box.querySelector('#batal-jalankan').addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const errEl = box.querySelector('#batal-error');
+          errEl.textContent = '';
+          // Dibaca dari SELURUH tbody, bukan dari baris yang terlihat: baris
+          // yang disembunyikan penyaring tetap ada di DOM dan centangnya tetap
+          // sah. Membaca yang terlihat saja akan diam-diam melewatkannya.
+          const ids = [...box.querySelectorAll('#batal-baris .batal-pilih:checked')].map((c) => c.value);
+          if (!ids.length) {
+            errEl.textContent = `Centang dulu ${satuan} yang mau dibuka tandanya.`;
+            return;
+          }
+          const periksa = alasanSah(box.querySelector('#batal-alasan').value);
+          if (!periksa.boleh) {
+            errEl.textContent = periksa.sebab;
+            return;
+          }
+          const setuju = await confirmDialog({
+            title: `Buka tanda ekspor ${ids.length} ${satuan}?`,
+            message: `${PERINGATAN_ESB}\n\nAlasan: ${periksa.alasan}`,
+            confirmText: 'Ya, buka tandanya',
+            danger: true
+          });
+          if (!setuju) return;
+
+          try {
+            const n =
+              jenis === 'transfer'
+                ? await batalkanTandaKirimanEsb(ids, periksa.alasan)
+                : await batalkanTandaEsb(ids, periksa.alasan);
+            // Angka dari database DIBANDINGKAN dengan yang dicentang. Baris
+            // milik BU lain, atau yang tandanya sudah dibuka orang lain sejak
+            // halaman ini dimuat, dilewati tanpa melempar galat apa pun —
+            // melaporkan "berhasil" begitu saja membuat admin mengira semuanya
+            // terbuka, lalu staff menabrak dinding yang sama besok.
+            const hasil = hasilPembatalan(ids.length, n);
+            toast(hasil.pesan, hasil.nada);
+          } catch (e) {
+            errEl.textContent = e.message ?? 'Gagal membatalkan tanda.';
+            return;
+          }
+          container.querySelector('#batal-cari').click();
+        })
+      );
     })
   );
 
@@ -480,7 +685,7 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
                    );
                  })
                  .join('')}</tbody></table></div>
-             <p class="nota-total-kurang" style="margin:0 0 8px">Petakan dulu di langkah 2, lalu tekan Pratinjau lagi.</p>`
+             <p class="nota-total-kurang" style="margin:0 0 8px">Beresi dulu yang di atas — yang berupa pemetaan di langkah 3, sisanya di nota/kirimannya sendiri — lalu tekan Pratinjau lagi.</p>`
           : ''
       }
       ${
@@ -523,10 +728,16 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
  * Tulis berkas .xlsx dengan header di BARIS 1, tanpa judul apa pun di atasnya.
  *
  * ESB membaca baris pertama sebagai nama kolom.
+ *
+ * Kolom Date-nya berisi nomor seri Excel (lihat `tanggal-excel.js`), dan di
+ * sinilah ia diberi format tampilan. Tanpa itu isinya benar tapi tampil sebagai
+ * `46266` — dan yang membuka berkasnya untuk memeriksa sebelum mengunggah akan
+ * mengira ekspornya rusak.
  */
 async function unduhEsb(kolom, baris, namaFile) {
   const XLSX = await loadXLSX();
   const ws = XLSX.utils.aoa_to_sheet([kolom, ...baris]);
+  pasangFormatTanggal(ws, kolom, baris.length, (c, r) => XLSX.utils.encode_cell({ c, r }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
   XLSX.writeFile(wb, `${namaFile}.xlsx`);

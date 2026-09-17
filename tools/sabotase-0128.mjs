@@ -136,8 +136,11 @@ sabotase(
 sabotase(
   'tanggal dipotong 10 huruf dari UTC — penerimaan dini hari jadi tanggal kemarin',
   MOD,
-  /const tanggal = tanggalWIB\(d\.received_at\);/,
-  'const tanggal = String(d.received_at ?? "").slice(0, 10);',
+  // Sejak tanggalnya dikirim sebagai sel tanggal Excel, barisnya berbunyi
+  // `serialTanggalExcel(tanggalWIB(...))`. Yang disabotase di sini tetap sama:
+  // langkah WIB-nya dilewati, jadi penerimaan dini hari mundur satu tanggal.
+  /const tanggal = serialTanggalExcel\(tanggalWIB\(d\.received_at\)\);/,
+  'const tanggal = serialTanggalExcel(String(d.received_at ?? "").slice(0, 10));',
   TES_MOD
 );
 
@@ -186,8 +189,15 @@ sabotase(
 sabotase(
   'batas tanggal timestamptz kehilangan offset WIB — kiriman sore hari terakhir hilang',
   SVC,
-  /\.lte\('received_at', isoTo\(to\)\)/,
-  ".lte('received_at', to)",
+  // DIJANGKARKAN ke `kirimanUntukEsb` lewat `.eq('status', 'received')` di
+  // atasnya. Tanpa jangkar itu, `replace` mengenai kemunculan PERTAMA — dan
+  // sejak `kirimanBertandaEsb` lahir di berkas yang sama dengan baris batas
+  // tanggal yang nyaris identik, kemunculan pertama bukan lagi fungsi yang
+  // sedang diuji di sini. Sabotasenya "terpasang", auditnya hijau, dan yang
+  // dirusak adalah fungsi sebelah. Jebakan yang sama sudah menggigit di berkas
+  // ini sebelumnya; lihat catatan di audit-esb-transfer.cjs.
+  /\.eq\('status', 'received'\)([\s\S]*?)\.lte\('received_at', isoTo\(to\)\)/,
+  ".eq('status', 'received')$1.lte('received_at', to)",
   AUDIT
 );
 

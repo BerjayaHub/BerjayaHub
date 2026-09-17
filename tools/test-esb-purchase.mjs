@@ -51,6 +51,21 @@ const TELUR = { product_name: 'Telur', base_unit: 'gr', qty: 100, unit_cost: 300
 // ---------------------------------------------------------------
 // 1. Bentuk templatenya
 // ---------------------------------------------------------------
+// Berkas ini SEMPAT hijau sambil mengirim tanggal sebagai tulisan, karena tidak
+// satu pun pemeriksaan di sini pernah melihat isi kolom Date. Bug-nya baru
+// ketahuan saat berkasnya ditolak ESB. Pemeriksaan di bawah ada supaya lubang
+// yang sama tidak terbuka dua kali; rinciannya di tools/test-tanggal-excel.mjs.
+uji('INTI: kolom Date berisi nomor seri Excel, bukan tulisan', () => {
+  const h = barisEsbPurchase({
+    notas: [nota({})],
+    itemsPerNota: new Map([['n1', [BERAS]]]),
+    peta
+  });
+  const sel = h.baris[0][K.Date];
+  assert.equal(typeof sel, 'number', `kolom Date berisi ${JSON.stringify(sel)} — ESB menolak tulisan`);
+  assert.equal(sel, 46270);
+});
+
 uji('INTI: 25 kolom, urutan & nama persis template ESB', () => {
   assert.equal(KOLOM_ESB.length, 25);
   assert.equal(KOLOM_ESB[0], 'Sequence');

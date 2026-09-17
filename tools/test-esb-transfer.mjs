@@ -14,6 +14,7 @@
 import assert from 'node:assert/strict';
 import { KOLOM_TRANSFER, barisEsbTransfer, ringkasTransfer } from '../js/modules/inventory/esb-transfer.js';
 import { buatPeta } from '../js/modules/inventory/esb-purchase.js';
+import { serialTanggalExcel } from '../js/modules/inventory/tanggal-excel.js';
 
 let lulus = 0;
 const uji = (nama, fn) => {
@@ -131,18 +132,24 @@ uji('semua qty terima nol: tidak ada dokumen sama sekali', () => {
 
 console.log('\n== §3 Tanggal ==');
 
-uji('Date = tanggal DITERIMA dalam WIB', () => {
+// Sel Date berisi NOMOR SERI Excel, bukan tulisan — template ESB menuntut sel
+// tanggal sungguhan, dan tulisan "2026-09-05" ditolaknya. Harinya tetap dipilih
+// menurut WIB; yang berubah cuma bentuk selnya. Lihat `tanggal-excel.js` dan
+// tools/test-tanggal-excel.mjs.
+uji('Date = tanggal DITERIMA dalam WIB, sebagai nomor seri Excel', () => {
   const h = barisEsbTransfer({ kiriman: [kiriman1()], itemsPerKiriman: items1(), peta: petaLengkap(), kodeItem: kodeItem() });
-  assert.equal(h.baris[0][K.Date], '2026-09-05');
+  assert.equal(h.baris[0][K.Date], serialTanggalExcel('2026-09-05'));
+  assert.equal(typeof h.baris[0][K.Date], 'number');
+  assert.notEqual(h.baris[0][K.Date], '2026-09-05');
 });
 
 uji('terima 00:30 WIB tidak dilaporkan sebagai kemarin', () => {
   // 2026-09-06 00:30 WIB tersimpan sebagai 2026-09-05T17:30:00Z.
-  // Memotong 10 huruf pertama akan menghasilkan 2026-09-05 — salah sehari.
+  // Membaca 10 huruf pertamanya akan menghasilkan 2026-09-05 — salah sehari.
   const d = { ...kiriman1(), received_at: '2026-09-05T17:30:00Z' };
   const h = barisEsbTransfer({ kiriman: [d], itemsPerKiriman: items1(), peta: petaLengkap(), kodeItem: kodeItem() });
-  assert.equal(h.baris[0][K.Date], '2026-09-06');
-  assert.notEqual(h.baris[0][K.Date], String(d.received_at).slice(0, 10));
+  assert.equal(h.baris[0][K.Date], serialTanggalExcel('2026-09-06'));
+  assert.notEqual(h.baris[0][K.Date], serialTanggalExcel(String(d.received_at).slice(0, 10)));
 });
 
 uji('tanpa received_at kirimannya ditahan', () => {

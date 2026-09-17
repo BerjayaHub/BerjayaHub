@@ -40,8 +40,18 @@
  * lengkap dengan nota mana yang terpengaruh. Layarnya wajib menampilkan itu dan
  * menolak mengunduh — bukan mengunduh berkas yang separuh kosong.
  *
- * Tidak ada impor di berkas ini, supaya bisa diuji tanpa Excel maupun browser.
+ * ============ KOLOM DATE BERISI ANGKA, BUKAN TULISAN ============
+ *
+ * Sel C2 template resmi ESB bertipe tanggal, bukan teks. Berjaya Hub dulu
+ * mengirim `"2026-09-01"` sebagai tulisan, dan ESB menolak berkasnya. Yang
+ * dikirim sekarang nomor seri Excel — lihat `tanggal-excel.js` untuk alasan
+ * angkanya dihitung sendiri alih-alih menyerahkan objek `Date` ke SheetJS.
+ *
+ * Satu-satunya impornya `serialTanggalExcel` (modul murni juga), supaya berkas
+ * ini tetap bisa diuji tanpa Excel maupun browser.
  */
+
+import { serialTanggalExcel } from './tanggal-excel.js';
 
 /**
  * Header template ESB, **berurutan**. Nama & urutannya harus persis.
@@ -159,6 +169,15 @@ export function barisEsbPurchase({ notas, itemsPerNota, peta, opsi = {} }) {
     if (!items.length) continue;
 
     const kode = teks(n.code) || teks(n.id);
+
+    // Tanggal yang tidak terbaca MENAHAN notanya, bukan dikosongkan.
+    //
+    // Sel Date yang kosong tidak ditolak ESB — ia diisi tanggal unggah. Jadi
+    // nota bulan lalu masuk sebagai pembelian hari ini, dan laporan bulan yang
+    // sudah ditutup ikut bergeser tanpa satu pun pesan kesalahan.
+    const tanggal = serialTanggalExcel(n.receipt_date);
+    if (tanggal === null) catat('tanggal', n.receipt_date, kode);
+
     const branch = padanan(peta.branch, n.outlet_name);
     const location = padanan(peta.location, n.outlet_name);
     // Metode bayar dipetakan dari SUMBER pembayarannya, bukan dari statusnya:
@@ -199,7 +218,8 @@ export function barisEsbPurchase({ notas, itemsPerNota, peta, opsi = {} }) {
       barisNota.push([
         seq,
         teks(n.supplier),
-        teks(n.receipt_date),
+        // Nomor seri Excel, bukan tulisan — lihat catatan di kepala berkas.
+        tanggal ?? '',
         branch ?? '',
         location ?? '',
         payment ?? '',
@@ -230,7 +250,7 @@ export function barisEsbPurchase({ notas, itemsPerNota, peta, opsi = {} }) {
     // Sebagian dokumen jauh lebih sulit dibereskan daripada tidak ada dokumen:
     // di ESB ia sudah jadi pembelian dengan isi yang kurang, dan mengoreksinya
     // berarti menghapus lalu mengunggah ulang.
-    const kepalaBermasalah = !branch || !location || !payment || !coa;
+    const kepalaBermasalah = tanggal === null || !branch || !location || !payment || !coa;
     if (adaMasalahItem || kepalaBermasalah) continue;
 
     baris.push(...barisNota);

@@ -184,7 +184,15 @@ cek('dan disebut di subjudul', bukuTanpaHpp.subjudul.includes('belum bisa dihitu
 // dipegangnya.
 const bukuKosong = susunBukuResep({ products, recipes: [{ product_id: 'es', mode: 'standalone', yield_qty: 1, items: [] }], hppVarian: () => null });
 cek('resep kosong tetap punya baris', bukuKosong.baris.length, 1);
-cek('dan barisnya menjelaskan diri', bukuKosong.baris[0][5].includes('resep kosong'), true);
+// Selnya dicari lewat JUDUL kolomnya, bukan nomor indeks.
+//
+// Empat pemeriksaan di bagian ini sempat merah berhari-hari karena satu kolom
+// ("Catatan") ditambahkan ke buku resep dan indeks-indeks di sini tidak ikut.
+// Tidak ada yang rusak; yang rusak cuma tesnya — dan tes merah yang tidak
+// menunjuk kerusakan persis sama berbahayanya dengan tes hijau yang bohong:
+// dua-duanya berhenti dibaca orang.
+const iKolom = (buk, judul) => buk.kolom.findIndex((k) => (k.header ?? k) === judul);
+cek('dan barisnya menjelaskan diri', bukuKosong.baris[0][iKolom(bukuKosong, 'Catatan')].includes('esep kosong'), true);
 
 // Resep yatim (produknya sudah terhapus) tidak boleh membuat baris hantu.
 const yatim = susunBukuResep({ products, recipes: [{ product_id: 'entah', mode: 'standalone', yield_qty: 1, items: [] }] });
@@ -198,9 +206,19 @@ const acak = susunBukuResep({
 });
 cek('diurutkan menurut nama produk', acak.baris.map((b) => b[0]), ['Ayam Goreng', 'Es Kopi Susu', 'Es Kopi Susu']);
 
-cek('tanpa nilai: kolomnya lebih sedikit', susunBukuResep({ products, recipes, denganNilai: false }).kolom.length, 8);
-cek('dengan nilai: tiga kolom tambahan', buku.kolom.length, 11);
-cek('kolom nilai ditandai numeric untuk Excel', buku.kolom.slice(-3).every((k) => k.numeric), true);
+// Yang dijaga: ketiga kolom NILAI muncul hanya saat diminta, dan ketiganya
+// bertanda numeric. Disebut namanya, bukan dihitung jumlahnya — jumlah kolom
+// berubah tiap kali ada tambahan yang tidak ada hubungannya dengan nilai.
+const KOLOM_NILAI = ['HPP Bahan/satuan', 'Biaya Bahan', 'HPP Produk/satuan'];
+const tanpaNilai = susunBukuResep({ products, recipes, denganNilai: false });
+cek('tanpa nilai: ketiga kolom nilai tidak ada', KOLOM_NILAI.map((j) => iKolom(tanpaNilai, j)), [-1, -1, -1]);
+cek('dengan nilai: ketiganya ada', KOLOM_NILAI.every((j) => iKolom(buku, j) >= 0), true);
+cek('selisih kolomnya tepat tiga', buku.kolom.length - tanpaNilai.kolom.length, 3);
+cek(
+  'kolom nilai ditandai numeric untuk Excel',
+  KOLOM_NILAI.every((j) => buku.kolom[iKolom(buku, j)].numeric === true),
+  true
+);
 cek('tanpa resep sama sekali', susunBukuResep({ products, recipes: [] }).baris, []);
 cek('recipes null aman', susunBukuResep({ products, recipes: null }).baris, []);
 

@@ -74,21 +74,29 @@ const esb = baca('js/modules/inventory/esb.admin.js');
 if (esb) {
   const kode = bersih(esb, 'esb.admin.js', ['susunBarisPemetaan(', 'saringTabel(']);
 
-  // URUTAN LANGKAHNYA: Unduh, Daftar induk, Pemetaan.
-  const iUnduh = kode.indexOf('1. Unduh');
-  const iInduk = kode.indexOf('2. Daftar induk ESB');
-  const iPeta = kode.indexOf('3. Pemetaan');
+  // URUTAN LANGKAHNYA: Unduh paling atas, Pemetaan paling bawah.
+  //
+  // Nomornya TIDAK dikunci di sini lagi. Versi sebelumnya mencari "1. Unduh",
+  // "2. Daftar induk ESB", "3. Pemetaan" apa adanya — lalu satu langkah baru
+  // ("Batalkan tanda ekspor") disisipkan di urutan kedua, dan audit ini merah
+  // tanpa ada satu pun yang rusak. Audit merah yang tidak menunjuk kerusakan
+  // adalah audit yang lama-lama diabaikan, dan sesudah itu ia tidak menjaga
+  // apa pun.
+  //
+  // Yang dijaga di sini tinggal prinsipnya: Unduh di atas segalanya, Pemetaan
+  // di bawah segalanya. Penomorannya sendiri — dan kesesuaian nomor yang
+  // disebut kalimat pengantar — dijaga tools/audit-batal-tanda-esb.cjs, yang
+  // MENURUNKANNYA dari judul di layar alih-alih menuliskannya lagi.
+  const iUnduh = kode.indexOf('. Unduh<');
+  const iInduk = kode.indexOf('. Daftar induk ESB<');
+  const iPeta = kode.indexOf('. Pemetaan<');
   if (iUnduh < 0 || iInduk < 0 || iPeta < 0) {
-    salah('esb.admin.js: penomoran langkahnya tidak lagi 1. Unduh → 2. Daftar induk ESB → 3. Pemetaan.');
+    salah('esb.admin.js: salah satu dari bagian Unduh / Daftar induk ESB / Pemetaan hilang dari layar.');
   } else if (!(iUnduh < iInduk && iInduk < iPeta)) {
     salah(
-      'esb.admin.js: urutan bagiannya di layar tidak sesuai penomorannya. Unduh harus paling atas — impor & pemetaan ' +
-        'adalah penyiapan yang dikerjakan sekali, sementara mengunduh dikerjakan tiap periode.'
+      'esb.admin.js: urutan bagiannya di layar salah. Unduh harus paling atas — impor & pemetaan adalah penyiapan yang ' +
+        'dikerjakan sekali, sementara mengunduh dikerjakan tiap periode.'
     );
-  }
-  // Nomor yang disebut di kalimat pengantar harus ikut.
-  if (/pemetaan di langkah 2/.test(kode)) {
-    salah('esb.admin.js: kalimat "pemetaan di langkah 2" tidak ikut diperbarui — ia sekarang menunjuk langkah Daftar induk.');
   }
 
   // Urutan barisnya lewat modul murni.
@@ -103,7 +111,16 @@ if (esb) {
   }
 
   // Pencarian: MENYEMBUNYIKAN, bukan menggambar ulang.
-  if (!/saringTabel\(/.test(kode)) salah('esb.admin.js: kotak cari tidak disambungkan.');
+  //
+  // Sasarannya DISEMPITKAN ke kotak cari pemetaan. Versi sebelumnya cuma
+  // mencari `saringTabel(` di mana pun di berkas ini — lalu layar "Batalkan
+  // tanda ekspor" datang membawa pemanggilan `saringTabel(` miliknya sendiri,
+  // dan pemeriksaan ini tetap hijau walau kotak cari pemetaannya dicabut. Pola
+  // lama yang sasarannya ada DI TEMPAT LAIN adalah cara audit berbohong tanpa
+  // pernah berubah satu huruf pun.
+  if (!/saringTabel\(\s*kotak,/.test(kode)) {
+    salah('esb.admin.js: kotak cari pemetaan tidak disambungkan ke saringTabel.');
+  }
   if (!/perluCari\(total\)/.test(kode)) salah('esb.admin.js: kotak cari muncul tanpa memandang jumlah barisnya.');
   if (!/class="esb-cari"/.test(kode)) salah('esb.admin.js: kotak cari tidak digambar.');
   if (!/tbody\[data-baris="\$\{kotak\.dataset\.jenis\}"\] tr/.test(kode)) {

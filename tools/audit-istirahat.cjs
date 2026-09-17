@@ -312,7 +312,14 @@ if (hal) {
   }
 
   // GERBANG YANG SAMA DENGAN CLOCK OUT untuk kedua aksi istirahat.
-  if (!/pastikanDiAreaOutlet\(openSession, 'Istirahat'\)/.test(kode)) {
+  //
+  // Gerbangnya sempat bernama `pastikanDiAreaOutlet(openSession, 'Istirahat')`
+  // dan audit ini mencarinya apa adanya. Saat clock out boleh di outlet mana
+  // pun yang ber-geofence, ia berganti nama jadi `pastikanDiAreaPresensi` dan
+  // menerima objek — audit ini jadi merah tanpa ada yang rusak, lalu diabaikan.
+  // Yang dicek sekarang gerbangnya DIPANGGIL untuk aksi Istirahat, bukan ejaan
+  // panggilannya.
+  if (!/pastikanDiAreaPresensi\(\{[\s\S]{0,200}aksi: 'Istirahat'/.test(kode)) {
     salah('attendance.page.js: mulai istirahat tidak memeriksa geofence — tombolnya bisa ditekan dari rumah.');
   }
   if (!/isSameFace\(capturedOut\.descriptor, myFaceDescriptor\)[\s\S]{0,200}Istirahat ditolak/.test(kode)) {
@@ -320,8 +327,15 @@ if (hal) {
   }
   // GPS yang gagal dibaca harus MENOLAK, bukan diloloskan: kalau ia
   // diloloskan, gerbangnya bisa dilewati cukup dengan mematikan izin lokasi.
-  if (!/Lokasi tidak terbaca/.test(kode)) {
-    salah('attendance.page.js: GPS yang gagal dibaca tidak menolak aksinya — geofence-nya bisa dilewati dengan mematikan izin lokasi.');
+  //
+  // Kalimat penolakannya pindah ke `area-outlet.js` bersama aturannya, jadi
+  // yang dibaca berkas itu — bukan layarnya.
+  const area = baca('js/modules/attendance/area-outlet.js');
+  if (area && !/Lokasi tidak terbaca/.test(area)) {
+    salah('area-outlet.js: GPS yang gagal dibaca tidak menolak aksinya — geofence-nya bisa dilewati dengan mematikan izin lokasi.');
+  }
+  if (!/loc = null;/.test(kode) || !/if \(!hasil\.boleh\) throw new Error\(hasil\.alasan\)/.test(kode)) {
+    salah('attendance.page.js: hasil `bolehAksiPresensi` tidak lagi menghentikan aksinya — aturannya dihitung lalu dibuang.');
   }
 
   // Saat istirahat, Clock Out DISEMBUNYIKAN — bukan sekadar dinonaktifkan.

@@ -33,11 +33,19 @@
  * kolom yang belum pernah dipakai adalah `Product Code`, dan itu sudah tersimpan
  * di `esb_master.kode` sejak impor Master Product Data.
  *
- * Satu-satunya impornya `tanggalWIB` (modul murni juga), supaya bisa diuji
- * tanpa Excel maupun browser.
+ * ============ KOLOM DATE BERISI ANGKA, BUKAN TULISAN ============
+ *
+ * Sel B2 template resmi ESB bertipe tanggal, sama seperti C2 di Simple
+ * Purchase. `received_at` dijadikan tanggal WIB dulu (jam 23.30 WIB adalah
+ * 16.30 UTC — hari yang berbeda kalau dibaca mentah), baru dijadikan nomor seri
+ * Excel. Lihat `tanggal-excel.js`.
+ *
+ * Impornya `tanggalWIB` dan `serialTanggalExcel` — keduanya modul murni, supaya
+ * berkas ini tetap bisa diuji tanpa Excel maupun browser.
  */
 
 import { tanggalWIB } from '../../core/dates.js';
+import { serialTanggalExcel } from './tanggal-excel.js';
 
 /** Header template ESB Simple Transfer, berurutan. Nama & urutannya harus persis. */
 export const KOLOM_TRANSFER = [
@@ -125,8 +133,13 @@ export function barisEsbTransfer({ kiriman, itemsPerKiriman, peta, kodeItem = ne
     // Tanggal terima kosong menahan kirimannya. Sel Date yang kosong bukan
     // ditolak ESB melainkan diisi tanggal unggah, jadi seluruh kiriman lama
     // akan masuk sebagai mutasi hari ini.
-    const tanggal = tanggalWIB(d.received_at);
-    if (!tanggal) catat('tanggal-terima', kode, kode);
+    //
+    // Dua langkah, dan urutannya penting: `tanggalWIB` memilih HARI-nya menurut
+    // waktu Jakarta, `serialTanggalExcel` mengubah hari itu jadi sel tanggal
+    // Excel. Melewatkan langkah kedua mengirimkan tulisan, dan itulah yang
+    // ditolak ESB.
+    const tanggal = serialTanggalExcel(tanggalWIB(d.received_at));
+    if (tanggal === null) catat('tanggal-terima', kode, kode);
 
     const asalB = padanan(peta.branch, d.from_outlet_name);
     const asalL = padanan(peta.location, d.from_outlet_name);
@@ -154,7 +167,7 @@ export function barisEsbTransfer({ kiriman, itemsPerKiriman, peta, kodeItem = ne
 
       barisDok.push([
         seq,
-        tanggal,
+        tanggal ?? '',
         asalB ?? '',
         asalL ?? '',
         tujuanB ?? '',
@@ -172,7 +185,7 @@ export function barisEsbTransfer({ kiriman, itemsPerKiriman, peta, kodeItem = ne
       ]);
     }
 
-    const kepalaBermasalah = !tanggal || !asalB || !asalL || !tujuanB || !tujuanL;
+    const kepalaBermasalah = tanggal === null || !asalB || !asalL || !tujuanB || !tujuanL;
     // Satu baris bermasalah menahan SELURUH dokumennya — sama seperti di
     // Simple Purchase. Transfer separuh jadi di ESB memindahkan sebagian
     // stok, dan sisanya harus dikoreksi manual di dua outlet sekaligus.

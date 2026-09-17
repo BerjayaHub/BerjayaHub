@@ -6763,3 +6763,110 @@ Kotak cari muncul di tiap kelompok yang lebih dari 8 baris, mencocokkan **kedua 
 Ia memakai `saringTabel` dari modul Pengiriman, dan alasannya penting: penyaring itu **menyembunyikan** baris, tidak menggambar ulang tabelnya. Baris pemetaan memuat `<select>` yang sudah dipasangi penangan `change`; menggambar ulang akan membuangnya dari DOM, dan **pemetaan berhenti tersimpan tanpa satu pun error**. Sabotase untuk itu ada dan tertangkap.
 
 - [x] **Ekspor ESB: Unduh di atas, yang belum dipetakan naik & bisa dicari** — 18 sabotase
+
+## Kolom Date berisi tanggal, bukan tulisan
+
+> "ada kendala saat saya coba import hasil berjaya hub ke esb, ini baru satu import yaitu purchased / 1. format tanggal tidak sesuai"
+
+**Tidak perlu migration.**
+
+### Yang dituntut ESB bukan format tulisan, melainkan tipe selnya
+
+Template resmi ESB dibuka dan selnya diperiksa apa adanya:
+
+| Template | Sel | Tipe | Format bawaan | Isi |
+|---|---|---|---|---|
+| Simple Purchase | `C2` | tanggal | `mm-dd-yy` | 1 Sep 2020 |
+| Simple Transfer | `B2` | tanggal | `[$-409]d-mmm-yy` | 18 Mar 2019 |
+
+Jadi `01/09/2020` yang terlihat di layar bukan isi selnya — itu cara Excel menampilkan sebuah **tanggal** menurut locale yang membukanya. Format bawaan templatenya sendiri justru bulan-dulu.
+
+Berjaya Hub mengirim `"2026-09-01"` sebagai **tulisan**. Perbaikan yang paling mudah ditebak — menggantinya jadi tulisan `"01/09/2026"` — tidak menyelesaikan apa pun: ia tetap tulisan, dan menambah cara gagal yang baru, yaitu terbaca sebagai 9 Januari.
+
+Ini juga berarti **Simple Transfer punya penyakit yang sama**, meski yang dikeluhkan baru Purchase. Keduanya diperbaiki sekaligus.
+
+### Kenapa angkanya dihitung sendiri, bukan diserahkan ke SheetJS
+
+SheetJS menerima objek `Date`. Hasilnya, diuji langsung di zona Asia/Jakarta:
+
+```
+new Date(2026, 8, 1)  ->  46266.00013888889
+```
+
+Bukan bilangan bulat. Selisih **12 detik** itu sisa LMT Jakarta (UTC+07:07:12) yang ikut terbawa, jadi selnya sebenarnya "1 Sep 2026 pukul 00:00:12". Apakah ESB peduli pada komponen jamnya tidak diketahui — dan "mungkin tidak masalah" bukan dasar yang baik untuk berkas yang ditolaknya secara diam-diam.
+
+Nomor seri Excel adalah aritmetika murni: jumlah hari sejak **30 Desember 1899** (bukan 31 — Excel sengaja mempertahankan bug Lotus 1-2-3 yang menganggap 1900 kabisat). `js/modules/inventory/tanggal-excel.js` menghitungnya dari komponen tahun/bulan/hari lewat `Date.UTC`, jadi zona waktu mesin tidak pernah ikut campur. Diuji: hasilnya sama persis di Jakarta, UTC, New York dan Kiritimati.
+
+Patokannya diambil dari templatenya sendiri, bukan dari hitungan saya: 1 Sep 2020 → **44075**, sama dengan isi `C2`. Berkas jadinya dibaca ulang dengan openpyxl dan keluar sebagai `type=d`, `datetime(2026, 9, 1, 0, 0)` — cocok bentuknya dengan template ESB.
+
+### Tanggal yang tidak terbaca MENAHAN dokumennya
+
+Sel `Date` yang kosong **tidak** ditolak ESB — ia diisi tanggal unggah. Nota bulan lalu akan masuk sebagai pembelian hari ini, dan laporan bulan yang sudah ditutup ikut bergeser tanpa satu pun pesan kesalahan. Maka nota atau kiriman yang tanggalnya gagal dibaca **tertahan**, dengan alasannya muncul di tabel yang sama dengan nilai yang belum dipetakan.
+
+Tabel itu kini memberi label yang terbaca untuk alasan yang **bukan** pemetaan — "Tanggal nota (perbaiki di notanya)" — karena tidak ada dropdown yang bisa memperbaikinya, dan kalimat penutupnya tidak lagi menyuruh "petakan dulu" untuk semua baris.
+
+Bentuk selain `YYYY-MM-DD` ditolak, tidak ditebak: menebak `01/09/2026` berarti memilih antara 1 September dan 9 Januari, dan tebakan itu tidak akan pernah terlihat salah di layar mana pun. Tanggal yang tidak ada (`2026-02-30`) juga ditolak — `Date.UTC` menggulirkannya ke 2 Maret tanpa mengeluh, dan yang mencocokkan dengan tagihan supplier tidak punya petunjuk apa pun.
+
+### Tes lama yang hijau sambil membiarkan bug-nya lewat
+
+`tools/test-esb-purchase.mjs` punya 19 pemeriksaan dan tidak satu pun pernah melihat isi kolom `Date`. Bug-nya baru ketahuan saat berkasnya ditolak ESB. Pemeriksaan ke-20 sekarang menutup lubang itu di tempatnya sendiri.
+
+- [x] **Kolom Date Purchase & Transfer berisi tanggal sungguhan** — 19 sabotase
+
+## Jalan keluar yang ada di database dan tidak ada di layar
+
+> "jika sudah di ekspor esb maka staff tidak bisa edit nota terima dari supplier, keterangannya hilangkan tanda ekspor esb dulu baru bisa ubah / tapi saya tidak bisa menemukan menghilangkan tanda ekspor esb nya, apakah memang belum dibuat?"
+
+**Perlu migration `0143`.**
+
+### Setengahnya sudah ada sejak 0127
+
+Fungsi `batalkan_tanda_esb(uuid[])` ada sejak `0127`, izinnya sudah diberikan, pembungkusnya sudah ada di `esb.service.js`, bahkan saringan `termasukSudahEkspor` untuk menampilkan nota bertanda sudah ditulis. Yang tidak pernah ada: **satu pun tombol yang memanggilnya.**
+
+Komentar di `0127` yang menjelaskan kenapa fungsi itu dibuat berbunyi:
+
+> *"Tanpa ini, berkas yang ditolak ESB meninggalkan notanya tertandai selamanya dan satu-satunya jalan keluarnya lewat SQL Editor. Itu bukan jalan keluar; itu ketiadaan jalan keluar."*
+
+Lalu layarnya tidak dibuat, jadi jalan keluarnya memang tetap SQL Editor — selama tiga migration, tanpa satu pun tes atau audit berubah warna. Fungsi yang ada tanpa layar yang memanggilnya sama saja dengan fungsi yang tidak ada; bedanya cuma, yang pertama membuat verifikasinya terlihat hijau.
+
+Layarnya sekarang ada di **langkah 2** Ekspor ESB — bukan di dasar halaman. Yang membukanya sedang menunggu jawaban staff yang notanya terkunci.
+
+### Membatalkan tanda TIDAK menghapus dokumennya di ESB
+
+Ini yang membuat fitur ini bukan sekadar tombol. Kalau notanya benar-benar sudah masuk ESB, lalu tandanya dibuka, isinya diperbaiki, dan berkasnya diunggah ulang — ESB punya **dua** pembelian untuk barang yang sama, dan keduanya terlihat wajar. Selisihnya baru muncul berminggu-minggu kemudian sebagai stok yang tidak cocok.
+
+Maka: peringatan itu terbaca di atas daftarnya **dan** diulang di kotak konfirmasi, dan **alasannya wajib** — minimal 10 huruf, ditegakkan di layar *dan* di server. Alasannya bukan birokrasi: ia yang membedakan *"ditolak ESB, belum masuk"* dari *"sudah masuk ESB, saya hapus manual di sana"*, dan itu satu-satunya keterangan yang akan tersedia saat selisihnya ditelusuri nanti. Jejaknya mencatat siapa, kapan, dan kenapa.
+
+### Tanda tangan lamanya dibuang, bukan dibiarkan
+
+`batalkan_tanda_esb(p_notas)` yang berparameter satu **di-`drop`**. Kalau ia dibiarkan hidup berdampingan dengan yang dua parameter, PostgREST memilih di antara keduanya berdasarkan **himpunan nama argumen** — dan satu panggilan yang `p_alasan`-nya `undefined` (yang dibuang `JSON.stringify` diam-diam) akan jatuh ke tanda tangan lama: berhasil, tanpa alasan, tanpa jejak. Persis bentuk kegagalan yang seluruh migration ini ada untuk mencegahnya.
+
+### Jejaknya tidak dikosongkan saat diekspor ulang — dan itu sebuah jebakan
+
+Kolom `esb_dibatalkan_at` sengaja dibiarkan terisi selamanya; ia catatan sejarah. Akibatnya sebuah baris bisa punya `esb_exported_at` **dan** `esb_dibatalkan_at` sekaligus, artinya *"pernah dibuka, lalu diekspor lagi"*. Layar yang cuma melihat `esb_dibatalkan_at is not null` akan melaporkan nota yang sehat sebagai nota yang tandanya sedang terbuka — dan orangnya akan membukanya lagi. Maka `keadaanTanda()` membandingkan **waktunya**, bukan ada-tidaknya.
+
+### "Berhasil" tidak boleh berbohong
+
+Database melewati baris milik BU lain, atau yang tandanya sudah dibuka orang lain sejak halaman dimuat, **tanpa melempar galat apa pun**. Jadi angka yang dikembalikannya selalu dibandingkan dengan jumlah yang dicentang: 3 dari 5 → peringatan dengan angkanya disebut, 0 → galat, bukan "berhasil".
+
+### Pesan penolakannya menyebut siapa dan di mana
+
+Pesan lama menyuruh *"batalkan tanda ekspornya dulu"* tanpa mengatakan bahwa staff tidak bisa melakukannya sendiri — jadi staff mencari tombol yang memang tidak ada di aplikasinya, lalu menyimpulkan aplikasinya rusak. Kalimatnya kini menyebut admin BU, layarnya, dan nama tombolnya — dan tinggal di **satu** fungsi (`tolak_karena_terekspor_esb`) yang dipanggil ketiga penjaga. Sebelumnya kalimat itu ditulis tiga kali di `0131`, dan dua di antaranya sudah berbeda kata.
+
+- [x] **Batalkan tanda ekspor ESB, berjejak** (`0143`) — 23 sabotase
+
+### Tiga alat verifikasi yang ternyata tidak memverifikasi
+
+Ditemukan sambil mengerjakan ini, dan ikut dibereskan:
+
+| Alat | Kenapa ia tidak menjaga apa pun |
+|---|---|
+| `audit-pemetaan-esb.cjs` | mencari `saringTabel(` **di mana pun** di `esb.admin.js`. Layar baru membawa pemanggilannya sendiri, jadi kotak cari pemetaan bisa dicabut sepenuhnya tanpa audit berubah warna |
+| `audit-nama-tak-dikenal.cjs` | pola parameternya memakai `[^()]`, jadi parameter bernilai bawaan berupa fungsi (`fmt = (v) => …`) tidak pernah tercatat — tiga temuan palsu, dan temuan palsu adalah cara audit mati |
+| `test-saringan-jalur.mjs` | menyebut kolom lewat nomor indeks. Satu kolom "Catatan" ditambahkan ke buku resep, dan empat pemeriksaannya merah tanpa ada yang rusak |
+
+Ketiganya diarahkan ulang ke **sifat** yang dijaga, bukan ke ejaan atau posisi: pemanggilan yang spesifik, parameter bernilai bawaan, kolom dicari lewat judulnya.
+
+### Satu audit lama yang merah tanpa ada yang rusak
+
+`tools/audit-istirahat.cjs` mencari `pastikanDiAreaOutlet(openSession, 'Istirahat')` apa adanya. Saat clock out dibolehkan di outlet mana pun yang ber-geofence, gerbangnya berganti nama jadi `pastikanDiAreaPresensi` dan menerima objek — auditnya merah, padahal gerbangnya utuh. Audit merah yang tidak menunjuk kerusakan apa pun adalah audit yang lama-lama diabaikan, jadi ia diarahkan ulang: yang dicek sekarang gerbangnya **dipanggil** untuk aksi Istirahat, dan kalimat penolakan GPS dibaca di `area-outlet.js` tempat aturannya sekarang tinggal.

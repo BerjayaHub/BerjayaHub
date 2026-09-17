@@ -118,26 +118,30 @@ sabotase(
 
 console.log('\nSABOTASE SUSUNAN LAYAR:');
 
+// Bagian Unduh ditukar tempat dengan Pemetaan: `Unduh` lenyap dari layar dan
+// `Pemetaan` muncul di paling atas — dua pelanggaran urutan sekaligus.
 sabotase(
-  'Unduh dikembalikan ke paling bawah — pekerjaan tiap periode terkubur lagi',
+  'Unduh tidak lagi paling atas — pekerjaan tiap periode terkubur di bawah penyiapan yang sudah selesai',
   PAGE,
   '<h3 style="margin-top:0;font-size:0.95rem">1. Unduh</h3>',
-  '<h3 style="margin-top:0;font-size:0.95rem">3. Unduh</h3>',
+  '<h3 style="margin-top:0;font-size:0.95rem">1. Pemetaan</h3>',
   AUDIT
 );
+// Penomorannya dijaga audit-batal-tanda-esb.cjs, yang MENURUNKANNYA dari judul
+// di layar. Audit ini sengaja tidak lagi mengunci angkanya — lihat catatannya.
 sabotase(
   'penomorannya diacak tapi susunannya tidak',
   PAGE,
-  '<h3 style="margin-top:0;font-size:0.95rem">2. Daftar induk ESB</h3>',
+  '<h3 style="margin-top:0;font-size:0.95rem">3. Daftar induk ESB</h3>',
   '<h3 style="margin-top:0;font-size:0.95rem">1. Daftar induk ESB</h3>',
-  AUDIT
+  'tools/audit-batal-tanda-esb.cjs'
 );
 sabotase(
   'kalimat pengantar menunjuk langkah yang salah',
   PAGE,
-  '<strong>pemetaan di langkah 3 tidak ikut terhapus</strong>',
+  '<strong>pemetaan di langkah 4 tidak ikut terhapus</strong>',
   '<strong>pemetaan di langkah 2 tidak ikut terhapus</strong>',
-  AUDIT
+  'tools/audit-batal-tanda-esb.cjs'
 );
 sabotase(
   'baris pemetaan disusun sendiri di layar, bukan lewat modul murni',
@@ -157,8 +161,12 @@ sabotase(
 console.log('\nSABOTASE PENCARIAN:');
 
 sabotase('kotak cari dihapus', PAGE, 'class="esb-cari"', 'class="esb-cari-nonaktif"', AUDIT);
+// Sabotase ini pernah LOLOS: auditnya cuma mencari `saringTabel(` di mana pun
+// di berkas, dan layar "Batalkan tanda ekspor" membawa pemanggilannya sendiri.
+// Kotak cari pemetaan bisa dicabut sepenuhnya tanpa satu pun audit berubah
+// warna. Auditnya sekarang menunjuk pemanggilan pemetaan itu sendiri.
 sabotase(
-  'kotak cari tidak pernah disambungkan',
+  'kotak cari pemetaan tidak pernah disambungkan — pemanggilan saringTabel di layar lain menutupinya',
   PAGE,
   '    box.querySelectorAll(\'.esb-cari\').forEach((kotak) =>\n      saringTabel(',
   "    box.querySelectorAll('.esb-cari').forEach((kotak) =>\n      ((..._) => {})(",

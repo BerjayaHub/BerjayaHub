@@ -174,8 +174,14 @@ if (svc) {
       salah('esb.service.js `kirimanUntukEsb`: tidak memakai ambilSemua — PostgREST memotong di ~1000 baris tanpa berkata apa-apa.');
     }
   }
+  // `rpc(` dan nama fungsinya boleh terpisah baris.
+  //
+  // `batalkan_tanda_kiriman_esb` menerima dua argumen sejak 0143, jadi
+  // panggilannya dipecah ke beberapa baris — dan pola lama `rpc\('nama'` tidak
+  // cocok lagi. Auditnya jadi merah tanpa ada satu pun yang rusak, dan audit
+  // merah yang tidak menunjuk kerusakan adalah audit yang lama-lama diabaikan.
   for (const fn of ['tandai_kiriman_esb', 'batalkan_tanda_kiriman_esb']) {
-    if (!new RegExp(`rpc\\('${fn}'`).test(kode)) salah(`esb.service.js: RPC \`${fn}\` tidak pernah dipanggil.`);
+    if (!new RegExp(`rpc\\(\\s*'${fn}'`).test(kode)) salah(`esb.service.js: RPC \`${fn}\` tidak pernah dipanggil.`);
   }
 
   // Sisi Purchase diperiksa di sini juga.

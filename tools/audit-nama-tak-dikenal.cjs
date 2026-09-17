@@ -61,6 +61,22 @@ function namaTersedia(src) {
   // parameter fungsi & arrow — diambil kasar, memang sengaja longgar
   for (const m of src.matchAll(/\(([^()]{0,400})\)\s*(?:=>|\{)/g)) tambah(m[1]);
   for (const m of src.matchAll(/([A-Za-z_$][\w$]*)\s*=>/g)) ada.add(m[1]);
+  // PARAMETER BERNILAI BAWAAN BERUPA FUNGSI.
+  //
+  // Pola di atas memakai `[^()]`, jadi daftar parameter yang MEMUAT tanda
+  // kurung tidak pernah cocok:
+  //
+  //     export function jejakBatal(baris, fmt = (v) => teks(v))
+  //
+  // `fmt` tidak pernah tercatat, lalu `fmt(...)` di badan fungsinya dilaporkan
+  // sebagai nama tak dikenal. Tiga temuan palsu sudah terkumpul karena ini, dan
+  // temuan palsu adalah cara audit ini mati: orang berhenti membacanya.
+  //
+  // Jadi nama yang berdiri tepat sesudah `(` atau `,` dan diikuti `=` (bukan
+  // `=>` maupun `==`) dicatat sebagai parameter. Pola ini juga akan menangkap
+  // `foo(bar = 1)` di pemanggilan biasa — dan itu memang penugasan sungguhan,
+  // jadi mencatatnya tidak membuat audit ini melewatkan apa pun yang nyata.
+  for (const m of src.matchAll(/[(,]\s*([A-Za-z_$][\w$]*)\s*=(?![=>])/g)) ada.add(m[1]);
   // catch (e)
   for (const m of src.matchAll(/catch\s*\(\s*([A-Za-z_$][\w$]*)/g)) ada.add(m[1]);
   return ada;

@@ -199,9 +199,79 @@ export async function tandaiNotaEsb(notaIds) {
   return Number(data) || 0;
 }
 
-/** Batalkan penandaan — untuk berkas yang ditolak ESB. */
-export async function batalkanTandaEsb(notaIds) {
-  const { data, error } = await supabase.rpc('batalkan_tanda_esb', argumenRpc({ p_notas: notaIds }));
+/**
+ * Nota yang SUDAH bertanda ekspor, untuk layar "Batalkan tanda ekspor".
+ *
+ * Ringan dengan sengaja: tanpa itemnya. Layar ini tidak membangun berkas, ia
+ * cuma perlu menampilkan kode, tanggal, supplier, dan jejaknya — memuat seluruh
+ * item untuk ratusan nota cuma memperlambat halaman yang dibuka justru saat
+ * orangnya sedang buru-buru.
+ */
+export async function notaBertandaEsb({ businessUnitId, from, to, outletId = null }) {
+  const baris = await ambilSemua((dari, sampai) => {
+    let q = supabase
+      .from('goods_receipts')
+      .select(
+        'id, code, receipt_date, supplier, invoice_no, outlet_id, esb_exported_at, esb_dibatalkan_at, esb_alasan_batal, ' +
+          'outlets!outlet_id(name), pembatal:user_profiles!esb_dibatalkan_by(full_name)',
+        { count: 'exact' }
+      )
+      .eq('business_unit_id', businessUnitId)
+      .not('esb_exported_at', 'is', null)
+      // `receipt_date` bertipe DATE — tanpa jam & offset, sama seperti di
+      // `notaUntukEsb`. Lihat catatan panjangnya di sana.
+      .gte('receipt_date', from)
+      .lte('receipt_date', to)
+      .order('esb_exported_at', { ascending: false });
+    if (outletId) q = q.eq('outlet_id', outletId);
+    return q.range(dari, sampai);
+  });
+  return baris.map((n) => ({ ...n, outlet_name: n.outlets?.name ?? '' }));
+}
+
+/** Kiriman yang SUDAH bertanda ekspor. Bentuknya disamakan dengan nota. */
+export async function kirimanBertandaEsb({ businessUnitId, from, to, outletId = null }) {
+  const baris = await ambilSemua((dari, sampai) => {
+    let q = supabase
+      .from('dispatches')
+      .select(
+        'id, code, received_at, from_outlet_id, to_outlet_id, esb_exported_at, esb_dibatalkan_at, esb_alasan_batal, ' +
+          'from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name), ' +
+          'pembatal:user_profiles!esb_dibatalkan_by(full_name)',
+        { count: 'exact' }
+      )
+      .eq('business_unit_id', businessUnitId)
+      .not('esb_exported_at', 'is', null)
+      // `received_at` timestamptz — di sini batas WIB eksplisit memang perlu.
+      .gte('received_at', isoFrom(from))
+      .lte('received_at', isoTo(to))
+      .order('esb_exported_at', { ascending: false });
+    // Dua sisi, sama seperti `kirimanUntukEsb`: menyaring satu sisi saja
+    // menyembunyikan separuh mutasi tergantung dari mana admin melihatnya.
+    if (outletId) q = q.or(`from_outlet_id.eq.${outletId},to_outlet_id.eq.${outletId}`);
+    return q.range(dari, sampai);
+  });
+  return baris.map((d) => ({
+    ...d,
+    receipt_date: d.received_at,
+    outlet_name: `${d.from_outlet?.name ?? ''} → ${d.to_outlet?.name ?? ''}`
+  }));
+}
+
+/**
+ * Batalkan penandaan nota. Alasan WAJIB (0143).
+ *
+ * `p_alasan` selalu dikirim, termasuk saat kosong: biar databasenya yang
+ * menolak dengan kalimatnya sendiri. Kalau kunci ini dibuang saat kosong,
+ * `argumenRpc` menghilangkannya dari muatan dan PostgREST tidak menemukan
+ * fungsi yang cocok — galatnya jadi "function not found", yang tidak
+ * memberitahu siapa pun bahwa yang kurang adalah alasannya.
+ */
+export async function batalkanTandaEsb(notaIds, alasan) {
+  const { data, error } = await supabase.rpc(
+    'batalkan_tanda_esb',
+    argumenRpc({ p_notas: notaIds, p_alasan: String(alasan ?? '') })
+  );
   if (error) throw new Error(error.message ?? String(error));
   return Number(data) || 0;
 }
@@ -284,9 +354,12 @@ export async function tandaiKirimanEsb(kirimanIds) {
   return Number(data) || 0;
 }
 
-/** Batalkan penandaan kiriman — untuk berkas yang ditolak ESB. */
-export async function batalkanTandaKirimanEsb(kirimanIds) {
-  const { data, error } = await supabase.rpc('batalkan_tanda_kiriman_esb', argumenRpc({ p_kiriman: kirimanIds }));
+/** Batalkan penandaan kiriman. Alasan WAJIB (0143) — lihat catatan di atas. */
+export async function batalkanTandaKirimanEsb(kirimanIds, alasan) {
+  const { data, error } = await supabase.rpc(
+    'batalkan_tanda_kiriman_esb',
+    argumenRpc({ p_kiriman: kirimanIds, p_alasan: String(alasan ?? '') })
+  );
   if (error) throw new Error(error.message ?? String(error));
   return Number(data) || 0;
 }
