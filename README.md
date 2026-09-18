@@ -6813,6 +6813,34 @@ Bentuk selain `YYYY-MM-DD` ditolak, tidak ditebak: menebak `01/09/2026` berarti 
 
 - [x] **Kolom Date Purchase & Transfer berisi tanggal sungguhan** — 19 sabotase
 
+## U / D / A / N / G
+
+> "ada tampilan seperti ini di HP, ini sangat tidak nyaman untuk user… lebih baik dikecilkan ukuran font nya atau diubah posisi per kolom nya"
+
+**Tidak perlu migration.**
+
+Layar Terima di HP mencetak nama bahan **satu huruf per baris**. `baris-sejajar` menaruh seluruh kolom dalam satu baris flex, dan tabel ini punya **lima** kolom — dua di antaranya berisi kotak isian:
+
+```
+[nama] [diminta] [dikirim] [kotak + "= dikirim"] [kotak keterangan]
+```
+
+Di 360px kelimanya menghabiskan ~330px. Yang tersisa untuk nama sekitar sepuluh piksel, dan `overflow-wrap: anywhere` menurutinya dengan patuh.
+
+Nama barangnya masih **ada** di layar — jadi tidak ada satu pun pemeriksaan otomatis yang bisa menyebutnya rusak. Yang menemukannya orang yang harus mencocokkan 27 bahan dengan barang di depannya.
+
+### Tiga baris, dibuat pasti
+
+Nama di baris sendiri, angka pendukung jadi keterangan abu-abu berlabel, kotak isian di baris ketiga. Basis persen pada dua sel terakhir (58% + 34%) yang **memaksanya** turun bersama — bukan kebetulan ruang tersisa. Bentuk yang sama dengan `picker-row` di dalam dialog, dan alasannya sama.
+
+### Satu nama, dua arti
+
+`Dikirim` berperan berbeda di dua tabel: di **Terima** ia angka mati, di **Kirim** ia justru kotak isiannya. Aturan "jadikan keterangan abu-abu" yang menargetkan labelnya akan mengecilkan kotak isian layar Kirim jadi teks. Maka yang menentukan bukan label melainkan kelas `sel-isian` di markup — dan auditnya menjaga `:not(.sel-isian)` tetap ada.
+
+`audit-baris-sejajar.cjs` kini juga menolak **tabel lima kolom berisi kotak isian yang memakai `baris-sejajar` tanpa `judul-sendiri`** — aturan umum, bukan daftar nama tabel, jadi tabel keenam yang lahir nanti ikut terjaga. Ketiganya diuji dengan merusaknya satu per satu.
+
+- [x] **Nama bahan tidak lagi terperas di HP**
+
 ## Dua HP mengisi satu draft order, dan salah satunya lenyap
 
 > "apakah bisa terjadi, bila draft diisi berbarengan dengan beberapa device yang berbeda, lalu di simpan selisih waktunya sebentar, lalu salah satu device tidak tersimpan?"

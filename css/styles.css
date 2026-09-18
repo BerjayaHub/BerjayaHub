@@ -2699,6 +2699,110 @@ select.sc-cell.is-off {
     overflow-wrap: anywhere;
   }
 
+  /* =========================================================
+     LIMA KOLOM BERISI KOTAK ISIAN TIDAK MUAT DALAM SATU BARIS.
+
+     `baris-sejajar` benar untuk tabel tiga-empat kolom yang selnya cuma angka.
+     Dua tabel tidak begitu — Kirim dan Terima punya LIMA kolom, dan dua di
+     antaranya berisi kotak isian plus tombol:
+
+        [nama] [diminta] [dikirim] [kotak + "= dikirim"] [kotak keterangan]
+
+     Di layar 360px, kelimanya menghabiskan ~330px. Yang tersisa untuk nama
+     bahan sekitar sepuluh piksel — dan `overflow-wrap: anywhere` menurutinya
+     dengan patuh: satu huruf per baris.
+
+        U
+        D
+        A
+        N
+        G
+
+     Nama barangnya masih "ada" di layar, jadi tidak ada satu pun pemeriksaan
+     otomatis yang bisa menyebutnya rusak. Yang menemukannya orang yang harus
+     mencocokkan 27 bahan dengan barang di depannya.
+
+     Dibuat PASTI, bukan diserahkan pada pembungkusan alami: nama di baris
+     sendiri, angka di baris kedua, kotak isian di baris ketiga. Basis persen
+     pada dua sel terakhir yang memaksanya — bukan kebetulan ruang tersisa.
+     Bentuk yang sama dengan `picker-row` di dalam dialog, dan alasannya sama.
+     ========================================================= */
+  .data-table.baris-sejajar.judul-sendiri tbody > tr {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 10px 2px;
+  }
+
+  .data-table.baris-sejajar.judul-sendiri td:first-child {
+    flex: 1 1 100%;
+    font-size: 0.9rem;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  /* Angka pendukung jadi keterangan, bukan kolom. Labelnya ikut ditampilkan —
+     tanpa judul kolom di atasnya, "10 porsi 10 porsi" berdampingan tidak bisa
+     dibedakan mana yang diminta dan mana yang dikirim. */
+  /* `:not(.sel-isian)` WAJIB, dan alasannya tidak terlihat dari CSS-nya.
+
+     "Dikirim" berperan berbeda di dua tabel: di Terima ia angka mati, di Kirim
+     ia justru kotak isiannya. Satu nama, dua arti — jadi yang menentukan bukan
+     labelnya melainkan kelas `sel-isian` yang dipasang di markup. Tanpa ini,
+     kotak isian di layar Kirim ikut mengecil jadi keterangan abu-abu. */
+  .data-table.baris-sejajar.judul-sendiri td[data-label='Diminta']:not(.sel-isian),
+  .data-table.baris-sejajar.judul-sendiri td[data-label='Dikirim']:not(.sel-isian),
+  .data-table.baris-sejajar.judul-sendiri td[data-label='Stok CK']:not(.sel-isian) {
+    font-size: 0.74rem;
+    color: var(--color-text-muted);
+    text-align: left;
+  }
+  .data-table.baris-sejajar.judul-sendiri td[data-label='Diminta']:not(.sel-isian)::before,
+  .data-table.baris-sejajar.judul-sendiri td[data-label='Dikirim']:not(.sel-isian)::before,
+  .data-table.baris-sejajar.judul-sendiri td[data-label='Stok CK']:not(.sel-isian)::before {
+    content: attr(data-label) ' ';
+    opacity: 0.75;
+  }
+
+  /* Dua sel terakhir dipaksa turun BERSAMA ke baris ketiga: 58% + 34% tidak
+     muat di sisa ruang baris kedua, tapi muat berdua di baris sendiri. */
+  .data-table.baris-sejajar.judul-sendiri td.sel-isian {
+    flex: 1 1 58%;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .data-table.baris-sejajar.judul-sendiri td[data-label='Keterangan'] {
+    flex: 1 1 34%;
+    text-align: left;
+  }
+
+  /* Kotak isian mengisi selnya, tidak lagi dipatok 68px.
+
+     Yang di sel jumlah MEMANJANG (`flex`), bukan `width:100%` — di layar
+     Terima selnya juga memuat tombol "= dikirim", dan lebar penuh mendorong
+     tombolnya turun ke baris sendiri. */
+  .data-table.baris-sejajar.judul-sendiri td.sel-isian input {
+    flex: 1 1 56px;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+  }
+  .data-table.baris-sejajar.judul-sendiri td[data-label='Keterangan'] input {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+  .data-table.baris-sejajar.judul-sendiri .btn-samakan {
+    white-space: nowrap;
+    margin-left: 0;
+  }
+  /* Jejak pengecek pindah ke bawah kotaknya, bukan ikut berjajar. */
+  .data-table.baris-sejajar.judul-sendiri .recv-jejak {
+    flex: 1 1 100%;
+  }
+
   .data-table.baris-sejajar input[type='number'],
   .data-table.baris-sejajar input[type='text'] {
     width: 68px;

@@ -884,7 +884,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                    </div>`
                 : ''
             }
-            <div class="table-scroll"><table class="data-table baris-sejajar">
+            <div class="table-scroll"><table class="data-table baris-sejajar judul-sendiri">
               <thead><tr><th>Produk</th><th>Diminta</th><th>Stok CK</th><th>Dikirim</th><th>Keterangan</th></tr></thead>
               <tbody>
                 ${items
@@ -901,7 +901,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                            Jumlah yang diminta tetap terbaca di kolom sebelah
                            dan di placeholder, jadi tidak ada yang hilang
                            selain otomatisnya. -->
-                      <td data-label="Dikirim"><input type="number" class="ord-send-input isian-sempit" min="0"
+                      <td data-label="Dikirim" class="sel-isian"><input type="number" class="ord-send-input isian-sempit" min="0"
                             data-product="${it.product_id}" data-diminta="${round(it.qty)}"
                             placeholder="0" title="Diminta ${formatNum(it.qty)} ${esc(it.products?.base_unit ?? '')} — kosongkan kalau tidak dikirim" /></td>
                       <td data-label="Keterangan"><input type="text" class="ord-ket-input" data-product="${it.product_id}"
@@ -1465,7 +1465,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                    </div>`
                 : ''
             }
-            <div class="table-scroll"><table class="data-table baris-sejajar">
+            <div class="table-scroll"><table class="data-table baris-sejajar judul-sendiri">
               <thead><tr><th>Produk</th><th>Diminta</th><th>Dikirim</th><th>Diterima</th><th>Keterangan</th></tr></thead>
               <tbody>
                 ${items
@@ -1485,7 +1485,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                       <td data-label="Dikirim">${
                         nol ? `<strong style="color:var(--color-danger)">0</strong> ${satuan}` : `${formatNum(it.sent_qty)} ${satuan}`
                       }</td>
-                      <td data-label="Diterima">
+                      <td data-label="Diterima" class="sel-isian">
                         <!-- KOTAKNYA MULAI KOSONG (0142).
                              Sebelumnya ia terisi angka kiriman, jadi "belum
                              dicek" tidak bisa dibedakan dari "dicek dan pas".

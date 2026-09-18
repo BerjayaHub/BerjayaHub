@@ -191,6 +191,71 @@ for (const kelas of ['panel-lengket-atas', 'panel-lengket-bawah', 'gulir-baris']
   }
 }
 
+// ---------------------------------------------------------------
+// 5. LIMA KOLOM BERISI KOTAK ISIAN WAJIB `judul-sendiri`.
+//
+// `baris-sejajar` benar untuk tabel tiga-empat kolom yang selnya cuma angka.
+// Kirim & Terima punya LIMA kolom, dua di antaranya berisi kotak isian — dan
+// di 360px yang tersisa untuk nama bahan sekitar sepuluh piksel. Nama barangnya
+// tetap "ada" di layar, jadi tidak ada satu pun pemeriksaan otomatis yang bisa
+// menyebutnya rusak; ia cuma tercetak satu huruf per baris.
+//
+//    U
+//    D
+//    A
+//    N
+//    G
+//
+// Yang menemukannya orang yang harus mencocokkan 27 bahan dengan barang di
+// depannya.
+// ---------------------------------------------------------------
+for (const rel of berkas) {
+  const isi = baca(rel);
+  for (const m of isi.matchAll(/<table class="([^"]*baris-sejajar[^"]*)"[\s\S]{0,400}?<thead>([\s\S]*?)<\/thead>/g)) {
+    const kelas = m[1];
+    const kolom = (m[2].match(/<th/g) ?? []).length;
+    const adaIsian = /<input/.test(isi.slice(m.index, m.index + 4000));
+    if (kolom >= 5 && adaIsian && !/judul-sendiri/.test(kelas)) {
+      salah(
+        `${rel}: tabel ${kolom} kolom berisi kotak isian memakai "baris-sejajar" tanpa "judul-sendiri". Di 360px nama ` +
+          'bahan akan terperas jadi satu huruf per baris — dan tetap terlihat "ada", jadi tidak ada yang menyebutnya rusak.'
+      );
+    }
+  }
+}
+
+// Aturannya harus ADA, dan harus DI DALAM media query layar sempit.
+//
+// `sempitGabung` dipakai ulang — berkas ini sudah memotong isi tiap
+// `@media (max-width: 560px)` dengan benar di bagian atas. Percobaan pertama
+// memotongnya lagi dengan `indexOf` + `slice(iSempit)`, dan itu mengambil
+// SELURUH sisa stylesheet termasuk yang di luar media query-nya: aturan yang
+// lolos dari dalam kurung tetap dianggap aman.
+for (const pola of [
+  ['judul-sendiri tbody > tr', /\.judul-sendiri tbody > tr \{[^}]*flex-wrap: wrap/],
+  ['nama satu baris penuh', /\.judul-sendiri td:first-child \{[^}]*flex: 1 1 100%/],
+  ['sel isian 58%', /\.judul-sendiri td\.sel-isian \{[^}]*flex: 1 1 58%/]
+]) {
+  if (!pola[1].test(sempitGabung)) {
+    salah(`css/styles.css: aturan "${pola[0]}" hilang atau keluar dari @media layar sempit — namanya kembali terperas.`);
+  }
+}
+
+// `:not(.sel-isian)` menjaga dua arti "Dikirim": angka mati di layar Terima,
+// kotak isian di layar Kirim. Tanpa itu kotak isiannya ikut mengecil jadi
+// keterangan abu-abu.
+if (!/td\[data-label='Dikirim'\]:not\(\.sel-isian\)/.test(css)) {
+  salah(
+    'css/styles.css: aturan keterangan abu-abu tidak lagi mengecualikan `.sel-isian`. "Dikirim" berperan berbeda di dua ' +
+      'tabel — di Kirim ia justru kotak isiannya, dan akan ikut dikecilkan jadi teks.'
+  );
+}
+// Markup-nya harus benar-benar memasang kelas itu.
+const dispatch = baca('js/modules/dispatch/dispatch.page.js');
+if ((dispatch.match(/class="sel-isian"/g) ?? []).length < 2) {
+  salah('dispatch.page.js: sel kotak isian tidak ditandai `sel-isian` di kedua tabel (Kirim & Terima) — aturan CSS-nya tidak punya sasaran.');
+}
+
 if (gagal === 0) {
   console.log('Tabel berjajar: CSS di media query yang benar, tabel-responsif melewatinya, tidak ada kelas bentrok, tidak ada max-width inline, tombol Simpan di atas. ✅');
 }
