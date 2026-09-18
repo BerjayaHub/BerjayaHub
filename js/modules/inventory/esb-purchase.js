@@ -52,6 +52,7 @@
  */
 
 import { serialTanggalExcel } from './tanggal-excel.js';
+import { cocokkanSupplier, supplierSiap, normalNama } from './cocok-supplier.js';
 
 /**
  * Header template ESB, **berurutan**. Nama & urutannya harus persis.
@@ -88,8 +89,16 @@ export const KOLOM_ESB = [
   'Additional Info'
 ];
 
-/** Jenis pemetaan yang dikenal. Dipakai layar pengaturan & pemeriksaan. */
-export const JENIS_PETA = ['branch', 'location', 'payment_method', 'coa', 'unit', 'item'];
+/**
+ * Jenis pemetaan yang dikenal. Dipakai layar pengaturan & pemeriksaan.
+ *
+ * `supplier` masuk sejak 0144, dan cara kerjanya BERBEDA dari enam lainnya:
+ * yang lima pertama selalu perlu dipetakan (nama outlet lokal tidak akan pernah
+ * sama dengan nama Branch di ESB), sementara nama supplier yang dipilih dari
+ * daftar ESB sudah cocok apa adanya. Pemetaannya cuma untuk EJAAN LAMA yang
+ * terlanjur diketik sebelum daftarnya ada.
+ */
+export const JENIS_PETA = ['branch', 'location', 'payment_method', 'coa', 'unit', 'item', 'supplier'];
 
 const teks = (v) => (v === null || v === undefined ? '' : String(v).trim());
 const angka = (v) => {
@@ -109,7 +118,7 @@ const angka = (v) => {
  * @param {Map<string, string>} peta kunci sudah dinormalkan (lihat `buatPeta`)
  */
 function padanan(peta, nilai) {
-  const k = teks(nilai).toLowerCase();
+  const k = normalNama(nilai);
   if (!k) return null;
   return peta?.get(k) ?? null;
 }
@@ -126,7 +135,14 @@ export function buatPeta(baris) {
   for (const b of Array.isArray(baris) ? baris : []) {
     const j = teks(b?.jenis);
     if (!hasil[j]) continue;
-    const k = teks(b?.kunci).toLowerCase();
+    // SATU aturan normalisasi untuk semua jenis, dipinjam dari `cocok-supplier`.
+    //
+    // Dulu kuncinya cuma `trim().toLowerCase()`, sementara pencocokan supplier
+    // juga merapikan spasi ganda. Dua aturan yang berbeda untuk satu pekerjaan
+    // yang sama pasti menyimpang: "AB  Sentul" hasil salin-tempel akan cocok di
+    // satu jalur dan tidak di jalur lain, dan tidak ada layar yang bisa
+    // menunjukkan bedanya.
+    const k = normalNama(b?.kunci);
     const v = teks(b?.nilai);
     if (!k || !v) continue;
     hasil[j].set(k, v);
@@ -143,10 +159,14 @@ export function buatPeta(baris) {
  * @param {Map<string, Array>} o.itemsPerNota  id nota -> baris item
  *   { product_name, base_unit, qty, unit_cost, line_total }
  * @param {Record<string, Map<string,string>>} o.peta hasil `buatPeta`
+ * @param {Map<string, {nama: string}>} [o.masterSupplier] hasil `petaSupplier`
+ *   — daftar induk supplier ESB. Kalau KOSONG, pemeriksaan suppliernya
+ *   dilewati: BU yang belum pernah mengimpor daftar supplier tidak boleh
+ *   mendadak kehilangan seluruh notanya karena aturan baru.
  * @param {{currency?: string, rate?: number, mulaiSequence?: number}} [o.opsi]
  * @returns {{baris: Array[], kurang: Array<{jenis: string, nilai: string, nota: string[]}>, notaIds: string[]}}
  */
-export function barisEsbPurchase({ notas, itemsPerNota, peta, opsi = {} }) {
+export function barisEsbPurchase({ notas, itemsPerNota, peta, masterSupplier = new Map(), opsi = {} }) {
   const currency = opsi.currency ?? 'IDR';
   const rate = opsi.rate ?? 1;
   let seq = opsi.mulaiSequence ?? 1;
@@ -177,6 +197,20 @@ export function barisEsbPurchase({ notas, itemsPerNota, peta, opsi = {} }) {
     // sudah ditutup ikut bergeser tanpa satu pun pesan kesalahan.
     const tanggal = serialTanggalExcel(n.receipt_date);
     if (tanggal === null) catat('tanggal', n.receipt_date, kode);
+
+    // SUPPLIER: harus ada di daftar induk ESB, atau punya pemetaan ejaan.
+    //
+    // Yang dikirim nama KANONIK dari daftarnya, bukan yang diketik staff.
+    // "toko beras ridho" berangkat sebagai "Toko Beras Ridho" — mengirim ejaan
+    // yang diketik berarti mengirim nama yang, bagi ESB, bukan nama yang sama.
+    //
+    // Daftar induk yang masih kosong MELEWATI pemeriksaan ini sepenuhnya. BU
+    // yang belum sempat mengimpor daftar supplier tidak boleh mendadak
+    // kehilangan seluruh notanya karena aturan yang baru dinyalakan.
+    const adaMasterSupplier = masterSupplier?.size > 0;
+    const cocokSup = adaMasterSupplier ? cocokkanSupplier(n.supplier, masterSupplier, peta.supplier) : null;
+    const supplier = adaMasterSupplier ? (supplierSiap(cocokSup) ? cocokSup.nama : null) : teks(n.supplier);
+    if (adaMasterSupplier && !supplierSiap(cocokSup)) catat('supplier', n.supplier, kode);
 
     const branch = padanan(peta.branch, n.outlet_name);
     const location = padanan(peta.location, n.outlet_name);
@@ -217,7 +251,8 @@ export function barisEsbPurchase({ notas, itemsPerNota, peta, opsi = {} }) {
 
       barisNota.push([
         seq,
-        teks(n.supplier),
+        // Nama KANONIK dari daftar ESB, bukan yang diketik staff.
+        supplier ?? '',
         // Nomor seri Excel, bukan tulisan — lihat catatan di kepala berkas.
         tanggal ?? '',
         branch ?? '',
@@ -250,7 +285,7 @@ export function barisEsbPurchase({ notas, itemsPerNota, peta, opsi = {} }) {
     // Sebagian dokumen jauh lebih sulit dibereskan daripada tidak ada dokumen:
     // di ESB ia sudah jadi pembelian dengan isi yang kurang, dan mengoreksinya
     // berarti menghapus lalu mengunggah ulang.
-    const kepalaBermasalah = tanggal === null || !branch || !location || !payment || !coa;
+    const kepalaBermasalah = tanggal === null || !supplier || !branch || !location || !payment || !coa;
     if (adaMasalahItem || kepalaBermasalah) continue;
 
     baris.push(...barisNota);

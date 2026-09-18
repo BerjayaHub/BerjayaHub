@@ -32,6 +32,7 @@ import { susunBarisPemetaan, perluCari } from './urut-pemetaan.js';
 import { saringTabel } from '../dispatch/saring-tabel.js';
 import { KOLOM_TRANSFER, barisEsbTransfer, ringkasTransfer } from './esb-transfer.js';
 import { pasangFormatTanggal } from './tanggal-excel.js';
+import { petaSupplier, normalNama } from './cocok-supplier.js';
 import {
   alasanSah,
   jejakBatal,
@@ -45,6 +46,7 @@ import {
   gantiEsbMaster,
   listEsbMap,
   simpanEsbMap,
+  namaSupplierTerpakai,
   notaUntukEsb,
   tandaiNotaEsb,
   kirimanUntukEsb,
@@ -65,6 +67,7 @@ const LABEL_JENIS = {
   coa: 'COANo',
   unit: 'Unit',
   item: 'Item',
+  supplier: 'Supplier',
   // Tiga di bawah ini BUKAN pemetaan — tidak ada dropdown untuk memperbaikinya.
   // Ia muncul di tabel "belum dipetakan" karena tabel itulah satu-satunya
   // tempat alasan sebuah dokumen tertahan bisa terbaca. Perbaikannya di nota
@@ -158,11 +161,16 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
   let master = [];
   let peta = [];
   let produk = [];
+  let supplierTerpakai = [];
   try {
-    [master, peta, produk] = await Promise.all([
+    [master, peta, produk, supplierTerpakai] = await Promise.all([
       listEsbMaster(businessUnitId).catch(() => []),
       listEsbMap(businessUnitId).catch(() => []),
-      listProducts(businessUnitId).catch(() => [])
+      listProducts(businessUnitId).catch(() => []),
+      // Gagal berarti 0144 belum dijalankan. Layarnya tetap berdiri dengan
+      // kelompok Supplier kosong — bukan halaman galat yang mengunci seluruh
+      // ekspor ESB hanya karena satu daftar tidak bisa dibaca.
+      namaSupplierTerpakai(businessUnitId).catch(() => [])
     ]);
   } catch (e) {
     container.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
@@ -180,8 +188,28 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
     payment_method: CARA_BAYAR,
     coa: CARA_BAYAR,
     unit: [...new Set(produk.map((p) => p.base_unit).filter(Boolean))].sort(),
-    item: [...new Set(produk.filter((p) => p.product_type === 'raw' || p.product_type === 'semi').map((p) => p.name))].sort()
+    item: [...new Set(produk.filter((p) => p.product_type === 'raw' || p.product_type === 'semi').map((p) => p.name))].sort(),
+    // SUPPLIER BEKERJA TERBALIK DARI ENAM LAINNYA.
+    //
+    // Lima jenis di atas SELALU perlu dipetakan: nama outlet lokal tidak akan
+    // pernah sama dengan nama Branch di ESB. Supplier tidak begitu — sejak
+    // daftarnya diimpor, nama yang dipilih staff memang sudah nama ESB.
+    //
+    // Jadi yang muncul di sini HANYA ejaan lama yang tidak ada di daftar induk:
+    // nama-nama yang terlanjur diketik sebelum daftarnya ada. Menampilkan
+    // seluruh nama yang pernah dipakai akan membuat 30 baris yang sudah benar
+    // tampil sebagai "belum dipetakan", dan yang delapan benar-benar bermasalah
+    // tenggelam di antaranya.
+    supplier: (() => {
+      const m = petaSupplier(master);
+      return supplierTerpakai.map((t) => String(t?.nama ?? '')).filter((nama) => nama && !m.has(normalNama(nama)));
+    })()
   };
+
+  /** Berapa nota yang tertahan oleh tiap ejaan supplier — untuk ditampilkan. */
+  const notaPerSupplier = new Map(
+    supplierTerpakai.map((t) => [normalNama(t?.nama), { jumlah: Number(t?.jumlah) || 0, belum: Number(t?.belum_ekspor) || 0 }])
+  );
 
   container.innerHTML = `
     <h2 style="font-size:1.05rem">Ekspor ke ESB</h2>
@@ -266,11 +294,12 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
           <option value="branch">Master Branch</option>
           <option value="unit">Master Unit of Material</option>
           <option value="item">Master Product Data</option>
+          <option value="supplier">Master Supplier</option>
         </select>
         <button class="primary" id="esb-impor" style="max-width:150px">Impor</button>
       </div>
       <p style="font-size:0.8rem;margin:8px 0 0">
-        Tersimpan: ${['branch', 'unit', 'item']
+        Tersimpan: ${['branch', 'unit', 'item', 'supplier']
           .map((j) => `<strong>${masterPer(j).length}</strong> ${LABEL_JENIS[j]}`)
           .join(' · ')}
       </p>
@@ -512,8 +541,19 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
                 // `data-nama` memuat KEDUA sisi: orang mencari lewat nama
                 // Berjaya Hub maupun nama ESB-nya, tergantung mana yang ia
                 // pegang saat itu.
+                // Untuk supplier: berapa nota yang memakai ejaan ini, dan
+                // berapa yang masih menunggu diekspor. Tanpa angka itu, ejaan
+                // yang menahan 40 nota dan yang menahan 1 nota terlihat sama
+                // mendesaknya — dan yang dikerjakan lebih dulu jadi yang
+                // kebetulan paling atas.
+                const pakai = j === 'supplier' ? notaPerSupplier.get(normalNama(k)) : null;
+                const ket = pakai
+                  ? `<br><span style="font-size:0.76rem;color:var(--color-text-muted)">${pakai.jumlah} nota${
+                      pakai.belum ? ` · <span class="nota-telat">${pakai.belum} belum diekspor</span>` : ''
+                    }</span>`
+                  : '';
                 return `<tr data-nama="${esc(k)} ${esc(kini)}"${dipetakan ? '' : ' class="esb-belum"'}>
-                          <td data-label="Berjaya Hub">${esc(k)}</td><td data-label="ESB">${opsi}</td>
+                          <td data-label="Berjaya Hub">${esc(k)}${ket}</td><td data-label="ESB">${opsi}</td>
                         </tr>`;
               })
               .join('')}</tbody>
@@ -653,7 +693,15 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
             '<p style="color:var(--color-text-muted);font-size:0.88rem">Tidak ada nota baru di rentang itu. Nota yang sudah pernah diekspor sengaja tidak ditawarkan lagi.</p>';
           return;
         }
-        hasil = barisEsbPurchase({ notas: data.notas, itemsPerNota: data.itemsPerNota, peta: buatPeta(peta) });
+        hasil = barisEsbPurchase({
+          notas: data.notas,
+          itemsPerNota: data.itemsPerNota,
+          peta: buatPeta(peta),
+          // Daftar induk supplier. Kalau BU ini belum pernah mengimpornya,
+          // petanya kosong dan pemeriksaan suppliernya dilewati — aturan baru
+          // tidak boleh mendadak menahan seluruh nota yang selama ini berangkat.
+          masterSupplier: petaSupplier(master)
+        });
         ringkas = ringkasEkspor(hasil, total);
         ids = hasil.notaIds;
       }
@@ -761,7 +809,10 @@ async function bacaMasterEsb(file, jenis) {
   const kolomWajib = {
     branch: ['Branch Name'],
     unit: ['Unit Name'],
-    item: ['Product Name']
+    item: ['Product Name'],
+    // Ekspor "Master Supplier With Bank" — 22 kolom, header di baris ke-6.
+    // Barisnya dicari, bukan diasumsikan; lihat catatan di kepala fungsi ini.
+    supplier: ['Supplier Name']
   }[jenis];
 
   const iHeader = aoa.findIndex((r) => kolomWajib.every((k) => r.includes(k)));
@@ -772,8 +823,10 @@ async function bacaMasterEsb(file, jenis) {
   const kol = (nama) => header.indexOf(nama);
 
   const iNama = kol(kolomWajib[0]);
-  const iKode = jenis === 'branch' ? kol('Branch Code') : jenis === 'item' ? kol('Product Code') : -1;
-  const iKet = jenis === 'item' ? kol('Category') : jenis === 'branch' ? kol('Branch Type') : -1;
+  const KODE = { branch: 'Branch Code', item: 'Product Code', supplier: 'Supplier Code' }[jenis];
+  const KET = { item: 'Category', branch: 'Branch Type', supplier: 'Category' }[jenis];
+  const iKode = KODE ? kol(KODE) : -1;
+  const iKet = KET ? kol(KET) : -1;
 
   const out = [];
   for (let i = iHeader + 1; i < aoa.length; i++) {

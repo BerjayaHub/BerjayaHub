@@ -161,8 +161,12 @@ sabotase(
 sabotase(
   'nota bertanggal tak terbaca tetap berangkat — sel Date kosong diisi ESB dengan tanggal unggah',
   PUR,
-  '    const kepalaBermasalah = tanggal === null || !branch',
-  '    const kepalaBermasalah = !branch',
+  // Hanya bagian TANGGAL-nya yang dicabut; `!supplier` dan sisanya dibiarkan
+  // utuh. Kalau seluruh barisnya diganti, yang diuji jadi "semua penjaga kepala
+  // sekaligus" — dan sabotase seperti itu tertangkap oleh penjaga mana pun yang
+  // kebetulan masih berdiri, bukan oleh penjaga yang namanya tertulis di sini.
+  '    const kepalaBermasalah = tanggal === null || !supplier ||',
+  '    const kepalaBermasalah = !supplier ||',
   TES
 );
 sabotase(

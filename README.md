@@ -6813,6 +6813,71 @@ Bentuk selain `YYYY-MM-DD` ditolak, tidak ditebak: menebak `01/09/2026` berarti 
 
 - [x] **Kolom Date Purchase & Transfer berisi tanggal sungguhan** — 19 sabotase
 
+## Supplier punya daftar pasti, dan daftarnya datang dari ESB
+
+> "kita lanjutkan untuk perihal supplier, jadi berjaya hub dibuat ada supplier pasti agar tidak berbeda dari esb, nama nama supplier akan saya samakan dengan esb"
+
+**Perlu migration `0144`.**
+
+### Tidak ada tabel `suppliers` baru
+
+Godaan pertama adalah membuat tabel supplier sendiri lalu mengisinya dari nama-nama yang sudah terlanjur diketik. Itu salah arah: daftar yang benar bukan milik Berjaya Hub, melainkan milik **ESB**. Daftar buatan sendiri akan menyimpang dari ESB pada hari pertama supplier baru ditambahkan di sana.
+
+Jadi yang dipakai `esb_master` — tabel yang memang untuk itu sejak `0127`, lengkap dengan alur impor, layar, dan aturan "diganti tiap impor". `0144` cuma memperlebar dua `check`. Berkas **Master Supplier With Bank** dari ESB diunggah apa adanya: 35 supplier terbaca, header di baris ke-6, kode ESB (`CK00`…`CK35`) ikut tersimpan.
+
+Efek samping yang menguntungkan: tab **Hutang Supplier** mengelompokkan per teks nama. Hari ini "Pasar" dan "pasar " adalah dua kelompok hutang berbeda untuk satu supplier yang sama.
+
+### Yang berangkat ke ESB nama DAFTARNYA, bukan yang diketik
+
+`"toko beras ridho"` berangkat sebagai **`"Toko Beras Ridho"`**. Mengirim ejaan yang diketik berarti mengirim nama yang, bagi ESB, bukan nama yang sama — dan penolakannya terjadi di ESB, jauh dari layar yang mengetiknya.
+
+Tiga keadaan, dan ketiganya harus bisa dibedakan:
+
+| Keadaan | Artinya | Nasib notanya |
+|---|---|---|
+| `daftar` | ada di daftar induk ESB | berangkat |
+| `dipetakan` | ejaan lama yang sudah dipetakan | berangkat sebagai nama ESB-nya |
+| `tak-dikenal` | tidak ada di keduanya | **ditahan**, alasannya terbaca |
+
+### Normalisasinya sengaja dangkal
+
+Hanya huruf besar-kecil dan spasi berlebih. Titik, koma, dan "PT"/"CV" **tidak** dibuang: `PT KIMIA YASA` dan `CV KIMIA YASA` adalah dua badan hukum berbeda, dan mencocokkan keduanya akan menaruh pembelian di akun yang salah tanpa satu pun tanda di layar.
+
+Konsekuensinya jujur: `PD Es Cristal Glass` (tanpa titik) **tidak** otomatis cocok dengan `PD. Es Cristal Glass`. Ia perlu dipetakan sekali — dan untuk itulah layar pemetaannya ada.
+
+Aturan ini juga dipinjam `buatPeta`, yang dulu punya aturannya sendiri (`trim().toLowerCase()` tanpa merapikan spasi ganda). Dua aturan untuk satu pekerjaan pasti menyimpang: `"AB  Sentul"` hasil salin-tempel akan cocok di satu jalur dan tidak di jalur lain, dan tidak ada layar yang bisa menunjukkan bedanya.
+
+### Nota lama tidak ditulis ulang
+
+Teks di `goods_receipts.supplier` adalah catatan apa yang **dulu** diketik orang. Menimpanya menghapus jejak itu tanpa bisa dikembalikan. Jadi ejaan lama **dipetakan**, persis seperti nama outlet dipetakan ke Branch — dipetakan sekali, notanya utuh. Auditnya menolak `UPDATE` apa pun yang menyentuh kolom itu.
+
+`nama_supplier_terpakai()` memberi tahu ejaan apa saja yang masih beredar, beserta **berapa notanya** dan **berapa yang belum diekspor**. Urutannya mendahulukan yang belum diekspor: ejaan dengan 40 nota yang semuanya sudah berangkat ke ESB adalah kerapian, bukan penghalang — ia turun di bawah ejaan dengan 1 nota yang masih menunggu.
+
+Kelompok Supplier di layar pemetaan hanya memuat ejaan yang **tidak ada** di daftar induk. Menampilkan seluruh nama yang pernah dipakai akan membuat 30 baris yang sudah benar tampil sebagai "belum dipetakan", dan yang beberapa benar-benar bermasalah tenggelam di antaranya.
+
+### Staff tidak dikunci
+
+Kolom Supplier jadi dropdown dengan pencarian, **tapi nama baru tetap boleh diketik**. Memaksa memilih dari daftar berarti pembelian mendadak dari supplier baru tidak bisa dicatat sama sekali sampai admin sempat menambahkannya di ESB dan mengimpor ulang — dan yang memegang nota kertas di depan supplier jam 9 malam tidak bisa menunggu itu.
+
+Notanya tersimpan; yang tertahan cuma ekspornya, dan alasannya terbaca di kedua sisi: keterangan di bawah kolomnya untuk staff, baris di tabel "belum dipetakan" untuk admin.
+
+### Dua kelonggaran yang sengaja ada
+
+**Daftar induk yang masih kosong melewati pemeriksaan sepenuhnya.** BU yang belum sempat mengimpor daftar supplier tidak boleh mendadak kehilangan seluruh notanya karena aturan yang baru dinyalakan. Sabotase untuk ini ada dan tertangkap.
+
+**Pemetaan yang menunjuk nama yang sudah lenyap dari daftar induk tidak dianggap sah.** ESB bisa menonaktifkan supplier, lalu impor berikutnya menghapusnya — sementara pemetaannya tetap tinggal dan terus mengirim nama hantu yang ditolak ESB tanpa ada yang tahu sebabnya.
+
+- [x] **Master Supplier dari ESB, ejaan lama dipetakan** (`0144`) — 28 sabotase
+
+### Dua sabotase yang lolos, dan kenapa
+
+| Sabotase | Kenapa lolos |
+|---|---|
+| nama constraint ditebak, bukan dicari di katalog | ada **dua** blok `do $$`, dan `String.replace` cuma mengganti yang pertama — blok kedua masih memuat kalimat yang sama, jadi audit "ada atau tidak" tetap hijau. Sekarang jumlahnya dihitung, harus 2 |
+| penyaring jenis di `petaSupplier` dicabut | fixture tesnya memakai nama yang **sudah ada** sebagai supplier, jadi baris itu dibuang aturan "nama kembar diabaikan" — bukan oleh penyaring yang sedang diuji. Namanya diganti jadi nama yang betul-betul lain |
+
+Keduanya bentuk yang sama: **penjaga sebelah menutupi penjaga yang sedang diuji.**
+
 ## Tiga pack, tiga ratus pcs
 
 > "di modul bahan, terima dari supplier, saya ingin di nama item nya ditampilkan juga satuan beli, agar staff yang input bisa mengetahui berapa jumlah yang diinput / tapi yang diinput tetap satuan kecilnya"

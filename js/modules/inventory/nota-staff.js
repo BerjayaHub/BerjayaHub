@@ -13,7 +13,8 @@
  * membaca angka jumlahnya.
  */
 
-import { toast, infoDialog, formDialog, confirmDialog } from '../../core/ui.js';
+import { toast, infoDialog, formDialog, confirmDialog, renderSearchSelect, wireSearchSelect } from '../../core/ui.js';
+import { petaSupplier, cocokkanSupplier, PESAN_DI_LUAR_DAFTAR } from './cocok-supplier.js';
 import { formatNum } from '../../core/format.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { todayWIB } from '../../core/dates.js';
@@ -48,8 +49,13 @@ const esc = (s) =>
  * @param {string} o.businessUnitId
  * @param {string} o.outletId
  * @param {object[]} o.products bahan baku & setengah jadi
+ * @param {{nama: string, kode?: string}[]} [o.daftarSupplier] daftar induk
+ *   supplier ESB (0144). Kosong = kolom Supplier tetap kotak teks bebas seperti
+ *   sebelumnya; layar ini tidak boleh setengah mati hanya karena daftarnya
+ *   belum diimpor.
  */
-export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
+export function renderNotaStaff(wadah, { businessUnitId, outletId, products, daftarSupplier = [] }) {
+  const petaSup = petaSupplier(daftarSupplier.map((s) => ({ ...s, jenis: 'supplier' })));
   wadah.innerHTML = `
     <div class="inline-card fade-in" style="max-width:100%">
       <div class="page-header" style="margin-bottom:8px">
@@ -66,9 +72,33 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
           <label>Tanggal nota</label>
           <input type="date" id="nota-tgl" value="${todayWIB()}" max="${todayWIB()}" />
         </div>
-        <div class="field" style="margin:0;min-width:160px;flex:1 1 160px">
+        <div class="field" style="margin:0;min-width:200px;flex:1 1 200px">
           <label>Supplier</label>
-          <input type="text" id="nota-supplier" placeholder="mis. Toko Berkah" autocomplete="off" />
+          ${
+            // DIPILIH KALAU BISA, DIKETIK KALAU PERLU.
+            //
+            // `allowCreate` menyalakan pilihan "+ Tambah" untuk nama yang belum
+            // ada di daftar. Itu keputusan sadar: memaksa memilih dari daftar
+            // berarti pembelian mendadak dari supplier baru TIDAK BISA DICATAT
+            // sama sekali sampai admin sempat menambahkannya di ESB dan
+            // mengimpor ulang — dan yang memegang nota kertas di depan supplier
+            // jam 9 malam tidak bisa menunggu itu.
+            //
+            // Notanya tetap tersimpan; yang tertahan cuma ekspornya, dan
+            // alasannya terbaca di layar admin.
+            daftarSupplier.length
+              ? renderSearchSelect({
+                  name: 'nota-supplier',
+                  options: daftarSupplier.map((s) => ({ value: s.nama, label: s.nama, hint: s.kode ? `kode ESB ${s.kode}` : '' })),
+                  placeholder: 'pilih atau ketik nama supplier…',
+                  allowCreate: true
+                })
+              : // Daftar induknya belum diimpor -> kotak teks biasa, persis
+                // seperti sebelumnya. Fitur yang belum disiapkan tidak boleh
+                // membuat layar yang selama ini jalan jadi setengah mati.
+                `<input type="text" id="nota-supplier" placeholder="mis. Toko Berkah" autocomplete="off" />`
+          }
+          <span class="field-help" id="nota-supplier-ket"></span>
         </div>
         <div class="field" style="margin:0;min-width:150px;flex:1 1 150px">
           <label>No. nota supplier</label>
@@ -119,6 +149,36 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
       </div>
       <div id="nota-riwayat">${loadingHtml('Memuat riwayat…', { baris: 2 })}</div>
     </div>`;
+
+  /**
+   * SATU cara membaca nama supplier, apa pun bentuk kotaknya.
+   *
+   * Dua bentuk hidup berdampingan: search-select (kalau daftarnya sudah
+   * diimpor) dan `<input>` biasa (kalau belum). Membaca `#nota-supplier` apa
+   * adanya hanya bekerja di bentuk kedua — di bentuk pertama id itu tidak ada,
+   * `querySelector` mengembalikan null, dan `.value` melempar. Simpan nota akan
+   * mati total tanpa pesan yang menyebut supplier sama sekali.
+   */
+  const bacaSupplier = () =>
+    (wadah.querySelector('#nota-supplier')?.value ?? wadah.querySelector('input[name="nota-supplier"]')?.value ?? '').trim();
+
+  const kotakSupplier = wadah.querySelector('.search-select[data-name="nota-supplier"]');
+  if (kotakSupplier) {
+    const ketEl = wadah.querySelector('#nota-supplier-ket');
+    const opsiSup = daftarSupplier.map((s) => ({ value: s.nama, label: s.nama, hint: s.kode ? `kode ESB ${s.kode}` : '' }));
+    const tandai = () => {
+      const hasil = cocokkanSupplier(bacaSupplier(), petaSup);
+      // Nama di luar daftar TIDAK menghalangi penyimpanan — ia cuma diberi
+      // tahu. Lihat catatan di sebelah `allowCreate` pada kotaknya.
+      ketEl.textContent = hasil.keadaan === 'tak-dikenal' ? PESAN_DI_LUAR_DAFTAR : '';
+      ketEl.className = hasil.keadaan === 'tak-dikenal' ? 'field-help nota-telat' : 'field-help';
+    };
+    wireSearchSelect(kotakSupplier, opsiSup, tandai);
+    // `wireSearchSelect` hanya memanggil `onChange` saat dipilih dari daftar.
+    // Nama yang DIKETIK tidak memicunya — padahal justru nama ketikan itulah
+    // yang paling mungkin di luar daftar.
+    kotakSupplier.querySelector('.ss-input').addEventListener('blur', () => setTimeout(tandai, 200));
+  }
 
   const picker = createItemPicker(wadah.querySelector('#nota-picker'), {
     products,
@@ -340,7 +400,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products }) {
         notaId = await simpanNota({
           outletId,
           receiptDate: wadah.querySelector('#nota-tgl').value,
-          supplier: wadah.querySelector('#nota-supplier').value,
+          supplier: bacaSupplier(),
           invoiceNo: wadah.querySelector('#nota-invoice').value,
           photoPath,
           notes: wadah.querySelector('#nota-catatan').value,

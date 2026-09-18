@@ -73,6 +73,20 @@ export async function gantiEsbMaster(businessUnitId, jenis, baris) {
   return bersih.length;
 }
 
+/**
+ * Nama supplier yang PERNAH diketik di nota BU ini (0144).
+ *
+ * Bukan daftar supplier — itu `esb_master` berjenis 'supplier'. Ini daftar
+ * ejaan yang terlanjur beredar, beserta berapa notanya dan berapa yang belum
+ * diekspor. Tanpa ini layar pemetaan cuma bisa menampilkan daftar ESB, padahal
+ * yang justru perlu dibereskan adalah nama yang TIDAK ada di daftar itu.
+ */
+export async function namaSupplierTerpakai(businessUnitId) {
+  const { data, error } = await supabase.rpc('nama_supplier_terpakai', argumenRpc({ p_bu: businessUnitId }));
+  if (error) throw new Error(error.message ?? String(error));
+  return Array.isArray(data) ? data : [];
+}
+
 // ---- Pemetaan ----
 
 export async function listEsbMap(businessUnitId) {

@@ -2,6 +2,7 @@ import { toast, formDialog, confirmDialog, fuzzyMatch } from '../../core/ui.js';
 import { bandingHarga, perluDitinjau } from './biaya-rata.js';
 import { formatNum, formatRupiah } from '../../core/format.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
+import { listEsbMaster } from './esb.service.js';
 import { getBiayaRataOutlet, getOutletStockMap, recordMovement, getAllowStaffOpname } from './inventory.service.js';
 // `recordMenuWaste` SENGAJA TIDAK DIIMPOR LAGI. Sejak 0135 fungsinya di server
 // hanya berisi penolakan yang menjelaskan, dan satu-satunya jalan masuk adalah
@@ -21,13 +22,18 @@ import { renderMenipisStaff } from './menipis-staff.js';
 export async function renderInventoryPage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = loadingHtml('Memuat inventory…');
 
-  let outlets, products, recipes, allowOpname;
+  let outlets, products, recipes, allowOpname, daftarSupplier;
   try {
-    [outlets, products, recipes, allowOpname] = await Promise.all([
+    [outlets, products, recipes, allowOpname, daftarSupplier] = await Promise.all([
       listMyOutlets(businessUnitId).then((all) => all.map((o) => ({ id: o.id, name: o.name }))),
       listProducts(businessUnitId),
       listRecipesFull(businessUnitId),
-      getAllowStaffOpname(businessUnitId).catch(() => false)
+      getAllowStaffOpname(businessUnitId).catch(() => false),
+      // Daftar supplier ESB (0144). Gagal — karena migrationnya belum
+      // dijalankan, atau RLS-nya menutup — berarti daftar kosong, dan kolom
+      // Supplier tetap kotak teks bebas seperti sebelumnya. Layar Bahan tidak
+      // boleh mati hanya karena satu daftar tambahan tidak terbaca.
+      listEsbMaster(businessUnitId, 'supplier').catch(() => [])
     ]);
   } catch (error) {
     container.innerHTML = `<p class="error-text">Gagal memuat: ${error.message ?? error}</p>`;
@@ -338,7 +344,7 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       return;
     }
     notaPanel.removeAttribute('hidden');
-    renderNotaStaff(notaPanel, { businessUnitId, outletId: state.outletId, products: activeProducts });
+    renderNotaStaff(notaPanel, { businessUnitId, outletId: state.outletId, products: activeProducts, daftarSupplier });
   });
 
   const menuOptions = menuProducts.map((p) => ({ value: p.id, label: `${p.name} (${p.base_unit})` }));

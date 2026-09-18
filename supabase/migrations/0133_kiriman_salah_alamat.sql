@@ -188,10 +188,7 @@ begin
 
   select * into v_d from dispatches where id = p_dispatch;
   if v_d.id is null then raise exception 'Pengiriman tidak ditemukan'; end if;
-  if v_d.status <> 'received' then
-    raise exception 'Kiriman % belum diterima. Kalau salah alamat dan belum diterima, BATALKAN saja — barangnya belum berpindah ke mana pun.',
-      coalesce(v_d.code, '');
-  end if;
+
 
   -- Hanya outlet yang MENERIMA barangnya. Ia yang memegang barangnya, dan ia
   -- yang akan mengantarkannya.
