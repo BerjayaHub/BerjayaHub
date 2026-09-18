@@ -231,10 +231,22 @@ if (adm) {
   // Audit lamanya mengunci angka "3" untuk Pemetaan, lalu satu langkah baru
   // disisipkan dan auditnya merah tanpa ada yang rusak. Yang dijaga sekarang
   // urutannya dan kesesuaian nomor yang disebut di kalimat pengantar.
-  const judul = [...kode.matchAll(/>(\d+)\. ([^<]+)</g)].map((x) => ({ no: Number(x[1]), nama: x[2].trim(), at: x.index }));
-  const urut = judul.filter((h) => ['Unduh', 'Batalkan tanda ekspor', 'Daftar induk ESB', 'Pemetaan'].includes(h.nama));
-  if (urut.length !== 4) {
-    salah(`esb.admin.js: empat langkahnya tidak lengkap di layar (ketemu ${urut.length}).`);
+  // Spasi & baris baru sesudah `>` ikut ditoleransi.
+  //
+  // Pola pertama menuntut angkanya menempel persis di belakang `>`. Begitu satu
+  // judul ditulis di baris sendiri — seperti `<summary>` pada bagian Daftar
+  // supplier — ia berhenti terbaca, dan auditnya melapor "langkahnya tidak
+  // lengkap" untuk layar yang sebenarnya utuh. Yang diperiksa isinya, bukan
+  // cara HTML-nya dirapikan.
+  const judul = [...kode.matchAll(/>\s*(\d+)\.\s+([^<]+)</g)].map((x) => ({ no: Number(x[1]), nama: x[2].trim(), at: x.index }));
+  // Daftar langkahnya BERTAMBAH seiring layar ini tumbuh — "Daftar supplier"
+  // masuk sebagai langkah 4 saat admin perlu tahu nama mana yang sudah sama
+  // dengan ESB. Yang dijaga bukan jumlahnya melainkan urutan & penomorannya
+  // konsisten, jadi daftar ini memang perlu ikut diperbarui saat ada tambahan.
+  const LANGKAH = ['Unduh', 'Batalkan tanda ekspor', 'Daftar induk ESB', 'Daftar supplier', 'Pemetaan'];
+  const urut = judul.filter((h) => LANGKAH.includes(h.nama));
+  if (urut.length !== LANGKAH.length) {
+    salah(`esb.admin.js: ${LANGKAH.length} langkahnya tidak lengkap di layar (ketemu ${urut.length}).`);
   } else {
     if (urut[0].nama !== 'Unduh') {
       salah('esb.admin.js: Unduh bukan lagi yang pertama — pekerjaan tiap periode terkubur di bawah penyiapan yang sudah selesai.');

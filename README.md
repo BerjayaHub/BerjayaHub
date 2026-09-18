@@ -6813,6 +6813,43 @@ Bentuk selain `YYYY-MM-DD` ditolak, tidak ditebak: menebak `01/09/2026` berarti 
 
 - [x] **Kolom Date Purchase & Transfer berisi tanggal sungguhan** — 19 sabotase
 
+## Daftar supplier yang bisa dibaca, dan pintu kedua yang tidak dijaga
+
+> "saya ingin kamu tambahkan daftar master supplier yang sudah terdaftar di berjaya hub di admin portal… lalu di aksi edit nota, input supplier masih belum dropdown"
+
+**Tidak perlu migration.**
+
+### Pintu kedua yang tidak dijaga
+
+Dropdown supplier dipasang di form **tambah** nota — dan dialog **Edit** tetap kotak teks bebas. Nama yang sudah benar saat nota dibuat bisa berubah jadi ejaan lain saat diperbaiki, lalu notanya tertahan di ekspor ESB. Sebabnya justru perbaikan yang dimaksudkan menolong.
+
+Ini bentuk yang sudah berulang di proyek ini: **kemampuan dipasang di satu jalur, jalur kembarnya terlewat.** Auditnya sekarang **menghitung**, bukan sekadar memeriksa keberadaan — `daftarSupplier.map(` harus muncul di dua tempat, dan `allowCreate: true` juga dua. Pemeriksaan "ada atau tidak" tetap hijau ketika salah satunya dimatikan, dan yang dimatikan bisa saja jalur yang dipakai staff tiap hari.
+
+### Daftar yang menjawab pertanyaannya
+
+Kelompok "Supplier" di layar pemetaan sengaja **hanya** memuat ejaan yang bermasalah. Akibatnya tidak ada satu tempat pun yang bisa menjawab *"supplier apa saja yang sudah terdaftar di sini?"* — yang tersisa membuka berkas ESB di Excel, dan itu bukan jawaban.
+
+Langkah **4. Daftar supplier** menggabungkan dua sumber yang selama ini terpisah — `esb_master` dan nama yang dipakai nota — jadi satu daftar berstatus:
+
+| Status | Artinya | Pekerjaannya |
+|---|---|---|
+| Sama dengan ESB | ada di ESB, dipakai nota | tidak ada |
+| Dipetakan ke ESB | ejaan lama yang dijembatani | tahu saja; barisnya menyebut nama tujuannya |
+| **Belum ada di ESB** | dipakai nota, tidak ada di ESB | **ini yang menahan ekspor** |
+| Belum dipakai nota | ada di ESB, belum tersentuh | tidak ada |
+
+Diurut mendahulukan yang menghambat, bukan alfabetis: dengan 35 supplier, satu nama bermasalah bisa ada di baris ke-30 dan tidak pernah terbaca. Kotaknya juga **membuka sendiri** kalau ada yang menahan — daftar tertutup yang menyimpan pekerjaan mendesak sama saja dengan tidak ada.
+
+### Satu supplier, satu baris
+
+Ejaan lama yang dipetakan dan nama ESB tujuannya adalah **satu** supplier. Tanpa penjagaan, "PD Es Cristal Glass" muncul sebagai *dipetakan* dan "PD. Es Cristal Glass" muncul lagi sebagai *belum dipakai* — satu supplier, dua baris, status berlawanan. Kodenya pun diambil dari nama tujuannya, bukan dikosongkan: kode kosong terbaca sebagai "belum terdaftar" padahal sudah dijembatani.
+
+- [x] **Daftar master supplier + dropdown di Edit nota** — 39 sabotase (bersama `0144`)
+
+### Dua audit yang ikut diperbaiki
+
+`audit-batal-tanda-esb.cjs` menuntut nomor langkah menempel persis di belakang `>`. Begitu satu judul ditulis di baris sendiri (`<summary>`), ia berhenti terbaca dan melapor *"langkahnya tidak lengkap"* untuk layar yang utuh. Dan daftar nama langkahnya dikunci empat — sekarang lima. Keduanya diarahkan ke isinya, bukan ke cara HTML-nya dirapikan.
+
 ## U / D / A / N / G
 
 > "ada tampilan seperti ini di HP, ini sangat tidak nyaman untuk user… lebih baik dikecilkan ukuran font nya atau diubah posisi per kolom nya"

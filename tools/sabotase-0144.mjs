@@ -260,11 +260,13 @@ sabotase(
 
 console.log('\nSABOTASE HARGA:');
 
+// Sumber harganya berpindah ke `konv.harga` saat ekspor beralih ke satuan beli.
+// Yang disabotase tetap sama: pembulatannya dilewati.
 sabotase(
   'harga kembali dikirim mentah — ESB menolak "price cannot have more than 4 decimal places"',
   PUR,
-  '      const perSatuan = bulatkanHarga(angka(it.unit_cost));',
-  '      const perSatuan = angka(it.unit_cost);',
+  '      const perSatuan = bulatkanHarga(konv.harga);',
+  '      const perSatuan = konv.harga;',
   TES
 );
 sabotase(
@@ -326,6 +328,70 @@ sabotase(
   NOTA,
   '          supplier: bacaSupplier(),',
   "          supplier: wadah.querySelector('#nota-supplier').value,",
+  AUDIT
+);
+
+console.log('\nSABOTASE DAFTAR SUPPLIER DI ADMIN PORTAL:');
+
+const DAFTAR = 'js/modules/inventory/daftar-supplier.js';
+asli.set(DAFTAR, fs.readFileSync(P(DAFTAR), 'utf8'));
+const TES_DAFTAR = 'tools/test-daftar-supplier.mjs';
+
+// Celah yang sempat tertinggal sungguhan: dropdown cuma di form tambah.
+sabotase(
+  'dialog Edit kembali jadi kotak teks bebas — nama yang benar bisa berubah lewat pintu yang tidak dijaga',
+  NOTA,
+  "                    type: 'searchselect',",
+  "                    type: 'text',",
+  AUDIT
+);
+sabotase(
+  'dialog Edit memaksa memilih dari daftar — nota bersupplier belum terdaftar tidak bisa diperbaiki',
+  NOTA,
+  '                    allowCreate: true,\n                    options: daftarSupplier.map',
+  '                    allowCreate: false,\n                    options: daftarSupplier.map',
+  AUDIT
+);
+sabotase(
+  'satu supplier muncul DUA kali — sekali "dipetakan", sekali "belum dipakai"',
+  DAFTAR,
+  '    if (hasil.nama) sudahDisebut.add(normalNama(hasil.nama));',
+  '    void hasil;',
+  TES_DAFTAR
+);
+sabotase(
+  'baris berjenis lain ikut jadi supplier — nama produk terbaca sebagai supplier yang sah',
+  DAFTAR,
+  "    if (teks(m?.jenis) !== 'supplier') continue;",
+  '    if (false) continue;',
+  TES_DAFTAR
+);
+sabotase(
+  'daftarnya diurut alfabetis — nama yang menahan ekspor tenggelam di baris ke-30',
+  DAFTAR,
+  '      urutan[a.status] - urutan[b.status] ||',
+  '',
+  TES_DAFTAR
+);
+sabotase(
+  'ejaan yang dipetakan kehilangan kode ESB-nya — terbaca seolah belum terdaftar',
+  DAFTAR,
+  '      kode: hasil.nama ? petaEsb.get(normalNama(hasil.nama))?.kode ?? \'\' : \'\',',
+  "      kode: petaEsb.get(k)?.kode ?? '',",
+  TES_DAFTAR
+);
+sabotase(
+  'bagian "Daftar supplier" hilang dari layar Admin Portal',
+  ADM,
+  'id="esb-supplier-isi"',
+  'id="esb-supplier-isi-nonaktif"',
+  AUDIT
+);
+sabotase(
+  'daftarnya tidak membuka sendiri saat ada yang menahan ekspor',
+  ADM,
+  "if (ringkas[STATUS_MENGHAMBAT] || kosong) container.querySelector('#esb-supplier-box').open = true;",
+  'void STATUS_MENGHAMBAT;',
   AUDIT
 );
 

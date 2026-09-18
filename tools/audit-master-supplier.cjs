@@ -263,11 +263,17 @@ const nota = baca('js/modules/inventory/nota-staff.js');
 if (nota) {
   const kode = bersih(nota, 'nota-staff.js', ['const bacaSupplier']);
 
-  if (!/allowCreate: true/.test(kode)) {
+  // DIHITUNG, bukan "ada atau tidak".
+  //
+  // Sejak dialog Edit ikut memakai search-select, ada DUA `allowCreate: true`
+  // di berkas ini. Pemeriksaan "ada" tetap hijau ketika salah satunya dimatikan
+  // — dan yang dimatikan bisa saja jalur yang dipakai staff tiap hari.
+  const bolehKetik = (kode.match(/allowCreate: true/g) ?? []).length;
+  if (bolehKetik < 2) {
     salah(
-      'nota-staff.js: kolom Supplier memaksa memilih dari daftar. Pembelian mendadak dari supplier baru jadi TIDAK BISA ' +
-        'DICATAT sama sekali sampai admin menambahkannya di ESB dan mengimpor ulang — dan yang memegang nota kertas di ' +
-        'depan supplier tidak bisa menunggu itu.'
+      `nota-staff.js: hanya ${bolehKetik} dari 2 kolom Supplier yang membolehkan nama baru diketik. Memaksa memilih ` +
+        'dari daftar membuat pembelian mendadak dari supplier baru TIDAK BISA DICATAT sama sekali sampai admin ' +
+        'menambahkannya di ESB — dan yang memegang nota kertas di depan supplier tidak bisa menunggu itu.'
     );
   }
   // Satu cara membaca, apa pun bentuk kotaknya.
@@ -284,6 +290,84 @@ if (nota) {
   // mematikan layar yang selama ini jalan.
   if (!/daftarSupplier\.length\s*\n?\s*\?/.test(kode)) {
     salah('nota-staff.js: kolom Supplier tidak lagi punya jalur cadangan saat daftarnya kosong.');
+  }
+
+  // KEDUA JALUR, bukan satu.
+  //
+  // Celah yang sempat tertinggal: dropdown dipasang di form TAMBAH saja, dan
+  // dialog EDIT tetap kotak teks bebas. Nama yang sudah benar saat dibuat bisa
+  // berubah jadi ejaan lain saat diperbaiki — lalu notanya tertahan di ekspor,
+  // dan sebabnya justru perbaikan yang dimaksudkan menolong.
+  //
+  // Dihitung, bukan sekadar "ada": satu pemakaian bisa berarti salah satunya
+  // saja, dan itu persis keadaan yang keliru.
+  const pakaiDaftar = (kode.match(/daftarSupplier\.map\(/g) ?? []).length;
+  if (pakaiDaftar < 2) {
+    salah(
+      `nota-staff.js: hanya ${pakaiDaftar} tempat yang memakai \`daftarSupplier\`. Form tambah DAN dialog Edit harus ` +
+        'sama-sama memakainya — kalau tidak, nama yang benar bisa berubah jadi ejaan lain lewat pintu yang tidak dijaga.'
+    );
+  }
+  if (!/type: 'searchselect'/.test(kode)) {
+    salah('nota-staff.js: dialog Edit tidak memakai `searchselect` untuk supplier — kolomnya kembali teks bebas.');
+  }
+  // Dan Edit pun boleh mengetik nama baru: memaksa memilih dari daftar membuat
+  // nota yang suppliernya belum terdaftar tidak bisa diperbaiki sama sekali.
+  const iEdit = kode.indexOf("type: 'searchselect'");
+  if (iEdit >= 0 && !/allowCreate: true/.test(kode.slice(iEdit, iEdit + 400))) {
+    salah('nota-staff.js: dialog Edit memaksa memilih dari daftar — nota bersupplier yang belum terdaftar jadi tidak bisa diperbaiki.');
+  }
+}
+
+// ---------------------------------------------------------------
+// 6. Daftar master supplier di Admin Portal.
+// ---------------------------------------------------------------
+const daftar = baca('js/modules/inventory/daftar-supplier.js');
+if (daftar) {
+  const kode = bersih(daftar, 'daftar-supplier.js', ['export function susunDaftarSupplier']);
+
+  for (const f of ['susunDaftarSupplier', 'ringkasStatus', 'pesanRingkas']) {
+    if (!new RegExp(`export function ${f}\\(`).test(kode)) salah(`daftar-supplier.js: \`${f}\` tidak diekspor.`);
+  }
+  // Nama ESB tujuan sebuah ejaan TIDAK boleh muncul lagi sebagai "belum
+  // dipakai" — satu supplier tampil dua kali dengan status berlawanan.
+  if (!/if \(hasil\.nama\) sudahDisebut\.add\(normalNama\(hasil\.nama\)\)/.test(kode)) {
+    salah(
+      'daftar-supplier.js: nama ESB tujuan sebuah ejaan tidak ditandai sudah-disebut. Satu supplier akan muncul dua ' +
+        'kali — sekali sebagai "dipetakan", sekali sebagai "belum dipakai".'
+    );
+  }
+  if (!/teks\(m\?\.jenis\) !== 'supplier'/.test(kode)) {
+    salah('daftar-supplier.js: baris berjenis lain ikut masuk — nama produk akan terbaca sebagai supplier yang sah.');
+  }
+  if (!/urutan\[a\.status\] - urutan\[b\.status\]/.test(kode)) {
+    salah('daftar-supplier.js: daftarnya tidak lagi mendahulukan yang menghambat — satu nama bermasalah bisa ada di baris ke-30.');
+  }
+}
+
+const adm2 = baca('js/modules/inventory/esb.admin.js');
+if (adm2) {
+  const kode = bersih(adm2, 'esb.admin.js', ['susunDaftarSupplier(']);
+
+  if (!/susunDaftarSupplier\(master, supplierTerpakai, petaEjaanSupplier\(peta\)\)/.test(kode)) {
+    salah('esb.admin.js: daftar supplier tidak disusun lewat modul murninya.');
+  }
+  if (!/id="esb-supplier-isi"/.test(kode) || !/id="esb-supplier-lencana"/.test(kode)) {
+    salah('esb.admin.js: bagian "Daftar supplier" tidak ada di layar — tidak ada tempat menjawab "supplier apa saja yang sudah terdaftar".');
+  }
+  // Kotaknya membuka sendiri kalau ada yang menghambat: daftar tertutup yang
+  // menyimpan pekerjaan mendesak sama saja dengan tidak ada.
+  if (!/esb-supplier-box'\)\.open = true/.test(kode)) {
+    salah('esb.admin.js: daftar supplier tidak membuka sendiri saat ada nama yang menahan ekspor.');
+  }
+  // SATU penyaring untuk dua kotak. Menyambungkan `saringTabel` dua kali
+  // membuat yang kedua menimpa keputusan yang pertama.
+  if (/saringTabel\(\s*box\.querySelector\('#esb-supplier-cari'\)/.test(kode)) {
+    salah(
+      'esb.admin.js: kotak cari & saringan status disambungkan lewat `saringTabel` terpisah. Keduanya menulis `hidden` ' +
+        'pada baris yang sama, jadi yang belakangan menimpa keputusan yang pertama — baris muncul lagi padahal ' +
+        'statusnya tidak cocok, dan tidak ada yang terlihat salah.'
+    );
   }
 }
 

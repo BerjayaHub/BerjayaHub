@@ -1230,7 +1230,32 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products, daf
               // ketik tanggal memindahkan biayanya ke bulan yang salah, dan
               // yang menemukannya adalah orang yang menutup buku bulan itu.
               { name: 'tanggal', label: 'Tanggal nota', type: 'date', value: nota?.receipt_date ?? '' },
-              { name: 'supplier', label: 'Supplier', type: 'text', value: nota?.supplier ?? '' },
+              // DAFTAR YANG SAMA DENGAN FORM TAMBAH.
+              //
+              // Celah yang sempat tertinggal: dropdown supplier dipasang di
+              // form tambah saja, dan dialog Edit ini tetap kotak teks bebas.
+              // Akibatnya nama yang sudah benar saat dibuat bisa berubah jadi
+              // ejaan lain saat diperbaiki — lalu notanya tertahan di ekspor
+              // ESB, dan sebabnya justru perbaikan yang dimaksudkan menolong.
+              //
+              // `allowCreate` tetap menyala, alasannya sama dengan di form
+              // tambah: memaksa memilih dari daftar membuat nota yang
+              // suppliernya belum terdaftar tidak bisa diperbaiki sama sekali.
+              daftarSupplier.length
+                ? {
+                    name: 'supplier',
+                    label: 'Supplier',
+                    type: 'searchselect',
+                    value: nota?.supplier ?? '',
+                    placeholder: 'pilih atau ketik nama supplier…',
+                    allowCreate: true,
+                    options: daftarSupplier.map((s) => ({
+                      value: s.nama,
+                      label: s.nama,
+                      hint: s.kode ? `kode ESB ${s.kode}` : ''
+                    }))
+                  }
+                : { name: 'supplier', label: 'Supplier', type: 'text', value: nota?.supplier ?? '' },
               { name: 'invoice', label: 'No. Invoice', type: 'text', value: nota?.invoice_no ?? '' },
               ...(sudahLunas
                 ? [{ name: 'alasan', label: 'Alasan perbaikan', type: 'text', value: '', placeholder: 'mis. harga salah ketik' }]

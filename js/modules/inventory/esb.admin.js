@@ -32,7 +32,8 @@ import { susunBarisPemetaan, perluCari } from './urut-pemetaan.js';
 import { saringTabel } from '../dispatch/saring-tabel.js';
 import { KOLOM_TRANSFER, barisEsbTransfer, ringkasTransfer } from './esb-transfer.js';
 import { pasangFormatTanggal } from './tanggal-excel.js';
-import { petaSupplier, normalNama } from './cocok-supplier.js';
+import { petaSupplier, petaEjaanSupplier, normalNama } from './cocok-supplier.js';
+import { susunDaftarSupplier, ringkasStatus, pesanRingkas, LABEL_STATUS, STATUS_MENGHAMBAT } from './daftar-supplier.js';
 import { satuanPerluDipetakan } from './konversi-satuan.js';
 import {
   alasanSah,
@@ -295,7 +296,7 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       <h3 style="margin-top:0;font-size:0.95rem">3. Daftar induk ESB</h3>
       <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 8px">
         Unggah berkas <em>ekspor dari ESB</em> apa adanya — Master Branch, Master Unit of Material, Master Product Data.
-        Diimpor ulang kapan pun ESB berubah; <strong>pemetaan di langkah 4 tidak ikut terhapus</strong>.
+        Diimpor ulang kapan pun ESB berubah; <strong>pemetaan di langkah 5 tidak ikut terhapus</strong>.
       </p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <input type="file" id="esb-file" accept=".xlsx,.xls" />
@@ -315,9 +316,21 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       <p class="error-text" id="esb-impor-error"></p>
     </div>
 
+    <!-- DAFTAR SUPPLIER, LENGKAP DENGAN YANG SUDAH BENAR.
+         Kelompok "Supplier" di langkah 5 sengaja HANYA memuat ejaan yang
+         bermasalah — jadi tidak ada satu tempat pun yang bisa menjawab
+         "supplier apa saja yang sudah terdaftar di sini?". Yang tersisa
+         membuka berkas ESB di Excel, dan itu bukan jawaban. -->
+    <details class="inline-card" style="max-width:820px;margin-top:12px" id="esb-supplier-box">
+      <summary style="cursor:pointer;font-size:0.95rem;font-weight:600">
+        4. Daftar supplier <span id="esb-supplier-lencana" style="font-weight:400"></span>
+      </summary>
+      <div id="esb-supplier-isi" style="margin-top:8px"></div>
+    </details>
+
     <div class="inline-card" style="max-width:820px;margin-top:12px">
       <div class="page-header" style="margin-bottom:6px">
-        <h3 style="margin:0;font-size:0.95rem">4. Pemetaan</h3>
+        <h3 style="margin:0;font-size:0.95rem">5. Pemetaan</h3>
         <button id="esb-cocokkan" title="Cocokkan otomatis berdasarkan kemiripan nama">⚡ Cocokkan otomatis</button>
       </div>
       <div id="esb-peta"></div>
@@ -500,6 +513,103 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       );
     })
   );
+
+  // ---------------------------------------------------------------
+  // 1c. Daftar master supplier
+  // ---------------------------------------------------------------
+  function gambarDaftarSupplier() {
+    const daftar = susunDaftarSupplier(master, supplierTerpakai, petaEjaanSupplier(peta));
+    const ringkas = ringkasStatus(daftar);
+    const kosong = masterPer('supplier').length === 0;
+
+    const lencana = container.querySelector('#esb-supplier-lencana');
+    lencana.innerHTML = kosong
+      ? '<span class="nota-telat">belum diimpor</span>'
+      : ringkas[STATUS_MENGHAMBAT]
+        ? `<span class="nota-telat">${ringkas[STATUS_MENGHAMBAT]} belum ada di ESB</span> <span style="color:var(--color-text-muted);font-size:0.8rem">· ${ringkas.total} nama</span>`
+        : `<span class="nota-lunas">semua cocok</span> <span style="color:var(--color-text-muted);font-size:0.8rem">· ${ringkas.total} nama</span>`;
+
+    // Kotaknya dibuka sendiri kalau ada yang menghambat. Daftar tertutup yang
+    // menyimpan pekerjaan mendesak sama saja dengan tidak ada.
+    if (ringkas[STATUS_MENGHAMBAT] || kosong) container.querySelector('#esb-supplier-box').open = true;
+
+    const box = container.querySelector('#esb-supplier-isi');
+    box.innerHTML = `
+      <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">${esc(pesanRingkas(ringkas, kosong))}</p>
+      ${
+        daftar.length
+          ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 8px">
+               <input type="search" id="esb-supplier-cari" placeholder="Cari nama supplier…" autocomplete="off"
+                      style="flex:1 1 200px;min-width:170px" />
+               <select id="esb-supplier-saring" style="flex:0 1 190px">
+                 <option value="">Semua status</option>
+                 ${Object.entries(LABEL_STATUS)
+                   .map(([k, v]) => `<option value="${esc(k)}">${esc(v)} (${ringkas[k] ?? 0})</option>`)
+                   .join('')}
+               </select>
+               <span id="esb-supplier-info" style="font-size:0.78rem;color:var(--color-text-muted)"></span>
+             </div>
+             <div class="table-scroll"><table class="data-table kartu-sempit">
+               <thead><tr><th>Supplier</th><th>Kode ESB</th><th>Status</th><th>Nota</th></tr></thead>
+               <tbody id="esb-supplier-baris">${daftar
+                 .map((b) => {
+                   const warna =
+                     b.status === 'belum-terdaftar'
+                       ? 'nota-telat'
+                       : b.status === 'cocok'
+                         ? 'nota-lunas'
+                         : '';
+                   return (
+                     `<tr data-status="${esc(b.status)}" data-nama="${esc(b.nama)} ${esc(b.namaEsb ?? '')} ${esc(b.kode)}">` +
+                     `<td data-label="Supplier">${esc(b.nama)}${
+                       // Ejaan yang dipetakan menyebut tujuannya. Tanpa itu,
+                       // baris "Dipetakan ke ESB" tidak memberitahu DIPETAKAN
+                       // KE APA — dan yang membacanya tetap harus menebak.
+                       b.status === 'dipetakan' && b.namaEsb
+                         ? `<br><span style="font-size:0.76rem;color:var(--color-text-muted)">→ ${esc(b.namaEsb)}</span>`
+                         : ''
+                     }</td>` +
+                     `<td data-label="Kode ESB" style="font-size:0.8rem">${esc(b.kode) || '<span style="color:var(--color-text-muted)">–</span>'}</td>` +
+                     `<td data-label="Status"><span class="${warna}">${esc(LABEL_STATUS[b.status])}</span></td>` +
+                     `<td data-label="Nota" style="font-size:0.8rem">${
+                       b.jumlah
+                         ? `${b.jumlah}${b.belumEkspor ? ` · <span class="nota-telat">${b.belumEkspor} belum diekspor</span>` : ''}`
+                         : '<span style="color:var(--color-text-muted)">–</span>'
+                     }</td></tr>`
+                   );
+                 })
+                 .join('')}</tbody>
+             </table></div>`
+          : '<p style="color:var(--color-text-muted);font-size:0.88rem">Belum ada supplier — belum ada daftar dari ESB, dan belum ada nota yang mengisi namanya.</p>'
+      }`;
+
+    const kotak = box.querySelector('#esb-supplier-cari');
+    const saring = box.querySelector('#esb-supplier-saring');
+    if (!kotak) return;
+
+    const baris = [...box.querySelectorAll('#esb-supplier-baris tr')];
+    const info = box.querySelector('#esb-supplier-info');
+    // Dua saringan pada SATU daftar baris, jadi keduanya dihitung bersama.
+    // Menyambungkan `saringTabel` dua kali membuat yang kedua menimpa
+    // keputusan yang pertama — barisnya muncul lagi padahal statusnya tidak
+    // cocok, dan tidak ada yang terlihat salah.
+    const jalankan = () => {
+      const kata = kotak.value.trim().toLowerCase();
+      const status = saring.value;
+      let tampil = 0;
+      for (const tr of baris) {
+        const cocok =
+          (!status || tr.dataset.status === status) && (!kata || (tr.dataset.nama ?? '').toLowerCase().includes(kata));
+        tr.hidden = !cocok;
+        if (cocok) tampil += 1;
+      }
+      info.textContent = tampil === baris.length ? '' : `${tampil} dari ${baris.length} nama`;
+    };
+    kotak.addEventListener('input', jalankan);
+    saring.addEventListener('change', jalankan);
+    jalankan();
+  }
+  gambarDaftarSupplier();
 
   // ---------------------------------------------------------------
   // 2. Pemetaan
