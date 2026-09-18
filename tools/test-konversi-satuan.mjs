@@ -98,8 +98,55 @@ assert.ok(k4.qty > 1.61 && k4.qty < 1.62, `qty ${k4.qty}`);
 assert.notEqual(k4.qty, 2);
 ok('100 pcs dari pack isi 62 tetap 1,6129 pack — tidak dibulatkan jadi 2');
 
-assert.ok(String(k4.qty).split('.')[1].length <= DESIMAL_QTY_MAKS);
-ok(`qty tidak lebih dari ${DESIMAL_QTY_MAKS} desimal`);
+// ESB membatasi qty di 4 desimal juga — "qty cannot have more than 4 decimal
+// places". Percobaan pertama di modulnya memakai 6, dengan alasan "jumlah lebih
+// penting ketepatannya daripada harga". Itu dugaan, bukan aturan ESB.
+assert.equal(DESIMAL_QTY_MAKS, 4);
+ok('batas desimal qty 4 — sama dengan harga, sesuai pesan penolakan ESB');
+
+const desimal = (v) => (String(v).includes('.') ? String(v).split('.')[1].length : 0);
+
+// Seluruh kasus nyata dari berkas yang ditolak ESB, ditambah beberapa pembagi
+// yang menghasilkan pecahan berulang.
+for (const [nama, p] of [
+  ['100 pcs / pack 62', { base_unit: 'pcs', purchase_unit: 'PACK@62PCS', purchase_qty: 62, qty: 100, unit_cost: 12000 / 62, line_total: 100 * (12000 / 62) }],
+  ['496 gr / KG', { base_unit: 'gr', purchase_unit: 'KG', purchase_qty: 1000, qty: 496, unit_cost: 43.90120967741935, line_total: 21775 }],
+  ['1040 gr / KG', { base_unit: 'gr', purchase_unit: 'KG', purchase_qty: 1000, qty: 1040, unit_cost: 19.23076923076923, line_total: 20000 }],
+  ['7 pcs / pack 3', { base_unit: 'pcs', purchase_unit: 'PACK@3PCS', purchase_qty: 3, qty: 7, unit_cost: 1000, line_total: 7000 }],
+  ['1 pcs / pack 7', { base_unit: 'pcs', purchase_unit: 'PACK@7PCS', purchase_qty: 7, qty: 1, unit_cost: 500, line_total: 500 }]
+]) {
+  const h = keSatuanBeli(p, p);
+  assert.ok(desimal(h.qty) <= DESIMAL_QTY_MAKS, `${nama}: qty ${h.qty} punya ${desimal(h.qty)} desimal`);
+}
+ok('qty semua kasus nyata tidak lebih dari 4 desimal');
+
+// INI setengah kedua dari perbaikannya, dan yang paling mudah terlewat.
+//
+// Memotong qty tanpa menghitung ulang harganya membuat Qty × Price meleset
+// dari total nota: 1,6129 × 12.000 adalah Rp19.354,80, bukan Rp19.354,84.
+// Selisih itu tidak pernah memicu error — ia cuma membuat pembelian di ESB
+// tidak pernah persis cocok dengan tagihan supplier.
+for (const [nama, p] of [
+  ['100 pcs / pack 62', { base_unit: 'pcs', purchase_unit: 'PACK@62PCS', purchase_qty: 62, qty: 100, unit_cost: 12000 / 62, line_total: 100 * (12000 / 62) }],
+  ['496 gr / KG', { base_unit: 'gr', purchase_unit: 'KG', purchase_qty: 1000, qty: 496, unit_cost: 43.90120967741935, line_total: 21775 }],
+  ['7 pcs / pack 3', { base_unit: 'pcs', purchase_unit: 'PACK@3PCS', purchase_qty: 3, qty: 7, unit_cost: 1000, line_total: 7000 }]
+]) {
+  const h = keSatuanBeli(p, p);
+  const hargaTerkirim = bulatkanHarga(h.harga);
+  const selisih = Math.abs(h.qty * hargaTerkirim - p.line_total);
+  assert.ok(selisih < 0.01, `${nama}: qty×harga meleset ${selisih} dari total nota`);
+}
+ok('Qty × Price tetap sama dengan total nota SESUDAH qty dipotong 4 desimal');
+
+// Pembulatan yang menghabiskan jumlahnya: 1 gr dari satuan beli isi 100.000
+// adalah 0,00001 -> 0 di 4 desimal. Pembelian berjumlah NOL akan diterima ESB
+// dengan tenang sebagai barang yang tidak pernah datang.
+const habis = { base_unit: 'gr', purchase_unit: 'BIGPACK', purchase_qty: 100000, qty: 1, unit_cost: 5, line_total: 5 };
+const kHabis = keSatuanBeli(habis, habis);
+assert.equal(kHabis.dikonversi, false);
+assert.equal(kHabis.qty, 1);
+assert.equal(kHabis.unitLokal, 'gr');
+ok('qty yang membulat jadi NOL tidak dikonversi — barisnya tidak berangkat sebagai "tidak pernah datang"');
 
 console.log('\n§4 Harga dihitung dari TOTAL, bukan dari unit_cost × isi');
 

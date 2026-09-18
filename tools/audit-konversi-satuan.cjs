@@ -92,8 +92,41 @@ if (murni) {
         '124 pcs — jumlahnya berubah dari yang sungguh masuk gudang, dan angkanya tetap terlihat wajar di ESB.'
     );
   }
-  if (!/const qtyBeli = qtyKecil === null \? null : qtyKecil \/ isi;/.test(kode)) {
+  if (!/const qtyPenuh = qtyKecil === null \? null : qtyKecil \/ isi;/.test(kode)) {
     salah('konversi-satuan.js: qty satuan beli bukan lagi hasil bagi lurus `qtyKecil / isi`.');
+  }
+
+  // ESB membatasi qty di 4 desimal juga, bukan hanya harga.
+  if (!/DESIMAL_QTY_MAKS = 4;/.test(kode)) {
+    salah(
+      'konversi-satuan.js: batas desimal qty bukan 4. ESB menolaknya dengan "qty cannot have more than 4 decimal ' +
+        'places" — angkanya datang dari pesan penolakan itu, bukan dari penalaran tentang berapa yang pantas.'
+    );
+  }
+  // URUTANNYA: qty dibulatkan DULU, harga menyusul dari qty yang sudah bulat.
+  //
+  // Kalau harganya dihitung dari qty penuh lalu qty-nya dipotong belakangan,
+  // Qty × Price tidak lagi sama dengan total nota — dan selisih itu tidak
+  // pernah memicu error apa pun. Ia cuma membuat pembelian di ESB tidak pernah
+  // persis cocok dengan tagihan supplier.
+  if (!/const qtyBeli = bulat\(qtyPenuh, DESIMAL_QTY_MAKS\);/.test(kode)) {
+    salah('konversi-satuan.js: qty tidak dibulatkan sebelum harganya dihitung.');
+  }
+  if (!/\? total \/ qtyBeli/.test(kode)) {
+    salah(
+      'konversi-satuan.js: harga tidak dibagi qty yang SUDAH dibulatkan. Qty × Price akan meleset dari total nota — ' +
+        '1,6129 × 12.000 adalah Rp19.354,80, bukan Rp19.354,84.'
+    );
+  }
+  if (/qty: bulat\(qtyBeli/.test(kode) || /qty: bulat\(qtyPenuh/.test(kode)) {
+    salah('konversi-satuan.js: qty dibulatkan DUA KALI — sekali sebelum harga, sekali saat dikembalikan.');
+  }
+  // Qty yang membulat jadi NOL tidak boleh berangkat.
+  if (!/if \(qtyBeli === 0 && qtyPenuh !== null && qtyPenuh !== 0\)/.test(kode)) {
+    salah(
+      'konversi-satuan.js: qty yang membulat jadi nol tetap dikonversi. Pembelian berjumlah NOL diterima ESB dengan ' +
+        'tenang sebagai barang yang tidak pernah datang.'
+    );
   }
   // Satuan beli yang dipakai HARUS ikut ke daftar pemetaan.
   if (!/keluar\.add\(beli\)/.test(kode)) {

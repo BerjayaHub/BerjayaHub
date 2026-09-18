@@ -50,11 +50,19 @@
 /**
  * Batas desimal Qty di berkas ESB.
  *
- * Sengaja lebih longgar dari harga (yang dibatasi 4 oleh ESB sendiri): jumlah
- * adalah angka yang dicocokkan orang dengan nota kertas, dan memotongnya
- * terlalu pendek membuat Qty × Price meleset dari total notanya.
+ * EMPAT, sama dengan harga. Pesan penolakannya berbunyi persis "qty cannot have
+ * more than 4 decimal places".
+ *
+ * Percobaan pertama di sini menulis 6, dengan alasan "jumlah lebih penting
+ * ketepatannya daripada harga". Itu bukan aturan ESB melainkan dugaan saya
+ * sendiri, dan ESB membantahnya. Angkanya sekarang datang dari pesan
+ * penolakannya, bukan dari penalaran tentang apa yang seharusnya.
+ *
+ * Konsekuensinya nyata dan ditangani di bawah: memotong qty menggeser
+ * Qty × Price dari total nota, jadi HARGANYA dihitung dari qty yang SUDAH
+ * dibulatkan — bukan dari qty penuh.
  */
-export const DESIMAL_QTY_MAKS = 6;
+export const DESIMAL_QTY_MAKS = 4;
 
 const angka = (v) => {
   // `Number('')` dan `Number(null)` adalah 0, bukan NaN.
@@ -101,15 +109,40 @@ export function keSatuanBeli(item, produk) {
     return { unitLokal: unitKecil, qty: qtyKecil, harga: hargaKecil, dikonversi: false, isi: null };
   }
 
+  const qtyPenuh = qtyKecil === null ? null : qtyKecil / isi;
+
+  // QTY DIBULATKAN DULU, HARGA MENYUSUL DARINYA.
+  //
+  // ESB membatasi qty di 4 desimal juga ("qty cannot have more than 4 decimal
+  // places"), jadi 100 pcs dari pack isi 62 — 1,6129032258064515 — harus
+  // dipotong jadi 1,6129.
+  //
+  // Urutannya yang penting. Kalau harganya dihitung dari qty PENUH lalu
+  // qty-nya dipotong belakangan, Qty × Price tidak lagi sama dengan total
+  // notanya: 1,6129 × 12.000 adalah Rp19.354,80, bukan Rp19.354,84. Selisih
+  // kecil itu tidak pernah memicu error apa pun — ia cuma membuat pembelian di
+  // ESB tidak pernah persis cocok dengan tagihan supplier.
+  const qtyBeli = bulat(qtyPenuh, DESIMAL_QTY_MAKS);
+
+  // Pembulatan yang MENGHABISKAN jumlahnya tidak dipakai sama sekali.
+  //
+  // 1 gram dari satuan beli isi 100.000 adalah 0,00001 — dibulatkan ke 4
+  // desimal ia jadi NOL, dan pembelian berjumlah nol akan diterima ESB dengan
+  // tenang sebagai barang yang tidak pernah datang. Lebih baik barisnya
+  // berangkat dalam satuan kecil dan ditolak di depan.
+  if (qtyBeli === 0 && qtyPenuh !== null && qtyPenuh !== 0) {
+    return { unitLokal: unitKecil, qty: qtyKecil, harga: hargaKecil, dikonversi: false, isi: null };
+  }
+
   // HARGA DIHITUNG DARI TOTAL BARISNYA, BUKAN DARI `unit_cost × isi`.
   //
   // `unit_cost` sendiri sudah hasil bagi (`line_total / qty`), jadi mengalikannya
-  // kembali menumpuk galat pembulatan di atas galat pembulatan. Rp12.000 untuk
-  // 62 pcs menjadi 193.5483870967742, dan × 62 kembali menghasilkan
-  // 11999.999999999998 — bukan 12.000.
+  // kembali menumpuk galat pembulatan di atas galat pembulatan: 10.000 / 290
+  // adalah 34.48275862068966, dan × 290 kembali menghasilkan
+  // 10000.000000000002.
   //
-  // Dihitung dari `line_total` langsung, satu pack berharga persis Rp12.000.
-  const qtyBeli = qtyKecil === null ? null : qtyKecil / isi;
+  // Dibagi `qtyBeli` yang SUDAH dibulatkan, hasil kalinya kembali persis ke
+  // total notanya.
   const total = angka(item?.line_total) ?? (qtyKecil !== null && hargaKecil !== null ? qtyKecil * hargaKecil : null);
   const hargaBeli =
     total !== null && qtyBeli !== null && qtyBeli !== 0
@@ -120,7 +153,7 @@ export function keSatuanBeli(item, produk) {
 
   return {
     unitLokal: unitBeli,
-    qty: bulat(qtyBeli, DESIMAL_QTY_MAKS),
+    qty: qtyBeli,
     harga: hargaBeli,
     dikonversi: true,
     isi

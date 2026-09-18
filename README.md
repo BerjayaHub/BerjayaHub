@@ -6874,13 +6874,35 @@ Dihitung dari `line_total` langsung, satu pack berharga persis Rp10.000. (Pembag
 | Keadaan | Keputusan |
 |---|---|
 | Produk tanpa satuan beli | berangkat dalam satuan kecil, persis seperti sebelumnya — sebagian bahan memang dibeli eceran |
-| 100 pcs dari pack isi 62 | `1,6129 PACK` apa adanya. Dibulatkan ke 2 pack berarti mengirim 124 pcs untuk barang yang diterima 100 — dan angkanya tetap terlihat wajar di ESB |
+| 100 pcs dari pack isi 62 | `1,6129 PACK`. Dibulatkan ke 2 pack berarti mengirim 124 pcs untuk barang yang diterima 100 — dan angkanya tetap terlihat wajar di ESB |
+
+### Qty juga dibatasi 4 desimal — dan harganya harus menyusul
+
+Versi pertama membatasi qty di **6** desimal, dengan alasan "jumlah lebih penting ketepatannya daripada harga". Itu bukan aturan ESB melainkan dugaan, dan ESB membantahnya: *"qty cannot have more than 4 decimal places"*.
+
+Angkanya sekarang 4, sama dengan harga — datang dari pesan penolakannya, bukan dari penalaran tentang berapa yang pantas.
+
+Tapi memotong qty saja belum selesai. **Urutannya yang menentukan:**
+
+```
+qty penuh   1,6129032258064515
+qty dikirim 1,6129
+
+harga dari qty PENUH   -> 12.000,0000  ->  1,6129 × 12.000,0000 = Rp19.354,80   ✗
+harga dari qty BULAT   -> 12.000,0240  ->  1,6129 × 12.000,0240 = Rp19.354,84   ✓
+```
+
+Selisih Rp0,04 itu tidak pernah memicu error apa pun. Ia cuma membuat pembelian di ESB tidak pernah persis cocok dengan tagihan supplier — dan yang mencocokkannya berbulan-bulan kemudian tidak punya cara tahu sebabnya. Jadi harganya dihitung dari qty yang **sudah** dibulatkan.
+
+Satu penjaga tambahan: qty yang membulat jadi **nol** (1 gram dari satuan beli isi 100.000 = 0,00001) tidak dikonversi sama sekali. Pembelian berjumlah nol akan diterima ESB dengan tenang sebagai barang yang tidak pernah datang.
+
+Diperiksa sampai ke berkasnya: XML di dalam `.xlsx` memang berisi `1.6129`, bukan perluasan biner 16 digit. Itu pemeriksaan yang sama yang dulu membongkar jebakan `193.5484`.
 
 ### Dan yang nyaris jadi jalan buntu
 
 Daftar pemetaan Unit di layar Ekspor ESB dibangun dari `base_unit`. Sejak ekspor memakai satuan beli, nilai yang dicari adalah `purchase_unit` — jadi setiap nota akan tertahan dengan alasan *"PACK@30PCS belum dipetakan"*, **di layar yang tidak punya baris `PACK@30PCS`**. Kemampuannya ada, jalannya tidak ada di layar; pola yang sudah beberapa kali muncul di proyek ini. `satuanPerluDipetakan()` memuat keduanya.
 
-- [x] **Ekspor ESB dalam satuan beli** — 19 sabotase
+- [x] **Ekspor ESB dalam satuan beli** — 23 sabotase
 
 ## Empat desimal yang sebenarnya enam belas
 

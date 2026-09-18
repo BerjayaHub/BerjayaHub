@@ -109,8 +109,8 @@ sabotase(
 sabotase(
   'qty dibulatkan ke pack terdekat — 100 pcs berangkat sebagai 124 pcs',
   MURNI,
-  '  const qtyBeli = qtyKecil === null ? null : qtyKecil / isi;',
-  '  const qtyBeli = qtyKecil === null ? null : Math.round(qtyKecil / isi);',
+  '  const qtyPenuh = qtyKecil === null ? null : qtyKecil / isi;',
+  '  const qtyPenuh = qtyKecil === null ? null : Math.round(qtyKecil / isi);',
   TES
 );
 sabotase(
@@ -118,6 +118,38 @@ sabotase(
   MURNI,
   '      ? total / qtyBeli',
   '      ? hargaKecil * isi',
+  TES
+);
+
+console.log('\nSABOTASE BATAS DESIMAL QTY:');
+
+sabotase(
+  'batas desimal qty dilonggarkan jadi 6 — ESB menolak "qty cannot have more than 4 decimal places"',
+  MURNI,
+  'export const DESIMAL_QTY_MAKS = 4;',
+  'export const DESIMAL_QTY_MAKS = 6;',
+  TES
+);
+// Urutannya, dan inilah setengah kedua dari perbaikannya.
+sabotase(
+  'harga dihitung dari qty PENUH lalu qty-nya dipotong belakangan — Qty × Price meleset dari total nota',
+  MURNI,
+  '  const qtyBeli = bulat(qtyPenuh, DESIMAL_QTY_MAKS);',
+  '  const qtyBeli = qtyPenuh;',
+  TES
+);
+sabotase(
+  'qty tidak dibulatkan sama sekali — 1,6129032258064515 berangkat apa adanya',
+  MURNI,
+  '  const qtyBeli = bulat(qtyPenuh, DESIMAL_QTY_MAKS);',
+  '  const qtyBeli = qtyPenuh === null ? null : Number(qtyPenuh);',
+  TES
+);
+sabotase(
+  'qty yang membulat jadi NOL tetap berangkat — ESB mencatat barang yang tidak pernah datang',
+  MURNI,
+  '  if (qtyBeli === 0 && qtyPenuh !== null && qtyPenuh !== 0) {',
+  '  if (false) {',
   TES
 );
 sabotase(
