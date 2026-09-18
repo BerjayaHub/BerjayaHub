@@ -6813,6 +6813,60 @@ Bentuk selain `YYYY-MM-DD` ditolak, tidak ditebak: menebak `01/09/2026` berarti 
 
 - [x] **Kolom Date Purchase & Transfer berisi tanggal sungguhan** — 19 sabotase
 
+## Tiga pack, tiga ratus pcs
+
+> "di modul bahan, terima dari supplier, saya ingin di nama item nya ditampilkan juga satuan beli, agar staff yang input bisa mengetahui berapa jumlah yang diinput / tapi yang diinput tetap satuan kecilnya"
+
+**Tidak perlu migration.**
+
+### Angka yang ada di database dan tidak ada di layar
+
+Plastik Pex dibeli per PACK isi 100 pcs, tapi Berjaya Hub selalu menyimpan satuan **kecil** — 3 pack masuk sebagai 300 pcs. Angka 100 itu sudah tersimpan di Master Produk sebagai `purchase_qty`, dan layar Terima dari Supplier tidak pernah menampilkannya.
+
+Jadi staff yang memegang nota bertuliskan "3 pack" harus mengingat sendiri isi tiap pack untuk 279 barang. Kalau salah, 3 masuk sebagai 3 pcs: stok kurang 297, **tidak ada satu pun error**, angkanya masuk akal, notanya tersimpan rapi — dan selisihnya baru muncul saat stok opname.
+
+Sekarang tiap baris menyebutnya sendiri: `1 PACK@100PCS = 100 pcs`.
+
+### Angka pengalinya dari kolom, bukan dari nama
+
+Bentuknya sengaja menyebut angkanya, bukan sekadar `PACK@100PCS`. Nama satuan beli diketik manusia dan tidak bisa dipercaya memuat angkanya — ada yang menulis `DUS`, `BALL`, `KARUNG`. Yang menentukan pengalinya selalu `purchase_qty`, jadi angka itulah yang ditampilkan.
+
+Tiga hal sengaja **tidak** ditampilkan, dan alasannya sama: keterangan yang menyala saat semuanya normal berhenti dibaca dalam hitungan hari.
+
+| Keadaan | Kenapa polos |
+|---|---|
+| `purchase_unit`/`purchase_qty` kosong | sebagian besar bahan memang dibeli per satuan kecil (gula per gram) — ratusan baris akan berlabel "belum diisi" padahal normal |
+| isi = 1 | "1 BOTOL = 1 botol" benar tapi tidak ada yang perlu dikalikan |
+| satuan beli = satuan kecil tapi isi ≠ 1 | datanya saling bertentangan; menampilkan "1 pcs = 100 pcs" justru mengajari staff mengalikan yang salah |
+
+Kelengkapan datanya tetap terpantau di tempat yang memang untuk itu: catatan pada ekspor Master Produk dan `harga-curiga.js`.
+
+### Yang TAMPIL dan yang DICARI dipisah — ini inti perubahannya
+
+Pencarian di `search-select` mencocokkan `o.label`. Kalau keterangan satuan beli ikut masuk ke label, mengetik `100` akan memunculkan **setiap** barang yang isi pack-nya 100 — bukan barang yang namanya memuat 100. Untuk 279 bahan itu berarti kotak carinya berhenti menyaring apa pun, **tanpa satu pun error**, dan tidak ada yang akan menyebutnya kerusakan; ia cuma "jadi kurang enak dipakai".
+
+Jadi opsi kini punya dua bidang: `label` untuk **mencocokkan**, `hint` untuk **menampilkan**. Tesnya membuktikan selisihnya nyata, bukan kebetulan:
+
+```
+ketik "100" lewat label   -> 2 dari 5 barang   (yang namanya memang memuat 100)
+ketik "100" lewat tampilan -> 5 dari 5 barang  (kerusakan yang dicegah)
+```
+
+### Terlihat sesudah dipilih, bukan cuma di dropdown
+
+Begitu barangnya dipilih, dropdown-nya tertutup — dan **justru sesudah itu** orangnya mengetik jumlahnya. Maka keterangannya ikut ke dalam kotaknya: `Plastik Pex Bawang Uk.10X30 (pcs) — 1 PACK@100PCS = 100 pcs`. Ia juga bertahan saat barisnya digambar ulang: ganti filter kategori, dan dialog **Edit Nota**.
+
+Berlaku di semua layar yang memakai pemilih barang — Terima, Order ke CK, Kirim, Transfer, Draft SJ.
+
+- [x] **Satuan beli tampil di pemilih barang** — 15 sabotase
+
+### Dua sabotase yang lolos, dan kenapa
+
+| Sabotase | Kenapa lolos |
+|---|---|
+| aturan "isi = 1" dicabut | fixture tesnya memakai `BOTOL`/`botol`, jadi yang menahannya **penjaga sebelah** ("satuan beli = satuan kecil"), bukan aturan yang sedang diuji. Fixture-nya diganti ke `PACK`/`pcs` |
+| kelas `.ss-hint` diganti nama | auditnya mencari `/\.ss-hint/`, dan itu tetap cocok dengan `.ss-hint-nonaktif` — jebakan pencocokan awalan, untuk kesekian kalinya di proyek ini. Sekarang selektornya disebut lengkap sampai `{` |
+
 ## Jalan keluar yang ada di database dan tidak ada di layar
 
 > "jika sudah di ekspor esb maka staff tidak bisa edit nota terima dari supplier, keterangannya hilangkan tanda ekspor esb dulu baru bisa ubah / tapi saya tidak bisa menemukan menghilangkan tanda ekspor esb nya, apakah memang belum dibuat?"

@@ -506,10 +506,29 @@ export function fuzzyMatch(query, text) {
   return false;
 }
 
+/**
+ * Teks yang DITAMPILKAN untuk sebuah opsi — label, plus keterangannya.
+ *
+ * ============ KENAPA INI TERPISAH DARI `label` ============
+ *
+ * Pencarian di `wireSearchSelect` mencocokkan `o.label`, dan ia harus tetap
+ * begitu. Kalau keterangan "1 PACK@100PCS = 100 pcs" ikut masuk ke `label`,
+ * mengetik `100` akan memunculkan setiap barang yang isi pack-nya 100 — bukan
+ * barang yang namanya memuat 100. Untuk 279 bahan itu berarti kotak carinya
+ * berhenti menyaring apa pun, dan tidak ada yang akan menyebutnya kerusakan;
+ * ia cuma "jadi kurang enak dipakai".
+ *
+ * Jadi: `label` untuk MENCOCOKKAN, `teksOpsi()` untuk MENAMPILKAN.
+ */
+export function teksOpsi(o) {
+  const hint = String(o?.hint ?? '').trim();
+  return hint ? `${o?.label ?? ''} — ${hint}` : String(o?.label ?? '');
+}
+
 export function renderSearchSelect({ name, options, value = '', placeholder = 'Ketik untuk cari…', allowCreate = false }) {
   const selected = options.find((o) => String(o.value) === String(value ?? ''));
   // Untuk field bebas (allowCreate), nilai yang belum ada di daftar tetap ditampilkan.
-  const shownLabel = selected?.label ?? (allowCreate ? value ?? '' : '');
+  const shownLabel = selected ? teksOpsi(selected) : allowCreate ? value ?? '' : '';
   return `
     <div class="search-select" data-name="${escapeAttr(name)}"${allowCreate ? ' data-allow-create="1"' : ''}>
       <input type="hidden" name="${escapeAttr(name)}" value="${escapeAttr(value ?? '')}" />
@@ -524,7 +543,11 @@ export function wireSearchSelect(widget, options, onChange) {
   const input = widget.querySelector('.ss-input');
   const list = widget.querySelector('.ss-list');
   const allowCreate = widget.dataset.allowCreate === '1';
-  const labelFor = (val) => options.find((o) => String(o.value) === String(val))?.label ?? (allowCreate ? val : '');
+  const cariOpsi = (val) => options.find((o) => String(o.value) === String(val));
+  const labelFor = (val) => {
+    const o = cariOpsi(val);
+    return o ? teksOpsi(o) : allowCreate ? val : '';
+  };
 
   const draw = (filtered) => {
     const typed = input.value.trim();
@@ -535,14 +558,28 @@ export function wireSearchSelect(widget, options, onChange) {
         : '';
     list.innerHTML =
       createItem +
-        filtered.slice(0, 60).map((o) => `<li data-val="${escapeAttr(o.value)}">${escapeHtml(o.label)}</li>`).join('') ||
-      (createItem || '<li class="ss-empty">Tidak ada hasil</li>');
+        filtered
+          .slice(0, 60)
+          .map(
+            (o) =>
+              `<li data-val="${escapeAttr(o.value)}">${escapeHtml(o.label)}${
+                // Keterangannya di baris sendiri, warna redup: ia membantu yang
+                // membacanya, dan tidak boleh bersaing dengan nama barangnya.
+                String(o.hint ?? '').trim() ? `<span class="ss-hint">${escapeHtml(String(o.hint).trim())}</span>` : ''
+              }</li>`
+          )
+          .join('') || (createItem || '<li class="ss-empty">Tidak ada hasil</li>');
     list.hidden = false;
   };
 
   input.addEventListener('focus', () => draw(options));
   input.addEventListener('input', () => {
     hidden.value = allowCreate ? input.value.trim() : '';
+    // DICOCOKKAN KE `o.label`, BUKAN `teksOpsi(o)`.
+    //
+    // Lihat catatan di `teksOpsi`: keterangan satuan beli memuat angka, dan
+    // mencocokkan angka itu akan membuat `100` memunculkan ratusan barang yang
+    // tidak bernama 100. Kotak carinya berhenti menyaring tanpa satu pun error.
     draw(options.filter((o) => fuzzyMatch(input.value, o.label)));
   });
   list.addEventListener('mousedown', (e) => {

@@ -2,6 +2,7 @@ import { renderSearchSelect, wireSearchSelect } from '../../core/ui.js';
 import { formatNum, formatRibuanDesimal, bacaRupiah, attachRupiahInput } from '../../core/format.js';
 import { cariDuplikat, gabungDuplikat } from './duplikat-item.js';
 import { cocokKata, ringkasSaringan } from './saring-baris.js';
+import { hintSatuanBeli } from '../product/satuan-beli.js';
 
 /**
  * Komponen pemilih produk untuk form Order / Kirim / Transfer.
@@ -99,7 +100,14 @@ export function createItemPicker(
 
   const filtered = () =>
     products.filter((p) => (!state.category || p.category === state.category) && (!state.subcategory || p.subcategory === state.subcategory));
-  const optionsOf = (list) => list.map((p) => ({ value: p.id, label: `${p.name} (${p.base_unit})` }));
+  // `label` untuk MENCOCOKKAN, `hint` untuk MENAMPILKAN.
+  //
+  // Satuan belinya sengaja TIDAK masuk ke `label`: pencarian di search-select
+  // mencocokkan label, dan "1 PACK@100PCS = 100 pcs" memuat angka. Mengetik
+  // `100` akan memunculkan setiap barang yang isi pack-nya 100 — kotak carinya
+  // berhenti menyaring, tanpa satu pun error. Lihat `teksOpsi` di core/ui.js.
+  const optionsOf = (list) =>
+    list.map((p) => ({ value: p.id, label: `${p.name} (${p.base_unit})`, hint: hintSatuanBeli(p) }));
 
   function refreshSubOptions() {
     const subs = [...new Set(filteredByCategoryOnly().map((p) => p.subcategory).filter(Boolean))].sort();

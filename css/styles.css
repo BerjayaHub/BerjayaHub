@@ -1682,6 +1682,16 @@ select.sc-cell.is-off {
   font-size: 0.92rem;
 }
 .search-select .ss-list li:hover { background: var(--color-bg); }
+/* Keterangan satuan beli — "1 PACK@100PCS = 100 pcs".
+   Baris sendiri dan redup: ia menolong yang membacanya, dan tidak boleh
+   bersaing dengan nama barangnya. `display:block` supaya nama yang panjang
+   tidak mendorongnya keluar layar di HP. */
+.search-select .ss-list li .ss-hint {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
 .search-select .ss-list li.ss-empty { color: var(--color-text-muted); cursor: default; }
 .search-select .ss-list li.ss-create {
   color: var(--color-primary);
