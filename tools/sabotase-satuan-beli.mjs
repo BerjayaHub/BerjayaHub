@@ -158,14 +158,14 @@ sabotase(
 sabotase(
   'keterangannya lenyap tepat sesudah barangnya dipilih',
   UI,
-  '    return o ? teksOpsi(o) : allowCreate ? val : \'\';',
+  '    return o ? teksKotak(o, allowCreate) : allowCreate ? val : \'\';',
   "    return o ? o.label : allowCreate ? val : '';",
   AUDIT
 );
 sabotase(
   'baris yang digambar ulang (ganti filter, Edit nota) kehilangan keterangannya',
   UI,
-  '  const shownLabel = selected ? teksOpsi(selected) : allowCreate ? value ?? \'\' : \'\';',
+  '  const shownLabel = selected ? teksKotak(selected, allowCreate) : allowCreate ? value ?? \'\' : \'\';',
   "  const shownLabel = selected?.label ?? (allowCreate ? value ?? '' : '');",
   AUDIT
 );

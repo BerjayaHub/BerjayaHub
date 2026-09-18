@@ -101,12 +101,27 @@ if (ui) {
   if (!/class="ss-hint"/.test(kode)) {
     salah('ui.js: keterangan opsi tidak digambar di daftar.');
   }
-  if (!/const shownLabel = selected \? teksOpsi\(selected\)/.test(kode)) {
-    salah('ui.js: kotaknya tidak memakai `teksOpsi` saat nilainya sudah terisi — keterangannya hilang begitu barisnya digambar ulang.');
+  // Lewat `teksKotak`, bukan `teksOpsi` langsung.
+  //
+  // `teksKotak` menambahkan satu keputusan yang tidak boleh hilang: pada field
+  // `allowCreate`, isi kotak ITULAH nilainya, jadi keterangan tidak boleh ikut
+  // ke sana. Untuk pemilih barang (`allowCreate` mati) ia tetap mengembalikan
+  // `teksOpsi`, jadi keterangan satuan beli tetap terlihat sesudah dipilih.
+  if (!/function teksKotak\(o, allowCreate\)/.test(kode)) {
+    salah('ui.js: `teksKotak` hilang — pemisah antara teks yang TAMPIL dan teks yang jadi NILAI tidak ada lagi.');
   }
-  if (!/return o \? teksOpsi\(o\)/.test(kode)) {
+  if (!/return allowCreate \? String\(o\?\.label \?\? ''\) : teksOpsi\(o\);/.test(kode)) {
     salah(
-      'ui.js: `labelFor` tidak memakai `teksOpsi`. Keterangannya akan lenyap tepat sesudah barangnya dipilih — padahal ' +
+      'ui.js: `teksKotak` tidak lagi membedakan mode. Kalau ia selalu memakai `teksOpsi`, keterangan ikut jadi bagian ' +
+        'nama supplier; kalau selalu label saja, keterangan satuan beli hilang dari pemilih barang.'
+    );
+  }
+  if (!/const shownLabel = selected \? teksKotak\(selected, allowCreate\)/.test(kode)) {
+    salah('ui.js: kotaknya tidak memakai `teksKotak` saat nilainya sudah terisi.');
+  }
+  if (!/return o \? teksKotak\(o, allowCreate\)/.test(kode)) {
+    salah(
+      'ui.js: `labelFor` tidak memakai `teksKotak`. Keterangannya akan lenyap tepat sesudah barangnya dipilih — padahal ' +
         'justru SESUDAH memilih orangnya mengetik jumlahnya.'
     );
   }

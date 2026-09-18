@@ -6813,6 +6813,44 @@ Bentuk selain `YYYY-MM-DD` ditolak, tidak ditebak: menebak `01/09/2026` berarti 
 
 - [x] **Kolom Date Purchase & Transfer berisi tanggal sungguhan** — 19 sabotase
 
+## Keterangan yang diam-diam jadi bagian nama
+
+> "apakah ada tambahan teks kode esb xxx di belakang nama supplier itu tidak pengaruh? atau apakah dia akan jadi nama supplier baru?"
+
+**Berpengaruh. Ia akan jadi nama supplier baru** — dan bug ini saya yang buat, satu putaran sebelumnya.
+
+Pada field `allowCreate`, isi kotak teks **itulah** nilainya: `blur` menyalin `input.value` ke input tersembunyi supaya nama yang diketik sendiri ikut tersimpan. Jadi begitu keterangan ditempel ke kotaknya, keterangan itu ikut jadi bagian nilainya.
+
+Direproduksi di DOM sungguhan — kotaknya cukup **disentuh lalu ditinggalkan**, tanpa mengetik apa pun:
+
+```
+sesudah dialog dibuka:
+   yang TERLIHAT : "CV BADANSA JAYA ABADI — kode ESB CK18"
+   yang TERSIMPAN: "CV BADANSA JAYA ABADI"
+
+sesudah disentuh & ditinggalkan:
+   yang TERSIMPAN: "CV BADANSA JAYA ABADI — kode ESB CK18"   ← RUSAK
+```
+
+Daftarnya lalu menawarkan `+ Tambah "CV BADANSA JAYA ABADI — kode ESB CK18"` seolah itu supplier berbeda. Notanya tersimpan dengan nama itu, lalu **tertahan saat diekspor** dengan alasan "supplier tidak dikenal" — untuk nota yang suppliernya tidak pernah diubah siapa pun.
+
+### Dua pekerjaan, satu kotak
+
+Perbaikannya memisahkan dua hal yang sempat disatukan:
+
+| | Teks di DAFTARNYA | Teks di KOTAKNYA |
+|---|---|---|
+| Pemilih barang (`allowCreate` mati) | nama + satuan beli | nama + satuan beli |
+| Supplier (`allowCreate` hidup) | nama + kode ESB | **nama saja** |
+
+Keterangan tetap menolong **memilih** di kedua mode. Ia hanya tidak pernah masuk ke kotak yang merangkap nilai.
+
+### Diuji di DOM, bukan dibaca
+
+Yang rusak di sini **interaksinya** — focus, blur, pilih dari daftar, ketik nama baru. Tidak ada regex yang bisa membuktikan itu. `test-search-select.mjs` menjalankannya di DOM sungguhan (linkedom) dan memeriksa nilai tersembunyinya di tiap langkah, termasuk bahwa tawaran "+ Tambah" tidak lagi muncul untuk supplier yang sudah terdaftar.
+
+- [x] **Keterangan tidak lagi menempel ke nilai** — 8 sabotase
+
 ## Daftar supplier yang bisa dibaca, dan pintu kedua yang tidak dijaga
 
 > "saya ingin kamu tambahkan daftar master supplier yang sudah terdaftar di berjaya hub di admin portal… lalu di aksi edit nota, input supplier masih belum dropdown"

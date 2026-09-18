@@ -525,10 +525,38 @@ export function teksOpsi(o) {
   return hint ? `${o?.label ?? ''} — ${hint}` : String(o?.label ?? '');
 }
 
+/**
+ * Teks untuk KOTAKNYA — berbeda dari teks untuk daftarnya saat `allowCreate`.
+ *
+ * ============ KENAPA KEDUANYA TIDAK BOLEH SAMA ============
+ *
+ * Pada field `allowCreate`, isi kotak teks ITULAH nilainya: `blur` menyalin
+ * `input.value` ke input tersembunyi supaya nama yang diketik sendiri ikut
+ * tersimpan. Jadi begitu keterangan ikut ditempel ke kotaknya, keterangan itu
+ * ikut jadi bagian nilainya.
+ *
+ * Yang terjadi sungguhan, dan direproduksi sebelum baris ini ditulis: dialog
+ * Edit nota dibuka, kotaknya disentuh, lalu ditinggalkan TANPA mengetik
+ * apa pun —
+ *
+ *     sebelum : "CV BADANSA JAYA ABADI"
+ *     sesudah : "CV BADANSA JAYA ABADI — kode ESB CK18"
+ *
+ * — dan daftarnya menawarkan `+ Tambah "CV BADANSA JAYA ABADI — kode ESB CK18"`
+ * seolah itu supplier yang berbeda. Notanya tersimpan dengan nama itu, lalu
+ * tertahan saat diekspor dengan alasan "supplier tidak dikenal".
+ *
+ * Maka: keterangan tetap tampil di DAFTARNYA (di sana ia menolong memilih),
+ * tapi tidak pernah masuk ke kotaknya ketika kotak itu merangkap nilai.
+ */
+function teksKotak(o, allowCreate) {
+  return allowCreate ? String(o?.label ?? '') : teksOpsi(o);
+}
+
 export function renderSearchSelect({ name, options, value = '', placeholder = 'Ketik untuk cari…', allowCreate = false }) {
   const selected = options.find((o) => String(o.value) === String(value ?? ''));
   // Untuk field bebas (allowCreate), nilai yang belum ada di daftar tetap ditampilkan.
-  const shownLabel = selected ? teksOpsi(selected) : allowCreate ? value ?? '' : '';
+  const shownLabel = selected ? teksKotak(selected, allowCreate) : allowCreate ? value ?? '' : '';
   return `
     <div class="search-select" data-name="${escapeAttr(name)}"${allowCreate ? ' data-allow-create="1"' : ''}>
       <input type="hidden" name="${escapeAttr(name)}" value="${escapeAttr(value ?? '')}" />
@@ -546,7 +574,7 @@ export function wireSearchSelect(widget, options, onChange) {
   const cariOpsi = (val) => options.find((o) => String(o.value) === String(val));
   const labelFor = (val) => {
     const o = cariOpsi(val);
-    return o ? teksOpsi(o) : allowCreate ? val : '';
+    return o ? teksKotak(o, allowCreate) : allowCreate ? val : '';
   };
 
   const draw = (filtered) => {
