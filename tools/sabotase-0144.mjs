@@ -120,6 +120,30 @@ sabotase(
   AUDIT
 );
 
+// INI sabotase terpenting di berkas ini: ia memulihkan keadaan yang membuat
+// seluruh fitur tidak berguna bagi orang yang dituju, TANPA satu pun error.
+sabotase(
+  'izin baca untuk staff dicabut — dropdown supplier selalu kosong di layar staff, dan tidak ada error di mana pun',
+  MIG,
+  'create policy esb_master_baca_anggota on esb_master\n  for select to authenticated\n  using (has_bu_scope(auth.uid(), business_unit_id));',
+  '',
+  TES_DB
+);
+sabotase(
+  'izin bacanya jadi `for all` — staff bisa mengubah daftar induknya sendiri',
+  MIG,
+  '  for select to authenticated\n  using (has_bu_scope(auth.uid(), business_unit_id));',
+  '  for all to authenticated\n  using (has_bu_scope(auth.uid(), business_unit_id))\n  with check (has_bu_scope(auth.uid(), business_unit_id));',
+  TES_DB
+);
+sabotase(
+  'izin bacanya dilonggarkan lintas BU — daftar supplier BU lain ikut terlihat',
+  MIG,
+  '  using (has_bu_scope(auth.uid(), business_unit_id));',
+  '  using (true);',
+  TES_DB
+);
+
 console.log('\nSABOTASE PENCOCOKAN:');
 
 // INI inti perubahannya: yang dikirim nama DAFTARNYA, bukan yang diketik.

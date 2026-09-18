@@ -84,6 +84,25 @@ if (mig) {
         '`drop constraint` dengan nama yang salah menggagalkan migration di tengah jalan, sesudah sebagian sudah berubah.'
     );
   }
+  // STAFF HARUS BISA MEMBACA. Ini yang membuat fiturnya berguna bagi orang
+  // yang dituju — dan kegagalannya paling diam dari semuanya: RLS yang menolak
+  // SELECT tidak melempar galat, ia mengembalikan nol baris, lalu layar nota
+  // menyimpulkan "daftarnya belum diimpor" dan kembali ke kotak teks bebas.
+  // Admin yang mengujinya sendiri melihat dropdown yang berfungsi.
+  if (!/create policy esb_master_baca_anggota on esb_master\s+for select to authenticated\s+using \(has_bu_scope\(auth\.uid\(\), business_unit_id\)\)/.test(mig)) {
+    salah(
+      '0144: staff tidak diberi izin MEMBACA `esb_master`. Kebijakan 0127 adalah `for all` dengan syarat is_bu_admin — ' +
+        'ia menutup SELECT juga, jadi dropdown supplier akan selalu kosong di layar staff, tanpa satu pun error.'
+    );
+  }
+  // ...tapi hanya SELECT. Daftar induk tetap keputusan administratif.
+  if (/create policy esb_master_baca_anggota[\s\S]{0,120}for all/.test(mig)) {
+    salah('0144: izin baca untuk anggota BU ternyata `for all` — staff jadi bisa mengubah daftar induknya sendiri.');
+  }
+  if (/create policy [a-z_]+ on esb_map\s+for select/.test(mig)) {
+    salah('0144: `esb_map` ikut dibuka untuk dibaca. Isinya tidak pernah dipakai layar staff, dan membuka yang tidak perlu adalah kebiasaan yang mahal.');
+  }
+
   if (!/create or replace function nama_supplier_terpakai\(p_bu uuid\)/.test(mig)) {
     salah('0144: `nama_supplier_terpakai` tidak ada — layar pemetaan tidak punya cara tahu ejaan lama apa yang masih beredar.');
   }

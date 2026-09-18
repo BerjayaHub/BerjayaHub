@@ -12,6 +12,9 @@
  *   §4 `nama_supplier_terpakai` menghitung dengan benar: dirapikan spasinya,
  *      nota batal tidak ikut, dan yang belum diekspor dihitung terpisah.
  *   §5 Urutannya mendahulukan yang benar-benar menghambat.
+ *   §6 STAFF BISA MEMBACA daftarnya — dan tidak bisa mengubahnya. Tanpa ini
+ *      seluruh fitur tidak berguna bagi orang yang dituju, dan kegagalannya
+ *      DIAM: RLS mengembalikan nol baris, bukan galat.
  */
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'node:fs';
@@ -48,6 +51,13 @@ const galat = async (sql, params) => {
 
 await db.exec(`
   create role authenticated;
+  create schema if not exists auth;
+  create or replace function auth.uid() returns uuid language sql stable as $$
+    select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
+  $$;
+  create table membership_scopes (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid, business_unit_id uuid, outlet_id uuid, role text);
   create table business_units (id uuid primary key default gen_random_uuid(), name text);
   create table outlets (id uuid primary key default gen_random_uuid(), business_unit_id uuid, name text);
   create table user_profiles (id uuid primary key, full_name text);
@@ -71,6 +81,33 @@ await db.exec(`
     id uuid primary key default gen_random_uuid(),
     business_unit_id uuid, outlet_id uuid, code text, receipt_date date,
     supplier text, status text default 'aktif', esb_exported_at timestamptz);
+
+  -- Tiruan 0001. "security definer" persis seperti aslinya, supaya kebijakan
+  -- yang memanggilnya tidak mati kena izin tabel membership_scopes.
+  create or replace function is_bu_admin(p_uid uuid, p_bu uuid) returns boolean
+    language sql security definer stable as $$
+      select exists (select 1 from membership_scopes ms
+        where ms.user_id = p_uid
+          and (ms.role = 'super_admin' or (ms.role = 'bu_admin' and ms.business_unit_id = p_bu))) $$;
+  create or replace function has_bu_scope(p_uid uuid, p_bu uuid) returns boolean
+    language sql security definer stable as $$
+      select exists (select 1 from membership_scopes ms
+        where ms.user_id = p_uid
+          and (ms.role = 'super_admin' or ms.business_unit_id = p_bu)) $$;
+
+  -- Kebijakan 0127 APA ADANYA: satu policy "for all" dengan syarat is_bu_admin.
+  -- Inilah yang menutup pembacaan untuk staff, dan §6 menguji 0144 membukanya.
+  alter table esb_master enable row level security;
+  alter table esb_map enable row level security;
+  create policy esb_master_admin on esb_master
+    for all to authenticated
+    using (is_bu_admin(auth.uid(), business_unit_id))
+    with check (is_bu_admin(auth.uid(), business_unit_id));
+  create policy esb_map_admin on esb_map
+    for all to authenticated
+    using (is_bu_admin(auth.uid(), business_unit_id))
+    with check (is_bu_admin(auth.uid(), business_unit_id));
+  grant select, insert, update, delete on esb_master, esb_map to authenticated;
 `);
 
 const BU = (await satu(`insert into business_units (name) values ('Cafe') returning id`)).id;
@@ -193,6 +230,59 @@ benar(
   urut.findIndex((r) => r.nama === 'Toko Sebelah') < urut.findIndex((r) => r.nama === 'Warung Ujung'),
   `urutannya: ${urut.map((r) => r.nama).join(', ')}`
 );
+
+// =====================================================================
+// §6 Staff boleh MEMBACA, tidak boleh MENGUBAH
+// =====================================================================
+// Kegagalan yang diuji di sini DIAM: RLS yang menolak SELECT tidak melempar
+// galat, ia mengembalikan nol baris. Layar nota membacanya sebagai "daftarnya
+// belum diimpor", lalu kembali menampilkan kotak teks bebas — dan admin yang
+// mengujinya sendiri melihat dropdown yang berfungsi, karena ia memang admin.
+const ADMIN = '11111111-1111-1111-1111-111111111111';
+const STAFF = '22222222-2222-2222-2222-222222222222';
+const ORANG_LUAR = '33333333-3333-3333-3333-333333333333';
+await q(
+  `insert into membership_scopes (user_id, business_unit_id, role) values ($1,$3,'bu_admin'), ($2,$3,'staff'), ($4,$5,'staff')`,
+  [ADMIN, STAFF, BU, ORANG_LUAR, BU2]
+);
+await q(`insert into esb_master (business_unit_id, jenis, nama, kode) values ($1,'supplier','Superindo','CK08')`, [BU]);
+
+const jadi = async (uid) => {
+  await q(`select set_config('request.jwt.claim.sub', $1, false)`, [uid]);
+  await q(`set role authenticated`);
+};
+const jadiPemilik = async () => q(`reset role`);
+
+await jadi(STAFF);
+const dilihatStaff = (await semua(`select nama from esb_master where jenis = 'supplier' order by nama`)).map((r) => r.nama);
+// 'Pasar' sudah disisipkan di §1, jadi yang terlihat dua. Disebut keduanya
+// alih-alih sekadar menghitung: angka saja tidak membedakan "staff membaca
+// daftarnya sendiri" dari "staff membaca daftar BU lain".
+cek('§6 staff BISA membaca daftar supplier', dilihatStaff, ['Pasar', 'Superindo']);
+
+benar(
+  '§6 staff TIDAK bisa menambah daftar',
+  (await galat(`insert into esb_master (business_unit_id, jenis, nama) values ($1,'supplier','Karangan Staff')`, [BU])) !== null,
+  'daftar induk adalah keputusan administratif; staff cuma memilih dari sana'
+);
+benar(
+  '§6 staff TIDAK bisa mengubah daftar',
+  (await galat(`update esb_master set nama = 'Diubah' where jenis = 'supplier'`)) !== null ||
+    (await satu(`select count(*)::int as n from esb_master where nama = 'Diubah'`)).n === 0
+);
+cek('§6 staff TIDAK bisa membaca esb_map', (await semua(`select * from esb_map`)).length, 0);
+
+await jadi(ORANG_LUAR);
+cek('§6 anggota BU LAIN tidak melihat daftar BU ini', (await semua(`select nama from esb_master where jenis = 'supplier'`)).length, 0);
+
+await jadi(ADMIN);
+cek('§6 admin tetap bisa membaca', (await semua(`select nama from esb_master where jenis = 'supplier'`)).length, 2);
+cek(
+  '§6 admin tetap bisa menulis',
+  await galat(`insert into esb_master (business_unit_id, jenis, nama) values ($1,'supplier','Hypermart')`, [BU]),
+  null
+);
+await jadiPemilik();
 
 console.log('');
 if (gagal === 0) console.log('MIGRATION 0144: semua pemeriksaan lolos. ✅');

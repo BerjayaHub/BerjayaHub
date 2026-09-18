@@ -6867,7 +6867,26 @@ Notanya tersimpan; yang tertahan cuma ekspornya, dan alasannya terbaca di kedua 
 
 **Pemetaan yang menunjuk nama yang sudah lenyap dari daftar induk tidak dianggap sah.** ESB bisa menonaktifkan supplier, lalu impor berikutnya menghapusnya — sementara pemetaannya tetap tinggal dan terus mengirim nama hantu yang ditolak ESB tanpa ada yang tahu sebabnya.
 
-- [x] **Master Supplier dari ESB, ejaan lama dipetakan** (`0144`) — 28 sabotase
+### Izin baca yang nyaris membuat seluruhnya sia-sia
+
+Ditemukan saat mencoba mengetik "Super" di layar nota dan dropdown-nya tidak muncul.
+
+Kebijakan RLS `esb_master` dari `0127` berbunyi `for all` dengan syarat `is_bu_admin`. Itu benar untuk **menulis** — daftar induk memang keputusan administratif. Tapi ia juga menutup **membaca**, dan yang perlu memilih supplier dari daftar justru **staff**.
+
+Kegagalannya paling diam dari semua yang pernah ditemukan di proyek ini:
+
+1. RLS yang menolak `SELECT` **tidak melempar galat** — ia mengembalikan nol baris.
+2. Layar nota melihat daftar kosong dan menyimpulkan *"daftarnya belum diimpor"*.
+3. Jalur cadangannya menyala: kotak teks bebas, persis seperti sebelum fitur ini ada.
+4. Admin yang mengujinya sendiri **melihat dropdown yang berfungsi** — karena ia memang admin.
+
+Tidak ada error di mana pun, dan satu-satunya orang yang bisa menemukannya adalah staff yang tidak punya cara melaporkannya selain "dropdown-nya tidak keluar".
+
+`0144` menambah policy `esb_master_baca_anggota`: **hanya `SELECT`**, dan hanya untuk anggota BU-nya. Menulis tetap `is_bu_admin`. `esb_map` tidak ikut dibuka — isinya tidak pernah dibaca layar staff, dan membuka yang tidak perlu adalah kebiasaan yang mahal.
+
+Tiga sabotase menjaganya: izin bacanya dicabut, izinnya jadi `for all`, dan izinnya dilonggarkan lintas BU.
+
+- [x] **Master Supplier dari ESB, ejaan lama dipetakan** (`0144`) — 31 sabotase
 
 ### Dua sabotase yang lolos, dan kenapa
 

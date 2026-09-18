@@ -86,7 +86,37 @@ comment on table esb_master is
   'Salinan daftar induk ESB (Branch, Location, Unit, Item, COA, Payment Method, Supplier), diisi dengan mengunggah berkas ekspor ESB. Dipakai supaya nilainya dipilih, bukan diketik.';
 
 -- ---------------------------------------------------------
--- (3) Daftar nama supplier yang PERNAH diketik, beserta jumlah notanya.
+-- (3) STAFF BOLEH MEMBACA daftar induknya.
+--
+-- Tanpa bagian ini seluruh fitur ini tidak berguna bagi orang yang dituju.
+--
+-- Kebijakan 0127 memberi `esb_master` satu policy `for all` dengan syarat
+-- `is_bu_admin`. Itu benar untuk MENULIS — daftar induk memang keputusan
+-- administratif. Tapi ia juga menutup MEMBACA, dan yang perlu memilih supplier
+-- dari daftar justru staff, bukan admin.
+--
+-- Kegagalannya diam: RLS yang menolak SELECT tidak melempar galat, ia
+-- mengembalikan NOL BARIS. Layar nota melihat daftar kosong, menyimpulkan
+-- "daftarnya belum diimpor", lalu menampilkan kotak teks bebas — persis seperti
+-- sebelum fitur ini ada. Tidak ada error di mana pun, dan admin yang mengujinya
+-- sendiri melihat dropdown yang berfungsi, karena ia memang admin.
+--
+-- Yang dibuka hanya SELECT, dan hanya untuk anggota BU-nya. Menulis tetap
+-- `is_bu_admin`: staff boleh memilih dari daftar, tidak boleh mengubahnya.
+--
+-- `esb_map` TIDAK ikut dibuka. Isinya keputusan pemetaan yang tidak pernah
+-- dibaca layar staff, dan membuka yang tidak perlu adalah kebiasaan yang mahal.
+-- ---------------------------------------------------------
+drop policy if exists esb_master_baca_anggota on esb_master;
+create policy esb_master_baca_anggota on esb_master
+  for select to authenticated
+  using (has_bu_scope(auth.uid(), business_unit_id));
+
+comment on policy esb_master_baca_anggota on esb_master is
+  'Staff boleh MEMBACA daftar induk ESB supaya bisa memilih supplier dari daftar. Menulis tetap hanya is_bu_admin lewat policy esb_master_admin.';
+
+-- ---------------------------------------------------------
+-- (4) Daftar nama supplier yang PERNAH diketik, beserta jumlah notanya.
 --
 -- Dipakai layar pemetaan untuk tahu ejaan lama apa saja yang masih beredar.
 -- Tanpa ini, layarnya cuma bisa menampilkan daftar ESB — dan yang justru perlu
