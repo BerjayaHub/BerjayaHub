@@ -96,6 +96,14 @@ export async function kirimDraftOrder(orderId) {
   if (error) throw error;
 }
 
+/**
+ * JALUR LAMA — mengganti SELURUH isi draft.
+ *
+ * Masih ada karena tab yang sudah lama terbuka memanggilnya, dan membuangnya
+ * membuat layar itu gagal total di tengah penyusunan order. Jangan dipakai
+ * untuk jalur baru: ia menghapus isi lama lalu mengisi ulang, jadi tambahan
+ * dari HP lain ikut terhapus (lihat 0145).
+ */
 export async function updateStockOrder({ orderId, items, notes }) {
   const { error } = await supabase.rpc('update_stock_order', {
     p_order: orderId,
@@ -103,6 +111,29 @@ export async function updateStockOrder({ orderId, items, notes }) {
     p_notes: notes || null
   });
   if (error) throw error;
+}
+
+/**
+ * Simpan SELISIH isi draft order (0145) — baris yang tidak disebut tidak disentuh.
+ *
+ * `p_hapus` selalu dikirim sebagai larik, termasuk saat kosong: kunci yang
+ * hilang dibuang `argumenRpc`, dan PostgREST lalu tidak menemukan fungsi yang
+ * cocok — galatnya jadi "function not found", yang tidak menyebut draft sama
+ * sekali.
+ *
+ * @returns {{diubah: number, dihapus: number, total: number}}
+ */
+export async function ubahDraftOrder({ orderId, ubah, hapus, notes }) {
+  const { data, error } = await supabase.rpc('ubah_draft_order', {
+    p_order: orderId,
+    p_ubah: (ubah ?? []).map((i) => ({ product_id: i.product_id, qty: i.qty })),
+    p_hapus: hapus ?? [],
+    // `null` berarti "tidak menyentuh catatan" — bukan "kosongkan". HP yang
+    // tidak mengubah catatan tidak boleh menghapus catatan orang lain.
+    p_notes: notes ?? null
+  });
+  if (error) throw error;
+  return data ?? { diubah: 0, dihapus: 0, total: 0 };
 }
 
 export async function rejectStockOrder(orderId, reason) {

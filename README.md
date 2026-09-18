@@ -6813,6 +6813,60 @@ Bentuk selain `YYYY-MM-DD` ditolak, tidak ditebak: menebak `01/09/2026` berarti 
 
 - [x] **Kolom Date Purchase & Transfer berisi tanggal sungguhan** — 19 sabotase
 
+## Dua HP mengisi satu draft order, dan salah satunya lenyap
+
+> "apakah bisa terjadi, bila draft diisi berbarengan dengan beberapa device yang berbeda, lalu di simpan selisih waktunya sebentar, lalu salah satu device tidak tersimpan?"
+
+**Perlu migration `0145`.**
+
+Bisa. Direproduksi di Postgres sungguhan sebelum satu baris kode pun ditulis:
+
+```
+  10:00:03  Bar menyimpan     -> draft berisi Sirup Vanila 2000
+  10:00:09  Kitchen menyimpan -> draft berisi Daging Sapi 5000
+
+  Sirup milik Bar HILANG tanpa pesan apa pun
+  edited_by tercatat: Kitchen (penyimpan terakhir)
+```
+
+Sebabnya `update_stock_order` (0111): **`delete` seluruh isi, lalu `insert` ulang** dari daftar yang dikirim HP itu — dan daftar yang dikirim HP adalah apa yang dimuatnya **saat panel dibuka**, bukan isi terkini.
+
+Tiga hal membuatnya nyaris mustahil disadari: tidak ada galat, kedua orang melihat toast hijau, dan jejaknya justru menunjuk orang yang tidak menghapus apa pun dengan sengaja.
+
+Ironisnya inilah skenario yang `0110` rancang — komentar di `item-picker.js` sendiri berbunyi *"bar mengisi sirup, kitchen menambah daging, ke satu nomor order yang sama"*. Kepemilikan order sudah dipindah ke outlet; cara menyimpannya tidak ikut.
+
+### Yang dikirim sekarang: selisih, bukan seluruhnya
+
+HP mengirim hanya baris yang **ia** sentuh — `p_ubah` untuk yang ditambah/diubah, `p_hapus` untuk yang ia buang. Baris yang tidak disebut tidak disentuh.
+
+### Baris yang cuma TERLIHAT juga tidak dikirim
+
+Ini bagian yang membatalkan seluruh gunanya kalau salah, dan godaannya kuat: *"kirim semua baris di layar sebagai upsert, jangan hapus apa pun"*.
+
+Itu tetap salah. Bar menaikkan Sirup 2000 → 3000 dan menyimpan. Layar Kitchen masih memegang Sirup 2000 yang **tidak ia sentuh** — mengirimnya sebagai upsert akan mengembalikannya ke 2000. **Bug yang sama persis, cuma pindah dari tingkat dokumen ke tingkat baris** — dan jauh lebih sulit dilihat, karena barisnya masih ada.
+
+Jadi yang dikirim hanya yang **nilainya berbeda** dari saat panel dibuka. Konsekuensinya: menghapus tidak bisa dinyatakan dengan cara menghilangkan barisnya begitu saja, jadi ia disebut eksplisit — aturan yang sama dengan `dicek_qty` di `0142`.
+
+Catatan mengikuti aturan yang sama: `null` berarti *"aku tidak menyentuh catatannya"*, bukan *"kosongkan"*. HP yang cuma menambah barang tidak boleh menghapus catatan yang baru ditulis rekannya.
+
+### Jejak per baris
+
+`stock_orders.edited_by` hanya menyebut penyimpan terakhir — itulah yang membuat kejadian aslinya sulit ditelusuri. `stock_order_items` kini punya `diubah_by`/`diubah_at`: siapa yang menaruh barang ini di sini.
+
+### Hasilnya dilaporkan apa adanya
+
+*"2 baris disimpan. Draft sekarang berisi 6 baris, termasuk 4 dari rekanmu."*
+
+Tanpa kalimat itu, orangnya menyimpan dua baris lalu membuka draft dan menemukan enam — dan tebakan pertama yang wajar adalah *"aplikasinya menggandakan pesananku"*.
+
+### Yang sengaja TIDAK dilakukan
+
+`update_stock_order` lama **tidak dibuang**. Tab yang sudah lama terbuka masih memanggilnya, dan membuangnya membuat layar itu gagal total di tengah penyusunan order. Perilakunya sama seperti kemarin — tidak lebih buruk. Risiko sisanya disebut jujur: **tab lama yang menyimpan masih bisa menimpa tambahan orang lain**, dan memuat ulang halaman menghilangkannya (`sw.js` tidak menyimpan aset apa pun di cache).
+
+Pola hapus-lalu-isi-ulang yang sama masih ada di `buat_draft_kiriman` (`0103`/`0132`) — **draft surat jalan punya risiko identik dan belum diperbaiki.**
+
+- [x] **Draft order digabung per baris** (`0145`) — 17 sabotase
+
 ## Dua alat verifikasi yang ternyata rusak sejak lama
 
 Ditemukan saat menyapu seluruh audit sesudah perubahan satuan beli — keduanya tidak ada hubungannya dengan pekerjaan itu:

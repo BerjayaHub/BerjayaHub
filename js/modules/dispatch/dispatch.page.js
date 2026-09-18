@@ -25,6 +25,7 @@ import {
   ORDER_STATUS,
   DISPATCH_STATUS,
   updateStockOrder,
+  ubahDraftOrder,
   ambilAtauBuatDraftOrder,
   kirimDraftOrder,
   siapkanOrderJadiDraft,
@@ -36,6 +37,7 @@ import {
   getOrderItems
 } from './dispatch.service.js';
 import { buildSuratJalanPDF, suratJalanWaText } from './dispatch-pdf.js';
+import { susunPerubahan, pesanGabung } from './perubahan-draft.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { bukaDokumen } from './dokumen-ui.js';
@@ -646,8 +648,16 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     );
 
     // Edit order yang masih menunggu (nomor order tetap sama).
+    //
+    // Dikunci `sekaliJalan` walau ia "cuma memuat": ketukan kedua selagi
+    // pemuatan berjalan membangun panel & picker KEDUA di wadah yang sama, dan
+    // salinan `isiAwal` milik panel pertama ikut hidup di penangan yang sudah
+    // terpasang. Selisih yang dihitung nanti bisa datang dari salinan yang
+    // salah — dan tidak ada apa pun di layar yang menandakannya.
     box.querySelectorAll('.btn-edit-order').forEach((btn) =>
-      btn.addEventListener('click', async () => {
+      btn.addEventListener(
+        'click',
+        sekaliJalan(async () => {
         const editBox = box.querySelector('#ord-edit-box');
         editBox.innerHTML = loadingHtml('Memuat isi order…');
         let items;
@@ -691,6 +701,15 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           initial: items.map((it) => ({ product_id: it.product_id, qty: it.qty }))
         });
 
+        // ISI SAAT PANEL DIBUKA, disimpan apa adanya.
+        //
+        // Inilah pembanding yang dipakai saat menyimpan: yang dikirim ke server
+        // nanti hanya baris yang BERBEDA dari daftar ini. Tanpa salinan ini,
+        // satu-satunya yang bisa dikirim adalah seluruh isi layar — dan itu
+        // mengembalikan nilai lama ke baris yang baru saja diubah HP sebelah.
+        const isiAwal = items.map((it) => ({ product_id: it.product_id, qty: it.qty }));
+        const catatanAwal = editBox.querySelector('#ord-edit-notes').value;
+
         // PANELNYA MENJEMPUT LAYARNYA.
         //
         // `#ord-edit-box` berada di PALING BAWAH tab — sesudah kartu penjelasan,
@@ -724,15 +743,37 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           }
           e.target.disabled = true;
           try {
-            await updateStockOrder({ orderId: btn.dataset.id, items: newItems, notes: editBox.querySelector('#ord-edit-notes').value });
-            toast('Order diperbarui.', 'success');
+            // YANG DIKIRIM SELISIHNYA, BUKAN SELURUH DAFTARNYA (0145).
+            //
+            // Draft ini milik outlet: bar dan kitchen bisa mengisinya
+            // bersamaan. Mengirim seluruh isi layar berarti menghapus apa pun
+            // yang ditambahkan HP sebelah sejak panel ini dibuka — dan itu
+            // terjadi tanpa satu pun galat, dengan toast hijau di kedua HP.
+            const { ubah, hapus, adaPerubahan } = susunPerubahan(isiAwal, newItems);
+            const catatanKini = editBox.querySelector('#ord-edit-notes').value;
+            if (!adaPerubahan && catatanKini === catatanAwal) {
+              errorEl.textContent = 'Tidak ada yang berubah.';
+              e.target.disabled = false;
+              return;
+            }
+            const hasil = await ubahDraftOrder({
+              orderId: btn.dataset.id,
+              ubah,
+              hapus,
+              // Catatan dikirim HANYA kalau memang diubah. `null` berarti
+              // "jangan sentuh" — kalau tidak, HP yang cuma menambah barang
+              // akan menimpa catatan yang baru ditulis orang lain.
+              notes: catatanKini === catatanAwal ? null : catatanKini
+            });
+            toast(pesanGabung(hasil, ubah.length), 'success');
             showTab();
           } catch (error) {
             errorEl.textContent = error.message ?? 'Gagal menyimpan perubahan.';
             e.target.disabled = false;
           }
         });
-      })
+        })
+      )
     );
   }
 
