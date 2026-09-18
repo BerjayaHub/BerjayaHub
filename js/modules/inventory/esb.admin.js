@@ -33,6 +33,7 @@ import { saringTabel } from '../dispatch/saring-tabel.js';
 import { KOLOM_TRANSFER, barisEsbTransfer, ringkasTransfer } from './esb-transfer.js';
 import { pasangFormatTanggal } from './tanggal-excel.js';
 import { petaSupplier, normalNama } from './cocok-supplier.js';
+import { satuanPerluDipetakan } from './konversi-satuan.js';
 import {
   alasanSah,
   jejakBatal,
@@ -187,7 +188,15 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
     location: outlets.map((o) => o.name),
     payment_method: CARA_BAYAR,
     coa: CARA_BAYAR,
-    unit: [...new Set(produk.map((p) => p.base_unit).filter(Boolean))].sort(),
+    // SATUAN BELI IKUT, dan itu wajib.
+    //
+    // Sejak ekspor memakai satuan beli, nilai yang dicari di pemetaan bukan
+    // lagi `base_unit` melainkan `purchase_unit`. Daftar yang masih berisi
+    // GR/PCS saja akan membuat SELURUH nota tertahan — dengan alasan "unit
+    // PACK@30PCS belum dipetakan" dan tanpa satu pun baris untuk memetakannya.
+    // Kemampuannya ada, jalannya tidak ada di layar; pola yang sudah beberapa
+    // kali muncul di proyek ini.
+    unit: satuanPerluDipetakan(produk),
     item: [...new Set(produk.filter((p) => p.product_type === 'raw' || p.product_type === 'semi').map((p) => p.name))].sort(),
     // SUPPLIER BEKERJA TERBALIK DARI ENAM LAINNYA.
     //

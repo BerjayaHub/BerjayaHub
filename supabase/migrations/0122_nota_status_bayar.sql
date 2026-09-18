@@ -277,7 +277,7 @@ begin
   -- Nota bonus/sampel memang tidak memindahkan uang. Memaksa entri kas Rp0
   -- akan mengisi buku kas dengan baris yang tidak pernah terjadi, dan
   -- `catat_kas_di` sendiri menolak nominal <= 0.
-  if v_total >= 0 then
+  if v_total > 0 then
     if not boleh_membebani_kas(v_uid, p_account) then
       raise exception 'Kamu tidak berhak mencatat pada kantong kas ini.';
     end if;

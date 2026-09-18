@@ -88,7 +88,8 @@ await q(
      ($1,$5,$6,'staff'),   -- Adhe di Serpong
      ($2,$5,$7,'staff'),   -- Risma di Sentul
      ($3,$5,null,'admin'), -- iko: cakupan level BU
-     ($4,$5,$6,'staff')`,  -- Mantan (nonaktif) di Serpong
+     ($4,$5,$6,'staff')    -- Mantan (nonaktif) di Serpong
+  `,
   [ADHE, RISMA, IKO, NONAKTIF, BU, SERPONG, SENTUL]
 );
 await q(`select set_config('request.jwt.claim.sub', $1, false)`, [IKO]);

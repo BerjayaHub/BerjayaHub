@@ -258,6 +258,32 @@ sabotase(
   TES
 );
 
+console.log('\nSABOTASE HARGA:');
+
+sabotase(
+  'harga kembali dikirim mentah — ESB menolak "price cannot have more than 4 decimal places"',
+  PUR,
+  '      const perSatuan = bulatkanHarga(angka(it.unit_cost));',
+  '      const perSatuan = angka(it.unit_cost);',
+  TES
+);
+sabotase(
+  'batasnya dilonggarkan jadi 6 desimal — tetap ditolak ESB, dan tidak ada yang tahu kenapa',
+  PUR,
+  'export const DESIMAL_HARGA_MAKS = 4;',
+  'export const DESIMAL_HARGA_MAKS = 6;',
+  TES
+);
+// "Belum tahu harganya" dan "gratis" adalah dua hal yang berbeda, dan yang
+// kedua ikut masuk ke biaya rata-rata bahan.
+sabotase(
+  'harga yang belum diisi dibulatkan jadi 0 — notanya berangkat dengan harga gratis',
+  PUR,
+  "  if (v === null || v === undefined || v === '') return null;\n  const n = Number(v);\n  if (!Number.isFinite(n)) return null;\n  return Number(n.toFixed(DESIMAL_HARGA_MAKS));",
+  '  return Number(Number(v).toFixed(DESIMAL_HARGA_MAKS));',
+  TES
+);
+
 console.log('\nSABOTASE IMPOR & LAYAR:');
 
 sabotase(

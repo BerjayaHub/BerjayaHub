@@ -183,7 +183,13 @@ export async function notaUntukEsb({ businessUnitId, from, to, outletId = null, 
   const items = await ambilSemua((dari, sampai) =>
     supabase
       .from('goods_receipt_items')
-      .select('receipt_id, qty, unit_cost, line_total, products(name, base_unit)', { count: 'exact' })
+      // `purchase_unit` & `purchase_qty` IKUT sejak ekspor memakai satuan beli.
+      // Tanpa keduanya `keSatuanBeli` tidak punya pengali, dan SELURUH nota
+      // diam-diam berangkat dalam satuan kecil lagi — persis keadaan yang
+      // ditolak ESB, tanpa satu pun tanda bahwa konversinya tidak jalan.
+      .select('receipt_id, qty, unit_cost, line_total, products(name, base_unit, purchase_unit, purchase_qty)', {
+        count: 'exact'
+      })
       .in('receipt_id', ids)
       .range(dari, sampai)
   );
@@ -194,6 +200,8 @@ export async function notaUntukEsb({ businessUnitId, from, to, outletId = null, 
     peta.get(it.receipt_id).push({
       product_name: it.products?.name ?? '',
       base_unit: it.products?.base_unit ?? '',
+      purchase_unit: it.products?.purchase_unit ?? '',
+      purchase_qty: it.products?.purchase_qty ?? null,
       qty: it.qty,
       unit_cost: it.unit_cost,
       line_total: it.line_total

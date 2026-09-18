@@ -178,6 +178,33 @@ if (pur) {
   if (/teks\(n\.supplier\),/.test(kode)) {
     salah('esb-purchase.js: `teks(n.supplier)` kembali ke baris data — ejaan yang diketik berangkat ke ESB apa adanya.');
   }
+  // HARGA: ESB menolak lebih dari 4 desimal, dan `unit_cost` adalah hasil bagi
+  // yang hampir selalu berulang (Rp12.000 / 62 pcs = 193.5483870967742).
+  // Yang menipu: Excel MENAMPILKAN 193.5484 — empat desimal, terlihat sah.
+  if (!/export const DESIMAL_HARGA_MAKS = 4;/.test(kode)) {
+    salah('esb-purchase.js: batas desimal harga ESB hilang.');
+  }
+  // Yang dijaga: harganya MELEWATI `bulatkanHarga` sebelum jadi sel Price.
+  //
+  // Sumber angkanya sengaja tidak dikunci di sini. Versi pertama mengunci
+  // `bulatkanHarga(angka(it.unit_cost))` apa adanya, lalu ekspor berpindah ke
+  // satuan beli dan sumbernya jadi `konv.harga` — audit ini merah tanpa ada
+  // yang rusak. Pertanyaan "sumbernya benar atau tidak" dijaga
+  // tools/audit-konversi-satuan.cjs, yang memang tentang itu.
+  if (!/const perSatuan = bulatkanHarga\(/.test(kode)) {
+    salah(
+      'esb-purchase.js: harga per satuan tidak dibulatkan. Harga yang berangkat selalu hasil bagi dan hampir selalu ' +
+        'berulang — ESB menolaknya dengan "price cannot have more than 4 decimal places", dan berkasnya terlihat ' +
+        'benar di Excel karena Excel cuma menampilkan empat desimal pertama.'
+    );
+  }
+  // Harga yang BELUM DIISI harus tetap null, bukan 0. "Belum tahu harganya"
+  // dan "gratis" adalah dua hal yang berbeda, dan yang kedua masuk ke biaya
+  // rata-rata bahan.
+  if (!/if \(v === null \|\| v === undefined \|\| v === ''\) return null;/.test(kode)) {
+    salah('esb-purchase.js: `bulatkanHarga` tidak menyaring nilai kosong — "" dan null akan jadi harga 0.');
+  }
+
   if (!/const kepalaBermasalah = tanggal === null \|\| !supplier \|\|/.test(kode)) {
     salah('esb-purchase.js: nota bersupplier tak dikenal tidak lagi tertahan — nama apa pun kembali berangkat ke ESB.');
   }

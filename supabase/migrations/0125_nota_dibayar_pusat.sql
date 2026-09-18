@@ -178,7 +178,7 @@ begin
          paid_at = now(),
          paid_by = v_uid,
          payment_entry_id = v_entry,
-         payment_source = null
+         payment_source = v_sumber
    where id = any(p_notas);
 
   return v_entry;

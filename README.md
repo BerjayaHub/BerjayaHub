@@ -6813,6 +6813,101 @@ Bentuk selain `YYYY-MM-DD` ditolak, tidak ditebak: menebak `01/09/2026` berarti 
 
 - [x] **Kolom Date Purchase & Transfer berisi tanggal sungguhan** — 19 sabotase
 
+## Dua alat verifikasi yang ternyata rusak sejak lama
+
+Ditemukan saat menyapu seluruh audit sesudah perubahan satuan beli — keduanya tidak ada hubungannya dengan pekerjaan itu:
+
+**`test-migrasi-0139.mjs` tidak pernah bisa dijalankan.** Sebuah komentar SQL `-- Mantan (nonaktif)` tertulis di LUAR backtick penutup, jadi `--` terbaca sebagai operator JavaScript. Berkasnya `SyntaxError` sejak 14 September — tes yang bahkan tidak bisa diurai adalah tes yang tidak menjaga apa pun, dan tidak ada yang menyadarinya karena tidak ada yang menjalankan seluruh suite sekaligus.
+
+**Tiga migration tertinggal dalam keadaan tersabotase.** Pemutaran `sabotase-01*.mjs` yang terhenti di tengah oleh batas waktu tidak sempat memulihkan berkasnya:
+
+| Berkas | Yang tertinggal rusak | Akibatnya kalau dijalankan |
+|---|---|---|
+| `0133` | penjaga `v_d.status <> 'received'` di `teruskan_kiriman` hilang | kiriman yang belum diterima bisa "diteruskan" — memindahkan stok yang tidak pernah berpindah |
+| `0122` | `if v_total > 0` jadi `>= 0` | nota bertotal Rp0 memaksa entri kas Rp0, dan `catat_kas_di` menolaknya |
+| `0125` | `payment_source = v_sumber` jadi `= null` | setiap pembayaran kehilangan catatan sumbernya — kas atau pusat tidak bisa dibedakan lagi |
+
+Ketiganya ditemukan audit & tes migration, bukan oleh pembacaan. Blok `0133` disusun ulang dari kontrak yang dipatok audit dan tesnya sendiri; ketiganya lalu diuji di Postgres sungguhan.
+
+Ini pelajaran soal cara saya bekerja, bukan soal kodenya: pemutaran sabotase yang dihentikan paksa meninggalkan berkas yang rusak **di direktori kerja**, dan satu-satunya yang menangkapnya adalah menjalankan **seluruh** audit dan **seluruh** tes migration sesudahnya — bukan hanya yang berhubungan dengan pekerjaan hari itu.
+
+## Ekspor ESB memakai satuan beli
+
+> "untuk saat ini perbaiki ke satuan beli saja export nya"
+
+**Tidak perlu migration.**
+
+ESB menolak pembelian yang dikirim dalam satuan yang bukan satuan belinya: *"product must be set to purchasable"*. Berjaya Hub menyimpan segalanya dalam satuan kecil — 3 pack plastik tersimpan sebagai 300 pcs — jadi yang berangkat selama ini selalu pcs/gram.
+
+Sejak sekarang, **hanya di titik ekspor**, tiga sel diubah:
+
+```
+300 pcs @Rp40/pcs      ->  3 PACK@100PCS  @Rp4.000/pack
+496 gr  @Rp43,9012/gr  ->  0,496 KG       @Rp43.901,2097/kg
+```
+
+Stok, HPP, dan seluruh isi database **tidak tersentuh**.
+
+### Pengalinya dari Berjaya Hub, bukan dari ESB
+
+`purchase_qty` milik Master Produk — bukan kolom `Qty` pada Master Product Data ESB, yang terbukti terbalik pada **234 dari 647 produk**. Mengonversi dengan angka itu menghasilkan berkas yang **diterima** ESB dengan jumlah salah seribu kali lipat, dan kesalahan yang diterima jauh lebih mahal daripada kesalahan yang ditolak.
+
+### Kegagalan termahalnya: konversi setengah jalan
+
+Mengonversi qty tanpa harga menghasilkan `3 PACK @Rp40 = Rp120` untuk barang seharga Rp12.000. Sebaliknya: `300 PACK @Rp4.000 = Rp1,2 juta`. **ESB menerima keduanya tanpa keluhan** — selisihnya baru muncul saat dicocokkan dengan tagihan supplier.
+
+Maka Unit, Qty, dan Price ketiganya wajib datang dari satu hasil `keSatuanBeli` yang sama, dan tiga sabotase terpisah menjaganya.
+
+### Harga dihitung dari total baris, bukan dari `unit_cost × isi`
+
+`unit_cost` sendiri sudah hasil bagi, jadi mengalikannya kembali menumpuk galat di atas galat:
+
+```
+10000 / 290 = 34.48275862068966
+34.48275862068966 × 290 = 10000.000000000002
+```
+
+Dihitung dari `line_total` langsung, satu pack berharga persis Rp10.000. (Pembagi 62 yang dipakai di percobaan pertama **kebetulan** bulat pulang-pergi — pemeriksaannya jadi tidak membuktikan apa pun, dan diganti.)
+
+### Dua keputusan, dan alasannya
+
+| Keadaan | Keputusan |
+|---|---|
+| Produk tanpa satuan beli | berangkat dalam satuan kecil, persis seperti sebelumnya — sebagian bahan memang dibeli eceran |
+| 100 pcs dari pack isi 62 | `1,6129 PACK` apa adanya. Dibulatkan ke 2 pack berarti mengirim 124 pcs untuk barang yang diterima 100 — dan angkanya tetap terlihat wajar di ESB |
+
+### Dan yang nyaris jadi jalan buntu
+
+Daftar pemetaan Unit di layar Ekspor ESB dibangun dari `base_unit`. Sejak ekspor memakai satuan beli, nilai yang dicari adalah `purchase_unit` — jadi setiap nota akan tertahan dengan alasan *"PACK@30PCS belum dipetakan"*, **di layar yang tidak punya baris `PACK@30PCS`**. Kemampuannya ada, jalannya tidak ada di layar; pola yang sudah beberapa kali muncul di proyek ini. `satuanPerluDipetakan()` memuat keduanya.
+
+- [x] **Ekspor ESB dalam satuan beli** — 19 sabotase
+
+## Empat desimal yang sebenarnya enam belas
+
+> "kendala lainnya adalah 'price cannot have more than 4 decimal places', apakah ada yang bisa diperbaiki dari ini?"
+
+**Tidak perlu migration.**
+
+`unit_cost` adalah hasil bagi `line_total / qty` (0123), dan pembagian itu hampir selalu berulang:
+
+```
+Rp12.000 untuk 62 pcs  ->  193.5483870967742
+Rp3.000  untuk 260 gr  ->  11.538461538461538
+Rp20.000 untuk 1040 gr ->  19.23076923076923
+```
+
+Yang menipu: **Excel menampilkan `193.5484`** — empat desimal, terlihat persis memenuhi syarat. Yang tersimpan di selnya enam belas digit, dan itulah yang dibaca ESB. Jadi berkasnya terlihat benar bagi siapa pun yang memeriksanya sebelum mengunggah, lalu ditolak.
+
+Harga kini dibulatkan ke 4 desimal di titik emisi. ESB menghitung sendiri `Amount = Qty × Price`, jadi pembulatannya menggeser total dokumen paling banyak setengah satuan desimal terakhir dikali qty — untuk 62 pcs itu 0,003 rupiah.
+
+### `toFixed` vs `Math.round` — dan catatan yang salah
+
+Versi pertama berkas ini menulis bahwa `Number(x.toFixed(4))` lebih unggul dari `Math.round(x * 1e4) / 1e4`, lengkap dengan contoh. Contohnya keliru. Keduanya memang berbeda pada nilai tepat-di-tengah — `2.00005` jadi `2` lewat yang pertama dan `2.0001` lewat yang kedua — tapi **tidak ada yang "benar"**: `2.00005` tidak bisa diwakili persis sebagai double, dan yang sungguh tersimpan `2.0000499999999999723`.
+
+Tesnya karena itu tidak mengunci hasil pembulatan angka mana pun — itu berarti mengunci kebetulan representasi biner. Yang diuji **sifatnya**: hasilnya tidak lebih dari 4 desimal, dan tidak meleset lebih dari setengah satuan desimal terakhir.
+
+Harga yang **belum diisi** tetap `null`, bukan 0. "Belum tahu harganya" dan "gratis" adalah dua hal berbeda, dan yang kedua ikut masuk ke biaya rata-rata bahan.
+
 ## Supplier punya daftar pasti, dan daftarnya datang dari ESB
 
 > "kita lanjutkan untuk perihal supplier, jadi berjaya hub dibuat ada supplier pasti agar tidak berbeda dari esb, nama nama supplier akan saya samakan dengan esb"

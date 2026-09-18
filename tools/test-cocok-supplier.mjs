@@ -243,4 +243,80 @@ assert.match(PESAN_DI_LUAR_DAFTAR, /tetap tersimpan/);
 assert.match(PESAN_DI_LUAR_DAFTAR, /admin BU/);
 ok('pesan ke staff menyebut notanya tetap tersimpan, dan siapa yang melanjutkan');
 
-console.log(`\n${n} pemeriksaan supplier lolos. ✅`);
+
+
+console.log('\n§7 Harga: batas desimal ESB');
+
+const { bulatkanHarga, DESIMAL_HARGA_MAKS } = await import('../js/modules/inventory/esb-purchase.js');
+
+assert.equal(DESIMAL_HARGA_MAKS, 4);
+ok('batasnya 4 — persis yang disebut pesan penolakan ESB');
+
+// Angka-angka ini diambil apa adanya dari berkas yang ditolak ESB.
+for (const [total, qty, harap] of [
+  [12000, 62, 193.5484],
+  [21775, 496, 43.9012],
+  [9690, 39, 248.4615],
+  [9690, 35, 276.8571],
+  [3000, 260, 11.5385],
+  [10000, 290, 34.4828],
+  [20000, 1040, 19.2308]
+]) {
+  const mentah = total / qty;
+  const bulat = bulatkanHarga(mentah);
+  assert.equal(bulat, harap, `${total}/${qty}`);
+  assert.ok(String(bulat).split('.')[1]?.length <= 4, `${bulat} masih lebih dari 4 desimal`);
+}
+ok('tujuh harga yang ditolak ESB kini muat dalam 4 desimal');
+
+// Yang sudah pendek tidak boleh berubah nilainya sedikit pun.
+for (const v of [45.5, 1.8, 30.58, 0.055, 969, 12500, 0]) {
+  assert.equal(bulatkanHarga(v), v, `${v} berubah`);
+}
+ok('harga yang sudah pendek tidak disentuh');
+
+// YANG DIJAMIN adalah SIFATNYA, bukan cara membulatkannya.
+//
+// `toFixed` dan `Math.round(x * 1e4)` berbeda hasil pada nilai tepat-di-tengah
+// (`2.00005` -> 2 vs 2.0001), dan tidak ada yang "benar": 2.00005 tidak bisa
+// diwakili persis sebagai double. Mengunci salah satu hasilnya di tes berarti
+// mengunci kebetulan representasi biner, bukan aturan yang berarti.
+for (const v of [1.00005, 2.00005, 1.005, 8.005, 0.00004, 123456.789012345, 12000 / 62]) {
+  const b = bulatkanHarga(v);
+  const desimal = String(b).includes('e') ? 0 : (String(b).split('.')[1] ?? '').length;
+  assert.ok(desimal <= 4, `${v} -> ${b} masih ${desimal} desimal`);
+  assert.ok(Math.abs(b - v) <= 0.00005 + 1e-9, `${v} -> ${b} meleset terlalu jauh`);
+}
+ok('hasilnya selalu ≤4 desimal DAN tidak meleset lebih dari setengah satuan terakhir');
+
+assert.equal(bulatkanHarga(null), null);
+assert.equal(bulatkanHarga(''), null);
+assert.equal(bulatkanHarga(undefined), null);
+assert.equal(bulatkanHarga('bukan angka'), null);
+assert.equal(bulatkanHarga(Infinity), null);
+ok('nilai yang tidak terbaca tetap null — bukan 0, yang akan terkirim sebagai harga nol');
+
+// Harga yang belum diisi HARUS tetap menahan notanya, bukan jadi 0 karena
+// dibulatkan. Ini yang membedakan "belum tahu harganya" dari "gratis".
+const hHarga = barisEsbPurchase({
+  notas: [nota('Pasar')],
+  itemsPerNota: new Map([['n1', [{ product_name: 'Beras', base_unit: 'gr', qty: 100, unit_cost: null }]]]),
+  peta: petaLengkap,
+  masterSupplier: master
+});
+assert.equal(hHarga.baris.length, 0);
+assert.ok(hHarga.kurang.some((k) => k.jenis === 'harga'));
+ok('harga kosong tetap menahan notanya — pembulatan tidak mengubahnya jadi nol');
+
+// Dan yang benar-benar berangkat memang sudah bulat.
+const iHarga = KOLOM_ESB.indexOf('Price');
+const hBulat = barisEsbPurchase({
+  notas: [nota('Pasar')],
+  itemsPerNota: new Map([['n1', [{ product_name: 'Beras', base_unit: 'gr', qty: 62, unit_cost: 12000 / 62 }]]]),
+  peta: petaLengkap,
+  masterSupplier: master
+});
+assert.equal(hBulat.baris[0][iHarga], 193.5484);
+ok('sel Price yang berangkat sudah dibulatkan, bukan mentahnya');
+
+console.log(`\n${n} pemeriksaan supplier & harga lolos. ✅`);

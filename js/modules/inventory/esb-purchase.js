@@ -53,6 +53,7 @@
 
 import { serialTanggalExcel } from './tanggal-excel.js';
 import { cocokkanSupplier, supplierSiap, normalNama } from './cocok-supplier.js';
+import { keSatuanBeli } from './konversi-satuan.js';
 
 /**
  * Header template ESB, **berurutan**. Nama & urutannya harus persis.
@@ -99,6 +100,48 @@ export const KOLOM_ESB = [
  * terlanjur diketik sebelum daftarnya ada.
  */
 export const JENIS_PETA = ['branch', 'location', 'payment_method', 'coa', 'unit', 'item', 'supplier'];
+
+/**
+ * Batas desimal harga yang diterima ESB.
+ *
+ * Bukan tebakan: pesan penolakannya berbunyi persis "price cannot have more
+ * than 4 decimal places".
+ */
+export const DESIMAL_HARGA_MAKS = 4;
+
+/**
+ * Bulatkan harga per satuan ke batas yang diterima ESB.
+ *
+ * ============ KENAPA PEMBULATANNYA TIDAK MERUSAK APA PUN ============
+ *
+ * ESB menghitung sendiri `Amount = Qty × Price`, jadi membulatkan Price
+ * menggeser total dokumennya sedikit dari total nota. Besarnya: paling banyak
+ * setengah satuan desimal terakhir dikali qty — untuk 62 pcs itu 0,003 rupiah.
+ *
+ * Alternatifnya tidak ada: ESB menolak berkasnya mentah-mentah kalau angkanya
+ * lebih panjang, dan berkas yang ditolak bernilai nol rupiah.
+ *
+ * ============ SOAL `toFixed` vs `Math.round(x * 1e4)` ============
+ *
+ * Keduanya dicoba, dan keduanya berbeda hasil pada nilai tepat-di-tengah:
+ * `2.00005` jadi `2` lewat `toFixed` dan `2.0001` lewat `Math.round`.
+ *
+ * TIDAK ADA yang "benar" di antara keduanya. `2.00005` tidak bisa diwakili
+ * persis sebagai double — yang sungguh tersimpan 2.0000499999999999723, jadi
+ * membulatkannya ke bawah justru lebih setia pada angkanya. Percobaan pertama
+ * di sini menulis bahwa `toFixed` lebih unggul; itu keliru, dan dibetulkan.
+ *
+ * Yang dijamin cuma dua hal, dan itu yang diuji: hasilnya tidak lebih dari 4
+ * desimal, dan selisihnya dari angka asli tidak lebih dari setengah satuan
+ * desimal terakhir. Untuk harga per gram, selisih 0,00005 rupiah tidak pernah
+ * jadi persoalan siapa pun. `toFixed` dipilih karena membaca niatnya langsung.
+ */
+export function bulatkanHarga(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Number(n.toFixed(DESIMAL_HARGA_MAKS));
+}
 
 const teks = (v) => (v === null || v === undefined ? '' : String(v).trim());
 const angka = (v) => {
@@ -230,20 +273,45 @@ export function barisEsbPurchase({ notas, itemsPerNota, peta, masterSupplier = n
     let adaMasalahItem = false;
 
     for (const it of items) {
+      // SATUAN BELI, bukan satuan kecil.
+      //
+      // ESB menolak pembelian yang dikirim dalam satuan yang bukan satuan
+      // belinya ("product must be set to purchasable"). Berjaya Hub menyimpan
+      // segalanya dalam satuan kecil, jadi Unit/Qty/Price diubah di sini — dan
+      // HANYA di sini. Stok & HPP di database tidak tersentuh.
+      //
+      // Produk tanpa satuan beli berangkat apa adanya; lihat `keSatuanBeli`.
+      const konv = keSatuanBeli(it, it);
+
       const item = padanan(peta.item, it.product_name);
-      const unit = padanan(peta.unit, it.base_unit);
+      // Yang dicari di pemetaan adalah satuan yang BENAR-BENAR dikirim.
+      // Mencari `base_unit` sementara yang berangkat satuan beli akan membuat
+      // notanya lolos dengan satuan yang tidak pernah diperiksa siapa pun.
+      const unit = padanan(peta.unit, konv.unitLokal);
       if (!item) {
         catat('item', it.product_name, kode);
         adaMasalahItem = true;
       }
       if (!unit) {
-        catat('unit', it.base_unit, kode);
+        catat('unit', konv.unitLokal, kode);
         adaMasalahItem = true;
       }
 
       // HARGA PER SATUAN, bukan harga baris. Lihat catatan panjang di kepala
       // berkas ini — salah pilih menggandakan nilainya sebesar qty.
-      const perSatuan = angka(it.unit_cost);
+      //
+      // DIBULATKAN KE 4 DESIMAL. `unit_cost` adalah hasil bagi `line_total/qty`
+      // (0123), dan pembagian itu hampir selalu berulang: Rp12.000 untuk 62 pcs
+      // menghasilkan 193.5483870967742. ESB menolaknya dengan "price cannot
+      // have more than 4 decimal places".
+      //
+      // Yang menipu: Excel MENAMPILKAN 193.5484 — empat desimal, terlihat sah —
+      // sementara yang tersimpan di selnya enam belas digit. Berkasnya terlihat
+      // benar di layar siapa pun yang memeriksanya sebelum mengunggah.
+      // Harganya PER SATUAN YANG DIKIRIM — per pack kalau yang berangkat pack.
+      // `keSatuanBeli` menghitungnya dari `line_total` langsung, bukan dari
+      // `unit_cost × isi`, supaya galat pembulatan tidak ditumpuk dua kali.
+      const perSatuan = bulatkanHarga(konv.harga);
       if (perSatuan === null) {
         catat('harga', it.product_name, kode);
         adaMasalahItem = true;
@@ -268,7 +336,10 @@ export function barisEsbPurchase({ notas, itemsPerNota, peta, masterSupplier = n
         'Item',
         item ?? '',
         unit ?? '',
-        angka(it.qty) ?? 0,
+        // Qty dalam satuan yang dikirim: 300 pcs berangkat sebagai 3 PACK.
+        // Pecahan diterima apa adanya (0,496 KG) — membulatkannya mengubah
+        // jumlah dari yang sungguh masuk gudang, dan angkanya tetap wajar.
+        konv.qty ?? 0,
         perSatuan ?? 0,
         0, // Disc
         0, // Vat

@@ -189,6 +189,17 @@ begin
   select * into v_d from dispatches where id = p_dispatch;
   if v_d.id is null then raise exception 'Pengiriman tidak ditemukan'; end if;
 
+  -- Yang menentukan bukan siapa yang salah, melainkan DI MANA BARANGNYA.
+  --
+  -- Belum diterima berarti stoknya belum bergerak ke mana pun: membatalkannya
+  -- bersih, sementara "meneruskan" akan memindahkan barang yang tidak pernah
+  -- berpindah. Pasangan pemeriksaan ini ada di `batalkan_kiriman` juga, dengan
+  -- arah yang berlawanan — keduanya saling menunjuk supaya orangnya tidak
+  -- pernah ditinggalkan tanpa jalan keluar.
+  if v_d.status <> 'received' then
+    raise exception 'Kiriman % belum diterima, jadi barangnya belum berpindah ke mana pun. Pakai "BATALKAN kiriman" — meneruskan hanya untuk barang yang sudah sungguhan sampai di tempat yang salah.',
+      coalesce(v_d.code, '');
+  end if;
 
   -- Hanya outlet yang MENERIMA barangnya. Ia yang memegang barangnya, dan ia
   -- yang akan mengantarkannya.
