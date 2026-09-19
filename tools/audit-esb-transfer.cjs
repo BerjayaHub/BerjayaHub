@@ -228,10 +228,34 @@ if (hal) {
     salah('esb.admin.js: kiriman ditandai SEBELUM berkasnya jadi. Kalau unduhannya gagal, kiriman itu hilang dari daftar tanpa pernah sampai ke ESB.');
   }
 
-  // Header ditulis di baris 1, tanpa judul di atasnya: ESB membaca baris
-  // pertama sebagai nama kolom.
-  if (!/aoa_to_sheet\(\[kolom,\s*\.\.\.baris\]\)/.test(kode)) {
-    salah('esb.admin.js: berkasnya tidak disusun sebagai [header, ...baris] — satu baris judul saja membuat ESB menolak seluruh berkas.');
+  // HEADER SIMPLE TRANSFER DI BARIS 1, TANPA JUDUL DI ATASNYA.
+  //
+  // ESB membaca baris pertama sebagai nama kolom, jadi satu baris judul saja
+  // membuat seluruh berkas ditolak.
+  //
+  // Sejak 0146 penulis berkasnya melayani tiga template, dan salah satunya
+  // (Item Journal) MEMANG menaruh header di baris ke-3. Jadi yang dijaga
+  // sekarang dua hal, bukan satu bentuk susunan:
+  //
+  //   (a) baris kepala berkasnya datang dari `barisHeader`, bukan dari angka
+  //       yang ditulis di tempat lain;
+  //   (b) Simple Transfer TIDAK memakainya.
+  if (!/aoa_to_sheet\(\[\.\.\.atas,\s*kolom,\s*\.\.\.baris\]\)/.test(kode)) {
+    salah('esb.admin.js: berkasnya tidak disusun sebagai [kepala, header, ...baris] — bentuk berkasnya tidak lagi bisa ditelusuri dari satu tempat.');
+  }
+  if (!/for \(let r = 0; r < barisHeader; r\+\+\) atas\.push/.test(kode)) {
+    salah('esb.admin.js: banyaknya baris kepala berkas tidak lagi ditentukan `barisHeader`.');
+  }
+  // Entri `transfer` di DOKUMEN tidak boleh punya `barisHeader` sama sekali —
+  // nilai bawaannya 0, dan itulah yang membuat headernya mendarat di baris 1.
+  const iTr = kode.indexOf('  transfer: {');
+  const blokTr = iTr < 0 ? '' : kode.slice(iTr, kode.indexOf('\n  },', iTr));
+  if (!blokTr) salah('esb.admin.js: entri `transfer` di DOKUMEN tidak ditemukan — audit ini kehilangan sasarannya.');
+  else if (/barisHeader/.test(blokTr)) {
+    salah(
+      'esb.admin.js: Simple Transfer diberi `barisHeader`. Berkasnya akan berangkat dengan baris judul di atas ' +
+        'headernya, dan ESB menolak seluruhnya — penolakan yang terjadi di ESB, jauh dari sini.'
+    );
   }
 }
 

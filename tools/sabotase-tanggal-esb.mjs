@@ -122,8 +122,20 @@ sabotase(
 sabotase(
   'baris header ikut disapu — lapis kedua yang menahan judul "Date" ikut diformat',
   TGL,
-  '  for (let r = 1; r <= jumlahBaris; r++) {',
-  '  for (let r = 0; r <= jumlahBaris; r++) {',
+  '  for (let r = awal; r < awal + jumlahBaris; r++) {',
+  '  for (let r = awal - 1; r < awal + jumlahBaris; r++) {',
+  AUDIT
+);
+// Sejak 0146 baris headernya tidak selalu baris pertama (Item Journal menaruh
+// nama kolom di baris ke-3). Mengabaikan argumennya membuat formatnya meleset
+// KE ATAS sebanyak baris kepala berkasnya — dua sel teratas tetap tampil
+// sebagai angka mentah, dua sel terbawah tidak pernah diberi format, dan tidak
+// ada satu pun galat.
+sabotase(
+  'baris header diabaikan lagi — formatnya meleset ke atas pada template berbaris-judul',
+  TGL,
+  '  const awal = Number.isInteger(barisHeader) && barisHeader >= 0 ? barisHeader + 1 : 1;',
+  '  const awal = 1;',
   AUDIT
 );
 sabotase(
@@ -206,7 +218,7 @@ console.log('\nSABOTASE BERKAS UNDUHAN:');
 sabotase(
   'formatnya tidak dipasang saat berkasnya ditulis',
   ADM,
-  '  pasangFormatTanggal(ws, kolom, baris.length, (c, r) => XLSX.utils.encode_cell({ c, r }));',
+  '  pasangFormatTanggal(ws, kolom, baris.length, (c, r) => XLSX.utils.encode_cell({ c, r }), barisHeader);',
   '  void pasangFormatTanggal;',
   AUDIT
 );

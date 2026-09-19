@@ -98,8 +98,15 @@ export const KOLOM_ESB = [
  * sama dengan nama Branch di ESB), sementara nama supplier yang dipilih dari
  * daftar ESB sudah cocok apa adanya. Pemetaannya cuma untuk EJAAN LAMA yang
  * terlanjur diketik sebelum daftarnya ada.
+ *
+ * `purpose` masuk sejak 0146 dan dipakai HANYA oleh Item Journal — bukan oleh
+ * Simple Purchase. Ia ikut di daftar yang sama karena satu layar pemetaan
+ * melayani ketiga dokumen, dan jenis yang tidak terdaftar di sini tidak akan
+ * pernah punya barisnya sendiri di layar itu: petanya terbentuk (`buatPeta`
+ * membacanya dari `JENIS_PETA`), tapi tidak ada satu pun cara mengisinya.
+ * Kemampuannya ada di database, jalannya tidak ada di layar.
  */
-export const JENIS_PETA = ['branch', 'location', 'payment_method', 'coa', 'unit', 'item', 'supplier'];
+export const JENIS_PETA = ['branch', 'location', 'payment_method', 'coa', 'unit', 'item', 'supplier', 'purpose'];
 
 /**
  * Batas desimal harga yang diterima ESB.

@@ -99,7 +99,17 @@ if (tgl) {
   // dari baris 0 tidak mengubah apa pun hari ini. Ia dijaga karena kedua
   // penjaganya bisa dicabut satu per satu, dan yang mencabut penjaga pertama
   // tidak punya alasan menduga yang kedua sedang menanggungnya.
-  if (!/for \(let r = 1; r <= jumlahBaris; r\+\+\)/.test(kode)) {
+  //
+  // Sejak 0146 baris headernya TIDAK SELALU baris pertama: template Item
+  // Journal menaruhnya di baris ke-3. Jadi yang dijaga bukan lagi angka 1,
+  // melainkan bahwa perulangannya bermula dari baris sesudah header — dan
+  // berhenti sesudah sebanyak `jumlahBaris` baris data, bukan di nomor baris
+  // yang kebetulan sama. (Batas `<= jumlahBaris` yang lama, digeser ke bawah,
+  // akan memformat lebih sedikit sel dari yang ada.)
+  if (!/const awal = Number\.isInteger\(barisHeader\) && barisHeader >= 0 \? barisHeader \+ 1 : 1;/.test(kode)) {
+    salah('tanggal-excel.js: baris data pertama tidak lagi diturunkan dari baris headernya.');
+  }
+  if (!/for \(let r = awal; r < awal \+ jumlahBaris; r\+\+\)/.test(kode)) {
     salah('tanggal-excel.js: pemformatannya tidak lagi dimulai dari baris data pertama — baris header ikut tersapu.');
   }
 }
@@ -184,7 +194,10 @@ if (adm) {
   if (!/import \{ pasangFormatTanggal \} from '\.\/tanggal-excel\.js'/.test(kode)) {
     salah('esb.admin.js: `pasangFormatTanggal` tidak diimpor.');
   }
-  if (!/pasangFormatTanggal\(ws, kolom, baris\.length, \(c, r\) => XLSX\.utils\.encode_cell\(\{ c, r \}\)\)/.test(kode)) {
+  // Argumen kelima (`barisHeader`) masuk bersama Item Journal di 0146 dan
+  // WAJIB ikut: tanpa itu formatnya meleset ke atas sebanyak baris kepala
+  // berkasnya, dan melesetnya tidak melempar apa pun.
+  if (!/pasangFormatTanggal\(ws, kolom, baris\.length, \(c, r\) => XLSX\.utils\.encode_cell\(\{ c, r \}\), barisHeader\)/.test(kode)) {
     salah(
       'esb.admin.js: kolom Date tidak diberi format saat berkasnya ditulis. Isinya benar tapi tampil sebagai `46266`, ' +
         'dan yang membukanya untuk memeriksa sebelum mengunggah akan mengira ekspornya rusak.'

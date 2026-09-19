@@ -6813,6 +6813,77 @@ Bentuk selain `YYYY-MM-DD` ditolak, tidak ditebak: menebak `01/09/2026` berarti 
 
 - [x] **Kolom Date Purchase & Transfer berisi tanggal sungguhan** — 19 sabotase
 
+## Berkas yang tidak menyebut outlet mana pun
+
+> "tambah ekspor esb untuk waste / spoil, template nya saya lampirkan, tolong di cek, bila ada yang kurang dari data berjaya hub silahkan di infokan"
+
+**Perlu migration `0146`.**
+
+`ESB_FNB_ITEM_JOURNAL_TEMPLATE.xlsx` dibuka dan diperiksa apa adanya — bukan dikira-kira dari namanya:
+
+```
+  baris 1 : ESB Item Journal Template   (judul)
+  baris 2 : (kosong)
+  baris 3 : No | Product Name | Product Code | Unit | Mode | Qty | Value per Unit | Purpose
+```
+
+Dua hal langsung berbeda dari Simple Purchase & Simple Transfer: **headernya di baris ke-3**, dan **tidak ada kolom Branch sama sekali**.
+
+### Tidak ada kolom Branch — dan itu menular ke seluruh fitur
+
+Kalau berkasnya tidak menyebut outlet, outletnya ditentukan **saat diimpor di ESB**. Artinya satu berkas = satu outlet, dan itu bukan preferensi: berkas gabungan dua outlet akan masuk **seluruhnya** ke outlet yang dipilih saat impor. Stok outlet lain berkurang di ESB tanpa pernah berkurang di sini, ESB **menerimanya tanpa satu pun keluhan**, dan salahnya baru terbaca saat opname berbulan-bulan kemudian.
+
+Jadi aturannya dijaga **tiga kali**, di tiga lapis yang berbeda:
+
+| Lapis | Yang dilakukan | Kalau lapis di atasnya lepas |
+|---|---|---|
+| Layar | pilihan "Semua outlet" **dicabut** dari dropdown | — |
+| Pratinjau | menolak jalan kalau outletnya kosong | menangkap BU tanpa outlet, atau nilai yang dikosongkan |
+| `barisEsbJournal` | **melempar** kalau waste-nya lebih dari satu outlet | menangkap jalan lain mana pun ke fungsi itu |
+
+Penjaga yang hanya ada di layar adalah penjaga yang hilang begitu ada jalan lain ke fungsinya. Yang ketiga yang sebenarnya menjaga; dua yang pertama supaya orangnya tidak pernah sampai ke sana.
+
+### Empat hal yang Berjaya Hub tidak punya — dan apa yang dilakukan untuk masing-masing
+
+Ini jawaban atas *"bila ada yang kurang dari data berjaya hub silahkan di infokan"*:
+
+| Kolom ESB | Di Berjaya Hub | Yang dilakukan |
+|---|---|---|
+| `Purpose` | tidak ada padanannya — hanya `jenis` (`spoil`/`menu`) dan catatan teks bebas | **dipetakan**, dua baris, diisi sekali |
+| `Value per Unit` | ada, tapi hanya untuk bahan yang pernah masuk lewat nota berharga | barisnya **ditahan**, alasannya terbaca |
+| `Product Code` | kode lokal, bukan kode ESB | diambil dari daftar induk ESB lewat nama hasil pemetaan |
+| `Mode` | tidak ada — waste selalu mengurangi | dipatok `Deduct` |
+
+Catatan staff sengaja **tidak** dipakai sebagai Purpose. Ia teks bebas yang ditulis untuk dibaca manusia; mengirimnya ke kolom bermaster membuat tiap baris membawa nilai yang berbeda-beda, dan ESB menolaknya satu per satu.
+
+Begitu ESB bisa mengekspor daftar Purpose-nya, daftar itu diimpor ke `esb_master` dan **kotak isiannya berubah sendiri jadi dropdown** — layar pemetaan sudah begitu sejak `0127`. Tidak ada yang perlu diubah lagi saat daftarnya datang.
+
+### Nol bukan "belum tahu"
+
+`biaya_rata_bahan` (`0118`) hanya punya baris untuk bahan yang pernah masuk lewat nota berharga. Yang belum pernah **tidak punya angka** — dan mengirim `0` berarti menyatakan *"bahannya gratis"*, pernyataan yang berbeda, yang ESB terima tanpa keluhan. Nilai kerugiannya jadi lebih kecil dari yang sebenarnya, dan angkanya tetap terlihat wajar.
+
+Maka barisnya ditahan dengan alasan **"Belum ada harga beli (input dulu notanya)"**. Harga yang memang tercatat nol tetap lewat — yang ditahan adalah yang **tidak ada**, bukan yang kebetulan nol.
+
+### Satu angka, satu tempat
+
+`unduhEsb` sekarang melayani tiga template yang bentuk kepalanya berbeda, jadi banyaknya baris kepala datang dari `BARIS_HEADER_JOURNAL` — satu tempat. `pasangFormatTanggal` ikut menerima angka itu: tanpa itu formatnya **meleset ke atas** sebanyak baris kepalanya, dua sel teratas tetap tampil sebagai angka mentah, dua sel terbawah tidak pernah diberi format, dan tidak ada satu pun galat. Item Journal memang tidak punya kolom `Date` hari ini — penjaganya dipasang karena template berikutnya belum tentu begitu.
+
+Dua audit lama ikut diperbarui, bukan dilonggarkan: `audit-tanggal-esb.cjs` berhenti mematok angka `1` dan mematok *"bermula dari baris sesudah header"*; `audit-esb-transfer.cjs` berhenti mematok bentuk `[kolom, ...baris]` dan sekarang menjaga bahwa **Simple Transfer tidak punya `barisHeader` sama sekali**.
+
+### Tiga sabotase yang lolos, dan apa yang ditambal
+
+Putaran pertama 33 sabotase meloloskan tiga — ketiganya bentuk kegagalan yang sama: **auditnya hijau karena sasarannya ada di tempat lain.**
+
+| Sabotase | Kenapa lolos |
+|---|---|
+| baris header ditulis ulang jadi angka tetap di pemanggil | audit mencari `barisHeader: BARIS_HEADER_JOURNAL`, dan kalimat itu masih ada di `DOKUMEN` |
+| Item Journal dihapus dari dropdown **unduh** | audit mencari `value="journal"`, dan dropdown **batalkan tanda** masih memuatnya |
+| jangkar sabotasenya sendiri muncul di tiga fungsi | yang dirusak jalur nota, bukan jalur waste |
+
+Ketiganya diarahkan ke potongan yang benar — dropdown dicari di HTML-nya masing-masing, argumen dicari di pemanggilnya, jangkar sabotase diperpanjang sampai baris yang hanya dimiliki `wasteUntukEsb`.
+
+- [x] **Ekspor waste/spoil ke ESB Item Journal** (`0146`) — 33 sabotase
+
 ## Keterangan yang diam-diam jadi bagian nama
 
 > "apakah ada tambahan teks kode esb xxx di belakang nama supplier itu tidak pengaruh? atau apakah dia akan jadi nama supplier baru?"

@@ -246,8 +246,10 @@ sabotase(
 sabotase(
   'supplier dicabut dari JENIS_PETA — ejaan lama tidak punya tempat untuk dibereskan',
   PUR,
-  "export const JENIS_PETA = ['branch', 'location', 'payment_method', 'coa', 'unit', 'item', 'supplier'];",
-  "export const JENIS_PETA = ['branch', 'location', 'payment_method', 'coa', 'unit', 'item'];",
+  // 'purpose' menyusul di 0146. Yang dicabut di sini tetap 'supplier' saja —
+  // sabotasenya harus mengenai persis satu jenis, bukan memotong ekornya.
+  "'item', 'supplier', 'purpose'];",
+  "'item', 'purpose'];",
   TES
 );
 sabotase(

@@ -103,13 +103,20 @@ export function serialTanggalExcel(v) {
  * @param {string[]} kolom daftar judul kolom
  * @param {number} jumlahBaris banyaknya baris data (tidak termasuk header)
  * @param {(c: number, r: number) => string} alamat pembuat alamat sel (`XLSX.utils.encode_cell`)
+ * @param {number} [barisHeader=0] indeks baris header di dalam berkas.
+ *   Simple Purchase & Simple Transfer menaruh header di baris pertama; Item
+ *   Journal menaruhnya di baris ke-3 (indeks 2). Kalau angka ini diabaikan,
+ *   formatnya menempel pada baris yang MELESET ke atas — dua sel teratas tetap
+ *   tampil sebagai angka mentah dan dua sel terbawah tidak pernah diberi
+ *   format, tanpa satu pun galat.
  * @returns {number} berapa sel yang diberi format — 0 berarti kolomnya tidak ketemu
  */
-export function pasangFormatTanggal(ws, kolom, jumlahBaris, alamat) {
+export function pasangFormatTanggal(ws, kolom, jumlahBaris, alamat, barisHeader = 0) {
   const c = (Array.isArray(kolom) ? kolom : []).indexOf(KOLOM_TANGGAL);
   if (c < 0 || !ws || typeof alamat !== 'function') return 0;
+  const awal = Number.isInteger(barisHeader) && barisHeader >= 0 ? barisHeader + 1 : 1;
   let n = 0;
-  for (let r = 1; r <= jumlahBaris; r++) {
+  for (let r = awal; r < awal + jumlahBaris; r++) {
     const sel = ws[alamat(c, r)];
     // Sel yang bukan angka dilewati: baris yang tanggalnya gagal dibaca memang
     // sengaja dibiarkan kosong, dan memberinya format tanggal membuat sel

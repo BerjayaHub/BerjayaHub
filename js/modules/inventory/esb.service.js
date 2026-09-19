@@ -385,3 +385,103 @@ export async function batalkanTandaKirimanEsb(kirimanIds, alasan) {
   if (error) throw new Error(error.message ?? String(error));
   return Number(data) || 0;
 }
+
+// ---- Waste untuk diekspor (Item Journal, 0146) ----
+
+/**
+ * Waste/spoil beserta rincian bahannya, siap diberikan ke `barisEsbJournal`.
+ *
+ * `outletId` WAJIB, dan itu bukan kelonggaran yang bisa dicabut: template Item
+ * Journal tidak punya kolom outlet sama sekali, jadi outletnya ditentukan saat
+ * diimpor di ESB. Berkas gabungan beberapa outlet akan masuk seluruhnya ke
+ * outlet yang dipilih saat impor — stok outlet lain berkurang di ESB tanpa
+ * pernah berkurang di sini, dan tidak ada satu pun pesan yang menandakannya.
+ */
+export async function wasteUntukEsb({ businessUnitId, from, to, outletId, termasukSudahEkspor = false }) {
+  if (!outletId) throw new Error('Pilih satu outlet dulu — berkas Item Journal tidak punya kolom outlet.');
+
+  const runs = await ambilSemua((dari, sampai) => {
+    let q = supabase
+      .from('waste_runs')
+      .select('id, code, jenis, notes, outlet_id, created_at, esb_exported_at', { count: 'exact' })
+      .eq('business_unit_id', businessUnitId)
+      .eq('outlet_id', outletId)
+      // `created_at` timestamptz — batas WIB eksplisit memang diperlukan, kalau
+      // tidak waste sore hari di ujung rentang akan hilang.
+      .gte('created_at', isoFrom(from))
+      .lte('created_at', isoTo(to))
+      .order('created_at')
+      .order('code');
+    if (!termasukSudahEkspor) q = q.is('esb_exported_at', null);
+    return q.range(dari, sampai);
+  });
+
+  if (!runs.length) return { waste: [], itemsPerWaste: new Map() };
+
+  const ids = runs.map((w) => w.id);
+  const items = await ambilSemua((dari, sampai) =>
+    supabase
+      .from('waste_items')
+      .select('waste_id, product_id, qty, products(name, base_unit)', { count: 'exact' })
+      .in('waste_id', ids)
+      .range(dari, sampai)
+  );
+
+  const peta = new Map();
+  for (const it of items) {
+    if (!peta.has(it.waste_id)) peta.set(it.waste_id, []);
+    peta.get(it.waste_id).push({
+      product_id: it.product_id,
+      product_name: it.products?.name ?? '',
+      base_unit: it.products?.base_unit ?? '',
+      qty: it.qty
+    });
+  }
+
+  return { waste: runs, itemsPerWaste: peta };
+}
+
+/** Tandai waste yang BENAR-BENAR ikut terunduh. Dipanggil sesudah berkasnya jadi. */
+export async function tandaiWasteEsb(wasteIds) {
+  const { data, error } = await supabase.rpc('tandai_waste_esb', argumenRpc({ p_waste: wasteIds }));
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data) || 0;
+}
+
+/** Batalkan penandaan waste. Alasan WAJIB (0146). */
+export async function batalkanTandaWasteEsb(wasteIds, alasan) {
+  const { data, error } = await supabase.rpc(
+    'batalkan_tanda_waste_esb',
+    argumenRpc({ p_waste: wasteIds, p_alasan: String(alasan ?? '') })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data) || 0;
+}
+
+/** Waste yang SUDAH bertanda ekspor, untuk layar "Batalkan tanda ekspor". */
+export async function wasteBertandaEsb({ businessUnitId, from, to, outletId = null }) {
+  const baris = await ambilSemua((dari, sampai) => {
+    let q = supabase
+      .from('waste_runs')
+      .select(
+        'id, code, jenis, outlet_id, created_at, esb_exported_at, esb_dibatalkan_at, esb_alasan_batal, ' +
+          'outlets!outlet_id(name), pembatal:user_profiles!esb_dibatalkan_by(full_name)',
+        { count: 'exact' }
+      )
+      .eq('business_unit_id', businessUnitId)
+      .not('esb_exported_at', 'is', null)
+      .gte('created_at', isoFrom(from))
+      .lte('created_at', isoTo(to))
+      .order('esb_exported_at', { ascending: false });
+    if (outletId) q = q.eq('outlet_id', outletId);
+    return q.range(dari, sampai);
+  });
+  // Bentuknya disamakan dengan nota & kiriman supaya layar "Batalkan tanda
+  // ekspor" tidak perlu tahu ia sedang menampilkan jenis dokumen yang mana.
+  return baris.map((w) => ({
+    ...w,
+    receipt_date: w.created_at,
+    supplier: w.jenis === 'menu' ? 'Waste menu' : 'Spoil bahan',
+    outlet_name: w.outlets?.name ?? ''
+  }));
+}

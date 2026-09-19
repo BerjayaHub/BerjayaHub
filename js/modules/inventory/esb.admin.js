@@ -21,6 +21,7 @@ import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { loadXLSX } from '../../core/xlsx.js';
 import { listProducts } from '../product/product.service.js';
+import { getBiayaRataOutlet } from './inventory.service.js';
 import { sayaAdminBu } from '../../core/base-scope.js';
 import { KOLOM_ESB, JENIS_PETA, buatPeta, barisEsbPurchase, ringkasEkspor } from './esb-purchase.js';
 import { susunBarisPemetaan, perluCari } from './urut-pemetaan.js';
@@ -31,6 +32,7 @@ import { susunBarisPemetaan, perluCari } from './urut-pemetaan.js';
 // verifikasi yang sudah hijau tanpa satu pun perubahan perilaku.
 import { saringTabel } from '../dispatch/saring-tabel.js';
 import { KOLOM_TRANSFER, barisEsbTransfer, ringkasTransfer } from './esb-transfer.js';
+import { KOLOM_JOURNAL, BARIS_HEADER_JOURNAL, barisEsbJournal, ringkasJournal } from './esb-journal.js';
 import { pasangFormatTanggal } from './tanggal-excel.js';
 import { petaSupplier, petaEjaanSupplier, normalNama } from './cocok-supplier.js';
 import { susunDaftarSupplier, ringkasStatus, pesanRingkas, LABEL_STATUS, STATUS_MENGHAMBAT } from './daftar-supplier.js';
@@ -55,6 +57,10 @@ import {
   tandaiKirimanEsb,
   notaBertandaEsb,
   kirimanBertandaEsb,
+  wasteUntukEsb,
+  tandaiWasteEsb,
+  wasteBertandaEsb,
+  batalkanTandaWasteEsb,
   batalkanTandaEsb,
   batalkanTandaKirimanEsb
 } from './esb.service.js';
@@ -70,6 +76,7 @@ const LABEL_JENIS = {
   unit: 'Unit',
   item: 'Item',
   supplier: 'Supplier',
+  purpose: 'Purpose (Item Journal)',
   // Tiga di bawah ini BUKAN pemetaan — tidak ada dropdown untuk memperbaikinya.
   // Ia muncul di tabel "belum dipetakan" karena tabel itulah satu-satunya
   // tempat alasan sebuah dokumen tertahan bisa terbaca. Perbaikannya di nota
@@ -77,8 +84,25 @@ const LABEL_JENIS = {
   tanggal: 'Tanggal nota (perbaiki di notanya)',
   'tanggal-terima': 'Tanggal terima (perbaiki di kirimannya)',
   harga: 'Harga satuan (perbaiki di notanya)',
-  'qty-terima': 'Qty diterima (perbaiki di kirimannya)'
+  'qty-terima': 'Qty diterima (perbaiki di kirimannya)',
+  // Bukan pemetaan juga: bahan yang belum pernah masuk lewat nota berharga
+  // tidak punya biaya rata-rata (0118), dan Item Journal menuntut
+  // `Value per Unit`. Mengirim 0 berarti "bahannya gratis" — ESB menerimanya
+  // tanpa keluhan, dan nilai kerugiannya jadi lebih kecil dari yang sebenarnya.
+  'nilai-bahan': 'Belum ada harga beli (input dulu notanya)'
 };
+
+/**
+ * Dua jenis waste di Berjaya Hub, jadi dua baris pemetaan Purpose.
+ *
+ * Nilainya ditulis persis seperti yang tersimpan di `waste_runs.jenis` — itulah
+ * yang dicari `barisEsbJournal`. Labelnya dipisah supaya barisnya terbaca
+ * manusia tanpa mengubah kuncinya.
+ */
+const JENIS_WASTE = [
+  { kunci: 'spoil', label: 'bahan rusak / kedaluwarsa' },
+  { kunci: 'menu', label: 'menu terbuang — bahannya dipotong sesuai resep' }
+];
 
 /** Cara bayar lokal yang selalu perlu padanan, apa pun isi notanya. */
 const CARA_BAYAR = ['kas', 'tempo', 'pusat'];
@@ -124,6 +148,24 @@ const DOKUMEN = {
     kolom: KOLOM_TRANSFER,
     berkas: 'esb-transfer',
     satuan: 'kiriman'
+  },
+  journal: {
+    label: 'Item Journal',
+    sumber: 'waste & spoil (modul Bahan → Waste / Spoil)',
+    kolom: KOLOM_JOURNAL,
+    berkas: 'esb-item-journal',
+    satuan: 'waste',
+    // SATU BERKAS, SATU OUTLET.
+    //
+    // Template Item Journal tidak punya kolom Branch sama sekali — outletnya
+    // ditentukan saat DIIMPOR di ESB. Berkas gabungan beberapa outlet masuk
+    // seluruhnya ke outlet yang dipilih saat impor, dan stok outlet lain
+    // berkurang di ESB tanpa pernah berkurang di sini.
+    outletWajib: true,
+    // Header di baris ke-3, bukan baris 1. Dua template lain memakai baris
+    // pertama; menyamakannya membuat seluruh berkas ditolak.
+    barisHeader: BARIS_HEADER_JOURNAL,
+    judulBerkas: 'ESB Item Journal Template'
   }
 };
 
@@ -213,7 +255,14 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
     supplier: (() => {
       const m = petaSupplier(master);
       return supplierTerpakai.map((t) => String(t?.nama ?? '')).filter((nama) => nama && !m.has(normalNama(nama)));
-    })()
+    })(),
+    // PURPOSE: dua baris, selamanya dua baris.
+    //
+    // Berjaya Hub tidak punya padanan apa pun untuk kolom ini — yang ada cuma
+    // `jenis` ('spoil'/'menu') dan catatan teks bebas. Catatan sengaja TIDAK
+    // dipakai: ia ditulis staff untuk dibaca manusia, dan mengirimnya ke kolom
+    // bermaster membuat tiap baris membawa nilai yang berbeda-beda.
+    purpose: JENIS_WASTE.map((w) => w.kunci)
   };
 
   /** Berapa nota yang tertahan oleh tiap ejaan supplier — untuk ditampilkan. */
@@ -224,9 +273,10 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
   container.innerHTML = `
     <h2 style="font-size:1.05rem">Ekspor ke ESB</h2>
     <p style="font-size:0.82rem;color:var(--color-text-muted);max-width:760px">
-      Berjaya Hub jadi tempat input, ESB menerima berkasnya. Dua jenis dokumen didukung —
-      <strong>Simple Purchase</strong> dari nota penerimaan dan <strong>Simple Transfer</strong> dari modul Pengiriman —
-      dan keduanya memakai <strong>pemetaan yang sama</strong>. Dokumen yang ada nilainya belum terpetakan
+      Berjaya Hub jadi tempat input, ESB menerima berkasnya. Tiga jenis dokumen didukung —
+      <strong>Simple Purchase</strong> dari nota penerimaan, <strong>Simple Transfer</strong> dari modul Pengiriman,
+      dan <strong>Item Journal</strong> dari waste &amp; spoil — dan ketiganya memakai
+      <strong>pemetaan yang sama</strong>. Dokumen yang ada nilainya belum terpetakan
       <strong>tidak ikut terunduh</strong>; ia muncul di daftar di bawah, supaya ketahuan alih-alih berangkat dengan
       sel kosong yang ditolak ESB belakangan.
     </p>
@@ -243,6 +293,7 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
           <select id="esb-dokumen">
             <option value="purchase">Simple Purchase — nota supplier</option>
             <option value="transfer">Simple Transfer — kiriman antar-outlet</option>
+            <option value="journal">Item Journal — waste / spoil</option>
           </select>
         </div>
         <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="esb-from" value="${range.from}" /></div>
@@ -278,6 +329,7 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
           <select id="batal-dokumen">
             <option value="purchase">Nota supplier</option>
             <option value="transfer">Kiriman antar-outlet</option>
+            <option value="journal">Waste / spoil</option>
           </select>
         </div>
         <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="batal-from" value="${range.from}" /></div>
@@ -393,14 +445,16 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       const from = container.querySelector('#batal-from').value;
       const to = container.querySelector('#batal-to').value;
       const outletId = container.querySelector('#batal-outlet').value || null;
-      const satuan = jenis === 'transfer' ? 'kiriman' : 'nota';
+      const satuan = { transfer: 'kiriman', journal: 'waste' }[jenis] ?? 'nota';
 
       let baris = [];
       try {
         baris =
           jenis === 'transfer'
             ? await kirimanBertandaEsb({ businessUnitId, from, to, outletId })
-            : await notaBertandaEsb({ businessUnitId, from, to, outletId });
+            : jenis === 'journal'
+              ? await wasteBertandaEsb({ businessUnitId, from, to, outletId })
+              : await notaBertandaEsb({ businessUnitId, from, to, outletId });
       } catch (e) {
         box.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
         return;
@@ -496,7 +550,9 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
             const n =
               jenis === 'transfer'
                 ? await batalkanTandaKirimanEsb(ids, periksa.alasan)
-                : await batalkanTandaEsb(ids, periksa.alasan);
+                : jenis === 'journal'
+                  ? await batalkanTandaWasteEsb(ids, periksa.alasan)
+                  : await batalkanTandaEsb(ids, periksa.alasan);
             // Angka dari database DIBANDINGKAN dengan yang dicentang. Baris
             // milik BU lain, atau yang tandanya sudah dibuka orang lain sejak
             // halaman ini dimuat, dilewati tanpa melempar galat apa pun —
@@ -666,11 +722,18 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
                 // mendesaknya — dan yang dikerjakan lebih dulu jadi yang
                 // kebetulan paling atas.
                 const pakai = j === 'supplier' ? notaPerSupplier.get(normalNama(k)) : null;
+                // Kunci Purpose adalah nilai mentah `waste_runs.jenis` —
+                // 'spoil' dan 'menu'. Itulah yang dicari saat mengekspor, jadi
+                // yang ditulis di sel tetap kunci itu; artinya disebut di
+                // bawahnya, bukan menggantikannya.
+                const arti = j === 'purpose' ? JENIS_WASTE.find((w) => w.kunci === k)?.label : null;
                 const ket = pakai
                   ? `<br><span style="font-size:0.76rem;color:var(--color-text-muted)">${pakai.jumlah} nota${
                       pakai.belum ? ` · <span class="nota-telat">${pakai.belum} belum diekspor</span>` : ''
                     }</span>`
-                  : '';
+                  : arti
+                    ? `<br><span style="font-size:0.76rem;color:var(--color-text-muted)">${esc(arti)}</span>`
+                    : '';
                 return `<tr data-nama="${esc(k)} ${esc(kini)}"${dipetakan ? '' : ' class="esb-belum"'}>
                           <td data-label="Berjaya Hub">${esc(k)}${ket}</td><td data-label="ESB">${opsi}</td>
                         </tr>`;
@@ -754,12 +817,38 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
   const jenisDokumen = () => container.querySelector('#esb-dokumen').value;
 
   function ketDokumen() {
-    const d = DOKUMEN[jenisDokumen()];
-    container.querySelector('#esb-dokumen-ket').innerHTML =
-      `Sumbernya: ${esc(d.sumber)}.` +
-      (jenisDokumen() === 'transfer'
-        ? ' Qty yang dikirim ke ESB adalah <strong>jumlah yang DITERIMA</strong>, dan tanggalnya tanggal barang diterima — bukan tanggal dikirim.'
-        : ' <strong>Harga yang dikirim adalah harga per satuan</strong> (beras 5.000 gr seharga Rp180.000 berangkat sebagai Qty 5000, Price 36).');
+    const jenis = jenisDokumen();
+    const d = DOKUMEN[jenis];
+    const tambahan = {
+      transfer:
+        ' Qty yang dikirim ke ESB adalah <strong>jumlah yang DITERIMA</strong>, dan tanggalnya tanggal barang diterima — bukan tanggal dikirim.',
+      journal:
+        ' Berkas Item Journal <strong>tidak punya kolom outlet</strong> — outletnya ditentukan saat diimpor di ESB, jadi <strong>satu berkas hanya boleh berisi satu outlet</strong>. ' +
+        'Semua barisnya <strong>Deduct</strong> (mengurangi stok), dan <strong>Value per Unit</strong> diambil dari harga beli rata-rata bahan di outlet itu.',
+      purchase:
+        ' <strong>Harga yang dikirim adalah harga per satuan</strong> (beras 5.000 gr seharga Rp180.000 berangkat sebagai Qty 5000, Price 36).'
+    }[jenis];
+    container.querySelector('#esb-dokumen-ket').innerHTML = `Sumbernya: ${esc(d.sumber)}.${tambahan ?? ''}`;
+
+    // OUTLET DIPAKSA, BUKAN CUMA DIMINTA.
+    //
+    // "Semua outlet" tetap terpilih dari pilihan sebelumnya akan menghasilkan
+    // berkas gabungan yang DITERIMA ESB dengan tenang: seluruhnya masuk ke
+    // outlet yang dipilih saat impor, dan stok outlet lain berkurang di sana
+    // tanpa pernah berkurang di sini. Jadi pilihannya dicabut dari layar, bukan
+    // ditolak belakangan lewat pesan galat.
+    const sel = container.querySelector('#esb-outlet');
+    const semua = sel.querySelector('option[value=""]');
+    if (d.outletWajib) {
+      semua.disabled = true;
+      semua.textContent = '— pilih satu outlet —';
+      // Kalau yang terpilih justru "Semua outlet", pindahkan ke outlet pertama
+      // supaya kotaknya tidak berdiri dengan nilai yang sudah dilarang.
+      if (!sel.value) sel.value = outlets[0]?.id ?? '';
+    } else {
+      semua.disabled = false;
+      semua.textContent = 'Semua outlet';
+    }
   }
   ketDokumen();
   // Hasil pratinjau lama dibersihkan saat jenisnya berganti. Tabel Purchase yang
@@ -781,12 +870,49 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
     const to = container.querySelector('#esb-to').value;
     const outletId = container.querySelector('#esb-outlet').value || null;
 
+    // Penjaga KEDUA untuk aturan satu-berkas-satu-outlet. Yang pertama mencabut
+    // pilihannya dari layar; yang ini menangkap keadaan yang lolos dari sana —
+    // BU tanpa outlet sama sekali, atau `<select>` yang nilainya dikosongkan
+    // sesudah `ketDokumen` jalan. Penjaga ketiga ada di `barisEsbJournal`.
+    if (dok.outletWajib && !outletId) {
+      hasilEl.innerHTML =
+        '<p class="error-text" style="margin:0">Pilih satu outlet dulu. Berkas Item Journal tidak punya kolom outlet, jadi berkas gabungan akan masuk seluruhnya ke outlet yang dipilih saat impor di ESB.</p>';
+      return;
+    }
+
     let hasil;
     let total;
     let ringkas;
     let ids;
     try {
-      if (jenis === 'transfer') {
+      if (jenis === 'journal') {
+        const [data, biayaRata] = await Promise.all([
+          wasteUntukEsb({ businessUnitId, from, to, outletId }),
+          // Biaya rata-rata bahan (0118) DI OUTLET ITU — harga beli beras di
+          // Sentul bukan harga beli beras di Serpong. Gagal dibacanya tidak
+          // diam-diam jadi peta kosong: peta kosong membuat SELURUH waste
+          // tertahan dengan alasan "belum ada harga beli", dan yang membacanya
+          // akan mengira bahannya memang belum pernah dibeli.
+          getBiayaRataOutlet(outletId)
+        ]);
+        total = data.waste.length;
+        if (!total) {
+          hasilEl.innerHTML =
+            '<p style="color:var(--color-text-muted);font-size:0.88rem">Tidak ada waste/spoil baru di outlet & rentang itu. Yang sudah pernah diekspor sengaja tidak ditawarkan lagi.</p>';
+          return;
+        }
+        hasil = barisEsbJournal({
+          waste: data.waste,
+          itemsPerWaste: data.itemsPerWaste,
+          peta: buatPeta(peta),
+          kodeItem: new Map(master.filter((m) => m.jenis === 'item' && m.kode).map((m) => [m.nama, m.kode])),
+          // `getBiayaRataOutlet` mengembalikan objek per produk; yang diminta
+          // modul murninya cuma angkanya.
+          biaya: new Map([...biayaRata].map(([id, b]) => [id, b?.rata]))
+        });
+        ringkas = ringkasJournal(hasil, total);
+        ids = hasil.wasteIds;
+      } else if (jenis === 'transfer') {
         const data = await kirimanUntukEsb({ businessUnitId, from, to, outletId });
         total = data.kiriman.length;
         if (!total) {
@@ -852,7 +978,7 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
                    );
                  })
                  .join('')}</tbody></table></div>
-             <p class="nota-total-kurang" style="margin:0 0 8px">Beresi dulu yang di atas — yang berupa pemetaan di langkah 3, sisanya di nota/kirimannya sendiri — lalu tekan Pratinjau lagi.</p>`
+             <p class="nota-total-kurang" style="margin:0 0 8px">Beresi dulu yang di atas — yang berupa pemetaan di langkah 5, sisanya di nota/kiriman/waste-nya sendiri — lalu tekan Pratinjau lagi.</p>`
           : ''
       }
       ${
@@ -866,7 +992,10 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       'click',
       sekaliJalan(async () => {
         try {
-          await unduhEsb(dok.kolom, hasil.baris, `${dok.berkas}-${from}-sd-${to}`);
+          await unduhEsb(dok.kolom, hasil.baris, `${dok.berkas}-${from}-sd-${to}`, {
+            barisHeader: dok.barisHeader ?? 0,
+            judul: dok.judulBerkas ?? ''
+          });
         } catch (e) {
           toast(e.message ?? 'Gagal membuat berkas.', 'error');
           return;
@@ -876,7 +1005,12 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
         // tanpa pernah sampai ke ESB — dan tidak ada yang tahu sampai stoknya
         // tidak cocok.
         try {
-          const n = jenis === 'transfer' ? await tandaiKirimanEsb(ids) : await tandaiNotaEsb(ids);
+          const n =
+            jenis === 'transfer'
+              ? await tandaiKirimanEsb(ids)
+              : jenis === 'journal'
+                ? await tandaiWasteEsb(ids)
+                : await tandaiNotaEsb(ids);
           toast(`Berkas terunduh. ${n} ${dok.satuan} ditandai sudah diekspor.`, 'success');
         } catch (e) {
           toast(
@@ -892,19 +1026,35 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
 }
 
 /**
- * Tulis berkas .xlsx dengan header di BARIS 1, tanpa judul apa pun di atasnya.
+ * Tulis berkas .xlsx yang bentuknya persis template ESB-nya.
  *
- * ESB membaca baris pertama sebagai nama kolom.
+ * ============ BARIS HEADERNYA TIDAK SAMA DI SEMUA TEMPLATE ============
+ *
+ * Simple Purchase & Simple Transfer menaruh nama kolom di BARIS 1, tanpa judul
+ * apa pun di atasnya — satu baris judul saja membuat seluruh berkas ditolak.
+ *
+ * Item Journal justru sebaliknya: baris 1 judul, baris 2 kosong, nama kolom di
+ * BARIS 3. Templatenya dibuka dan diperiksa apa adanya, bukan dikira-kira.
+ *
+ * Jadi `barisHeader` bukan hiasan: mengirim berkas Item Journal dengan header
+ * di baris 1 berarti ESB membaca "ESB Item Journal Template" sebagai nama kolom
+ * pertamanya. Angkanya datang dari `BARIS_HEADER_JOURNAL`, satu tempat.
  *
  * Kolom Date-nya berisi nomor seri Excel (lihat `tanggal-excel.js`), dan di
  * sinilah ia diberi format tampilan. Tanpa itu isinya benar tapi tampil sebagai
  * `46266` — dan yang membuka berkasnya untuk memeriksa sebelum mengunggah akan
  * mengira ekspornya rusak.
  */
-async function unduhEsb(kolom, baris, namaFile) {
+async function unduhEsb(kolom, baris, namaFile, { barisHeader = 0, judul = '' } = {}) {
   const XLSX = await loadXLSX();
-  const ws = XLSX.utils.aoa_to_sheet([kolom, ...baris]);
-  pasangFormatTanggal(ws, kolom, baris.length, (c, r) => XLSX.utils.encode_cell({ c, r }));
+  // Baris kosong SEBANYAK yang dituntut templatenya, dengan judulnya di baris
+  // paling atas kalau ada. `barisHeader` 0 menghasilkan daftar kosong — jadi
+  // dua template lama tetap berangkat dengan header di baris pertama.
+  const atas = [];
+  for (let r = 0; r < barisHeader; r++) atas.push(r === 0 && judul ? [judul] : []);
+
+  const ws = XLSX.utils.aoa_to_sheet([...atas, kolom, ...baris]);
+  pasangFormatTanggal(ws, kolom, baris.length, (c, r) => XLSX.utils.encode_cell({ c, r }), barisHeader);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
   XLSX.writeFile(wb, `${namaFile}.xlsx`);
