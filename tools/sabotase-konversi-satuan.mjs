@@ -126,7 +126,8 @@ console.log('\nSABOTASE BATAS DESIMAL QTY:');
 sabotase(
   'batas desimal qty dilonggarkan jadi 6 — ESB menolak "qty cannot have more than 4 decimal places"',
   MURNI,
-  'export const DESIMAL_QTY_MAKS = 4;',
+  // Angkanya pindah ke `desimal-esb.js`; yang dirusak di sini penurunannya.
+  'export const DESIMAL_QTY_MAKS = DESIMAL_ESB_MAKS;',
   'export const DESIMAL_QTY_MAKS = 6;',
   TES
 );

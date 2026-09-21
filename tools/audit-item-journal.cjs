@@ -173,7 +173,31 @@ if (murni) {
   }
   // Nilai yang TIDAK ADA menahan barisnya. Ini keputusan yang diambil bersama
   // pemiliknya, bukan detail teknis.
-  if (!/if \(nilai === null\) \{\s*catat\('nilai-bahan'/.test(kode)) {
+  // EMPAT DESIMAL, di KEDUA kolom angkanya. ESB menolak berkasnya dengan
+  // "cannot have more than 4 decimal places" — aturan yang sudah dipakai Simple
+  // Purchase sejak lama, dan yang ekspor ini sempat tidak pakai sama sekali.
+  // Berkas yang sungguh terunduh membawa `8270,724851` di Value per Unit.
+  if (!/const nilai = bulatkanEsb\(nilaiPenuh\);/.test(kode)) {
+    salah('esb-journal.js: Value per Unit berangkat mentah — berkas yang terunduh membawa 6 desimal dan ESB menolaknya.');
+  }
+  if (!/const qty = bulatkanEsb\(qtyPenuh\);/.test(kode)) {
+    salah('esb-journal.js: Qty berangkat mentah — qty waste menu adalah hasil bagi resep dan hampir selalu berulang.');
+  }
+  if (!/from '\.\/desimal-esb\.js'/.test(kode)) {
+    salah('esb-journal.js: angka 4 ditulis sendiri, bukan diambil dari satu tempat — jalur keempat akan melupakannya lagi.');
+  }
+  for (const [nama, v] of [
+    ['qty', 'qtyPenuh, qty'],
+    ['nilai', 'nilaiPenuh, nilai']
+  ]) {
+    if (!new RegExp(`if \\(hilangKarenaBulat\\(${v.replace(/[,]/g, ',')}\\)\\)`).test(kode)) {
+      salah(
+        `esb-journal.js: ${nama} yang LENYAP jadi 0 karena pembulatan tetap berangkat. Qty 0 berarti "tidak ada yang ` +
+          'terbuang", nilai 0 berarti "gratis" — keduanya diterima ESB tanpa keluhan, dan keduanya salah.'
+      );
+    }
+  }
+  if (!/if \(nilaiPenuh === null\) \{\s*catat\('nilai-bahan'/.test(kode)) {
     salah(
       'esb-journal.js: bahan tanpa harga beli tidak lagi menahan waste-nya. Yang berangkat jadi 0 — "bahannya gratis", ' +
         'pernyataan yang BERBEDA dari "belum tahu", dan ESB menerimanya tanpa keluhan.'
@@ -338,7 +362,7 @@ if (adm) {
   }
   // Alasan penahan harus punya label yang bisa dibaca; tanpa itu tabelnya
   // menampilkan kode mentah ("nilai-bahan") dan tidak ada yang tahu artinya.
-  for (const k of ['nilai-bahan', 'purpose-kosong']) {
+  for (const k of ['nilai-bahan', 'purpose-kosong', 'qty-terlalu-kecil', 'nilai-terlalu-kecil']) {
     if (!new RegExp(`'${k}': `).test(kode)) {
       salah(`esb.admin.js: alasan "${k}" tidak punya label — tabel penahan menampilkan kode mentah.`);
     }

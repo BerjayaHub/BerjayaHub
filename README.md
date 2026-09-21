@@ -6813,6 +6813,41 @@ Bentuk selain `YYYY-MM-DD` ditolak, tidak ditebak: menebak `01/09/2026` berarti 
 
 - [x] **Kolom Date Purchase & Transfer berisi tanggal sungguhan** — 19 sabotase
 
+## Satu aturan yang tinggal di tiga kepala, dan tertinggal di kepala keempat
+
+> "coba kamu ingatkan lagi seharusnya ada berapa angka dibelakang koma agar bisa di import di esb"
+
+**Tidak perlu migration.**
+
+**Empat.** Angkanya datang dari pesan penolakan ESB sendiri, dua kali, dengan kata yang berbeda untuk kolom yang berbeda:
+
+```
+  "price cannot have more than 4 decimal places"
+  "qty cannot have more than 4 decimal places"
+```
+
+Berkas yang benar-benar terunduh membawa `8270,724851` di kolom `Value per Unit`. **Enam desimal.**
+
+### Bukan angkanya yang salah — jalurnya yang lupa memakainya
+
+Aturan 4 desimal sudah hidup di repo ini sejak lama, dan bahkan sudah ditulis **dua kali**: `DESIMAL_HARGA_MAKS` di `esb-purchase.js`, `DESIMAL_QTY_MAKS` di `konversi-satuan.js`. Ekspor Item Journal ditulis sebagai jalur ketiga, dan tidak memakai satu pun dari keduanya.
+
+Itu bentuk kegagalan yang berbeda dari "angkanya salah di satu tempat", dan tidak ada audit yang bisa menangkapnya selama pertanyaannya *"apakah konstantanya masih 4"* — jawabannya tetap ya, di dua berkas yang tidak dipakai.
+
+Angkanya sekarang tinggal di **`desimal-esb.js`**, satu tempat untuk ketiga dokumen; dua konstanta lama menurunkannya dari sana dan namanya dipertahankan supaya pemanggil lamanya tidak perlu diubah. Auditnya berhenti mematok `= 4;` dan mulai mematok *"diturunkan dari satu tempat"*.
+
+### Qty ikut, bukan cuma nilainya
+
+Di screenshot-nya semua Qty kebetulan bulat — karena kedelapan waste itu **spoil bahan**. Waste **menu** berbeda: qty tiap bahannya hasil bagi resep (`qty bahan × porsi ÷ yield`), dan 1.000 gr ÷ 1.800 porsi × 2 = `1,111111…`. Berkas pertama yang memuat waste menu akan ditolak dengan pesan yang kedua.
+
+### Yang lenyap karena dibulatkan ditahan
+
+Qty `0,00004` yang jadi `0` berarti dokumennya menyatakan *"tidak ada yang terbuang"*; nilai `0,00004` yang jadi `0` berarti *"bahannya gratis"*. Keduanya diterima ESB tanpa keluhan, dan keduanya salah — jadi barisnya ditahan dengan alasan yang terbaca. Dalam data sungguhan ini menuntut bahan seberat sepersepuluh ribu gram; ia dijaga karena "hampir mustahil" bukan "tidak mungkin", dan karena kegagalannya diam. Nol yang **memang** nol tetap lewat.
+
+Hasilnya, dari baris yang ditolak itu: `8270,724851` → `8270,7249`, dan qty `1,2222…` → `1,2222`.
+
+- [x] **Empat desimal berlaku di ketiga dokumen ESB, dari satu tempat** — 8 sabotase baru (44 di rumpun Item Journal)
+
 ## Pelajaran yang sudah tertulis, dengan contoh produk yang sama, dan tetap saya ulangi
 
 > "untuk waste spoil apakah dibutuhkan harga beli?"

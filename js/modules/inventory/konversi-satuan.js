@@ -47,6 +47,8 @@
  * Tidak ada impor di berkas ini, supaya bisa diuji tanpa Excel maupun browser.
  */
 
+import { DESIMAL_ESB_MAKS } from './desimal-esb.js';
+
 /**
  * Batas desimal Qty di berkas ESB.
  *
@@ -62,7 +64,7 @@
  * Qty × Price dari total nota, jadi HARGANYA dihitung dari qty yang SUDAH
  * dibulatkan — bukan dari qty penuh.
  */
-export const DESIMAL_QTY_MAKS = 4;
+export const DESIMAL_QTY_MAKS = DESIMAL_ESB_MAKS;
 
 const angka = (v) => {
   // `Number('')` dan `Number(null)` adalah 0, bukan NaN.

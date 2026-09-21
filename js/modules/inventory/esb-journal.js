@@ -71,6 +71,20 @@
  * menampilkan Rp6.764 sementara ekspornya berkata "belum ada harga", yang
  * membacanya tidak punya cara tahu mana yang benar.
  *
+ * ============ EMPAT DESIMAL — DI KEDUA KOLOM ANGKANYA ============
+ *
+ * ESB menolak berkasnya dengan "cannot have more than 4 decimal places", dan
+ * aturan itu sudah dipakai Simple Purchase sejak lama. Ekspor INI ditulis tanpa
+ * memakainya sama sekali, dan berkas yang benar-benar terunduh membawa
+ * `8270,724851` di kolom Value per Unit.
+ *
+ * Bentuk kegagalannya bukan "angkanya salah di satu tempat" melainkan "jalur
+ * baru lupa memakainya" — jadi angkanya sekarang tinggal di `desimal-esb.js`,
+ * satu tempat untuk ketiga dokumen.
+ *
+ * Qty ikut dibulatkan, bukan cuma nilainya: qty waste MENU adalah hasil bagi
+ * resep (`qty bahan × porsi ÷ yield`) dan hampir selalu berulang.
+ *
  * ============ YANG BENAR-BENAR TIDAK PUNYA NILAI DITAHAN ============
  *
  * Mengirim 0 berarti "bahannya gratis" — pernyataan yang BERBEDA dari "belum
@@ -82,6 +96,7 @@
  * tanpa Excel maupun browser.
  */
 import { hargaSatuanBahan, SUMBER_TIDAK_ADA } from './laporan-waste.js';
+import { DESIMAL_ESB_MAKS, bulatkanEsb, hilangKarenaBulat } from './desimal-esb.js';
 
 /** Header template, berurutan. Nama & urutannya harus persis. */
 export const KOLOM_JOURNAL = ['No', 'Product Name', 'Product Code', 'Unit', 'Mode', 'Qty', 'Value per Unit', 'Purpose'];
@@ -192,9 +207,38 @@ export function barisEsbJournal({ waste, itemsPerWaste, peta, kodeItem = new Map
       // NILAI PER SATUAN — dua sumber, lewat fungsi yang sama dengan rekap
       // waste. Lihat catatan panjang di kepala berkas.
       const { nilai: nilaiSatuan, sumber } = hargaSatuanBahan(w.outlet_id, it.product_id, biaya, hpp);
-      const nilai = sumber === SUMBER_TIDAK_ADA ? null : angka(nilaiSatuan);
-      if (nilai === null) {
+      const nilaiPenuh = sumber === SUMBER_TIDAK_ADA ? null : angka(nilaiSatuan);
+      if (nilaiPenuh === null) {
         catat('nilai-bahan', it.product_name, kode);
+        adaMasalah = true;
+      }
+
+      // ============ EMPAT DESIMAL, DI KEDUA KOLOM ANGKANYA ============
+      //
+      // ESB menolak berkasnya dengan "cannot have more than 4 decimal places".
+      // Aturan itu sudah dipakai Simple Purchase sejak lama — dan ekspor ini
+      // ditulis tanpa memakainya sama sekali. Berkas yang benar-benar terunduh
+      // membawa `8270,724851` di kolom Value per Unit: enam desimal, ditolak.
+      //
+      // KEDUANYA perlu, bukan cuma nilainya. Qty waste MENU adalah hasil bagi
+      // resep (`qty bahan × porsi ÷ yield`) dan hampir selalu berulang —
+      // 1.000 gr ÷ 1.800 porsi × 2 = 1,111111… Yang di layar kebetulan bulat
+      // semua karena kedelapan waste itu spoil bahan, bukan waste menu.
+      const nilai = bulatkanEsb(nilaiPenuh);
+      const qtyPenuh = angka(it.qty);
+      const qty = bulatkanEsb(qtyPenuh);
+
+      // Pembulatan yang MENGHAPUS angkanya ditahan, bukan dikirim sebagai 0.
+      // Qty 0 berarti "tidak ada yang terbuang"; nilai 0 berarti "gratis".
+      // Keduanya diterima ESB tanpa keluhan, dan keduanya salah. Lihat
+      // `hilangKarenaBulat` — dalam data sungguhan ini hampir mustahil, dan
+      // dijaga justru karena kegagalannya diam.
+      if (hilangKarenaBulat(qtyPenuh, qty)) {
+        catat('qty-terlalu-kecil', it.product_name, kode);
+        adaMasalah = true;
+      }
+      if (hilangKarenaBulat(nilaiPenuh, nilai)) {
+        catat('nilai-terlalu-kecil', it.product_name, kode);
         adaMasalah = true;
       }
 
@@ -205,7 +249,7 @@ export function barisEsbJournal({ waste, itemsPerWaste, peta, kodeItem = new Map
         item ? kodeItem.get(item) ?? '' : '',
         unit ?? '',
         MODE_KURANG,
-        angka(it.qty) ?? 0,
+        qty ?? 0,
         nilai ?? 0,
         purpose ?? ''
       ]);

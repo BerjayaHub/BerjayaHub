@@ -181,8 +181,10 @@ if (pur) {
   // HARGA: ESB menolak lebih dari 4 desimal, dan `unit_cost` adalah hasil bagi
   // yang hampir selalu berulang (Rp12.000 / 62 pcs = 193.5483870967742).
   // Yang menipu: Excel MENAMPILKAN 193.5484 — empat desimal, terlihat sah.
-  if (!/export const DESIMAL_HARGA_MAKS = 4;/.test(kode)) {
-    salah('esb-purchase.js: batas desimal harga ESB hilang.');
+  // Angkanya pindah ke `desimal-esb.js` (lihat catatan di sana): satu aturan
+  // yang tinggal di tiga kepala akan tertinggal di kepala keempat.
+  if (!/export const DESIMAL_HARGA_MAKS = DESIMAL_ESB_MAKS;/.test(kode)) {
+    salah('esb-purchase.js: batas desimal harga ESB hilang, atau ditulis sendiri alih-alih diturunkan dari desimal-esb.js.');
   }
   // Yang dijaga: harganya MELEWATI `bulatkanHarga` sebelum jadi sel Price.
   //

@@ -25,7 +25,9 @@ import {
   ringkasJournal
 } from '../js/modules/inventory/esb-journal.js';
 import { pasangFormatTanggal, FORMAT_TANGGAL_EXCEL } from '../js/modules/inventory/tanggal-excel.js';
-import { buatPeta, JENIS_PETA } from '../js/modules/inventory/esb-purchase.js';
+import { buatPeta, JENIS_PETA, DESIMAL_HARGA_MAKS } from '../js/modules/inventory/esb-purchase.js';
+import { DESIMAL_QTY_MAKS } from '../js/modules/inventory/konversi-satuan.js';
+import { DESIMAL_ESB_MAKS } from '../js/modules/inventory/desimal-esb.js';
 import { kunciBiaya } from '../js/modules/inventory/laporan-waste.js';
 
 let n = 0;
@@ -217,6 +219,70 @@ const nol = barisEsbJournal({
 assert.equal(nol.baris.length, 1);
 assert.equal(nol.baris[0][K['Value per Unit']], 0);
 ok('harga yang memang tercatat nol tetap lewat — yang ditahan adalah yang TIDAK ADA');
+
+console.log('\n§4b Empat desimal — di KEDUA kolom angkanya');
+
+// ESB menolak berkasnya dengan "cannot have more than 4 decimal places".
+// Angka di bawah diambil APA ADANYA dari berkas yang sungguh terunduh dan
+// ditolak: `8270,724851` di kolom Value per Unit, enam desimal.
+const desimal = (v) => {
+  const s = String(v);
+  return s.includes('.') ? s.split('.')[1].length : 0;
+};
+
+const panjang = barisEsbJournal({
+  waste: [waste('a')],
+  itemsPerWaste: new Map([['a', [item('p-beras', 'Beras', 'gr', 100)]]]),
+  peta: PETA,
+  kodeItem: KODE,
+  biaya: new Map([[kunciBiaya(OUTLET, 'p-beras'), 8270.724851]])
+});
+assert.equal(panjang.baris[0][K['Value per Unit']], 8270.7249);
+assert.ok(desimal(panjang.baris[0][K['Value per Unit']]) <= DESIMAL_ESB_MAKS);
+ok('INTI: Value per Unit dibulatkan ke 4 desimal — angka dari berkas yang ditolak ESB');
+
+// Qty waste MENU adalah hasil bagi resep (`qty bahan × porsi ÷ yield`) dan
+// hampir selalu berulang. Yang di layar kebetulan bulat semua karena kedelapan
+// waste itu spoil bahan, bukan waste menu — kebetulan, bukan jaminan.
+const qtyBagi = susun([waste('a')], [['a', [item('p-beras', 'Beras', 'gr', 1000 / 1800)]]]);
+assert.equal(qtyBagi.baris[0][K['Qty']], 0.5556);
+assert.ok(desimal(qtyBagi.baris[0][K['Qty']]) <= DESIMAL_ESB_MAKS);
+ok('INTI: Qty ikut dibulatkan — qty waste menu hampir selalu hasil bagi yang berulang');
+
+// Angka yang memang pendek tidak diubah-ubah.
+assert.equal(satu.baris[0][K['Value per Unit']], 12.5);
+assert.equal(satu.baris[0][K['Qty']], 100);
+ok('angka yang sudah pendek tidak ikut berubah');
+
+// Pembulatan yang MENGHAPUS angkanya ditahan, bukan dikirim sebagai 0. Qty 0
+// berarti "tidak ada yang terbuang"; nilai 0 berarti "gratis". Keduanya
+// diterima ESB tanpa keluhan, dan keduanya salah.
+const qtyLenyap = susun([waste('a')], [['a', [item('p-beras', 'Beras', 'gr', 0.00004)]]]);
+assert.equal(qtyLenyap.baris.length, 0);
+assert.ok(qtyLenyap.kurang.some((k) => k.jenis === 'qty-terlalu-kecil'));
+ok('qty yang lenyap jadi 0 karena pembulatan menahan waste-nya, tidak berangkat sebagai 0');
+
+const nilaiLenyap = barisEsbJournal({
+  waste: [waste('a')],
+  itemsPerWaste: new Map([['a', [item('p-beras', 'Beras', 'gr', 100)]]]),
+  peta: PETA,
+  kodeItem: KODE,
+  biaya: new Map([[kunciBiaya(OUTLET, 'p-beras'), 0.00004]])
+});
+assert.equal(nilaiLenyap.baris.length, 0);
+assert.ok(nilaiLenyap.kurang.some((k) => k.jenis === 'nilai-terlalu-kecil'));
+ok('nilai yang lenyap jadi 0 karena pembulatan ditahan — "gratis" adalah pernyataan yang berbeda');
+
+// Nol yang MEMANG nol tetap lewat — yang ditahan cuma yang LENYAP karenanya.
+assert.equal(nol.baris.length, 1);
+ok('nol yang memang tercatat nol tidak ikut tertahan oleh penjaga pembulatan');
+
+// Aturannya satu, tempatnya satu. Tiga dokumen ESB memakai angka yang sama,
+// dan jalur keempat yang lahir nanti tidak boleh menulisnya sendiri lagi.
+assert.equal(DESIMAL_ESB_MAKS, 4);
+assert.equal(DESIMAL_HARGA_MAKS, DESIMAL_ESB_MAKS);
+assert.equal(DESIMAL_QTY_MAKS, DESIMAL_ESB_MAKS);
+ok('4 desimal disebut SATU kali — Purchase & konversi satuan menurunkannya dari sana');
 
 console.log('\n§5 Yang belum dipetakan menahan seluruh waste-nya');
 

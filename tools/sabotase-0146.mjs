@@ -20,9 +20,10 @@ const PURCHASE = 'js/modules/inventory/esb-purchase.js';
 const SVC = 'js/modules/inventory/esb.service.js';
 const ADMIN = 'js/modules/inventory/esb.admin.js';
 const TGL = 'js/modules/inventory/tanggal-excel.js';
+const DESIMAL = 'js/modules/inventory/desimal-esb.js';
 
 const asli = new Map();
-for (const rel of [MIG, MURNI, PURCHASE, SVC, ADMIN, TGL]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
+for (const rel of [MIG, MURNI, PURCHASE, SVC, ADMIN, TGL, DESIMAL]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
 
 const pulih = () => {
   for (const [rel, isi] of asli) fs.writeFileSync(P(rel), isi);
@@ -174,8 +175,8 @@ sabotase(
 sabotase(
   'bahan tanpa nilai dikirim sebagai 0 — "bahannya gratis", dan ESB menerimanya',
   MURNI,
-  "      if (nilai === null) {\n        catat('nilai-bahan', it.product_name, kode);\n        adaMasalah = true;\n      }",
-  '      void nilai;',
+  "      if (nilaiPenuh === null) {\n        catat('nilai-bahan', it.product_name, kode);\n        adaMasalah = true;\n      }",
+  '      void nilaiPenuh;',
   TES
 );
 // Kesalahan yang sungguh terjadi dan ditemukan pemiliknya di layar: delapan
@@ -186,8 +187,8 @@ sabotase(
 sabotase(
   'cadangan HPP resep dicabut — SELURUH barang produksi tertahan lagi',
   MURNI,
-  '      const { nilai: nilaiSatuan, sumber } = hargaSatuanBahan(w.outlet_id, it.product_id, biaya, hpp);\n      const nilai = sumber === SUMBER_TIDAK_ADA ? null : angka(nilaiSatuan);',
-  '      const nilai = angka(biaya?.get?.(teks(it.product_id)));',
+  '      const { nilai: nilaiSatuan, sumber } = hargaSatuanBahan(w.outlet_id, it.product_id, biaya, hpp);\n      const nilaiPenuh = sumber === SUMBER_TIDAK_ADA ? null : angka(nilaiSatuan);',
+  '      const nilaiPenuh = angka(biaya?.get?.(teks(it.product_id)));',
   TES
 );
 sabotase(
@@ -245,6 +246,70 @@ sabotase(
   'hargaSatuanBahan(w.outlet_id, it.product_id, biaya, hpp)',
   "hargaSatuanBahan('out-1', it.product_id, biaya, hpp)",
   TES
+);
+
+console.log('\nSABOTASE EMPAT DESIMAL — berkas yang ditolak ESB mentah-mentah:');
+
+// Angkanya diambil apa adanya dari berkas yang sungguh terunduh dan ditolak:
+// `8270,724851` di kolom Value per Unit, enam desimal. Aturan 4 desimal sudah
+// dipakai Simple Purchase sejak lama; ekspor ini ditulis tanpa memakainya.
+sabotase(
+  'Value per Unit berangkat mentah — enam desimal, ESB menolak seluruh berkasnya',
+  MURNI,
+  '      const nilai = bulatkanEsb(nilaiPenuh);',
+  '      const nilai = nilaiPenuh;',
+  TES
+);
+sabotase(
+  'Qty berangkat mentah — qty waste menu hampir selalu hasil bagi yang berulang',
+  MURNI,
+  '      const qty = bulatkanEsb(qtyPenuh);',
+  '      const qty = qtyPenuh;',
+  TES
+);
+sabotase(
+  'angkanya diubah jadi 6 — dugaan yang sudah pernah dibantah ESB',
+  DESIMAL,
+  'export const DESIMAL_ESB_MAKS = 4;',
+  'export const DESIMAL_ESB_MAKS = 6;',
+  TES
+);
+sabotase(
+  'Simple Purchase berhenti menurunkan angkanya dari satu tempat',
+  PURCHASE,
+  'export const DESIMAL_HARGA_MAKS = DESIMAL_ESB_MAKS;',
+  'export const DESIMAL_HARGA_MAKS = 5;',
+  TES
+);
+sabotase(
+  'qty yang lenyap jadi 0 karena pembulatan berangkat sebagai "tidak ada yang terbuang"',
+  MURNI,
+  '      if (hilangKarenaBulat(qtyPenuh, qty)) {',
+  '      if (false) {',
+  TES
+);
+sabotase(
+  'nilai yang lenyap jadi 0 berangkat sebagai "bahannya gratis"',
+  MURNI,
+  '      if (hilangKarenaBulat(nilaiPenuh, nilai)) {',
+  '      if (false) {',
+  TES
+);
+// Nol yang MEMANG nol harus tetap lewat. Penjaga yang terlalu rajin menahan
+// barang bonus yang sah — dan menahannya tidak terlihat salah di layar mana pun.
+sabotase(
+  'penjaga pembulatan jadi terlalu rajin — nol yang memang nol ikut ditahan',
+  DESIMAL,
+  '  return bulat === 0 && asli !== null && asli !== undefined && Number(asli) !== 0;',
+  '  return bulat === 0;',
+  TES
+);
+sabotase(
+  'alasan "terlalu kecil" kehilangan labelnya — tabel penahan menampilkan kode mentah',
+  ADMIN,
+  "  'qty-terlalu-kecil': 'Jumlahnya terlalu kecil untuk 4 desimal (jadi 0)',",
+  '',
+  AUDIT
 );
 
 console.log('\nSABOTASE JALAN DI LAYARNYA — kemampuan yang ada tapi tak terjangkau:');

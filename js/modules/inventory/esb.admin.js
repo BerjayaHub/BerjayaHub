@@ -94,6 +94,11 @@ const LABEL_JENIS = {
   // jadi yang memang tidak pernah dibeli — pekerjaan yang tidak akan pernah
   // menyelesaikan apa pun.
   'nilai-bahan': 'Belum ada nilai — harga beli & HPP resepnya sama-sama kosong',
+  // Dua alasan yang hampir mustahil muncul, dan justru karena itu labelnya
+  // harus ada: tanpa label, tabelnya menampilkan kode mentah dan yang
+  // membacanya tidak punya petunjuk apa pun.
+  'qty-terlalu-kecil': 'Jumlahnya terlalu kecil untuk 4 desimal (jadi 0)',
+  'nilai-terlalu-kecil': 'Nilainya terlalu kecil untuk 4 desimal (jadi 0)',
   // KUNCINYA 'purpose-kosong', BUKAN 'purpose'.
   //
   // Objek ini melayani dua hal yang berbeda: nama JENIS daftar induk ("5

@@ -97,9 +97,14 @@ if (murni) {
   }
 
   // ESB membatasi qty di 4 desimal juga, bukan hanya harga.
-  if (!/DESIMAL_QTY_MAKS = 4;/.test(kode)) {
+  //
+  // Angkanya sendiri pindah ke `desimal-esb.js` — aturan yang sama sempat
+  // ditulis di dua berkas, dan jalur KETIGA (ekspor Item Journal) lupa
+  // memakainya sama sekali lalu berangkat dengan enam desimal. Yang dijaga di
+  // sini sekarang bahwa berkas ini MENURUNKANNYA, bukan menulis angkanya lagi.
+  if (!/DESIMAL_QTY_MAKS = DESIMAL_ESB_MAKS;/.test(kode)) {
     salah(
-      'konversi-satuan.js: batas desimal qty bukan 4. ESB menolaknya dengan "qty cannot have more than 4 decimal ' +
+      'konversi-satuan.js: batas desimal qty tidak lagi diturunkan dari `desimal-esb.js`. ESB menolaknya dengan "qty cannot have more than 4 decimal ' +
         'places" — angkanya datang dari pesan penolakan itu, bukan dari penalaran tentang berapa yang pantas.'
     );
   }

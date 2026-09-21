@@ -248,8 +248,9 @@ sabotase(
   PUR,
   // 'purpose' menyusul di 0146. Yang dicabut di sini tetap 'supplier' saja —
   // sabotasenya harus mengenai persis satu jenis, bukan memotong ekornya.
-  "'item', 'supplier', 'purpose'];",
-  "'item', 'purpose'];",
+  // 'purpose' dicabut lagi di 0147, jadi daftarnya berakhir di 'supplier'.
+  "'unit', 'item', 'supplier'];",
+  "'unit', 'item'];",
   TES
 );
 sabotase(
@@ -274,7 +275,7 @@ sabotase(
 sabotase(
   'batasnya dilonggarkan jadi 6 desimal — tetap ditolak ESB, dan tidak ada yang tahu kenapa',
   PUR,
-  'export const DESIMAL_HARGA_MAKS = 4;',
+  'export const DESIMAL_HARGA_MAKS = DESIMAL_ESB_MAKS;',
   'export const DESIMAL_HARGA_MAKS = 6;',
   TES
 );
@@ -283,8 +284,9 @@ sabotase(
 sabotase(
   'harga yang belum diisi dibulatkan jadi 0 — notanya berangkat dengan harga gratis',
   PUR,
-  "  if (v === null || v === undefined || v === '') return null;\n  const n = Number(v);\n  if (!Number.isFinite(n)) return null;\n  return Number(n.toFixed(DESIMAL_HARGA_MAKS));",
-  '  return Number(Number(v).toFixed(DESIMAL_HARGA_MAKS));',
+  // Isi pembulatnya pindah ke `desimal-esb.js`; `bulatkanHarga` jadi penerus.
+  '  return bulatkanEsb(v);',
+  '  return Number(Number(v).toFixed(DESIMAL_ESB_MAKS));',
   TES
 );
 

@@ -54,6 +54,7 @@
 import { serialTanggalExcel } from './tanggal-excel.js';
 import { cocokkanSupplier, supplierSiap, normalNama } from './cocok-supplier.js';
 import { keSatuanBeli } from './konversi-satuan.js';
+import { DESIMAL_ESB_MAKS, bulatkanEsb } from './desimal-esb.js';
 
 /**
  * Header template ESB, **berurutan**. Nama & urutannya harus persis.
@@ -117,8 +118,13 @@ export const JENIS_PETA = ['branch', 'location', 'payment_method', 'coa', 'unit'
  *
  * Bukan tebakan: pesan penolakannya berbunyi persis "price cannot have more
  * than 4 decimal places".
+ *
+ * Angkanya sendiri tinggal di `desimal-esb.js` sejak ekspor Item Journal
+ * berangkat dengan enam desimal — aturan yang sama pernah ditulis di dua
+ * berkas, dan jalur ketiga lupa memakainya sama sekali. Namanya dipertahankan
+ * di sini supaya pemanggil lamanya tidak perlu diubah.
  */
-export const DESIMAL_HARGA_MAKS = 4;
+export const DESIMAL_HARGA_MAKS = DESIMAL_ESB_MAKS;
 
 /**
  * Bulatkan harga per satuan ke batas yang diterima ESB.
@@ -146,12 +152,12 @@ export const DESIMAL_HARGA_MAKS = 4;
  * desimal, dan selisihnya dari angka asli tidak lebih dari setengah satuan
  * desimal terakhir. Untuk harga per gram, selisih 0,00005 rupiah tidak pernah
  * jadi persoalan siapa pun. `toFixed` dipilih karena membaca niatnya langsung.
+ *
+ * (Penjelasan lengkapnya sekarang tinggal di `desimal-esb.js`, bersama
+ * angkanya. Fungsi ini penerusnya supaya pemanggil lamanya tidak perlu diubah.)
  */
 export function bulatkanHarga(v) {
-  if (v === null || v === undefined || v === '') return null;
-  const n = Number(v);
-  if (!Number.isFinite(n)) return null;
-  return Number(n.toFixed(DESIMAL_HARGA_MAKS));
+  return bulatkanEsb(v);
 }
 
 const teks = (v) => (v === null || v === undefined ? '' : String(v).trim());
