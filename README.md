@@ -6813,6 +6813,34 @@ Bentuk selain `YYYY-MM-DD` ditolak, tidak ditebak: menebak `01/09/2026` berarti 
 
 - [x] **Kolom Date Purchase & Transfer berisi tanggal sungguhan** — 19 sabotase
 
+## Pelajaran yang sudah tertulis, dengan contoh produk yang sama, dan tetap saya ulangi
+
+> "untuk waste spoil apakah dibutuhkan harga beli?"
+
+**Tidak perlu migration.**
+
+Pertanyaannya datang dari layar yang menunjukkan **8 waste siap 0 baris · 8 tertahan**, tujuh di antaranya *"Belum ada harga beli (input dulu notanya)"*. Baris pertamanya: **Danish Cinnamon (WIP)**.
+
+Nama itu sudah ada di repo ini — di `laporan-waste.js`, ditulis saat rekap waste dibuat:
+
+> *"Barang setengah jadi tidak pernah dibeli — ia DIPRODUKSI. 'Danish Cinnamon (WIP)' punya HPP Rp6.764/porsi di Master Produk, dihitung dari resepnya, dan TIDAK punya satu pun baris biaya rata-rata. Versi pertama laporan ini cuma melihat sumber pertama, jadi seluruh barang produksi berbunyi '-'."*
+
+Ekspor Item Journal ditulis melihat satu sumber saja. Persis kesalahan yang sama, di layar sebelah, dengan produk contoh yang identik.
+
+### Akibatnya bukan sekadar "kurang lengkap"
+
+Dua layar menyebut angka yang berbeda untuk barang yang sama: Rekap Waste / Spoil menampilkan Rp6.764, ekspornya berkata "belum ada harga beli". Yang membacanya tidak punya cara tahu mana yang benar — dan sarannya, *"input dulu notanya"*, menyuruh orang membuat nota pembelian untuk barang yang memang tidak pernah dibeli. Pekerjaan yang tidak akan pernah menyelesaikan apa pun.
+
+Sekarang keduanya memanggil **`hargaSatuanBahan()` yang sama**: biaya nota per outlet dulu, HPP resep sebagai cadangan, `null` terakhir — bukan 0. Satu fungsi untuk dua layar, bukan dua salinan yang perlahan menyimpang.
+
+### Jawaban atas pertanyaannya
+
+**Ya, kolomnya diisi** — tapi bukan "harga beli", melainkan **nilai per satuan**, dan sekarang hampir semuanya punya. Yang masih tertahan setelah ini hanya barang yang harga belinya **dan** resepnya sama-sama kosong di Master Produk; labelnya diubah supaya menyebut keduanya, bukan menyuruh membuat nota.
+
+Yang **tidak** bisa saya buktikan: apakah ESB menolak berkas yang `Value per Unit`-nya kosong. Templatenya mengisi kolom itu di kedua baris contohnya, dan itu saja. Yang saya pegang adalah alasan yang lebih kuat: mengirim `0` berarti menyatakan "bahannya gratis" — pernyataan yang berbeda dari "belum tahu", yang ESB terima tanpa keluhan, dan yang membuat nilai kerugian lebih kecil dari yang sebenarnya sambil tetap terlihat wajar.
+
+- [x] **Item Journal memakai HPP resep sebagai cadangan nilai** — 3 sabotase baru (36 total di rumpun waste)
+
 ## Jawaban "tidak" untuk pertanyaan yang diajukan, "ya" untuk yang tidak diajukan
 
 > "di berjaya hub tiap item harus punya kode sama seperti esb, untuk import ke waste spoil nya, benar atau tidak?"

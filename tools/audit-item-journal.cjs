@@ -155,6 +155,22 @@ if (murni) {
         'dan stok outlet lain berkurang di sana tanpa pernah berkurang di sini.'
     );
   }
+  // DUA SUMBER NILAI, lewat fungsi yang SAMA dengan rekap waste.
+  //
+  // Versi pertama cuma melihat biaya rata-rata nota, dan seluruh barang
+  // produksi tertahan — "Danish Cinnamon (WIP)" tidak pernah dibeli, ia
+  // diproduksi. Dua layar yang menyebut angka berbeda untuk barang yang sama
+  // membuat keduanya tidak bisa dipercaya.
+  if (!/hargaSatuanBahan\(w\.outlet_id, it\.product_id, biaya, hpp\)/.test(kode)) {
+    salah(
+      'esb-journal.js: nilai per satuan tidak lagi diambil lewat `hargaSatuanBahan` — cadangan HPP resep hilang, ' +
+        'dan SELURUH barang setengah jadi akan tertahan dengan alasan "belum ada harga beli" untuk barang yang ' +
+        'memang tidak pernah dibeli.'
+    );
+  }
+  if (!/from '\.\/laporan-waste\.js'/.test(kode)) {
+    salah('esb-journal.js: aturan harganya disalin, bukan dipakai bersama rekap waste — dua salinan pasti menyimpang.');
+  }
   // Nilai yang TIDAK ADA menahan barisnya. Ini keputusan yang diambil bersama
   // pemiliknya, bukan detail teknis.
   if (!/if \(nilai === null\) \{\s*catat\('nilai-bahan'/.test(kode)) {
@@ -309,10 +325,16 @@ if (adm) {
   if (!/wasteBertandaEsb\(\{ businessUnitId, from, to, outletId \}\)/.test(kode)) {
     salah('esb.admin.js: layar "Batalkan tanda ekspor" tidak bisa menampilkan waste yang sudah bertanda.');
   }
-  // Nilai per satuan diambil per OUTLET — biaya beras di Sentul bukan biaya
-  // beras di Serpong (0118).
-  if (!/getBiayaRataOutlet\(outletId\)/.test(kode)) {
-    salah('esb.admin.js: Value per Unit tidak diambil dari biaya rata-rata outlet yang dipilih.');
+  // DUA SUMBER NILAI ikut dimuat. Kalau salah satunya hilang, barang yang
+  // memakainya tertahan tanpa ada yang rusak di layar mana pun.
+  if (!/getBiayaRataBu\(businessUnitId\)/.test(kode)) {
+    salah('esb.admin.js: biaya rata-rata nota tidak dimuat — seluruh bahan yang pernah dibeli kehilangan nilainya.');
+  }
+  if (!/hpp: computeCosts\(produk, resep\)/.test(kode)) {
+    salah(
+      'esb.admin.js: HPP resep tidak dikirim ke penyusun barisnya. Barang setengah jadi tidak pernah dibeli — ia ' +
+        'diproduksi — jadi seluruhnya akan tertahan, padahal Master Produk & Rekap Waste menampilkan HPP-nya.'
+    );
   }
   // Alasan penahan harus punya label yang bisa dibaca; tanpa itu tabelnya
   // menampilkan kode mentah ("nilai-bahan") dan tidak ada yang tahu artinya.

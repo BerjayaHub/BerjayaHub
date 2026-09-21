@@ -47,19 +47,41 @@
  * akun COGS yang salah — angkanya tetap terlihat wajar, dan laporan yang
  * memakainya tidak punya satu pun petunjuk.
  *
- * ============ `Value per Unit` BISA TIDAK ADA ============
+ * ============ `Value per Unit` PUNYA DUA SUMBER, DAN KEDUANYA PERLU ============
  *
- * Sumbernya biaya rata-rata bahan per outlet (0118), dan barisnya hanya ada
- * kalau bahan itu pernah masuk lewat nota berharga. Yang belum pernah tidak
- * punya angka.
+ * Versi pertama cuma melihat SATU: biaya rata-rata bahan per outlet (0118),
+ * yang diisi dari harga di nota supplier. Akibatnya seluruh barang produksi
+ * tertahan — dan itu kesalahan yang sudah pernah dibuat, di layar sebelah,
+ * dengan contoh yang sama persis:
+ *
+ *     "Danish Cinnamon (WIP)" punya HPP Rp6.764/porsi di Master Produk,
+ *     dihitung dari resepnya, dan TIDAK punya satu pun baris biaya rata-rata.
+ *
+ * Barang setengah jadi tidak pernah DIBELI — ia DIPRODUKSI. Kalimat itu sudah
+ * tertulis di `laporan-waste.js` sejak rekap waste dibuat, lengkap dengan nama
+ * produk yang sama. Saya tetap mengulanginya di sini.
+ *
+ * Jadi urutannya SAMA PERSIS dengan rekap waste, lewat fungsi yang sama:
+ *
+ *   1. biaya rata-rata nota  — yang BENAR-BENAR dibayar di outlet itu
+ *   2. HPP resep / harga beli master — untuk yang tidak pernah dibeli di sana
+ *   3. null                  — bukan 0
+ *
+ * Satu fungsi untuk dua layar, bukan dua salinan: kalau rekap waste
+ * menampilkan Rp6.764 sementara ekspornya berkata "belum ada harga", yang
+ * membacanya tidak punya cara tahu mana yang benar.
+ *
+ * ============ YANG BENAR-BENAR TIDAK PUNYA NILAI DITAHAN ============
  *
  * Mengirim 0 berarti "bahannya gratis" — pernyataan yang BERBEDA dari "belum
  * tahu", dan ESB menerimanya tanpa keluhan. Nilai kerugian jadi lebih kecil
  * dari yang sebenarnya, dan angkanya terlihat wajar. Jadi barisnya DITAHAN,
  * dan alasannya terbaca.
  *
- * Tidak ada impor di berkas ini, supaya bisa diuji tanpa Excel maupun browser.
+ * Satu-satunya impornya modul murni juga, supaya berkas ini tetap bisa diuji
+ * tanpa Excel maupun browser.
  */
+import { hargaSatuanBahan, SUMBER_TIDAK_ADA } from './laporan-waste.js';
 
 /** Header template, berurutan. Nama & urutannya harus persis. */
 export const KOLOM_JOURNAL = ['No', 'Product Name', 'Product Code', 'Unit', 'Mode', 'Qty', 'Value per Unit', 'Purpose'];
@@ -95,10 +117,15 @@ const angka = (v) => {
  *   BERSAMA dengan Simple Purchase. `item` dan `unit` saja; Purpose tidak
  *   dipetakan (lihat catatan di kepala berkas).
  * @param {Map<string,string>} [o.kodeItem] nama item ESB -> Product Code
- * @param {Map<string,number>} [o.biaya] product_id -> biaya rata-rata per satuan
+ * @param {Map<string,number>} [o.biaya] `kunciBiaya(outletId, productId)` ->
+ *   biaya rata-rata dari nota (0118). Kuncinya memuat outlet karena biayanya
+ *   memang berbeda per outlet — harga beli beras di Sentul bukan harga beli
+ *   beras di Serpong.
+ * @param {Map<string,number>} [o.hpp] product_id -> HPP dari resep/harga beli
+ *   master (`computeCosts`). Cadangan untuk barang yang tidak pernah dibeli.
  * @returns {{baris: Array[], wasteIds: string[], kurang: Array<{jenis: string, nilai: string, dok: string[]}>}}
  */
-export function barisEsbJournal({ waste, itemsPerWaste, peta, kodeItem = new Map(), biaya = new Map() }) {
+export function barisEsbJournal({ waste, itemsPerWaste, peta, kodeItem = new Map(), biaya = new Map(), hpp = new Map() }) {
   const baris = [];
   const wasteIds = [];
   const kurang = new Map();
@@ -162,9 +189,10 @@ export function barisEsbJournal({ waste, itemsPerWaste, peta, kodeItem = new Map
         adaMasalah = true;
       }
 
-      // NILAI PER SATUAN — lihat catatan panjang di kepala berkas. Yang tidak
-      // punya angka DITAHAN, bukan dikirim sebagai nol.
-      const nilai = angka(biaya?.get?.(teks(it.product_id)));
+      // NILAI PER SATUAN — dua sumber, lewat fungsi yang sama dengan rekap
+      // waste. Lihat catatan panjang di kepala berkas.
+      const { nilai: nilaiSatuan, sumber } = hargaSatuanBahan(w.outlet_id, it.product_id, biaya, hpp);
+      const nilai = sumber === SUMBER_TIDAK_ADA ? null : angka(nilaiSatuan);
       if (nilai === null) {
         catat('nilai-bahan', it.product_name, kode);
         adaMasalah = true;

@@ -20,8 +20,8 @@ import { toast, confirmDialog } from '../../core/ui.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { loadXLSX } from '../../core/xlsx.js';
-import { listProducts } from '../product/product.service.js';
-import { getBiayaRataOutlet } from './inventory.service.js';
+import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
+import { getBiayaRataBu } from './waste.service.js';
 import { sayaAdminBu } from '../../core/base-scope.js';
 import { KOLOM_ESB, JENIS_PETA, buatPeta, barisEsbPurchase, ringkasEkspor } from './esb-purchase.js';
 import { susunBarisPemetaan, perluCari } from './urut-pemetaan.js';
@@ -87,11 +87,13 @@ const LABEL_JENIS = {
   'tanggal-terima': 'Tanggal terima (perbaiki di kirimannya)',
   harga: 'Harga satuan (perbaiki di notanya)',
   'qty-terima': 'Qty diterima (perbaiki di kirimannya)',
-  // Bukan pemetaan juga: bahan yang belum pernah masuk lewat nota berharga
-  // tidak punya biaya rata-rata (0118), dan Item Journal menuntut
-  // `Value per Unit`. Mengirim 0 berarti "bahannya gratis" — ESB menerimanya
-  // tanpa keluhan, dan nilai kerugiannya jadi lebih kecil dari yang sebenarnya.
-  'nilai-bahan': 'Belum ada harga beli (input dulu notanya)',
+  // Bukan pemetaan juga. Labelnya menyebut KEDUA sumbernya, karena yang
+  // tertahan di sini sudah gagal di keduanya: tidak pernah dibeli di outlet
+  // itu, DAN harga beli master / resepnya belum lengkap. Kalimat lamanya
+  // ("input dulu notanya") menyuruh orang membuat nota untuk barang setengah
+  // jadi yang memang tidak pernah dibeli — pekerjaan yang tidak akan pernah
+  // menyelesaikan apa pun.
+  'nilai-bahan': 'Belum ada nilai — harga beli & HPP resepnya sama-sama kosong',
   // KUNCINYA 'purpose-kosong', BUKAN 'purpose'.
   //
   // Objek ini melayani dua hal yang berbeda: nama JENIS daftar induk ("5
@@ -907,14 +909,20 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
     let ids;
     try {
       if (jenis === 'journal') {
-        const [data, biayaRata] = await Promise.all([
+        // DUA SUMBER NILAI, dan keduanya memang perlu — sama persis dengan
+        // Rekap Waste / Spoil, lewat fungsi yang sama.
+        //
+        // Versi pertama cuma mengambil yang pertama, dan SELURUH barang
+        // produksi tertahan: "Danish Cinnamon (WIP)" tidak pernah dibeli, ia
+        // diproduksi, jadi ia tidak punya satu pun baris biaya rata-rata —
+        // sementara Master Produk dan Rekap Waste menampilkan HPP-nya dengan
+        // jelas. Dua layar yang menyebut angka berbeda untuk barang yang sama
+        // membuat keduanya tidak bisa dipercaya.
+        const [data, biayaRata, resep] = await Promise.all([
           wasteUntukEsb({ businessUnitId, from, to, outletId }),
-          // Biaya rata-rata bahan (0118) DI OUTLET ITU — harga beli beras di
-          // Sentul bukan harga beli beras di Serpong. Gagal dibacanya tidak
-          // diam-diam jadi peta kosong: peta kosong membuat SELURUH waste
-          // tertahan dengan alasan "belum ada harga beli", dan yang membacanya
-          // akan mengira bahannya memang belum pernah dibeli.
-          getBiayaRataOutlet(outletId)
+          // Kuncinya `outletId|productId` — biayanya memang berbeda per outlet.
+          getBiayaRataBu(businessUnitId),
+          listRecipesFull(businessUnitId)
         ]);
         total = data.waste.length;
         if (!total) {
@@ -927,9 +935,8 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
           itemsPerWaste: data.itemsPerWaste,
           peta: buatPeta(peta),
           kodeItem: new Map(master.filter((m) => m.jenis === 'item' && m.kode).map((m) => [m.nama, m.kode])),
-          // `getBiayaRataOutlet` mengembalikan objek per produk; yang diminta
-          // modul murninya cuma angkanya.
-          biaya: new Map([...biayaRata].map(([id, b]) => [id, b?.rata]))
+          biaya: biayaRata,
+          hpp: computeCosts(produk, resep)
         });
         ringkas = ringkasJournal(hasil, total);
         ids = hasil.wasteIds;

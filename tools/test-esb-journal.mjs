@@ -26,6 +26,7 @@ import {
 } from '../js/modules/inventory/esb-journal.js';
 import { pasangFormatTanggal, FORMAT_TANGGAL_EXCEL } from '../js/modules/inventory/tanggal-excel.js';
 import { buatPeta, JENIS_PETA } from '../js/modules/inventory/esb-purchase.js';
+import { kunciBiaya } from '../js/modules/inventory/laporan-waste.js';
 
 let n = 0;
 const ok = (nama) => {
@@ -49,10 +50,15 @@ const KODE = new Map([
   ['BERAS PREMIUM', 'P001'],
   ['TELUR AYAM NEGERI', 'P002']
 ]);
+// Kuncinya `outletId|productId` — biaya rata-rata memang berbeda per outlet
+// (0118), dan bentuknya sama persis dengan yang dipakai Rekap Waste / Spoil.
 const BIAYA = new Map([
-  ['p-beras', 12.5],
-  ['p-telur', 2000]
+  [kunciBiaya(OUTLET, 'p-beras'), 12.5],
+  [kunciBiaya(OUTLET, 'p-telur'), 2000]
 ]);
+// Barang setengah jadi tidak pernah DIBELI — ia DIPRODUKSI, jadi ia tidak
+// punya satu pun baris biaya rata-rata. Nilainya datang dari HPP resepnya.
+const HPP = new Map([['p-wip', 6764]]);
 
 const waste = (id, purpose = 'Waste Kitchen', outlet = OUTLET) => ({
   id,
@@ -73,6 +79,7 @@ const susun = (daftar, isi, extra = {}) =>
     peta: PETA,
     kodeItem: KODE,
     biaya: BIAYA,
+    hpp: HPP,
     ...extra
   });
 
@@ -158,13 +165,54 @@ ok('alasannya menyebut bahan mana dan waste mana');
 assert.equal(satu.baris[0][K['Value per Unit']], 12.5);
 ok('yang punya harga berangkat dengan harganya, apa adanya');
 
+// ============ BARANG PRODUKSI: HPP RESEP SEBAGAI CADANGAN ============
+//
+// Kesalahan yang sungguh terjadi, dan ditemukan pemiliknya di layar: delapan
+// waste tertahan, tujuh di antaranya "Belum ada harga beli" untuk barang
+// setengah jadi — "Danish Cinnamon (WIP)", "Pastry Puff", "Pasta Fettuccine".
+//
+// Barang itu tidak pernah DIBELI; ia DIPRODUKSI, jadi ia tidak punya satu pun
+// baris biaya rata-rata. Kalimat itu sudah tertulis di `laporan-waste.js`
+// sejak rekap waste dibuat, dengan contoh produk yang SAMA PERSIS — dan
+// ekspornya tetap ditulis cuma melihat satu sumber.
+const wip = susun([waste('w')], [['w', [item('p-wip', 'Beras', 'gr', 2)]]]);
+assert.equal(wip.baris.length, 1, 'barang produksi masih tertahan padahal HPP-nya ada');
+assert.equal(wip.baris[0][K['Value per Unit']], 6764);
+ok('INTI: barang produksi memakai HPP resepnya — tidak lagi tertahan');
+
+// Urutannya: nota DULU, HPP sebagai cadangan. Yang benar-benar dibayar di
+// outlet itu lebih dekat ke kenyataan daripada ongkos membuatnya sendiri.
+const duaSumber = barisEsbJournal({
+  waste: [waste('a')],
+  itemsPerWaste: new Map([['a', [item('p-beras', 'Beras', 'gr', 1)]]]),
+  peta: PETA,
+  kodeItem: KODE,
+  biaya: BIAYA,
+  hpp: new Map([['p-beras', 999]])
+});
+assert.equal(duaSumber.baris[0][K['Value per Unit']], 12.5);
+ok('biaya nota didahulukan dari HPP resep');
+
+// Biaya nota milik OUTLET LAIN tidak ikut terpakai — harga beli beras di
+// Sentul bukan harga beli beras di Serpong.
+const outletLain = barisEsbJournal({
+  waste: [{ ...waste('a'), outlet_id: 'out-9' }],
+  itemsPerWaste: new Map([['a', [item('p-beras', 'Beras', 'gr', 1)]]]),
+  peta: PETA,
+  kodeItem: KODE,
+  biaya: BIAYA,
+  hpp: new Map([['p-beras', 999]])
+});
+assert.equal(outletLain.baris[0][K['Value per Unit']], 999);
+ok('biaya outlet lain tidak dipakai — yang dipakai HPP-nya');
+
 // Nol yang MEMANG tercatat sebagai nol bukan "tidak tahu" — ia lewat.
 const nol = barisEsbJournal({
   waste: [waste('a')],
   itemsPerWaste: new Map([['a', [item('p-gratis', 'Beras', 'gr', 100)]]]),
   peta: PETA,
   kodeItem: KODE,
-  biaya: new Map([['p-gratis', 0]])
+  biaya: new Map([[kunciBiaya(OUTLET, 'p-gratis'), 0]])
 });
 assert.equal(nol.baris.length, 1);
 assert.equal(nol.baris[0][K['Value per Unit']], 0);
@@ -235,7 +283,8 @@ const tanpaKode = barisEsbJournal({
   itemsPerWaste: new Map([['a', [item('p-beras', 'Beras', 'gr', 100)]]]),
   peta: PETA,
   kodeItem: new Map(),
-  biaya: BIAYA
+  biaya: BIAYA,
+  hpp: HPP
 });
 // Kode yang tidak ada dikosongkan, BUKAN menahan barisnya: templatenya tetap
 // terbaca ESB lewat Product Name, dan menahan seluruh waste karena kolom

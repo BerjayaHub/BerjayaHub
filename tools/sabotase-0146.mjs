@@ -172,11 +172,37 @@ sabotase(
   TES
 );
 sabotase(
-  'bahan tanpa harga beli dikirim sebagai 0 — "bahannya gratis", dan ESB menerimanya',
+  'bahan tanpa nilai dikirim sebagai 0 — "bahannya gratis", dan ESB menerimanya',
   MURNI,
   "      if (nilai === null) {\n        catat('nilai-bahan', it.product_name, kode);\n        adaMasalah = true;\n      }",
   '      void nilai;',
   TES
+);
+// Kesalahan yang sungguh terjadi dan ditemukan pemiliknya di layar: delapan
+// waste tertahan, tujuh di antaranya barang setengah jadi yang memang tidak
+// pernah dibeli. Tidak ada galat — cuma daftar yang tidak pernah bisa
+// dikosongkan, dengan saran "input dulu notanya" untuk nota yang tidak akan
+// pernah ada.
+sabotase(
+  'cadangan HPP resep dicabut — SELURUH barang produksi tertahan lagi',
+  MURNI,
+  '      const { nilai: nilaiSatuan, sumber } = hargaSatuanBahan(w.outlet_id, it.product_id, biaya, hpp);\n      const nilai = sumber === SUMBER_TIDAK_ADA ? null : angka(nilaiSatuan);',
+  '      const nilai = angka(biaya?.get?.(teks(it.product_id)));',
+  TES
+);
+sabotase(
+  'HPP resep tidak dikirim dari layarnya — modulnya benar, datanya tidak pernah sampai',
+  ADMIN,
+  '          hpp: computeCosts(produk, resep)',
+  '          hpp: new Map()',
+  AUDIT
+);
+sabotase(
+  'biaya rata-rata nota tidak dimuat — yang pernah dibeli kehilangan nilainya',
+  ADMIN,
+  '          getBiayaRataBu(businessUnitId),',
+  '          Promise.resolve(new Map()),',
+  AUDIT
 );
 sabotase(
   'nomor barisnya tidak dikembalikan saat sebuah waste ditahan — No melompat',
@@ -210,12 +236,15 @@ sabotase(
   "        teks(it.product_id),",
   TES
 );
+// Sejak nilainya punya dua sumber (0146 rev.), petanya berkunci
+// `outletId|productId` dan yang memilih outletnya `hargaSatuanBahan`. Sabotase
+// outletnya pindah ke modul murninya, tempat keputusan itu sekarang diambil.
 sabotase(
   'biaya diambil dari outlet mana pun — harga beras di Sentul dipakai untuk Serpong',
-  ADMIN,
-  '          getBiayaRataOutlet(outletId)',
-  '          getBiayaRataOutlet(outlets[0]?.id)',
-  AUDIT
+  MURNI,
+  'hargaSatuanBahan(w.outlet_id, it.product_id, biaya, hpp)',
+  "hargaSatuanBahan('out-1', it.product_id, biaya, hpp)",
+  TES
 );
 
 console.log('\nSABOTASE JALAN DI LAYARNYA — kemampuan yang ada tapi tak terjangkau:');
