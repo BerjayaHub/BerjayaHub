@@ -33,6 +33,41 @@
  * Tidak ada impor di berkas ini, supaya bisa diuji tanpa browser.
  */
 
+/**
+ * Kolom yang HARUS ikut diambil query yang memberi makan modul ini.
+ *
+ * ============ KENAPA INI ADA ============
+ *
+ * `untuk_nota` sempat tidak ikut di `select` milik `listCashEntriesAdmin`.
+ * Akibatnya `entri.untuk_nota` selalu `undefined`, `untukBahan()` selalu
+ * `false`, dan SELURUH pembayaran nota terhitung sebagai "selain bahan" —
+ * lengkap dengan angka ringkasan "0 untuk bahan · 35 selain bahan" yang
+ * terlihat persis seperti jawaban yang benar.
+ *
+ * Tidak ada galat di mana pun. Barisnya bahkan menampilkan tautan
+ * "Pembayaran nota TRM-…" di kolom sebelahnya — layar yang membantah dirinya
+ * sendiri, dan tidak satu pun pemeriksaan otomatis yang bisa menyebutnya
+ * rusak.
+ *
+ * Ini KETIGA kalinya bentuk kegagalan yang sama muncul di sesi ini: sebuah
+ * kolom yang tidak diminta, dibaca sebagai "tidak ada isinya". Jadi daftarnya
+ * ditulis di sini, dan `tools/audit-disbursement.cjs` memaksa query-nya memuat
+ * seluruhnya. Aturan yang cuma hidup di kepala akan terlupa lagi.
+ */
+export const KOLOM_DIBUTUHKAN = ['entry_type', 'untuk_nota', 'penyesuaian_nota', 'amount', 'dicoret_at'];
+
+/**
+ * Apakah baris ini punya SEMUA kolom yang dibutuhkan untuk menilainya?
+ *
+ * `undefined` berarti kolomnya tidak ikut diambil — berbeda dari `null`, yang
+ * berarti kolomnya ada dan memang kosong. Dipakai tes & audit untuk
+ * membuktikan bedanya sungguh diperhatikan.
+ */
+export function lengkap(entri) {
+  if (!entri) return false;
+  return KOLOM_DIBUTUHKAN.every((k) => entri[k] !== undefined);
+}
+
 /** Nilai saringan. Dipakai `<select>` dan pemeriksanya. */
 export const SARING_PENGELUARAN = {
   SEMUA: '',
@@ -55,6 +90,8 @@ export const LABEL_PENGELUARAN = {
  */
 export function untukBahan(entri) {
   if (!entri || entri.entry_type !== 'out') return false;
+  // `untuk_nota` yang `undefined` berarti kolomnya TIDAK IKUT DIAMBIL — dan
+  // itu bukan "bukan pembayaran nota". Lihat `KOLOM_DIBUTUHKAN` di atas.
   return entri.untuk_nota === true || (entri.penyesuaian_nota !== null && entri.penyesuaian_nota !== undefined);
 }
 

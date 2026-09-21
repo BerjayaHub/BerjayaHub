@@ -10,6 +10,10 @@ import { supabase } from '../../config/supabase-client.js';
 import { ambilSemua } from '../../core/ambil-semua.js';
 import { argumenRpc } from '../../core/rpc-args.js';
 import { isoFrom, isoTo } from '../../core/dates.js';
+// Nomor kas tinggal di modul kas, bukan di sini: layar Mutasi Kas memakainya
+// juga, dan dua salinan akan menghasilkan dua nomor berbeda untuk baris yang
+// sama — lalu pencariannya berhenti bekerja tanpa satu pun galat.
+import { kodeKas } from '../cash/kode-kas.js';
 
 // ---- Daftar induk ESB ----
 
@@ -459,21 +463,6 @@ export async function batalkanTandaWasteEsb(wasteIds, alasan) {
 }
 
 // ---- Kas keluar untuk diekspor (Disbursement, 0149) ----
-
-/**
- * Kode yang bisa dibaca manusia untuk sebuah entri kas.
- *
- * `cash_entries` tidak punya kolom nomor — ia tidak pernah perlu satu, karena
- * tidak ada dokumen fisik yang menunjuknya. Untuk berkas ESB kolom itu wajib
- * ada: `Additional Information` adalah satu-satunya cara mencocokkan baris di
- * ESB kembali ke entri kas di sini saat angkanya dipertanyakan.
- *
- * Diturunkan dari id-nya, bukan nomor berjalan baru: nomor berjalan menuntut
- * tabel penghitung dan bisa berulang kalau dua orang mencatat bersamaan.
- */
-export function kodeKas(id) {
-  return `KAS-${String(id ?? '').slice(0, 8).toUpperCase()}`;
-}
 
 /**
  * Kas keluar yang siap diekspor sebagai Disbursement.

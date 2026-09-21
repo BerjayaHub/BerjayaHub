@@ -510,7 +510,12 @@ export async function listCashEntriesAdmin({ holderId, entryType, dateFrom, date
         'id, business_unit_id, holder_id, entry_type, amount, notes, entry_date, proof_path, penyesuaian_nota, created_at, ' +
           // `supplier` ikut dengan alasan yang SAMA PERSIS (0149): ia kolom
           // yang tidak ditampilkan dialog admin, dan `ubah_kas` menulis penuh.
-          'category_id, outlet_id, qty, unit, supplier, esb_exported_at, dicoret_at, alasan_coret, diubah_at, ' +
+          // `untuk_nota` IKUT, dan itu bukan kerapian: tanpanya
+          // `untukBahan()` membaca `undefined` dan SELURUH pembayaran nota
+          // terhitung sebagai "selain bahan". Daftar kolom yang dituntut
+          // modul itu ada di `KOLOM_DIBUTUHKAN`, dan auditnya memaksa
+          // baris ini memuat seluruhnya.
+          'category_id, outlet_id, qty, unit, supplier, untuk_nota, esb_exported_at, dicoret_at, alasan_coret, diubah_at, ' +
           'holder:user_profiles!holder_id(full_name), counterpart:user_profiles!counterpart_id(full_name), ' +
           'pencoret:user_profiles!dicoret_by(full_name), pengubah:user_profiles!diubah_by(full_name), cash_categories(name)',
         { count: 'exact' }

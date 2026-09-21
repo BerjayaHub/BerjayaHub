@@ -246,6 +246,85 @@ if (jenis) {
   if (!/return daftar;/.test(kode)) {
     salah('jenis-pengeluaran.js: nilai saringan yang tidak dikenal mengosongkan daftarnya — terlihat seperti "tidak ada datanya".');
   }
+
+  // ============ PENJAGA YANG LAHIR DARI BUG SUNGGUHAN ============
+  //
+  // `untuk_nota` sempat tidak ikut di `select` milik `listCashEntriesAdmin`.
+  // `untukBahan()` lalu selalu false, dan layar berbunyi "0 untuk bahan · 35
+  // selain bahan" sambil menampilkan tautan "Pembayaran nota TRM-…" di kolom
+  // sebelahnya — layar yang membantah dirinya sendiri, tanpa satu pun galat.
+  //
+  // Daftar kolomnya sekarang DIBACA dari modulnya sendiri dan dipatok ke
+  // query-nya. Bukan daftar yang ditulis ulang di sini: dua daftar akan
+  // menyimpang, dan yang menyimpang berhenti menjaga apa pun.
+  const mCol = /export const KOLOM_DIBUTUHKAN = \[([^\]]*)\]/.exec(kode);
+  if (!mCol) salah('jenis-pengeluaran.js: `KOLOM_DIBUTUHKAN` tidak ada — auditnya kehilangan daftarnya.');
+  else {
+    const kolom = [...mCol[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+    if (kolom.length < 5) salah(`jenis-pengeluaran.js: KOLOM_DIBUTUHKAN cuma memuat ${kolom.length} kolom.`);
+    // DIBACA TANPA KOMENTAR. Komentar di atas `select` menyebut `untuk_nota`
+    // untuk menjelaskan kenapa ia harus ada — dan versi pertama audit ini
+    // membaca berkas mentah, jadi sabotase yang MENCABUT kolomnya dari
+    // select-nya tetap hijau: katanya masih ketemu, di penjelasannya sendiri.
+    const svcMentah = baca('js/modules/cash/cash.service.js');
+    const svcKas = svcMentah ? tanpaKomentar(svcMentah) : null;
+    if (svcKas) {
+      const iSel = svcKas.indexOf('export async function listCashEntriesAdmin');
+      const sel = iSel < 0 ? '' : svcKas.slice(iSel, svcKas.indexOf('.order(', iSel));
+      if (!sel) salah('cash.service.js: `listCashEntriesAdmin` tidak ditemukan — audit ini kehilangan sasarannya.');
+      else {
+        for (const k of kolom) {
+          if (!new RegExp(`\\b${k}\\b`).test(sel)) {
+            salah(
+              `cash.service.js \`listCashEntriesAdmin\`: kolom "${k}" tidak ikut di \`select\`, padahal ` +
+                '`jenis-pengeluaran.js` menuntutnya. Kolom yang tidak diminta dibaca sebagai "tidak ada isinya", ' +
+                'dan saringannya salah menggolongkan SELURUH baris tanpa satu pun galat.'
+            );
+          }
+        }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------
+// 1d. Nomor kas — satu rumus, dua layar.
+// ---------------------------------------------------------------
+const kode_ = baca('js/modules/cash/kode-kas.js');
+if (kode_) {
+  const k = bersih(kode_, 'kode-kas.js', ['export function kodeKas']);
+  for (const f of ['kodeKas', 'cocokKodeKas']) {
+    if (!new RegExp(`export function ${f}\\(`).test(k)) salah(`kode-kas.js: \`${f}\` tidak diekspor.`);
+  }
+  // Id kosong -> string kosong, BUKAN "KAS-": yang terakhir terlihat seperti
+  // nomor sungguhan yang rusak, dan orang akan mencarinya.
+  if (!/if \(!s\) return '';/.test(k)) {
+    salah('kode-kas.js: id kosong menghasilkan "KAS-" — nomor palsu yang akan dicari orang.');
+  }
+  // DUA layar memakainya. Dua salinan akan menghasilkan dua nomor berbeda
+  // untuk baris yang sama, dan pencariannya berhenti bekerja tanpa galat.
+  for (const rel of ['js/modules/inventory/esb.service.js', 'js/modules/cash/cash.admin.page.js']) {
+    const isi = baca(rel);
+    if (isi && !/from '.*kode-kas\.js'/.test(isi)) {
+      salah(`${rel}: nomor kas tidak diambil dari \`kode-kas.js\` — rumusnya disalin, dan salinan akan menyimpang.`);
+    }
+  }
+}
+
+const halKas = baca('js/modules/cash/cash.admin.page.js');
+if (halKas) {
+  const k = bersih(halKas, 'cash.admin.page.js', ['kodeKas(r.id)']);
+  // Nomor yang ditampilkan layar EKSPOR harus bisa ditemukan di layar ini —
+  // kalau tidak, "KAS-7E9CF9F2" cuma nomor yang tidak menunjuk ke mana pun.
+  if (!/kodeKas\(r\.id\)/.test(k)) {
+    salah(
+      'cash.admin.page.js: nomor kas tidak ditampilkan di tabel Mutasi Kas. Layar ekspor menyebut "KAS-7E9CF9F2" di ' +
+        'daftar yang tertahan, dan tidak ada satu pun layar tempat nomor itu bisa dicari.'
+    );
+  }
+  if (!/id="cm-kode"/.test(k) || !/cocokKodeKas\(r\.id, cariKode\)/.test(k)) {
+    salah('cash.admin.page.js: tidak ada kotak cari nomor kas, atau kotaknya digambar tapi tidak dipakai menyaring.');
+  }
 }
 
 const adminKas = baca('js/modules/cash/cash.admin.page.js');
@@ -331,8 +410,13 @@ if (murni) {
 const svc = baca('js/modules/inventory/esb.service.js');
 if (svc) {
   const kode = bersih(svc, 'esb.service.js', ['export async function kasUntukEsb']);
-  for (const f of ['kasUntukEsb', 'tandaiKasEsb', 'batalkanTandaKasEsb', 'kasBertandaEsb', 'kodeKas']) {
+  for (const f of ['kasUntukEsb', 'tandaiKasEsb', 'batalkanTandaKasEsb', 'kasBertandaEsb']) {
     if (!new RegExp(`export (async )?function ${f}\\(`).test(kode)) salah(`esb.service.js: \`${f}\` tidak ada.`);
+  }
+  // `kodeKas` pindah ke `js/modules/cash/kode-kas.js` — ia nomor kas, bukan
+  // urusan ESB, dan layar Mutasi Kas memakainya juga.
+  if (!/import \{ kodeKas \} from '\.\.\/cash\/kode-kas\.js'/.test(kode)) {
+    salah('esb.service.js: nomor kas tidak diambil dari modulnya — rumusnya disalin, dan salinan akan menyimpang.');
   }
   // SARINGANNYA PINDAH KE DATABASE (0150), dan itu bukan kerapian.
   //
@@ -374,7 +458,12 @@ if (cash) {
     salah('cash.service.js: `ubahSupplierKas` tidak ada — tidak ada jalan mengisi Supplier mundur.');
   }
   // `ubah_kas` menulis PENUH: kolom yang tidak dikirim TERHAPUS (bug 0119).
-  if (!/supplier, esb_exported_at,/.test(kode)) {
+  // Diperiksa PER KOLOM, bukan sebagai satu potongan kalimat: menyisipkan satu
+  // kolom di antaranya (seperti `untuk_nota`) akan memutus pola yang mematok
+  // urutannya, dan auditnya merah tanpa ada yang rusak.
+  const iSelAdm = kode.indexOf('export async function listCashEntriesAdmin');
+  const selAdm = iSelAdm < 0 ? '' : kode.slice(iSelAdm, kode.indexOf('.order(', iSelAdm));
+  if (!/\bsupplier\b/.test(selAdm)) {
     salah(
       'cash.service.js `listCashEntriesAdmin`: `supplier` tidak ikut diambil. Dialog admin mengirim kolom yang tidak ' +
         'ditampilkannya apa adanya dari barisnya — tanpa kolom ini ia mengirim `undefined` dan MENGHAPUS Payment To. ' +

@@ -26,6 +26,7 @@ import { bukaDialogNota } from '../inventory/nota-dialog.js';
 import { pecahKeterangan, petaNotaPerEntri } from './keterangan-nota.js';
 import { keadaanKoreksi, totalKas } from './koreksi-kas.js';
 import { LABEL_PENGELUARAN, saringPengeluaran, ringkasPengeluaran } from './jenis-pengeluaran.js';
+import { kodeKas, cocokKodeKas } from './kode-kas.js';
 
 const DIRECTIONS = [
   { value: 'both', label: 'Masuk & Keluar' },
@@ -115,6 +116,9 @@ async function renderBalancesTab(content) {
       </div>
       <div class="field" style="margin:0"><label>Dari</label><input type="date" id="cm-from" value="${range.from}" /></div>
       <div class="field" style="margin:0"><label>Sampai</label><input type="date" id="cm-to" value="${range.to}" /></div>
+      <div class="field" style="margin:0"><label>Cari nomor kas</label>
+        <input type="search" id="cm-kode" placeholder="mis. KAS-7E9CF9F2" autocomplete="off" style="min-width:170px" />
+      </div>
       <button class="primary" id="cm-go" style="max-width:120px">Tampilkan</button>
     </div>
     <div id="cm-result"></div>
@@ -125,6 +129,7 @@ async function renderBalancesTab(content) {
   // di memori, jadi menunggu jaringan untuk memilih satu dari tiga pilihan
   // hanya membuatnya terasa berat tanpa menambah apa pun.
   content.querySelector('#cm-bahan').addEventListener('change', go);
+  content.querySelector('#cm-kode').addEventListener('input', go);
   await go();
 }
 
@@ -134,6 +139,11 @@ async function loadMutasi(content) {
   const from = content.querySelector('#cm-from').value;
   const to = content.querySelector('#cm-to').value;
   const saringBahan = content.querySelector('#cm-bahan')?.value ?? '';
+  // Nomor kas yang dicari datang dari layar EKSPOR — "KAS-7E9CF9F2" di kolom
+  // "Dokumen terpengaruh". Tanpa kotak ini, yang membacanya tahu ada dua entri
+  // yang perlu dibereskan dan tidak punya cara menemukannya di antara puluhan
+  // baris.
+  const cariKode = content.querySelector('#cm-kode')?.value ?? '';
   const result = content.querySelector('#cm-result');
   result.innerHTML = loadingHtml('Memuat…', { baris: 5 });
   let rows;
@@ -170,6 +180,7 @@ async function loadMutasi(content) {
   const rincian = ringkasPengeluaran(rows);
   const semuaBaris = rows;
   rows = saringPengeluaran(rows, saringBahan);
+  if (cariKode.trim()) rows = rows.filter((r) => cocokKodeKas(r.id, cariKode));
 
   result.innerHTML = `
     <p style="margin:12px 0 6px;font-weight:600">Masuk ${formatRupiah(masuk)} · Keluar ${formatRupiah(keluar)} · Net ${formatRupiah(masuk - keluar)}${
@@ -179,13 +190,13 @@ async function loadMutasi(content) {
       Pengeluaran: <strong>${rincian.bahan}</strong> untuk bahan (${formatRupiah(rincian.totalBahan)}) ·
       <strong>${rincian.nonBahan}</strong> selain bahan (${formatRupiah(rincian.totalNonBahan)}) — yang kedua inilah yang berangkat sebagai Disbursement.
       ${
-        saringBahan && rows.length !== semuaBaris.length
+        rows.length !== semuaBaris.length
           ? `<br>Menampilkan ${rows.length} dari ${semuaBaris.length} baris.`
           : ''
       }
     </p>
     <div class="table-scroll"><table class="data-table kartu-sempit">
-      <thead><tr><th style="width:30px"></th><th>Tanggal</th><th>Pemegang</th><th>Jenis</th><th>Kategori / Lawan</th><th>Jumlah</th><th>Supplier</th><th>Bukti</th><th>Aksi</th></tr></thead>
+      <thead><tr><th style="width:30px"></th><th>No. Kas</th><th>Tanggal</th><th>Pemegang</th><th>Jenis</th><th>Kategori / Lawan</th><th>Jumlah</th><th>Supplier</th><th>Bukti</th><th>Aksi</th></tr></thead>
       <tbody>
         ${rows
           .map((r) => {
@@ -202,6 +213,7 @@ async function loadMutasi(content) {
               <td>${
                 bisaSupplier ? `<input type="checkbox" class="cm-pilih" value="${esc(r.id)}" />` : ''
               }</td>
+              <td data-label="No. Kas" style="font-size:0.76rem;white-space:nowrap;font-family:monospace">${esc(kodeKas(r.id))}</td>
               <td style="font-size:0.82rem" data-label="Tanggal">${fmtDate(r.entry_date)}</td>
               <td data-label="Pemegang"><strong>${esc(r.holder?.full_name ?? '-')}</strong></td>
               <td data-label="Jenis">${ENTRY_LABEL[r.entry_type] ?? r.entry_type}</td>
@@ -224,7 +236,7 @@ async function loadMutasi(content) {
               <td data-label="Aksi">${tombolKoreksi(r, k)}</td>
             </tr>`;
           })
-          .join('') || '<tr><td colspan="9">Tidak ada data.</td></tr>'}
+          .join('') || '<tr><td colspan="10">Tidak ada data.</td></tr>'}
       </tbody>
     </table></div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">

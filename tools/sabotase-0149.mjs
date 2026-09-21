@@ -27,9 +27,10 @@ const CPAGE = 'js/modules/cash/cash.page.js';
 const CADM = 'js/modules/cash/cash.admin.page.js';
 const MIG150 = 'supabase/migrations/0150_disbursement_lewat_outlet.sql';
 const JENIS = 'js/modules/cash/jenis-pengeluaran.js';
+const KODE = 'js/modules/cash/kode-kas.js';
 
 const asli = new Map();
-for (const rel of [MIG, MURNI, TGL, ESVC, CSVC, EADM, CPAGE, CADM, MIG150, JENIS])
+for (const rel of [MIG, MURNI, TGL, ESVC, CSVC, EADM, CPAGE, CADM, MIG150, JENIS, KODE])
   asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
 
 const pulih = () => {
@@ -235,6 +236,83 @@ sabotase(
   AUDIT
 );
 
+console.log('\nSABOTASE KOLOM YANG TIDAK DIMINTA — bug yang sungguh terjadi:');
+
+// `untuk_nota` sempat tidak ikut di `select`. `untukBahan()` lalu selalu false,
+// dan layar berbunyi "0 untuk bahan · 35 selain bahan" sambil menampilkan
+// tautan "Pembayaran nota TRM-…" di kolom sebelahnya — layar yang membantah
+// dirinya sendiri, tanpa satu pun galat.
+sabotase(
+  'untuk_nota dicabut dari select — SELURUH pembayaran nota terhitung "selain bahan"',
+  CSVC,
+  "'category_id, outlet_id, qty, unit, supplier, untuk_nota, esb_exported_at, dicoret_at, alasan_coret, diubah_at, ' +",
+  "'category_id, outlet_id, qty, unit, supplier, esb_exported_at, dicoret_at, alasan_coret, diubah_at, ' +",
+  AUDIT
+);
+sabotase(
+  'daftar kolom yang dituntut dikosongkan — penjagaannya ikut hilang',
+  JENIS,
+  "export const KOLOM_DIBUTUHKAN = ['entry_type', 'untuk_nota', 'penyesuaian_nota', 'amount', 'dicoret_at'];",
+  "export const KOLOM_DIBUTUHKAN = ['entry_type'];",
+  AUDIT
+);
+sabotase(
+  'kolom yang tidak diminta dibaca sebagai "lengkap"',
+  JENIS,
+  '  return KOLOM_DIBUTUHKAN.every((k) => entri[k] !== undefined);',
+  '  return true;',
+  TES_JENIS
+);
+
+console.log('\nSABOTASE NOMOR KAS — nomor yang tidak menunjuk ke mana pun:');
+
+sabotase(
+  'nomor kas hilang dari tabel Mutasi Kas — "KAS-7E9CF9F2" tidak bisa dicari di layar mana pun',
+  CADM,
+  '${esc(kodeKas(r.id))}',
+  '',
+  AUDIT
+);
+sabotase(
+  'kotak cari nomornya digambar tapi tidak dipakai menyaring',
+  CADM,
+  '  if (cariKode.trim()) rows = rows.filter((r) => cocokKodeKas(r.id, cariKode));',
+  '  void cariKode;',
+  AUDIT
+);
+sabotase(
+  'rumus nomornya disalin ke layar ESB — dua nomor berbeda untuk baris yang sama',
+  ESVC,
+  "import { kodeKas } from '../cash/kode-kas.js';",
+  "const kodeKas = (id) => `KAS-${String(id ?? '').slice(0, 8)}`;",
+  AUDIT
+);
+sabotase(
+  'id kosong menghasilkan "KAS-" — nomor palsu yang akan dicari orang',
+  KODE,
+  "  if (!s) return '';",
+  '  if (false) return null;',
+  TES_JENIS
+);
+// (Sabotase "klausa pembuang awalan dicabut" DIBUANG: klausa itu tidak pernah
+// mengubah satu pun jawaban — "7E9CF9F2" sudah substring dari "KAS-7E9CF9F2".
+// Sabotase yang tidak merusak apa pun adalah bukti palsu; klausanya yang
+// dibuang, bukan pemeriksanya yang dilonggarkan.)
+sabotase(
+  'pencocokannya jadi harus PERSIS — mengetik sebagian nomornya tidak ketemu',
+  KODE,
+  '  return kode.includes(cari);',
+  '  return kode === cari;',
+  TES_JENIS
+);
+sabotase(
+  'kotak cari yang KOSONG mengosongkan tabelnya sebelum satu huruf pun diketik',
+  KODE,
+  '  if (!cari) return true;',
+  '  if (!cari) return false;',
+  TES_JENIS
+);
+
 console.log('\nSABOTASE BENTUK BERKASNYA:');
 
 sabotase(
@@ -411,8 +489,8 @@ sabotase(
 sabotase(
   'kolom supplier tidak ikut diambil — dialog admin mengirim undefined dan menghapusnya',
   CSVC,
-  "          'category_id, outlet_id, qty, unit, supplier, esb_exported_at, dicoret_at, alasan_coret, diubah_at, ' +",
-  "          'category_id, outlet_id, qty, unit, dicoret_at, alasan_coret, diubah_at, ' +",
+  "qty, unit, supplier, untuk_nota, esb_exported_at",
+  'qty, unit, untuk_nota, esb_exported_at',
   AUDIT
 );
 sabotase(

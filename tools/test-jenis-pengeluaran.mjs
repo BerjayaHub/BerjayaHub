@@ -18,11 +18,14 @@ import assert from 'node:assert/strict';
 import {
   SARING_PENGELUARAN,
   LABEL_PENGELUARAN,
+  KOLOM_DIBUTUHKAN,
+  lengkap,
   untukBahan,
   selainBahan,
   saringPengeluaran,
   ringkasPengeluaran
 } from '../js/modules/cash/jenis-pengeluaran.js';
+import { kodeKas, cocokKodeKas, AWALAN_KAS } from '../js/modules/cash/kode-kas.js';
 
 let n = 0;
 const ok = (nama) => {
@@ -142,7 +145,61 @@ assert.equal(Number.isFinite(aneh.totalNonBahan), true);
 assert.equal(aneh.totalNonBahan, 0);
 ok('nominal yang tidak terbaca tidak menular jadi NaN');
 
-console.log('\n§4 Labelnya');
+console.log('\n§4 Kolom yang harus ikut diambil');
+
+// ============ BUG YANG SUNGGUH TERJADI ============
+//
+// `untuk_nota` tidak ikut di `select` milik `listCashEntriesAdmin`. Akibatnya
+// `untukBahan()` selalu false, dan layar berbunyi "0 untuk bahan · 35 selain
+// bahan" — sambil menampilkan tautan "Pembayaran nota TRM-…" di kolom
+// sebelahnya. Layar yang membantah dirinya sendiri, tanpa satu pun galat.
+const tanpaKolom = { entry_type: 'out', penyesuaian_nota: null, amount: -23000, dicoret_at: null };
+assert.equal(untukBahan(tanpaKolom), false);
+assert.equal(lengkap(tanpaKolom), false, 'baris yang kehilangan kolom terbaca sebagai lengkap');
+ok('INTI: baris tanpa `untuk_nota` terbaca TIDAK LENGKAP — bukan "bukan pembayaran nota"');
+
+assert.equal(lengkap(BAYAR_NOTA), true);
+assert.equal(lengkap(null), false);
+ok('baris yang lengkap dikenali lengkap');
+
+// Daftarnya yang dipatok audit ke `select` query-nya. Kalau ada yang hilang
+// dari sini, penjagaan itu ikut hilang tanpa ada yang menyadarinya.
+for (const k of ['entry_type', 'untuk_nota', 'penyesuaian_nota', 'amount', 'dicoret_at']) {
+  assert.ok(KOLOM_DIBUTUHKAN.includes(k), `kolom "${k}" hilang dari KOLOM_DIBUTUHKAN`);
+}
+ok('kelima kolom yang menentukan terdaftar — auditnya memaksa query-nya memuatnya');
+
+console.log('\n§5 Nomor kas');
+
+assert.equal(kodeKas('7e9cf9f2-1234-5678-9abc-def012345678'), 'KAS-7E9CF9F2');
+ok('nomornya sama dengan yang tampil di layar ekspor');
+
+// String kosong, BUKAN "KAS-" — yang terakhir terlihat seperti nomor sungguhan
+// yang rusak, dan orang akan mencarinya.
+assert.equal(kodeKas(''), '');
+assert.equal(kodeKas(null), '');
+assert.equal(kodeKas(undefined), '');
+ok('id kosong menghasilkan kosong, bukan "KAS-"');
+
+assert.equal(AWALAN_KAS, 'KAS-');
+ok('awalannya dipisahkan dari TRM- (nota) dan WST- (waste)');
+
+const ID = '7e9cf9f2-1234-5678-9abc-def012345678';
+assert.equal(cocokKodeKas(ID, 'KAS-7E9CF9F2'), true);
+assert.equal(cocokKodeKas(ID, '7e9cf9f2'), true);
+assert.equal(cocokKodeKas(ID, '7E9C'), true);
+ok('INTI: nomor lengkap, tanpa awalan, dan sebagiannya sama-sama ketemu');
+
+assert.equal(cocokKodeKas(ID, 'A0122F50'), false);
+ok('nomor lain tidak ikut ketemu');
+
+// Kata kosong TIDAK menyaring apa pun. Kebalikannya membuat tabelnya kosong
+// begitu kotak pencariannya digambar, sebelum satu huruf pun diketik.
+assert.equal(cocokKodeKas(ID, ''), true);
+assert.equal(cocokKodeKas(ID, '   '), true);
+ok('kotak cari yang kosong tidak menyaring apa pun');
+
+console.log('\n§6 Labelnya');
 
 assert.equal(Object.keys(LABEL_PENGELUARAN).length, 3);
 for (const v of Object.values(SARING_PENGELUARAN)) {

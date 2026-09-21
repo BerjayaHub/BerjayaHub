@@ -6872,6 +6872,36 @@ Dua hal kecil yang sengaja dibedakan: `selainBahan` **bukan** `!untukBahan` — 
 
 - [x] **Disbursement dicari lewat outlet + filter bahan/selain bahan** (`0150`) — 62 sabotase
 
+### Saringannya digambar, dan tidak menyaring apa pun
+
+> "filter pengeluaran di mutasi kas sepertinya belum jalan, karena di table nya saya lihat masih ada dokumen dengan nomor TRMxxx"
+
+**Tidak perlu migration.**
+
+Benar. Layarnya berbunyi *"Pengeluaran: **0** untuk bahan (Rp0) · **35** selain bahan"* — sambil menampilkan tautan **"Pembayaran nota TRM-260919-8B9A"** di kolom sebelahnya. Layar yang membantah dirinya sendiri, dalam satu tarikan napas.
+
+Sebabnya: `untuk_nota` tidak ikut di `select` milik `listCashEntriesAdmin`. `entri.untuk_nota` selalu `undefined`, `untukBahan()` selalu `false`, jadi **seluruh** pembayaran nota tergolong "selain bahan".
+
+Ini **ketiga** kalinya bentuk kegagalan yang sama muncul di sesi ini: sebuah kolom yang tidak diminta, dibaca sebagai *"tidak ada isinya"*. Tiga kali terlalu sering untuk terus mengandalkan ingatan, jadi kali ini penjagaannya dibuat mekanis:
+
+- `jenis-pengeluaran.js` mengekspor **`KOLOM_DIBUTUHKAN`** — daftar kolom yang menentukan jawabannya;
+- auditnya **membaca daftar itu dari modulnya** (bukan menulis ulang daftar kedua) dan memaksa `select` query-nya memuat seluruhnya;
+- `lengkap(entri)` membedakan `undefined` (kolomnya tidak diminta) dari `null` (kolomnya ada, memang kosong).
+
+Auditnya sendiri sempat lolos sekali: ia membaca berkasnya **mentah**, dan komentar yang menjelaskan *kenapa* `untuk_nota` harus ada membuat katanya tetap ketemu walau kolomnya sudah dicabut dari `select`. Sekarang ia membaca versi tanpa komentar.
+
+### Nomor yang tidak menunjuk ke mana pun
+
+> "dimana saya bisa mencari nomor kas yang terpengaruh di tabel mutasi kas tidak ada"
+
+Layar ekspor menyebut `KAS-7E9CF9F2` di kolom "Dokumen terpengaruh". Nomor itu saya karang di `0149` untuk kolom `Additional Information` berkas ESB — dan **tidak pernah saya tampilkan di layar mana pun**. Yang membacanya tahu ada dua entri yang perlu dibereskan, dan tidak punya cara menemukannya di antara tiga puluh enam baris.
+
+Sekarang: kolom **No. Kas** di tabel Mutasi Kas, plus kotak **Cari nomor kas** yang menerima nomor lengkap maupun sebagiannya. Rumusnya pindah ke `kode-kas.js` dan dipakai **dua** layar — dua salinan akan menghasilkan dua nomor berbeda untuk baris yang sama, dan pencariannya berhenti bekerja tanpa satu pun galat.
+
+Satu hal yang saya buang alih-alih dijaga: klausa kedua di `cocokKodeKas` yang membuang awalan sebelum mencocokkan. Sabotasenya tidak bisa merusak apa pun — `"7E9CF9F2"` sudah substring dari `"KAS-7E9CF9F2"`, jadi klausa itu tidak pernah mengubah satu pun jawaban. Logika mati yang dijaga sabotase palsu lebih buruk daripada tidak dijaga sama sekali.
+
+- [x] **Filter pengeluaran benar-benar menyaring + nomor kas bisa dicari** — 70 sabotase
+
 ## Template keempat yang membantah template pertama
 
 > "yang saya lampirkan ini adalah template disbursement untuk import ke esb, ini berkaitan dengan kas keluar di berjaya hub"
