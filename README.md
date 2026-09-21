@@ -6813,6 +6813,65 @@ Bentuk selain `YYYY-MM-DD` ditolak, tidak ditebak: menebak `01/09/2026` berarti 
 
 - [x] **Kolom Date Purchase & Transfer berisi tanggal sungguhan** — 19 sabotase
 
+## Kolom yang sudah sembilan tahun bertuliskan "DEPRECATED"
+
+> "coba cek, kenapa di mutasi kas ledger ada kas keluar selain bahan tetapi di ekspor esb tidak ada"
+
+**Perlu migration `0150`.**
+
+Mutasi Kas menampilkan `Risma · Transportasi · gojek makanan · −Rp30.000`. Layar ekspor di sebelahnya, rentang tanggal yang sama, berbunyi *"Tidak ada kas keluar baru di rentang itu."*
+
+Sebabnya satu baris di `0149`:
+
+```js
+.eq('business_unit_id', businessUnitId)
+```
+
+Dan komentar kolom itu, ditulis di `0040`, mengatakannya dengan jelas:
+
+> *'DEPRECATED sejak 0040 (kas ikut user). Hanya terisi pada baris lama, untuk audit riwayat.'*
+
+Kas melekat pada **orang**, bukan BU — kalimat itu bahkan tercetak di kepala halaman Kas yang saya lihat tiap kali membukanya. Entri baru meninggalkan kolomnya NULL, jadi saringannya cocok dengan **nol baris**.
+
+### Yang lebih buruk dari daftar kosong
+
+Penjaga wewenangnya memakai kolom yang sama: `is_bu_admin(v_uid, c.business_unit_id)` → `is_bu_admin(uid, NULL)` → `false`. Jadi `tandai_kas_esb` **juga** mengembalikan 0.
+
+Kalau bug pertama tidak ada — misalnya karena datanya kebetulan lama dan kolomnya terisi — yang terjadi: berkasnya terunduh, penandaannya diam-diam nol, dan dokumen yang sama terunggah lagi bulan depan. Dua kegagalan yang sama sekali tidak melempar apa pun, dan yang kedua baru terbaca berbulan-bulan kemudian.
+
+`§0` di tes `0150` **mereproduksi keadaan itu dulu**, dengan fungsi `0149` apa adanya, sebelum memperbaikinya. Tanpa itu, `§1` bisa hijau hanya karena harness-nya kebetulan mengisi kolomnya.
+
+### Sumbu yang benar sudah ada sejak `0063`
+
+`outlet_id`. Ia bukan peninggalan: sejak `0063` ia **outlet peruntukan** kas keluar — *"uang ini dibelanjakan untuk outlet mana"* — dan constraint `cash_entries_outlet_wajib_saat_keluar` mewajibkannya. Kas keluar tanpa outlet tidak bisa dicatat sama sekali.
+
+Dari outlet, BU-nya diturunkan lewat `is_admin_of_outlet` (`0003`) — fungsi yang sudah dipakai `rincian_mutasi_kas` untuk pertanyaan yang persis sama.
+
+Sekalian: **penyaringannya pindah ke database** (`kas_untuk_esb`). Jalur klien harus menyusun daftar outletnya sendiri lalu mengirimkannya, dan daftar seperti itu bisa salah tanpa ada yang menyadarinya — outlet baru, outlet yang aksesnya dicabut, BU yang outletnya nol. Aturan "selain bahan" lalu hidup di satu tempat, dan `tandai_kas_esb` memakainya juga: daftar yang disusun satu aturan lalu ditandai dengan aturan lain akan menandai baris yang tidak pernah ikut terunduh.
+
+Indeksnya juga pindah. `idx_kas_belum_esb` dibuat atas `(business_unit_id, entry_date)` — indeks atas kolom yang selalu NULL tidak pernah menolong siapa pun.
+
+## Filter bahan / selain bahan di Mutasi Kas
+
+> "di mutasi kas ini saya juga ingin ada filter pengeluaran untuk bahan dan selain bahan (disbursement)"
+
+**Tidak perlu migration.**
+
+Saringan baru di Admin Portal → Kas → Mutasi, plus satu baris ringkasan yang muncul **sebelum** memilih:
+
+```
+  Pengeluaran: 12 untuk bahan (Rp2.936.402) · 3 selain bahan (Rp23.000)
+  — yang kedua inilah yang berangkat sebagai Disbursement.
+```
+
+Angkanya dihitung dari **seluruh** baris, bukan dari yang tersisa sesudah disaring. Kalau ikut menyusut, `12 · 3` berubah jadi `3 · 3` begitu salah satunya dipilih, dan yang membacanya kehilangan satu-satunya petunjuk berapa yang ada di sisi lain.
+
+Aturannya ditaruh di modul murni `jenis-pengeluaran.js`, dan auditnya memaksa `kas_untuk_esb` memuat saringan yang sama. Kalau keduanya ditulis terpisah mereka akan menyimpang — dan menyimpangnya tidak terlihat seperti kesalahan: layar berkata "3 selain bahan", ekspornya mengirim 2, dan tidak ada satu pun layar yang bisa menjelaskan yang ketiga ke mana.
+
+Dua hal kecil yang sengaja dibedakan: `selainBahan` **bukan** `!untukBahan` — kas masuk dan transfer juga bukan bahan, tapi mereka bukan pengeluaran. Dan nilai saringan yang tidak dikenal **tidak** mengosongkan daftarnya; daftar kosong karena salah ketik terlihat persis seperti "memang tidak ada datanya".
+
+- [x] **Disbursement dicari lewat outlet + filter bahan/selain bahan** (`0150`) — 62 sabotase
+
 ## Template keempat yang membantah template pertama
 
 > "yang saya lampirkan ini adalah template disbursement untuk import ke esb, ini berkaitan dengan kas keluar di berjaya hub"

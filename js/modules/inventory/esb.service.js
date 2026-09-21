@@ -478,55 +478,45 @@ export function kodeKas(id) {
 /**
  * Kas keluar yang siap diekspor sebagai Disbursement.
  *
- * ============ HANYA PENGELUARAN SELAIN BAHAN ============
+ * ============ LEWAT RPC, DAN LEWAT OUTLET ============
  *
- * Empat saringan, dan tiga di antaranya bukan selera:
+ * Percobaan pertama menyaringnya di sini dengan `business_unit_id`. Kolom itu
+ * DEPRECATED sejak 0040 dan selalu NULL untuk entri baru, jadi saringannya
+ * cocok dengan NOL baris — dan layarnya berbunyi "tidak ada kas keluar baru"
+ * sementara Mutasi Kas di sebelahnya menampilkan entrinya dengan jelas. Tidak
+ * ada galat di mana pun; RLS yang menolak dan saringan yang tidak cocok
+ * sama-sama mengembalikan daftar kosong.
  *
- *   entry_type = 'out'      -> kas masuk & transfer bukan pengeluaran
- *   untuk_nota = false      -> pembayaran nota; bahannya sudah berangkat lewat
- *                              Simple Purchase, dan mengirimnya lagi di sini
- *                              mencatat pengeluaran yang sama dua kali
- *   penyesuaian_nota null   -> koreksi otomatis dari nota, bukan catatan kas
- *                              yang berdiri sendiri
- *   dicoret_at null         -> entri yang sudah dihapus (0141)
+ * Sumbu yang benar `outlet_id` — outlet PERUNTUKAN, wajib untuk kas keluar
+ * sejak 0063. Dan pertanyaannya ditanyakan DI DATABASE (`kas_untuk_esb`, 0150),
+ * bukan dengan menyusun daftar outlet di klien lalu mengirimkannya: daftar
+ * seperti itu bisa salah tanpa satu pun yang menyadarinya.
  *
- * Keduanya yang pertama dijaga CONSTRAINT TRIGGER di database (0122/0131),
- * jadi flag-nya tidak bisa dikarang dari klien — pemisahannya bisa dipercaya.
+ * Saringan "selain bahan" (`untuk_nota`, `penyesuaian_nota`, `dicoret_at`)
+ * tinggal di fungsi itu juga, bersama `tandai_kas_esb` yang memakai aturan
+ * yang sama persis.
  */
 export async function kasUntukEsb({ businessUnitId, from, to, outletId = null, termasukSudahEkspor = false }) {
-  const baris = await ambilSemua((dari, sampai) => {
-    let q = supabase
-      .from('cash_entries')
-      .select(
-        'id, entry_date, amount, notes, supplier, outlet_id, category_id, esb_exported_at, ' +
-          'outlets!outlet_id(name), cash_categories!category_id(name)',
-        { count: 'exact' }
-      )
-      .eq('business_unit_id', businessUnitId)
-      .eq('entry_type', 'out')
-      .eq('untuk_nota', false)
-      .is('penyesuaian_nota', null)
-      .is('dicoret_at', null)
-      // `entry_date` bertipe DATE — disaring apa adanya, tanpa batas WIB.
-      // Membubuhkan jam pada kolom DATE justru menggeser hasilnya.
-      .gte('entry_date', from)
-      .lte('entry_date', to)
-      .order('entry_date')
-      .order('id');
-    if (!termasukSudahEkspor) q = q.is('esb_exported_at', null);
-    if (outletId) q = q.eq('outlet_id', outletId);
-    return q.range(dari, sampai);
-  });
-
-  return baris.map((c) => ({
+  const { data, error } = await supabase.rpc(
+    'kas_untuk_esb',
+    argumenRpc({
+      p_bu: businessUnitId,
+      p_from: from,
+      p_to: to,
+      p_outlet: outletId,
+      p_termasuk_sudah_ekspor: termasukSudahEkspor
+    })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return (Array.isArray(data) ? data : []).map((c) => ({
     id: c.id,
     kode: kodeKas(c.id),
     entry_date: c.entry_date,
     amount: c.amount,
     notes: c.notes,
     supplier: c.supplier,
-    outlet_nama: c.outlets?.name ?? '',
-    kategori_nama: c.cash_categories?.name ?? ''
+    outlet_nama: c.outlet_nama ?? '',
+    kategori_nama: c.kategori_nama ?? ''
   }));
 }
 
@@ -549,31 +539,20 @@ export async function batalkanTandaKasEsb(ids, alasan) {
 
 /** Kas keluar yang SUDAH bertanda ekspor, untuk layar "Batalkan tanda ekspor". */
 export async function kasBertandaEsb({ businessUnitId, from, to, outletId = null }) {
-  const baris = await ambilSemua((dari, sampai) => {
-    let q = supabase
-      .from('cash_entries')
-      .select(
-        'id, entry_date, amount, notes, supplier, outlet_id, esb_exported_at, esb_dibatalkan_at, esb_alasan_batal, ' +
-          'outlets!outlet_id(name), pembatal:user_profiles!esb_dibatalkan_by(full_name)',
-        { count: 'exact' }
-      )
-      .eq('business_unit_id', businessUnitId)
-      .eq('entry_type', 'out')
-      .not('esb_exported_at', 'is', null)
-      .gte('entry_date', from)
-      .lte('entry_date', to)
-      .order('esb_exported_at', { ascending: false });
-    if (outletId) q = q.eq('outlet_id', outletId);
-    return q.range(dari, sampai);
-  });
+  const { data, error } = await supabase.rpc(
+    'kas_bertanda_esb',
+    argumenRpc({ p_bu: businessUnitId, p_from: from, p_to: to, p_outlet: outletId })
+  );
+  if (error) throw new Error(error.message ?? String(error));
   // Bentuknya disamakan dengan nota, kiriman & waste supaya layar "Batalkan
   // tanda ekspor" tidak perlu tahu ia sedang menampilkan jenis dokumen mana.
-  return baris.map((c) => ({
+  return (Array.isArray(data) ? data : []).map((c) => ({
     ...c,
     code: kodeKas(c.id),
     receipt_date: c.entry_date,
     supplier: c.supplier || c.notes || '',
-    outlet_name: c.outlets?.name ?? ''
+    outlet_name: c.outlet_nama ?? '',
+    pembatal: { full_name: c.pembatal ?? '' }
   }));
 }
 

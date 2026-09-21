@@ -25,9 +25,12 @@ const CSVC = 'js/modules/cash/cash.service.js';
 const EADM = 'js/modules/inventory/esb.admin.js';
 const CPAGE = 'js/modules/cash/cash.page.js';
 const CADM = 'js/modules/cash/cash.admin.page.js';
+const MIG150 = 'supabase/migrations/0150_disbursement_lewat_outlet.sql';
+const JENIS = 'js/modules/cash/jenis-pengeluaran.js';
 
 const asli = new Map();
-for (const rel of [MIG, MURNI, TGL, ESVC, CSVC, EADM, CPAGE, CADM]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
+for (const rel of [MIG, MURNI, TGL, ESVC, CSVC, EADM, CPAGE, CADM, MIG150, JENIS])
+  asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
 
 const pulih = () => {
   for (const [rel, isi] of asli) fs.writeFileSync(P(rel), isi);
@@ -78,42 +81,157 @@ const sabotase = (nama, rel, dari, ke, pemeriksa) => {
 const PG = 'tools/test-migrasi-0149.mjs';
 const TES = 'tools/test-esb-disbursement.mjs';
 const AUDIT = 'tools/audit-disbursement.cjs';
+const PG150 = 'tools/test-migrasi-0150.mjs';
+const TES_JENIS = 'tools/test-jenis-pengeluaran.mjs';
 
 console.log('SABOTASE "SELAIN BAHAN" — dobel-catat yang tidak terlihat:');
 
+// Saringannya PINDAH ke `kas_untuk_esb` (0150) — di klien ia dulu memakai
+// `business_unit_id`, kolom yang selalu NULL, jadi nol baris tanpa satu pun
+// galat. Sekarang sabotasenya mengenai tempat yang sungguh memutuskan.
 sabotase(
   'pembayaran nota ikut terkirim — pengeluaran yang SAMA tercatat dua kali di ESB',
-  ESVC,
-  "      .eq('untuk_nota', false)\n",
+  MIG150,
+  '    and ce.untuk_nota = false\n',
   '',
-  AUDIT
+  PG150
 );
 sabotase(
   'koreksi otomatis nota ikut jadi dokumen pengeluaran',
-  ESVC,
-  "      .is('penyesuaian_nota', null)\n",
+  MIG150,
+  '    and ce.penyesuaian_nota is null\n',
   '',
-  AUDIT
+  PG150
 );
 sabotase(
   'entri yang sudah DICORET berangkat sebagai pengeluaran yang sah',
-  ESVC,
-  "      .is('dicoret_at', null)\n",
+  MIG150,
+  '    and ce.dicoret_at is null\n',
+  '',
+  PG150
+);
+sabotase(
+  'kas masuk & transfer ikut jadi pengeluaran',
+  MIG150,
+  "  where ce.entry_type = 'out'\n    -- HANYA PENGELUARAN SELAIN BAHAN.",
+  '  where true\n    -- HANYA PENGELUARAN SELAIN BAHAN.',
+  PG150
+);
+sabotase(
+  'yang sudah diekspor ditawarkan lagi — pengeluarannya tercatat dua kali',
+  MIG150,
+  '    and (p_termasuk_sudah_ekspor or ce.esb_exported_at is null)\n',
+  '',
+  PG150
+);
+// PENJAGA KEDUA, di `tandai_kas_esb`. Daftar yang disusun satu aturan dan
+// ditandai dengan aturan lain akan menandai baris yang tidak pernah terunduh —
+// dan baris itu berhenti ditawarkan selamanya.
+sabotase(
+  'penjaga kedua dicabut — pembayaran nota bisa ditandai walau tidak pernah terunduh',
+  MIG150,
+  '     and c.untuk_nota = false\n',
+  '',
+  PG150
+);
+
+console.log('\nSABOTASE SUMBU YANG SALAH — nol baris tanpa satu pun galat:');
+
+// INILAH bug yang dilaporkan dari layar. `business_unit_id` DEPRECATED sejak
+// 0040 dan selalu NULL; saringannya cocok dengan nol baris, dan penjaganya
+// selalu menolak. Keduanya terlihat persis seperti "memang tidak ada datanya".
+sabotase(
+  'saringannya kembali ke business_unit_id — layar berbunyi "tidak ada kas keluar baru"',
+  MIG150,
+  '    and ce.dicoret_at is null\n    and o.business_unit_id = p_bu',
+  '    and ce.dicoret_at is null\n    and ce.business_unit_id = p_bu',
+  PG150
+);
+sabotase(
+  'wewenang menandai kembali ke is_bu_admin(business_unit_id) — selalu menolak, diam-diam',
+  MIG150,
+  '     and is_admin_of_outlet(v_uid, c.outlet_id);\n  get diagnostics v_n = row_count;\n  return v_n;\nend;\n$$;\n\nrevoke all on function tandai_kas_esb',
+  '     and is_bu_admin(v_uid, c.business_unit_id);\n  get diagnostics v_n = row_count;\n  return v_n;\nend;\n$$;\n\nrevoke all on function tandai_kas_esb',
+  PG150
+);
+sabotase(
+  'wewenang melihat daftarnya dicabut — siapa pun bisa membaca kas BU mana pun',
+  MIG150,
+  '    and is_admin_of_outlet(auth.uid(), ce.outlet_id)\n  order by ce.entry_date, ce.id;',
+  '  order by ce.entry_date, ce.id;',
+  PG150
+);
+sabotase(
+  'indeksnya kembali ke kolom yang selalu NULL',
+  MIG150,
+  'create index if not exists idx_kas_belum_esb on cash_entries(outlet_id, entry_date)',
+  'create index if not exists idx_kas_belum_esb on cash_entries(business_unit_id, entry_date)',
+  PG150
+);
+sabotase(
+  'indeks lama tidak dibuang — `create index if not exists` tidak menggantikannya',
+  MIG150,
+  'drop index if exists idx_kas_belum_esb;\n',
   '',
   AUDIT
 );
 sabotase(
-  'kas masuk & transfer ikut jadi pengeluaran',
+  'layanannya menyusun saringannya sendiri lagi, di luar database',
   ESVC,
-  "      .eq('entry_type', 'out')\n      .eq('untuk_nota', false)",
-  "      .eq('untuk_nota', false)",
+  "    'kas_untuk_esb',",
+  "    'kas_bertanda_esb',",
+  AUDIT
+);
+
+console.log('\nSABOTASE SARINGAN BAHAN / SELAIN BAHAN:');
+
+sabotase(
+  'kas masuk ikut terhitung sebagai "pengeluaran selain bahan"',
+  JENIS,
+  "export function selainBahan(entri) {\n  if (!entri || entri.entry_type !== 'out') return false;",
+  'export function selainBahan(entri) {',
+  TES_JENIS
+);
+sabotase(
+  'penyesuaian nota tidak lagi terhitung sebagai pengeluaran bahan',
+  JENIS,
+  '  return entri.untuk_nota === true || (entri.penyesuaian_nota !== null && entri.penyesuaian_nota !== undefined);',
+  '  return entri.untuk_nota === true;',
+  TES_JENIS
+);
+sabotase(
+  'nilai saringan yang tidak dikenal mengosongkan daftarnya — terlihat seperti "tidak ada datanya"',
+  JENIS,
+  '  return daftar;\n}',
+  '  return [];\n}',
+  TES_JENIS
+);
+sabotase(
+  'yang dicoret ikut dijumlahkan — totalnya tidak cocok dengan saldo mana pun',
+  JENIS,
+  '    const hidup = !b?.dicoret_at;',
+  '    const hidup = true;',
+  TES_JENIS
+);
+sabotase(
+  'saringannya digambar tapi tidak dipakai menyaring',
+  CADM,
+  '  rows = saringPengeluaran(rows, saringBahan);',
+  '  rows = rows;',
   AUDIT
 );
 sabotase(
-  'yang sudah diekspor ditawarkan lagi — pengeluarannya tercatat dua kali',
-  ESVC,
-  "    if (!termasukSudahEkspor) q = q.is('esb_exported_at', null);\n    if (outletId) q = q.eq('outlet_id', outletId);",
-  '    if (outletId) q = q.eq("outlet_id", outletId);',
+  'ringkasannya dihitung SESUDAH disaring — angkanya ikut menyusut dan kehilangan artinya',
+  CADM,
+  '  const rincian = ringkasPengeluaran(rows);\n  const semuaBaris = rows;\n  rows = saringPengeluaran(rows, saringBahan);',
+  '  const semuaBaris = rows;\n  rows = saringPengeluaran(rows, saringBahan);\n  const rincian = ringkasPengeluaran(rows);',
+  AUDIT
+);
+sabotase(
+  'saringannya tidak menggambar ulang saat dipilih',
+  CADM,
+  "  content.querySelector('#cm-bahan').addEventListener('change', go);",
+  "  void content.querySelector('#cm-bahan');",
   AUDIT
 );
 

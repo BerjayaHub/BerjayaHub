@@ -167,6 +167,109 @@ if (mig) {
 }
 
 // ---------------------------------------------------------------
+// 1b. Migration 0150 — sumbu outlet, bukan business_unit_id.
+// ---------------------------------------------------------------
+const mig150 = baca('supabase/migrations/0150_disbursement_lewat_outlet.sql');
+if (mig150) {
+  // Indeksnya pindah: atas kolom yang selalu NULL ia tidak pernah menolong.
+  if (!/drop index if exists idx_kas_belum_esb;/.test(mig150)) {
+    salah('0150: indeks lama tidak dibuang — `create index if not exists` tidak akan menggantikannya.');
+  }
+  if (!/create index if not exists idx_kas_belum_esb on cash_entries\(outlet_id, entry_date\)/.test(mig150)) {
+    salah('0150: indeksnya tidak pindah ke `outlet_id`.');
+  }
+
+  for (const [nama, tanda] of [
+    ['kas_untuk_esb', 'create or replace function kas_untuk_esb('],
+    ['kas_bertanda_esb', 'create or replace function kas_bertanda_esb(']
+  ]) {
+    if (!mig150.includes(tanda)) salah(`0150: \`${nama}\` tidak ada.`);
+  }
+
+  // WEWENANG LEWAT OUTLET. `is_bu_admin(v_uid, c.business_unit_id)` selalu
+  // false untuk entri baru — dan false yang diam terlihat seperti "tidak ada
+  // datanya", bukan seperti izin yang ditolak.
+  for (const fn of ['tandai_kas_esb', 'batalkan_tanda_kas_esb', 'kas_untuk_esb', 'kas_bertanda_esb']) {
+    const i = mig150.indexOf(`function ${fn}(`);
+    const blok = i < 0 ? '' : mig150.slice(i, mig150.indexOf('$$;', i));
+    if (!blok) {
+      salah(`0150: \`${fn}\` tidak ditemukan.`);
+      continue;
+    }
+    if (!/is_admin_of_outlet\((v_uid|auth\.uid\(\)), (c|ce)\.outlet_id\)/.test(blok)) {
+      salah(`0150 \`${fn}\`: wewenangnya tidak lewat outlet — \`business_unit_id\` selalu NULL sejak 0040.`);
+    }
+    if (/is_bu_admin\([^)]*\.business_unit_id\)/.test(blok)) {
+      salah(`0150 \`${fn}\`: masih memakai \`is_bu_admin(…business_unit_id)\` — penjaga yang selalu menolak, diam-diam.`);
+    }
+  }
+
+  // "Selain bahan" dijaga DI DUA sisi: daftar yang disusun satu aturan dan
+  // ditandai dengan aturan lain akan menandai baris yang tidak pernah terunduh.
+  for (const fn of ['tandai_kas_esb', 'kas_untuk_esb']) {
+    const i = mig150.indexOf(`function ${fn}(`);
+    const blok = i < 0 ? '' : mig150.slice(i, mig150.indexOf('$$;', i));
+    for (const [nama, pola] of [
+      ['untuk_nota', /untuk_nota = false/],
+      ['penyesuaian_nota', /penyesuaian_nota is null/],
+      ['dicoret_at', /dicoret_at is null/],
+      ["entry_type = 'out'", /entry_type = 'out'/]
+    ]) {
+      if (!pola.test(blok)) salah(`0150 \`${fn}\`: saringan "${nama}" tidak ada — aturannya berbeda dari sisi yang lain.`);
+    }
+  }
+
+  // BU-nya diturunkan dari outletnya, bukan dari kolom kasnya.
+  if (!/o\.business_unit_id = p_bu/.test(mig150)) {
+    salah('0150: BU-nya tidak diturunkan dari outlet — kas BU lain bisa ikut, atau tidak ada yang ikut sama sekali.');
+  }
+}
+
+// ---------------------------------------------------------------
+// 1c. Saringan bahan / selain bahan — satu aturan, dua tempat.
+// ---------------------------------------------------------------
+const jenis = baca('js/modules/cash/jenis-pengeluaran.js');
+if (jenis) {
+  const kode = bersih(jenis, 'jenis-pengeluaran.js', ['export function untukBahan']);
+  for (const f of ['untukBahan', 'selainBahan', 'saringPengeluaran', 'ringkasPengeluaran']) {
+    if (!new RegExp(`export function ${f}\\(`).test(kode)) salah(`jenis-pengeluaran.js: \`${f}\` tidak diekspor.`);
+  }
+  // `selainBahan` BUKAN sekadar `!untukBahan`: kas masuk & transfer juga bukan
+  // bahan, tapi mereka bukan pengeluaran. Tanpa penjaga ini kas masuk ikut
+  // terhitung sebagai "pengeluaran selain bahan".
+  const iSelain = kode.indexOf('export function selainBahan');
+  const fnSelain = iSelain < 0 ? '' : kode.slice(iSelain, kode.indexOf('\n}', iSelain));
+  if (!/if \(!entri \|\| entri\.entry_type !== 'out'\) return false;/.test(fnSelain)) {
+    salah('jenis-pengeluaran.js `selainBahan`: kas masuk & transfer ikut terhitung sebagai pengeluaran.');
+  }
+  // Nilai saringan yang tidak dikenal tidak boleh mengosongkan daftarnya.
+  if (!/return daftar;/.test(kode)) {
+    salah('jenis-pengeluaran.js: nilai saringan yang tidak dikenal mengosongkan daftarnya — terlihat seperti "tidak ada datanya".');
+  }
+}
+
+const adminKas = baca('js/modules/cash/cash.admin.page.js');
+if (adminKas) {
+  const kode = bersih(adminKas, 'cash.admin.page.js', ['saringPengeluaran(']);
+  if (!/id="cm-bahan"/.test(kode)) {
+    salah('cash.admin.page.js: saringan bahan/selain-bahan tidak ada di layar Mutasi Kas.');
+  }
+  if (!/saringPengeluaran\(rows, saringBahan\)/.test(kode)) {
+    salah('cash.admin.page.js: saringannya digambar tapi tidak dipakai menyaring.');
+  }
+  // Ringkasannya dihitung dari SELURUH baris, sebelum disaring. Kalau angkanya
+  // ikut menyusut, yang membacanya kehilangan petunjuk berapa yang di sisi lain.
+  const iRingkas = kode.indexOf('const rincian = ringkasPengeluaran(rows);');
+  const iSaring = kode.indexOf('rows = saringPengeluaran(rows, saringBahan);');
+  if (iRingkas < 0 || iSaring < 0 || iRingkas > iSaring) {
+    salah('cash.admin.page.js: ringkasan per jenis dihitung SESUDAH disaring — angkanya ikut menyusut dan kehilangan artinya.');
+  }
+  if (!/#cm-bahan'\)\.addEventListener\('change'/.test(kode)) {
+    salah('cash.admin.page.js: saringannya tidak menggambar ulang saat dipilih.');
+  }
+}
+
+// ---------------------------------------------------------------
 // 2. Modul murninya.
 // ---------------------------------------------------------------
 const murni = baca('js/modules/inventory/esb-disbursement.js');
@@ -231,23 +334,27 @@ if (svc) {
   for (const f of ['kasUntukEsb', 'tandaiKasEsb', 'batalkanTandaKasEsb', 'kasBertandaEsb', 'kodeKas']) {
     if (!new RegExp(`export (async )?function ${f}\\(`).test(kode)) salah(`esb.service.js: \`${f}\` tidak ada.`);
   }
-  const iKas = kode.indexOf('export async function kasUntukEsb');
-  const fnKas = iKas < 0 ? '' : kode.slice(iKas, kode.indexOf('\n}', iKas));
-  // EMPAT saringan, dan tiga di antaranya bukan selera.
-  for (const [nama, pola, akibat] of [
-    ["entry_type = 'out'", /\.eq\('entry_type', 'out'\)/, 'kas masuk & transfer ikut jadi pengeluaran'],
-    [
-      'untuk_nota = false',
-      /\.eq\('untuk_nota', false\)/,
-      'pembayaran nota ikut terkirim — pengeluaran yang SAMA tercatat dua kali di ESB, sekali lewat Simple Purchase'
-    ],
-    ['penyesuaian_nota null', /\.is\('penyesuaian_nota', null\)/, 'koreksi otomatis nota ikut jadi dokumen pengeluaran'],
-    ['dicoret_at null', /\.is\('dicoret_at', null\)/, 'entri yang sudah dinyatakan salah berangkat sebagai pengeluaran sah']
-  ]) {
-    if (!pola.test(fnKas)) salah(`esb.service.js \`kasUntukEsb\`: saringan ${nama} hilang — ${akibat}.`);
+  // SARINGANNYA PINDAH KE DATABASE (0150), dan itu bukan kerapian.
+  //
+  // Versi pertama menyaringnya di sini dengan `business_unit_id` — kolom yang
+  // DEPRECATED sejak 0040 dan selalu NULL untuk entri baru. Hasilnya nol baris,
+  // dan layarnya berbunyi "tidak ada kas keluar baru" sementara Mutasi Kas di
+  // sebelahnya menampilkan entrinya. Yang dijaga di sini sekarang: jalur ini
+  // TIDAK menyusun saringannya sendiri lagi.
+  if (!/supabase\.rpc\(\s*'kas_untuk_esb'/.test(kode)) {
+    salah('esb.service.js `kasUntukEsb`: tidak lewat RPC `kas_untuk_esb` — saringannya disusun lagi di klien.');
   }
-  if (!/q = q\.is\('esb_exported_at', null\)/.test(fnKas)) {
-    salah('esb.service.js `kasUntukEsb`: yang sudah diekspor ditawarkan lagi — pengeluarannya tercatat dua kali.');
+  if (/\.from\('cash_entries'\)/.test(kode)) {
+    salah(
+      'esb.service.js: kembali membaca `cash_entries` langsung. Saringan "selain bahan" lalu hidup di DUA tempat, ' +
+        'dan yang menyimpang akan menandai baris yang tidak pernah ikut terunduh.'
+    );
+  }
+  if (/business_unit_id.*cash|cash.*business_unit_id/.test(kode)) {
+    salah(
+      'esb.service.js: kas disaring lewat `business_unit_id` lagi. Kolom itu DEPRECATED sejak 0040 dan selalu NULL ' +
+        'untuk entri baru — saringannya cocok dengan NOL baris, tanpa satu pun galat.'
+    );
   }
 }
 
