@@ -258,10 +258,26 @@ if (adm) {
       if (urut[i].no !== i + 1) salah(`esb.admin.js: penomoran langkahnya meleset — "${urut[i].nama}" bernomor ${urut[i].no}, harusnya ${i + 1}.`);
       if (i && urut[i].at < urut[i - 1].at) salah(`esb.admin.js: urutan di layar tidak sesuai penomorannya ("${urut[i].nama}").`);
     }
-    // Nomor yang disebut kalimat pengantar ikut nomor judulnya.
+    // NOMOR YANG DISEBUT KALIMAT PENGANTAR IKUT NOMOR JUDULNYA — DI SETIAP
+    // TEMPAT IA DISEBUT.
+    //
+    // Versi pertama cuma menanyakan "apakah 'pemetaan di langkah N' ada di
+    // suatu tempat". Kalimat itu ternyata ditulis DUA kali (paragraf langkah 3,
+    // dan pesan di bawah tabel penahan), jadi merusak salah satunya tetap
+    // hijau: yang satunya masih menyebut nomor yang benar. Sekarang SEMUA
+    // penyebutan dikumpulkan dan tiap nomornya diperiksa.
     const noPeta = urut.find((h) => h.nama === 'Pemetaan')?.no;
-    if (noPeta && !new RegExp(`pemetaan di langkah ${noPeta}`).test(kode)) {
-      salah(`esb.admin.js: kalimat pengantar tidak menyebut "pemetaan di langkah ${noPeta}" — nomornya menunjuk langkah yang salah.`);
+    const sebut = [...kode.matchAll(/pemetaan di langkah (\d+)/g)].map((x) => Number(x[1]));
+    if (!sebut.length) {
+      salah('esb.admin.js: kalimat pengantar tidak menyebut langkah pemetaannya sama sekali.');
+    } else if (noPeta) {
+      const meleset = sebut.filter((n) => n !== noPeta);
+      if (meleset.length) {
+        salah(
+          `esb.admin.js: ${meleset.length} dari ${sebut.length} penyebutan "pemetaan di langkah …" menunjuk nomor ` +
+            `yang salah (${[...new Set(meleset)].join(', ')}; harusnya ${noPeta}).`
+        );
+      }
     }
   }
 }

@@ -28,6 +28,25 @@
  * Waste mengurangi stok. `Add` ada di template untuk penyesuaian opname yang
  * menambah, dan itu sumber yang berbeda — sengaja tidak dicampur ke sini.
  *
+ * ============ `Purpose` DATANG DARI KEJADIANNYA, BUKAN DARI PEMETAAN ============
+ *
+ * Percobaan pertama (0146) memetakan `jenis` waste ('spoil'/'menu') ke satu
+ * nilai Purpose. Berkas Master Purpose yang sesungguhnya membantah bentuk itu:
+ *
+ *     Waste Kitchen    -> COGS - Food
+ *     Waste Bar        -> COGS - Beverage
+ *     Packaging Spoil  -> COGS - Other
+ *
+ * Sumbunya bukan "rusak atau terbuang" melainkan "dapur, bar, atau kemasan",
+ * dan itu tidak bisa diturunkan dari data yang ada. Kategori produk pun bukan
+ * jawabannya: kategori di Berjaya Hub diketik sendiri dan tidak dibuat untuk
+ * pertanyaan ini. Jadi yang memilihnya orang yang berdiri di depan barangnya,
+ * dan pilihannya disimpan di `waste_runs.purpose` (0147).
+ *
+ * Yang belum terisi DITAHAN. Menebaknya di sini berarti mengirim biaya waste ke
+ * akun COGS yang salah — angkanya tetap terlihat wajar, dan laporan yang
+ * memakainya tidak punya satu pun petunjuk.
+ *
  * ============ `Value per Unit` BISA TIDAK ADA ============
  *
  * Sumbernya biaya rata-rata bahan per outlet (0118), dan barisnya hanya ada
@@ -69,11 +88,12 @@ const angka = (v) => {
  * Susun baris ESB Item Journal dari waste Berjaya Hub.
  *
  * @param {object} o
- * @param {Array} o.waste baris `waste_runs`: { id, code, outlet_id, jenis, created_at }
+ * @param {Array} o.waste baris `waste_runs`: { id, code, outlet_id, jenis, purpose, created_at }
  * @param {Map<string, Array>} o.itemsPerWaste id waste -> baris bahan
  *   { product_id, product_name, base_unit, qty }
  * @param {Record<string, Map<string,string>>} o.peta hasil `buatPeta` — dipakai
- *   BERSAMA dengan Simple Purchase. `item`, `unit`, dan `purpose`.
+ *   BERSAMA dengan Simple Purchase. `item` dan `unit` saja; Purpose tidak
+ *   dipetakan (lihat catatan di kepala berkas).
  * @param {Map<string,string>} [o.kodeItem] nama item ESB -> Product Code
  * @param {Map<string,number>} [o.biaya] product_id -> biaya rata-rata per satuan
  * @returns {{baris: Array[], wasteIds: string[], kurang: Array<{jenis: string, nilai: string, dok: string[]}>}}
@@ -113,14 +133,19 @@ export function barisEsbJournal({ waste, itemsPerWaste, peta, kodeItem = new Map
     // kepalanya saja menghasilkan jurnal kosong yang harus dihapus manual.
     if (!items.length) continue;
 
-    // PURPOSE dipetakan dari JENIS waste-nya ('spoil' / 'menu').
-    //
-    // Berjaya Hub tidak punya padanan apa pun untuk kolom ini — yang ada cuma
-    // jenis dan catatan teks bebas. Catatan tidak dipakai: ia ditulis staff
-    // untuk dibaca manusia, dan mengirimnya ke kolom bermaster akan ditolak
-    // ESB dengan nilai yang berbeda-beda tiap baris.
-    const purpose = peta?.purpose?.get?.(teks(w.jenis).toLowerCase()) ?? null;
-    if (!purpose) catat('purpose', w.jenis, kode);
+    // PURPOSE DIBACA APA ADANYA dari kejadiannya — sudah berupa nama ESB
+    // kanonik, dijaga `purpose_esb_sah()` di database (0147). Tidak ada
+    // pemetaan, dan tidak ada tebakan; lihat catatan panjang di kepala berkas.
+    const purpose = teks(w.purpose) || null;
+    // Nilainya dicatat sebagai 'purpose-kosong', bukan 'purpose': layarnya
+    // memakai kunci itu untuk memilih kalimat "isi di Rekap Waste / Spoil", dan
+    // 'purpose' di sana sudah berarti nama jenis daftar induknya.
+    // Nilainya satu kalimat yang sama untuk semua, supaya seluruh waste yang
+    // kurang Purpose berkumpul jadi SATU baris di tabel penahan, dengan daftar
+    // kodenya di kolom "Dokumen terpengaruh". Memakai kode waste sebagai nilai
+    // akan menghasilkan satu baris per waste — tiga puluh baris yang mengulang
+    // satu pesan, menenggelamkan alasan penahan yang lain.
+    if (!purpose) catat('purpose-kosong', '(belum dipilih)', kode);
 
     const barisWaste = [];
     let adaMasalah = false;

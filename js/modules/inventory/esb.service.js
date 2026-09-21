@@ -403,7 +403,7 @@ export async function wasteUntukEsb({ businessUnitId, from, to, outletId, termas
   const runs = await ambilSemua((dari, sampai) => {
     let q = supabase
       .from('waste_runs')
-      .select('id, code, jenis, notes, outlet_id, created_at, esb_exported_at', { count: 'exact' })
+      .select('id, code, jenis, notes, purpose, outlet_id, created_at, esb_exported_at', { count: 'exact' })
       .eq('business_unit_id', businessUnitId)
       .eq('outlet_id', outletId)
       // `created_at` timestamptz — batas WIB eksplisit memang diperlukan, kalau

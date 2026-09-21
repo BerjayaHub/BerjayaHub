@@ -166,7 +166,13 @@ const svcLama = baca('js/modules/inventory/waste.service.js');
 if (svcLama) {
   const kode = tanpaKomentar(svcLama);
   // Kolom baru tidak boleh menyandera seluruh layar (pelajaran 0122).
-  if (!/return await ambil\(KOLOM_DASAR\)/.test(kode)) {
+  //
+  // Bentuknya berubah di 0147: dulu satu `try/catch` untuk kolom `lama`, kini
+  // tangga `tingkat` yang turun setingkat demi setingkat karena kolom barunya
+  // sudah lebih dari satu. Yang dijaga tetap sama — ADA tingkat paling bawah
+  // yang cuma meminta kolom dasar, dan itulah yang membuat rekapnya tetap
+  // tampil di jeda antara push dan menjalankan migration.
+  if (!/\{ kolom: KOLOM_DASAR, pola: null \}/.test(kode)) {
     salah(
       'waste.service.js: tidak ada jalan cadangan saat kolom `lama` belum ada. ' +
         'PostgREST menolak SELURUH permintaan karena satu kolom tidak dikenal — dan yang hilang bukan satu kolom, ' +

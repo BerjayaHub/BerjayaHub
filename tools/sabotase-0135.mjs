@@ -217,8 +217,12 @@ sabotase(
 sabotase(
   'jalan cadangan saat kolom `lama` belum ada dicabut',
   SVC,
-  '    return await ambil(KOLOM_DASAR);',
-  '    throw e;',
+  // Bentuknya berubah di 0147 (tangga `tingkat`, bukan satu try/catch) —
+  // yang dijaga tetap sama: ADA tingkat paling bawah yang cuma meminta
+  // kolom dasar, dan itulah yang membuat rekapnya tetap tampil di jeda
+  // antara push dan menjalankan migration.
+  '    { kolom: KOLOM_DASAR, pola: null }',
+  '    { kolom: `${KOLOM_DASAR}, lama`, pola: null }',
   AUDIT
 );
 
@@ -303,7 +307,7 @@ sabotase('field foto tidak lagi wajib di dialognya', HAL, "          type: 'phot
 sabotase(
   'layar kembali ke jalur lama tanpa foto',
   HAL,
-  '      await catatWaste({ outletId: state.outletId, jenis, productId, qty, photoPath, notes: v.notes });',
+  '      await catatWaste({\n        outletId: state.outletId,',
   "      await recordMenuWaste({ businessUnitId, outletId: state.outletId, productId, qty, notes: v.notes });",
   AUDIT
 );

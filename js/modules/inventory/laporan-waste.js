@@ -75,6 +75,10 @@ export const KOLOM_WASTE = [
   { header: 'Nilai', width: 1.2, align: 'right', numeric: true },
   { header: 'Sumber nilai', width: 1 },
   { header: 'Keterangan', width: 2.2 },
+  // PURPOSE (0147) — akun COGS tujuannya di ESB, dipilih staff saat mencatat.
+  // Ikut di rekap karena di sinilah admin melihat mana yang masih kosong, dan
+  // dari sini pula ia mengisinya.
+  { header: 'Purpose', width: 1.4 },
   { header: 'Catatan', width: 1.8 },
   { header: 'Dicatat oleh', width: 1.4 },
   { header: 'No.', width: 1.3 },
@@ -83,6 +87,19 @@ export const KOLOM_WASTE = [
 
 /** Posisi kolom foto — dipakai layar & ekspor supaya tidak dihitung dua kali. */
 export const KOLOM_FOTO = KOLOM_WASTE.findIndex((k) => k.foto);
+
+/**
+ * Posisi kolom Purpose. DITURUNKAN dari judulnya, bukan ditulis sebagai angka.
+ *
+ * Layar menggambar sel ini sebagai tombol Edit, persis seperti kolom foto. Satu
+ * kolom yang ditambah di depannya akan membuat tombolnya menempel di sel yang
+ * salah — dan tidak ada yang melempar apa pun; tombolnya cuma muncul di kolom
+ * Catatan dan mengubah Purpose yang tidak sedang dilihat siapa pun.
+ */
+export const KOLOM_PURPOSE = KOLOM_WASTE.findIndex((k) => k.header === 'Purpose');
+
+/** Tulisan untuk kejadian yang Purpose-nya belum diisi. */
+export const PURPOSE_KOSONG = 'belum diisi';
 
 const teks = (v) => (v === null || v === undefined ? '' : String(v));
 
@@ -155,6 +172,10 @@ export function susunRekapWaste({ baris, biaya = new Map(), hpp = new Map(), per
   let barisLama = 0;
   let dariHpp = 0;
   const kejadian = new Set();
+  // Dihitung per KEJADIAN, bukan per baris: satu waste menu melahirkan sepuluh
+  // baris bahan yang berbagi satu Purpose, dan "10 baris belum ber-Purpose"
+  // membuat satu pekerjaan terlihat seperti sepuluh.
+  const kejadianTanpaPurpose = new Set();
 
   const mentah = daftar.map((b) => {
     const qty = Number(b?.bahan_qty ?? 0) || 0;
@@ -168,8 +189,20 @@ export function susunRekapWaste({ baris, biaya = new Map(), hpp = new Map(), per
     if (b?.waste_id) kejadian.add(b.waste_id);
     if (b?.lama) barisLama++;
 
+    const purpose = teks(b?.purpose).trim();
+    // Baris LAMA (sebelum 0135) tidak punya `waste_runs`, jadi Purpose-nya
+    // tidak ada dan tidak akan pernah ada — ia tidak bisa diekspor ke ESB sama
+    // sekali. Menghitungnya sebagai "pekerjaan yang belum selesai" akan
+    // menyuruh admin mengerjakan sesuatu yang tidak bisa dikerjakan.
+    if (!purpose && !b?.lama && b?.waste_id) kejadianTanpaPurpose.add(b.waste_id);
+
     return {
       wasteId: teks(b?.waste_id),
+      purpose,
+      // Yang sudah diekspor TERKUNCI — Purpose-nya tidak bisa diubah sampai
+      // tanda ekspornya dibuka. Layar memakai ini untuk tidak menawarkan
+      // tombol yang pasti ditolak.
+      terkunci: b?.esb_terkunci === true,
       photoPath: teks(b?.photo_path),
       // Dicatat SEBELUM foto diwajibkan (0136). Bedanya penting di layar:
       // "belum ada foto" menuduh staffnya lupa; "sebelum foto diwajibkan"
@@ -207,6 +240,9 @@ export function susunRekapWaste({ baris, biaya = new Map(), hpp = new Map(), per
     r.nilai === null ? '-' : formatRupiah(r.nilai),
     r.sumber,
     r.keterangan,
+    // Kosongnya DIKATAKAN, bukan dibiarkan jadi sel kosong. Sel kosong di
+    // berkas Excel terbaca sebagai "tidak berlaku"; ini "belum dikerjakan".
+    r.purpose || (r.lama ? '-' : PURPOSE_KOSONG),
     r.catatan,
     r.oleh,
     r.kode,
@@ -230,7 +266,13 @@ export function susunRekapWaste({ baris, biaya = new Map(), hpp = new Map(), per
     // yang membacanya berhak tahu perbandingannya.
     dariHpp ? `${dariHpp} baris dinilai pakai HPP resep` : '',
     tanpaNilai ? `${tanpaNilai} baris belum punya harga sama sekali` : '',
-    barisLama ? `${barisLama} baris dicatat sebelum foto diwajibkan` : ''
+    barisLama ? `${barisLama} baris dicatat sebelum foto diwajibkan` : '',
+    // Disebut di kepala laporan supaya terbaca tanpa menggulir 300 baris, dan
+    // menyebut AKIBATNYA — "belum diisi" saja tidak memberi tahu siapa pun
+    // kenapa itu perlu dikerjakan.
+    kejadianTanpaPurpose.size
+      ? `${kejadianTanpaPurpose.size} kejadian belum ber-Purpose — tertahan saat diekspor ke ESB`
+      : ''
   ]
     .filter(Boolean)
     .join(' · ');
@@ -242,13 +284,20 @@ export function susunRekapWaste({ baris, biaya = new Map(), hpp = new Map(), per
     kolom: KOLOM_WASTE,
     baris: rows,
     // Sejajar indeksnya dengan `baris` — layar memakainya untuk memuat foto.
-    meta: mentah.map((r) => ({ wasteId: r.wasteId, photoPath: r.photoPath, lama: r.lama })),
+    meta: mentah.map((r) => ({
+      wasteId: r.wasteId,
+      photoPath: r.photoPath,
+      lama: r.lama,
+      purpose: r.purpose,
+      terkunci: r.terkunci
+    })),
     ringkas: {
       jumlahKejadian: kejadian.size,
       jumlahBaris: rows.length,
       tanpaNilai,
       barisLama,
       dariHpp,
+      kejadianTanpaPurpose: kejadianTanpaPurpose.size,
       total,
       totalTeks: formatRupiah(total)
     }

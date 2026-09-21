@@ -14,6 +14,8 @@ import {
   hargaSatuanBahan,
   KOLOM_WASTE,
   KOLOM_FOTO,
+  KOLOM_PURPOSE,
+  PURPOSE_KOSONG,
   KET_BAHAN_MENTAH,
   SUMBER_NOTA,
   SUMBER_HPP,
@@ -21,11 +23,18 @@ import {
 } from '../js/modules/inventory/laporan-waste.js';
 
 let gagal = 0;
+// DIHITUNG, bukan ditulis di kalimat penutup.
+//
+// Angkanya dulu ditulis tangan ("56 kasus"), lalu kolom Purpose menambah
+// belasan pemeriksaan dan kalimatnya tetap berbunyi 56 — laporan yang salah
+// tentang dirinya sendiri, di berkas yang tugasnya justru memeriksa kebenaran.
+let n = 0;
 // `JSON.stringify(Infinity)` adalah "null" — penanda dulu supaya angka tak
 // hingga tidak bisa menyamar jadi nilai yang justru diharapkan.
 const bertanda = (_k, v) => (typeof v === 'number' && !Number.isFinite(v) ? `<<${String(v)}>>` : v);
 const tulis = (v) => JSON.stringify(v, bertanda);
 const cek = (nama, dapat, harap) => {
+  n += 1;
   if (tulis(dapat) !== tulis(harap)) {
     gagal++;
     console.error(`❌ ${nama}\n   dapat : ${tulis(dapat)}\n   harap : ${tulis(harap)}`);
@@ -136,11 +145,18 @@ cek('urutan kolom', lap.kolom.map((k) => k.header), [
   'Nilai',
   'Sumber nilai',
   'Keterangan',
+  'Purpose',
   'Catatan',
   'Dicatat oleh',
   'No.',
   'Foto'
 ]);
+
+// Indeks kolom DITURUNKAN dari judulnya mulai sekarang, bukan ditulis sebagai
+// angka. Penambahan kolom Purpose (0147) menggeser tiga pemeriksaan di bawah,
+// dan yang menggeser tidak punya cara tahu berapa tempat lagi yang ikut
+// bergeser diam-diam.
+const K = Object.fromEntries(KOLOM_WASTE.map((k, i) => [k.header, i]));
 cek('tepat satu kolom foto', KOLOM_WASTE.filter((k) => k.foto).length, 1);
 cek('KOLOM_FOTO menunjuk kolom terakhir', KOLOM_FOTO, KOLOM_WASTE.length - 1);
 // Justru menjumlahkan yang jadi alasan orang minta xlsx, bukan PDF.
@@ -156,9 +172,9 @@ cek('keterangan menu di barisnya', barisMenu[7], 'Waste menu Nasi Goreng × 2');
 const barisSpoil = lap.baris.find((r) => r[0] === '2026-09-10');
 cek('keterangan spoil di barisnya', barisSpoil[7], KET_BAHAN_MENTAH);
 cek('sumber nilainya disebut', barisSpoil[6], SUMBER_NOTA);
-cek('catatan ikut', barisSpoil[8], 'kena air');
-cek('pencatatnya ikut', barisSpoil[9], 'Risma');
-cek('nomornya ikut', barisSpoil[10], 'WST-260912-AAAA');
+cek('catatan ikut', barisSpoil[K['Catatan']], 'kena air');
+cek('pencatatnya ikut', barisSpoil[K['Dicatat oleh']], 'Risma');
+cek('nomornya ikut', barisSpoil[K['No.']], 'WST-260912-AAAA');
 
 // Sel foto SENGAJA kosong: modul murni tidak menyentuh jaringan, dan mengubah
 // path jadi data URL berarti mengunduh gambarnya.
@@ -275,11 +291,94 @@ cek(
 const produkHilang = susunRekapWaste({ baris: [{ ...baris[0], bahan_nama: null }] });
 cek('produk terhapus tetap muncul', produkHilang.baris[0][2], '(produk terhapus)');
 
+// =====================================================================
+// PURPOSE (0147) — akun COGS tujuannya di ESB.
+//
+// Yang dijaga di sini bukan tampilannya, melainkan ANGKA PEKERJAANNYA: berapa
+// KEJADIAN yang masih menahan ekspor. Menghitungnya per baris membuat satu
+// waste menu berbahan sepuluh terbaca sebagai sepuluh pekerjaan, dan angka yang
+// sepuluh kali lipat terlalu besar akan diabaikan orang — persis kebalikan dari
+// yang diinginkan.
+// =====================================================================
+cek('posisi kolom Purpose diturunkan dari judulnya', KOLOM_PURPOSE, K['Purpose']);
+cek('Purpose bukan kolom foto', KOLOM_PURPOSE === KOLOM_FOTO, false);
+
+const purposeBaris = (lebih) => ({
+  waste_id: 'w9',
+  outlet_id: OUT_A,
+  outlet_nama: 'AB Sentul',
+  code: 'WST-9',
+  jenis: 'spoil',
+  tanggal: '2026-09-15',
+  qty_kejadian: 1,
+  photo_path: 'a/9.jpg',
+  notes: '',
+  sumber_nama: 'Beras',
+  product_id: 'p-beras',
+  bahan_nama: 'Beras',
+  bahan_satuan: 'kg',
+  bahan_qty: 1,
+  dicatat_oleh: 'Risma',
+  ...lebih
+});
+
+const adaPurpose = susunRekapWaste({ baris: [purposeBaris({ purpose: 'Waste Kitchen' })] });
+cek('purpose tampil di kolomnya', adaPurpose.baris[0][KOLOM_PURPOSE], 'Waste Kitchen');
+cek('purpose ikut di meta, untuk tombol Edit', adaPurpose.meta[0].purpose, 'Waste Kitchen');
+cek('yang sudah ber-purpose tidak dihitung sebagai pekerjaan', adaPurpose.ringkas.kejadianTanpaPurpose, 0);
+
+const kosongPurpose = susunRekapWaste({ baris: [purposeBaris({ purpose: null })] });
+// Sel kosong di berkas Excel terbaca sebagai "tidak berlaku"; ini "belum
+// dikerjakan", dan bedanya menentukan apakah ada yang mengerjakannya.
+cek('purpose kosong DIKATAKAN, bukan sel kosong', kosongPurpose.baris[0][KOLOM_PURPOSE], PURPOSE_KOSONG);
+cek('dan dihitung sebagai satu kejadian yang menahan', kosongPurpose.ringkas.kejadianTanpaPurpose, 1);
+cek('kalimatnya menyebut akibatnya', /tertahan saat diekspor/.test(kosongPurpose.subjudul), true);
+
+for (const v of ['', '   ', null, undefined]) {
+  cek(
+    `purpose ${JSON.stringify(v)} terbaca sebagai kosong`,
+    susunRekapWaste({ baris: [purposeBaris({ purpose: v })] }).ringkas.kejadianTanpaPurpose,
+    1
+  );
+}
+
+// SATU KEJADIAN, BANYAK BARIS BAHAN. Inilah yang dihitung salah kalau
+// penghitungnya per baris.
+const menuBanyak = susunRekapWaste({
+  baris: [
+    purposeBaris({ purpose: null, product_id: 'p-beras', bahan_nama: 'Beras' }),
+    purposeBaris({ purpose: null, product_id: 'p-telur', bahan_nama: 'Telur' }),
+    purposeBaris({ purpose: null, product_id: 'p-gula', bahan_nama: 'Gula' })
+  ]
+});
+cek('tiga baris satu kejadian = satu pekerjaan, bukan tiga', menuBanyak.ringkas.kejadianTanpaPurpose, 1);
+
+// BARIS LAMA tidak punya `waste_runs` — ia tidak bisa diekspor ke ESB sama
+// sekali, jadi Purpose-nya memang tidak berlaku. Menghitungnya sebagai
+// pekerjaan akan menyuruh admin mengerjakan sesuatu yang tidak bisa dikerjakan,
+// selamanya.
+const lamaTanpaPurpose = susunRekapWaste({ baris: [purposeBaris({ purpose: null, lama: true })] });
+cek('baris lama tidak dihitung sebagai pekerjaan', lamaTanpaPurpose.ringkas.kejadianTanpaPurpose, 0);
+cek('dan kolomnya berbunyi "-", bukan "belum diisi"', lamaTanpaPurpose.baris[0][KOLOM_PURPOSE], '-');
+
+// Penanda terkunci diteruskan apa adanya: layar memakainya untuk TIDAK
+// menawarkan tombol yang pasti ditolak database.
+cek(
+  'penanda terkunci diteruskan ke meta',
+  susunRekapWaste({ baris: [purposeBaris({ purpose: 'Waste Bar', esb_terkunci: true })] }).meta[0].terkunci,
+  true
+);
+cek(
+  'yang belum diekspor tidak ikut tertandai terkunci',
+  susunRekapWaste({ baris: [purposeBaris({ purpose: 'Waste Bar' })] }).meta[0].terkunci,
+  false
+);
+
 if (gagal) {
   console.error(`\n${gagal} kasus gagal.`);
   process.exit(1);
 }
 console.log(
-  'Rekap waste/spoil benar untuk 56 kasus — termasuk keterangan per jenis, biaya per outlet, ' +
-    'HPP resep sebagai cadangan untuk barang produksi, dan catatan sebelum foto diwajibkan. ✅'
+  `Rekap waste/spoil benar untuk ${n} kasus — termasuk keterangan per jenis, biaya per outlet, ` +
+    'HPP resep sebagai cadangan untuk barang produksi, catatan sebelum foto diwajibkan, dan Purpose ESB. ✅'
 );

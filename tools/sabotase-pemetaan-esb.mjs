@@ -139,7 +139,7 @@ sabotase(
 sabotase(
   'kalimat pengantar menunjuk langkah yang salah',
   PAGE,
-  '<strong>pemetaan di langkah 4 tidak ikut terhapus</strong>',
+  '<strong>pemetaan di langkah 5 tidak ikut terhapus</strong>',
   '<strong>pemetaan di langkah 2 tidak ikut terhapus</strong>',
   'tools/audit-batal-tanda-esb.cjs'
 );

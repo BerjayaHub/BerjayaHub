@@ -99,14 +99,18 @@ export const KOLOM_ESB = [
  * daftar ESB sudah cocok apa adanya. Pemetaannya cuma untuk EJAAN LAMA yang
  * terlanjur diketik sebelum daftarnya ada.
  *
- * `purpose` masuk sejak 0146 dan dipakai HANYA oleh Item Journal — bukan oleh
- * Simple Purchase. Ia ikut di daftar yang sama karena satu layar pemetaan
- * melayani ketiga dokumen, dan jenis yang tidak terdaftar di sini tidak akan
- * pernah punya barisnya sendiri di layar itu: petanya terbentuk (`buatPeta`
- * membacanya dari `JENIS_PETA`), tapi tidak ada satu pun cara mengisinya.
- * Kemampuannya ada di database, jalannya tidak ada di layar.
+ * `purpose` SEMPAT ada di sini (0146) dan dicabut lagi di 0147 — berkas Master
+ * Purpose yang sesungguhnya membantah bentuk pemetaannya. Sumbunya bukan "rusak
+ * atau terbuang" melainkan "dapur, bar, atau kemasan", dan itu tidak bisa
+ * diturunkan dari data yang ada; ia dipilih orang yang melihat barangnya, lalu
+ * disimpan di `waste_runs.purpose`.
+ *
+ * `esb_master` jenis 'purpose' tetap dipakai — sebagai DAFTAR PILIHAN
+ * dropdown-nya, bukan sebagai pemetaan. Membiarkannya di daftar ini akan
+ * memunculkan kelompok "Purpose" kosong di layar pemetaan yang tidak bisa
+ * dikerjakan siapa pun.
  */
-export const JENIS_PETA = ['branch', 'location', 'payment_method', 'coa', 'unit', 'item', 'supplier', 'purpose'];
+export const JENIS_PETA = ['branch', 'location', 'payment_method', 'coa', 'unit', 'item', 'supplier'];
 
 /**
  * Batas desimal harga yang diterima ESB.

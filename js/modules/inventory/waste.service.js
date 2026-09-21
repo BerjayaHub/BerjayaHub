@@ -48,17 +48,23 @@ export async function unggahFotoWaste(outletId, file) {
  * (0135), karena PWA di HP staff bisa tertinggal versi dan layar berikutnya
  * bisa ditulis orang yang tidak tahu aturannya.
  */
-export async function catatWaste({ outletId, jenis, productId, qty, photoPath, notes }) {
+export async function catatWaste({ outletId, jenis, productId, qty, photoPath, notes, purpose }) {
   if (!photoPath) throw new Error('Foto wajib diisi sebelum menyimpan.');
   const { data, error } = await supabase.rpc(
     'catat_waste',
+    // `argumenRpc` mengubah `undefined` jadi `null`, dan itu WAJIB di sini:
+    // PostgREST memilih overload lewat HIMPUNAN NAMA ARGUMEN, dan
+    // `JSON.stringify` membuang kunci yang bernilai `undefined`. Tanpa itu,
+    // pemanggilan tanpa purpose akan mencari `catat_waste` berargumen enam —
+    // yang sengaja sudah dibuang di 0147 — dan gagal dengan 42883.
     argumenRpc({
       p_outlet: outletId,
       p_jenis: jenis,
       p_product: productId,
       p_qty: qty,
       p_photo: photoPath,
-      p_notes: notes ?? null
+      p_notes: notes ?? null,
+      p_purpose: purpose ?? null
     })
   );
   if (error) throw new Error(error.message ?? String(error));
@@ -93,25 +99,38 @@ export async function rekapWaste(businessUnitId, { outletId = null, dateFrom = n
       return q.range(dari, sampai);
     });
 
-  try {
+  // KOLOM BARU TIDAK BOLEH MENYANDERA SELURUH LAYAR.
+  //
+  // Ini pernah terjadi sungguhan pada 0122: kode yang meminta kolom baru
+  // di-push lebih dulu daripada migrationnya dijalankan, PostgREST menolak
+  // SELURUH permintaan karena satu kolom tidak dikenal, dan layarnya kehilangan
+  // bukan satu kolom — melainkan seluruh daftarnya.
+  //
+  // Jeda antara push dan menjalankan migration itu wajar dan akan terjadi lagi,
+  // jadi permintaannya menurun setingkat demi setingkat:
+  //
+  //   purpose & esb_terkunci (0147) -> lama (0136) -> kolom dasar (0135)
+  //
+  // Galat yang TIDAK menyebut kolom yang sedang dicoba dilempar apa adanya —
+  // menelannya akan membuat masalah izin atau jaringan menyamar jadi "kolomnya
+  // belum ada", dan yang mencarinya membuka SQL Editor untuk migration yang
+  // sebenarnya sudah jalan.
+  const tingkat = [
     // `lama` (0136) menandai catatan sebelum foto diwajibkan. Fotonya memang
     // tidak pernah ada — bukan hilang — dan layar harus bisa mengatakan itu
     // alih-alih menampilkan sel kosong yang terbaca sebagai "staffnya lupa".
-    return await ambil(`${KOLOM_DASAR}, lama`);
-  } catch (e) {
-    // KOLOM BARU TIDAK BOLEH MENYANDERA SELURUH LAYAR.
-    //
-    // Ini pernah terjadi sungguhan pada 0122: kode yang meminta kolom baru
-    // di-push lebih dulu daripada migrationnya dijalankan, PostgREST menolak
-    // SELURUH permintaan karena satu kolom tidak dikenal, dan layarnya
-    // kehilangan bukan satu kolom — melainkan seluruh daftarnya.
-    //
-    // Jeda antara push dan menjalankan migration itu wajar dan akan terjadi
-    // lagi. Kalau `lama` belum ada, rekapnya tetap tampil; yang hilang cuma
-    // penandanya.
-    if (!/\blama\b/.test(String(e?.message ?? ''))) throw e;
-    return await ambil(KOLOM_DASAR);
+    { kolom: `${KOLOM_DASAR}, lama, purpose, esb_terkunci`, pola: /\b(purpose|esb_terkunci)\b/ },
+    { kolom: `${KOLOM_DASAR}, lama`, pola: /\blama\b/ },
+    { kolom: KOLOM_DASAR, pola: null }
+  ];
+  for (const t of tingkat) {
+    try {
+      return await ambil(t.kolom);
+    } catch (e) {
+      if (!t.pola || !t.pola.test(String(e?.message ?? ''))) throw e;
+    }
   }
+  return [];
 }
 
 /**
@@ -137,6 +156,24 @@ export async function getBiayaRataBu(businessUnitId) {
   const peta = new Map();
   for (const b of baris) peta.set(`${b.outlet_id}|${b.product_id}`, Number(b.rata));
   return peta;
+}
+
+/**
+ * Isi/ubah Purpose beberapa kejadian waste sekaligus (0147).
+ *
+ * Dipakai Admin Portal untuk mengisi MUNDUR kejadian yang tercatat sebelum
+ * kolomnya ada. Kejadian yang sudah diekspor ke ESB ditolak database-nya, dan
+ * pesannya menyebut jalan keluarnya.
+ *
+ * @returns {Promise<number>} berapa kejadian yang benar-benar berubah
+ */
+export async function ubahPurposeWaste(wasteIds, purpose) {
+  const { data, error } = await supabase.rpc(
+    'ubah_purpose_waste',
+    argumenRpc({ p_waste: wasteIds, p_purpose: String(purpose ?? '') })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data) || 0;
 }
 
 /** Satu foto untuk dilihat di layar. */

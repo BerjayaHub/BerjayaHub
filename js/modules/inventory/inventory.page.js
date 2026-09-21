@@ -18,13 +18,14 @@ import { sesiTerbuka, catatHitungan, itemOpname } from './opname.service.js';
 import { SARING, susunDaftar, nilaiKotak, sudahDihitung, keteranganHitung, hitungBelumTersimpan, peringatanTurun } from './opname-daftar.js';
 import { renderNotaStaff } from './nota-staff.js';
 import { renderMenipisStaff } from './menipis-staff.js';
+import { opsiPurpose, purposeWajib, periksaPurpose, PESAN_BELUM_ADA_DAFTAR } from './purpose-esb.js';
 
 export async function renderInventoryPage(container, { userId, businessUnitId, outletId }) {
   container.innerHTML = loadingHtml('Memuat inventory…');
 
-  let outlets, products, recipes, allowOpname, daftarSupplier;
+  let outlets, products, recipes, allowOpname, daftarSupplier, daftarPurpose;
   try {
-    [outlets, products, recipes, allowOpname, daftarSupplier] = await Promise.all([
+    [outlets, products, recipes, allowOpname, daftarSupplier, daftarPurpose] = await Promise.all([
       listMyOutlets(businessUnitId).then((all) => all.map((o) => ({ id: o.id, name: o.name }))),
       listProducts(businessUnitId),
       listRecipesFull(businessUnitId),
@@ -33,7 +34,13 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       // dijalankan, atau RLS-nya menutup — berarti daftar kosong, dan kolom
       // Supplier tetap kotak teks bebas seperti sebelumnya. Layar Bahan tidak
       // boleh mati hanya karena satu daftar tambahan tidak terbaca.
-      listEsbMaster(businessUnitId, 'supplier').catch(() => [])
+      listEsbMaster(businessUnitId, 'supplier').catch(() => []),
+      // Daftar Purpose ESB (0147). Alasan `catch` yang sama dengan supplier di
+      // atas, dan di sini taruhannya lebih besar: barang yang sudah rusak tidak
+      // menunggu daftar induk terbaca. Gagal dimuat berarti kolomnya tidak
+      // muncul dan kejadiannya tersimpan tanpa Purpose — tertahan saat
+      // diekspor, dengan alasan yang terbaca, dan bisa diisi admin belakangan.
+      listEsbMaster(businessUnitId, 'purpose').catch(() => [])
     ]);
   } catch (error) {
     container.innerHTML = `<p class="error-text">Gagal memuat: ${error.message ?? error}</p>`;
@@ -364,12 +371,21 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
   // waste tanpa foto tidak menghasilkan error apa pun: stoknya berkurang, dan
   // rekapnya cuma diam-diam tidak bisa dipertanggungjawabkan.
   // =====================================================================
+  // PURPOSE: dipilih orang yang melihat barangnya, bukan diturunkan.
+  //
+  // "Waste Kitchen / Waste Bar / Packaging Spoil" tidak bisa disimpulkan dari
+  // jenis waste maupun dari kategori produk — gula yang sama terbuang di dapur
+  // hari ini dan di bar besok. Lihat `purpose-esb.js`.
+  const purposeOptions = opsiPurpose(daftarPurpose);
+  const adaPurpose = purposeWajib(purposeOptions);
+
   container.querySelector('#inv-waste').addEventListener('click', sekaliJalan(async () => {
     const v = await formDialog({
       title: 'Catat Waste / Spoil',
       description:
         'Waste = menu jadi yang terbuang (bahan dipotong sesuai resep). Spoil = bahan rusak/kedaluwarsa. ' +
-        'Fotonya wajib — itu satu-satunya bukti yang tersisa setelah barangnya dibuang.',
+        'Fotonya wajib — itu satu-satunya bukti yang tersisa setelah barangnya dibuang.' +
+        (adaPurpose ? '' : ` ${PESAN_BELUM_ADA_DAFTAR}`),
       fields: [
         {
           name: 'kind',
@@ -392,6 +408,25 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
           required: true,
           help: 'Wajib. Foto bahan yang rusak, atau menu yang terbuang.'
         },
+        // Barisnya hanya ada kalau daftarnya ada. Kotak kosong yang tidak bisa
+        // diisi cuma menambah satu hal untuk ditebak artinya oleh staff.
+        ...(adaPurpose
+          ? [
+              {
+                name: 'purpose',
+                label: 'Purpose (ESB)',
+                type: 'select',
+                required: true,
+                options: purposeOptions.map((o) => ({
+                  value: o.value,
+                  // Purpose Account ikut di labelnya — tiga namanya mirip, dan
+                  // yang membedakannya justru akun tujuannya.
+                  label: o.hint ? `${o.label} — ${o.hint}` : o.label
+                })),
+                help: 'Menentukan biaya waste ini masuk ke akun COGS yang mana di ESB.'
+              }
+            ]
+          : []),
         { name: 'notes', label: 'Alasan (opsional)', type: 'text', placeholder: 'mis. kedaluwarsa / salah buat' }
       ],
       submitText: 'Simpan',
@@ -418,6 +453,12 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     if (jenis === 'menu' && !menuProducts.length) return toast('Belum ada produk bertipe Menu.', 'warning');
     if (!productId) return toast(jenis === 'menu' ? 'Pilih menu yang terbuang.' : 'Pilih bahan yang rusak.', 'warning');
 
+    // Diperiksa DI SINI, sebelum fotonya diunggah. Unggahan yang berhasil lalu
+    // ditolak `catat_waste` meninggalkan berkas yatim di Storage — dan staff
+    // yang mengulanginya mengunggahnya lagi.
+    const cekPurpose = periksaPurpose(v.purpose, purposeOptions);
+    if (!cekPurpose.boleh) return toast(cekPurpose.sebab, 'warning');
+
     // FOTONYA DIUNGGAH DULU, catatannya dibuat sesudahnya.
     //
     // Urutan ini yang membuat kebijakan Storage bisa memeriksa izinnya dari
@@ -433,7 +474,16 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
     }
 
     try {
-      await catatWaste({ outletId: state.outletId, jenis, productId, qty, photoPath, notes: v.notes });
+      await catatWaste({
+        outletId: state.outletId,
+        jenis,
+        productId,
+        qty,
+        photoPath,
+        notes: v.notes,
+        // Ejaan DARI DAFTARNYA, bukan dari kotaknya.
+        purpose: cekPurpose.nilai
+      });
       toast(
         jenis === 'menu' ? 'Waste menu tercatat — bahan dipotong sesuai resep.' : 'Spoil bahan tercatat.',
         'success'

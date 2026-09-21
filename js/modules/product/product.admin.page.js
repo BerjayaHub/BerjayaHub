@@ -9,8 +9,9 @@ import { cocokSaringan, daftarKategori, daftarSubKategori } from './saringan.js'
 import { susunBukuResep } from './buku-resep.js';
 import { susunPanelBahan } from './panel-bahan.js';
 import { exportTablePDF } from '../../core/pdf.js';
-import { exportTableXLSX, exportSheetsXLSX } from '../../core/xlsx.js';
+import { exportTableXLSX, exportSheetsXLSX, loadXLSX } from '../../core/xlsx.js';
 import { susunEksporProduk } from './ekspor-produk.js';
+import { KOLOM_SKU, barisTemplateSku, bacaTemplateSku, susunPerubahanSku, pesanPerubahanSku } from './sku-template.js';
 import { importProducts, importRecipes, downloadProductTemplate, downloadRecipeTemplate } from './product-import.js';
 import { openRecipeEditor, MODE_LABEL, modesForType } from './recipe-editor.js';
 import {
@@ -20,6 +21,7 @@ import {
   createProduct,
   updateProduct,
   deleteProduct,
+  ubahSkuProduk,
   deleteRecipe,
   getRecipeForProduct,
   saveRecipe,
@@ -92,6 +94,13 @@ async function renderProductsTab(content, businessUnitId) {
         <button id="btn-tpl-product">Template</button>
         <button id="btn-import-product">Import Excel</button>
         <button id="btn-export-product">⇩ Export Excel</button>
+        <!-- KODE SKU punya tombolnya sendiri, bukan menumpang Import Excel.
+             Jalur itu MEMBUAT produk dari nama; yang ini cuma mengisi satu
+             kolom pada produk yang sudah ada, dicocokkan lewat ID. Menyatukan
+             keduanya berarti satu berkas yang salah sasaran bisa melahirkan
+             ratusan produk kembar. -->
+        <button id="btn-tpl-sku" title="Unduh daftar semua bahan beserta kolom kode SKU untuk diisi">⇩ Template Kode SKU</button>
+        <button id="btn-unggah-sku" title="Unggah template yang sudah diisi">⇧ Unggah Kode SKU</button>
         <button class="primary" id="btn-new-product" style="max-width:180px">+ Tambah Produk</button>
       </div>
     </div>
@@ -161,6 +170,23 @@ async function renderProductsTab(content, businessUnitId) {
   document.getElementById('btn-import-product').addEventListener('click', () =>
     openImport(content, businessUnitId, 'products', () => renderProductsTab(content, businessUnitId))
   );
+
+  // ---- Kode SKU: unduh berisi, isi di Excel, unggah kembali ----
+  document.getElementById('btn-tpl-sku').addEventListener(
+    'click',
+    sekaliJalan(async () => {
+      const baris = barisTemplateSku(products);
+      if (!baris.length) return toast('Belum ada bahan untuk diisi kodenya.', 'info');
+      // Header di BARIS PERTAMA, tanpa judul di atasnya — berkas ini dibaca
+      // kembali oleh aplikasi ini sendiri, dan `exportTableXLSX` menyisipkan
+      // baris judul yang akan menggeser seluruh datanya.
+      await unduhTemplateSku(baris);
+      toast(`${baris.length} bahan terunduh. Isi kolom "Kode SKU (ESB)", lalu unggah kembali.`, 'success');
+    }, { teks: 'Menyiapkan…' })
+  );
+  document.getElementById('btn-unggah-sku').addEventListener('click', () =>
+    unggahSku(content, businessUnitId, products, () => renderProductsTab(content, businessUnitId))
+  );
   content.querySelectorAll('.btn-edit-product').forEach((btn) =>
     btn.addEventListener('click', () => openProductDialog(content, businessUnitId, JSON.parse(btn.dataset.json)))
   );
@@ -177,6 +203,118 @@ async function renderProductsTab(content, businessUnitId) {
       }
     }))
   );
+}
+
+/**
+ * Tulis template SKU: header di BARIS PERTAMA, tanpa judul apa pun di atasnya.
+ *
+ * `exportTableXLSX` menyisipkan baris judul & subjudul — bagus untuk laporan
+ * yang dibaca manusia, salah untuk berkas yang dibaca kembali oleh aplikasi
+ * ini sendiri. `bacaTemplateSku` memang MENCARI barisnya alih-alih mengunci
+ * nomor baris, jadi berkas berjudul pun akan terbaca; tapi mengandalkan itu
+ * berarti bertaruh pada penjaga yang lain, dan taruhan itu tidak perlu.
+ */
+async function unduhTemplateSku(baris) {
+  const XLSX = await loadXLSX();
+  const ws = XLSX.utils.aoa_to_sheet([KOLOM_SKU, ...baris]);
+  // ID panjang, nama panjang; tanpa lebar kolom orangnya menyeret enam kolom
+  // sebelum bisa membaca barisnya.
+  ws['!cols'] = [{ wch: 38 }, { wch: 34 }, { wch: 14 }, { wch: 18 }, { wch: 12 }, { wch: 20 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Kode SKU');
+  XLSX.writeFile(wb, `template-kode-sku-${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
+/**
+ * Unggah template SKU yang sudah diisi.
+ *
+ * ============ DITAMPILKAN DULU, BARU DISIMPAN ============
+ *
+ * Unggahan ini menyentuh ratusan baris sekaligus, dan salah berkas adalah
+ * kesalahan yang wajar: templatenya diunduh berkali-kali dan menumpuk di
+ * folder Downloads dengan nama yang mirip. Ringkasan sebelum menyimpan membuat
+ * "0 kode akan diisi" terbaca SEBELUM orangnya mengira pekerjaannya tersimpan.
+ */
+async function unggahSku(content, businessUnitId, products, sesudah) {
+  const v = await formDialog({
+    title: 'Unggah Kode SKU',
+    description:
+      'Pakai berkas hasil "Template Kode SKU" yang sudah kamu isi. Baris yang kolom kodenya dikosongkan ' +
+      'DIBIARKAN apa adanya — mengosongkannya tidak menghapus kode yang sudah ada.',
+    fields: [{ name: 'file', label: 'Berkas .xlsx', type: 'file', accept: '.xlsx,.xls', required: true }],
+    submitText: 'Baca berkas'
+  });
+  if (!v?.file) return;
+
+  let hasil;
+  let tanpaId = 0;
+  try {
+    const XLSX = await loadXLSX();
+    const wb = XLSX.read(await v.file.arrayBuffer(), { type: 'array' });
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+    const dibaca = bacaTemplateSku(aoa);
+    tanpaId = dibaca.tanpaId;
+    hasil = susunPerubahanSku(dibaca.baris, new Map(products.map((p) => [p.id, p])));
+  } catch (e) {
+    return toast(e.message ?? 'Berkasnya tidak bisa dibaca.', 'error');
+  }
+
+  const rincian = [
+    hasil.kembar.length
+      ? `<p class="error-text" style="margin:8px 0 0"><strong>Kode kembar — tidak akan disimpan:</strong><br>${hasil.kembar
+          .map((k) => escapeHtml(k))
+          .join('<br>')}</p>`
+      : '',
+    hasil.asing.length
+      ? `<p style="margin:8px 0 0;font-size:0.82rem;color:var(--color-text-muted)">${hasil.asing.length} baris menunjuk produk yang sudah tidak ada — dilewati.</p>`
+      : ''
+  ].join('');
+
+  if (!hasil.ubah.length) {
+    return infoDialog({
+      title: 'Tidak ada yang berubah',
+      bodyHtml: `<p>${escapeHtml(pesanPerubahanSku(hasil, tanpaId))}</p>${rincian}`
+    });
+  }
+
+  const ok = await confirmDialog({
+    title: `Simpan ${hasil.ubah.length} kode SKU?`,
+    // Sepuluh contoh saja: daftar 600 baris di dalam dialog tidak dibaca siapa
+    // pun, dan tombol Simpan-nya terdorong keluar layar.
+    message:
+      `${escapeHtml(pesanPerubahanSku(hasil, tanpaId))}<br><br>` +
+      hasil.ubah
+        .slice(0, 10)
+        .map((u) => `${escapeHtml(products.find((p) => p.id === u.id)?.name ?? u.id)} → <strong>${escapeHtml(u.sku)}</strong>`)
+        .join('<br>') +
+      (hasil.ubah.length > 10 ? `<br>… dan ${hasil.ubah.length - 10} lagi` : '') +
+      rincian,
+    confirmText: 'Simpan'
+  });
+  if (!ok) return;
+
+  try {
+    const r = await ubahSkuProduk(businessUnitId, hasil.ubah);
+    // Angka dari database DIBANDINGKAN dengan yang dikirim. Bentrokan yang
+    // hanya ketahuan di server (produk yang kodenya diubah orang lain semenit
+    // lalu) dilaporkan di sini, bukan ditelan jadi "berhasil".
+    const sisa = hasil.ubah.length - r.diubah;
+    if (r.bentrok.length) {
+      await infoDialog({
+        title: `${r.diubah} tersimpan, ${r.bentrok.length} bentrok`,
+        bodyHtml: `<p>Kode berikut sudah dipakai produk lain, jadi tidak disimpan:</p><p>${r.bentrok
+          .map((b) => escapeHtml(b))
+          .join('<br>')}</p>`
+      });
+    } else if (sisa > 0) {
+      toast(`${r.diubah} dari ${hasil.ubah.length} kode tersimpan — ${sisa} tidak berubah di server.`, 'warning');
+    } else {
+      toast(`${r.diubah} kode SKU tersimpan.`, 'success');
+    }
+  } catch (e) {
+    return toast(e.message ?? 'Gagal menyimpan kode SKU.', 'error');
+  }
+  await sesudah();
 }
 
 /**

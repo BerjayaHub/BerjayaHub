@@ -185,11 +185,15 @@ sabotase(
   '      void barisWaste;',
   TES
 );
+// Purpose berpindah rumah di 0147: bukan lagi dipetakan dari `jenis`,
+// melainkan dibaca dari `waste_runs.purpose` yang dipilih staff. Sabotase
+// aturannya sekarang ada di tools/sabotase-0147.mjs; yang tersisa di sini cuma
+// menjaga jalur lamanya tidak diam-diam kembali.
 sabotase(
-  'Purpose diambil dari catatan staff — teks bebas yang tidak akan pernah cocok dengan master ESB',
+  'Purpose kembali dipetakan dari jenis waste — sumbunya salah, akun COGS-nya salah',
   MURNI,
-  "const purpose = peta?.purpose?.get?.(teks(w.jenis).toLowerCase()) ?? null;",
-  "const purpose = peta?.purpose?.get?.(teks(w.notes).toLowerCase()) ?? null;",
+  '    const purpose = teks(w.purpose) || null;',
+  "    const purpose = peta?.purpose?.get?.(teks(w.jenis).toLowerCase()) ?? null;",
   AUDIT
 );
 sabotase(
@@ -217,17 +221,17 @@ sabotase(
 console.log('\nSABOTASE JALAN DI LAYARNYA — kemampuan yang ada tapi tak terjangkau:');
 
 sabotase(
-  "'purpose' dicabut dari JENIS_PETA — petanya tak pernah terisi, seluruh waste tertahan",
+  "'purpose' kembali jadi jenis pemetaan — kelompok kosong yang tidak bisa dikerjakan siapa pun",
   PURCHASE,
-  "'supplier', 'purpose']",
-  "'supplier']",
+  "'unit', 'item', 'supplier'];",
+  "'unit', 'item', 'supplier', 'purpose'];",
   TES
 );
 sabotase(
-  'kunci Purpose "dipercantik" — tidak akan pernah ditemukan saat mengekspor',
+  'alasan "purpose-kosong" kehilangan labelnya — tabel penahan menampilkan kode mentah',
   ADMIN,
-  "  { kunci: 'spoil', label: 'bahan rusak / kedaluwarsa' },",
-  "  { kunci: 'Spoil bahan', label: 'bahan rusak / kedaluwarsa' },",
+  "  'purpose-kosong': 'Purpose kosong (isi di Rekap Waste / Spoil)'",
+  "  'purpose-belum': 'Purpose kosong (isi di Rekap Waste / Spoil)'",
   AUDIT
 );
 sabotase(

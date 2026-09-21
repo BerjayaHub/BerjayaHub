@@ -166,30 +166,32 @@ if (murni) {
   if (!/no -= barisWaste\.length;/.test(kode)) {
     salah('esb-journal.js: nomor baris tidak dikembalikan saat sebuah waste ditahan — berkasnya berangkat dengan No yang melompat.');
   }
-  // Catatan staff TIDAK boleh jadi Purpose: ia teks bebas, ditulis untuk dibaca
-  // manusia, dan tiap baris akan membawa nilai yang berbeda-beda.
-  if (/peta\?\.purpose\?\.get\?\.\(teks\(w\.notes\)/.test(kode)) {
-    salah('esb-journal.js: Purpose diambil dari catatan staff — teks bebas yang tidak akan pernah cocok dengan master ESB.');
+  // PURPOSE DIBACA DARI KEJADIANNYA (0147), tidak dipetakan dan tidak ditebak.
+  //
+  // Sampai 0146 ia dipetakan dari `jenis` waste. Berkas Master Purpose yang
+  // sesungguhnya membantah bentuk itu: sumbunya "dapur / bar / kemasan", bukan
+  // "rusak atau terbuang". Aturannya sendiri dijaga tools/audit-purpose-waste.cjs;
+  // yang dijaga DI SINI cuma bahwa jalur lamanya tidak diam-diam kembali.
+  if (/peta\?\.purpose/.test(kode)) {
+    salah('esb-journal.js: Purpose kembali dipetakan — lihat tools/audit-purpose-waste.cjs untuk alasan lengkapnya.');
   }
-  if (!/peta\?\.purpose\?\.get\?\.\(teks\(w\.jenis\)\.toLowerCase\(\)\)/.test(kode)) {
-    salah('esb-journal.js: Purpose tidak lagi dipetakan dari `jenis` waste-nya.');
+  if (!/const purpose = teks\(w\.purpose\) \|\| null;/.test(kode)) {
+    salah('esb-journal.js: Purpose tidak dibaca dari kejadiannya.');
   }
 }
 
 // ---------------------------------------------------------------
-// 3. Jenis pemetaan 'purpose' punya JALAN DI LAYAR.
+// 3. Purpose BUKAN jenis pemetaan.
 //
-// Pola yang sudah beberapa kali muncul di proyek ini: kemampuannya ada di
-// database, jalannya tidak ada di layar. Jenis yang tidak terdaftar di
-// JENIS_PETA tidak akan pernah punya barisnya sendiri di layar pemetaan —
-// petanya terbentuk, tapi tidak ada satu pun cara mengisinya, dan SELURUH waste
-// tertahan dengan alasan yang tidak bisa dibereskan.
+// Sempat jadi satu di 0146, dicabut lagi di 0147. Kalau ia kembali, layar
+// pemetaan menumbuhkan kelompok "Purpose" kosong yang tidak bisa dikerjakan
+// siapa pun — dan yang membukanya menyangka ada pekerjaan yang tertinggal.
 // ---------------------------------------------------------------
 const pur = baca('js/modules/inventory/esb-purchase.js');
 if (pur) {
   const kode = bersih(pur, 'esb-purchase.js', ['export const JENIS_PETA']);
-  if (!/JENIS_PETA = \[[^\]]*'purpose'/.test(kode)) {
-    salah("esb-purchase.js: 'purpose' bukan jenis pemetaan — layar pemetaan tidak akan pernah menampilkan barisnya.");
+  if (/JENIS_PETA = \[[^\]]*'purpose'/.test(kode)) {
+    salah("esb-purchase.js: 'purpose' kembali jadi jenis pemetaan — kelompok kosong yang tidak bisa dikerjakan siapa pun.");
   }
 }
 
@@ -307,23 +309,17 @@ if (adm) {
   if (!/wasteBertandaEsb\(\{ businessUnitId, from, to, outletId \}\)/.test(kode)) {
     salah('esb.admin.js: layar "Batalkan tanda ekspor" tidak bisa menampilkan waste yang sudah bertanda.');
   }
-  // Dua baris pemetaan Purpose, kuncinya nilai MENTAH `waste_runs.jenis`.
-  // Kunci yang "dipercantik" tidak akan pernah ditemukan saat mengekspor.
-  if (!/kunci: 'spoil'/.test(kode) || !/kunci: 'menu'/.test(kode)) {
-    salah("esb.admin.js: kunci Purpose bukan 'spoil' dan 'menu' — itulah nilai yang tersimpan di waste_runs.jenis dan yang dicari saat mengekspor.");
-  }
-  if (!/purpose: JENIS_WASTE\.map\(\(w\) => w\.kunci\)/.test(kode)) {
-    salah('esb.admin.js: daftar Purpose yang perlu dipetakan tidak berasal dari JENIS_WASTE.');
-  }
   // Nilai per satuan diambil per OUTLET — biaya beras di Sentul bukan biaya
   // beras di Serpong (0118).
   if (!/getBiayaRataOutlet\(outletId\)/.test(kode)) {
     salah('esb.admin.js: Value per Unit tidak diambil dari biaya rata-rata outlet yang dipilih.');
   }
-  // Alasan "belum ada harga beli" harus punya label yang bisa dibaca; tanpa itu
-  // tabelnya menampilkan "nilai-bahan" mentah dan tidak ada yang tahu artinya.
-  if (!/'nilai-bahan': /.test(kode)) {
-    salah('esb.admin.js: alasan "nilai-bahan" tidak punya label — tabel penahan menampilkan kode mentah.');
+  // Alasan penahan harus punya label yang bisa dibaca; tanpa itu tabelnya
+  // menampilkan kode mentah ("nilai-bahan") dan tidak ada yang tahu artinya.
+  for (const k of ['nilai-bahan', 'purpose-kosong']) {
+    if (!new RegExp(`'${k}': `).test(kode)) {
+      salah(`esb.admin.js: alasan "${k}" tidak punya label — tabel penahan menampilkan kode mentah.`);
+    }
   }
 }
 

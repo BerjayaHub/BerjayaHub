@@ -6813,6 +6813,122 @@ Bentuk selain `YYYY-MM-DD` ditolak, tidak ditebak: menebak `01/09/2026` berarti 
 
 - [x] **Kolom Date Purchase & Transfer berisi tanggal sungguhan** — 19 sabotase
 
+## Jawaban "tidak" untuk pertanyaan yang diajukan, "ya" untuk yang tidak diajukan
+
+> "di berjaya hub tiap item harus punya kode sama seperti esb, untuk import ke waste spoil nya, benar atau tidak?"
+
+**Perlu migration `0148`.**
+
+**Tidak.** Diperiksa di berkas Master Product Data-nya sendiri, bukan dikira-kira: **647 produk ESB semuanya punya `Product Code`**, dan nama → kode-nya 1:1 tanpa satu pun kembar. Kolom `Product Code` di berkas Item Journal sudah terisi hari ini — Berjaya Hub menariknya dari daftar induk ESB lewat nama hasil pemetaan. Ekspor waste jalan tanpa kolom baru apa pun.
+
+Tapi kolomnya tetap dibuat, untuk alasan yang berbeda dari yang ditanyakan — dan itu yang dipilih setelah dibilang begitu.
+
+### Satu-satunya jembatan hari ini adalah nama
+
+`esb_map` kuncinya **nama lokal**. Ganti nama sebuah produk di Master Produk, dan pemetaannya putus tanpa satu pun pesan: produknya tetap ada, ekspornya tetap jalan, dan notanya mulai tertahan dengan alasan *"Item belum dipetakan"* — untuk barang yang sudah dipetakan bertahun-tahun. Kedua ujungnya memang berubah: orang membetulkan ejaan di sini, ESB merapikan namanya di sana.
+
+Kode yang tersimpan di produknya sendiri tidak ikut berubah saat namanya berubah. `⚡ Cocokkan otomatis` sekarang mencoba **kode dulu**, nama sebagai cadangan, dan menyebut berapa yang cocok lewat kode.
+
+### Sel kosong berarti "jangan diapa-apakan"
+
+Aturan yang paling mudah ditulis terbalik, dan paling mahal kalau terbalik. Mengosongkan sel di Excel adalah cara paling wajar mengatakan *"yang ini belum saya urus"*. Kalau ia dibaca sebagai perintah menghapus, unggahan berikutnya membuang ratusan kode yang sudah diisi tangan — dan yang mengunggahnya melihat "berhasil".
+
+Dijaga dua kali: modul murninya melewatinya, dan `ubah_sku_produk` menyaringnya lagi di SQL.
+
+### Dicocokkan lewat ID, bukan nama
+
+Templatenya membawa kolom `ID (jangan diubah)`. Itu bukan kerapian basis data yang bocor ke layar — itu satu-satunya cara unggahannya tidak salah sasaran. Template diunduh Senin, diisi sampai Kamis, dan di antaranya ada yang membetulkan satu nama. Lewat nama, baris itu mendarat di produk yang salah atau tidak mendarat sama sekali.
+
+Yang lain: header **dicari**, bukan diasumsikan di baris pertama; kolom dibaca lewat **judulnya**, jadi kolom yang dipindah orang tetap terbaca; baris tanpa ID dihitung dan dilaporkan (*"fitur ini mengisi kode, tidak membuat produk"*) alih-alih hilang tanpa jejak.
+
+### Dari 647 baris, yang dikirim belasan
+
+Yang nilainya sudah sama tidak ikut dikirim. Mengirim semuanya berarti 647 `updated_at` berubah tanpa ada yang berubah, dan riwayat perubahan yang penuh baris palsu tidak bisa dibaca lagi. Beda huruf besar-kecil **tetap** dianggap perubahan: kalau ESB menulisnya `BCK 25-0110`, itulah yang harus tersimpan.
+
+Bentrokan ditahan di dua tempat — di modul murninya (dua baris berkode sama di berkas yang sama, keduanya ditahan dan namanya disebut) dan di SQL (kode yang sudah dipakai produk lain). Diserahkan ke indeks uniknya, yang keluar `23505` yang menyebut nama indeks, bukan produk mana yang bertabrakan — dan karena seluruhnya satu transaksi, satu bentrokan membatalkan 646 baris lain tanpa penjelasan.
+
+### `listProducts` dipakai belasan layar
+
+Menambah satu kolom ke `select`-nya berarti: kalau `0148` belum dijalankan sementara kodenya sudah di-push, PostgREST menolak **seluruh** permintaan karena satu kolom tidak dikenal — dan yang mati bukan satu kolom, melainkan Master Produk, Bahan, Order, Pengiriman, Menu, dan rekap waste sekaligus. Pelajaran `0122`, dengan taruhan jauh lebih besar. Jadi permintaannya turun setingkat, dan galat yang **bukan** tentang `sku` dilempar apa adanya.
+
+### Dua klaim saya yang ternyata salah
+
+Sabotase menemukan enam lolos; dua di antaranya bukan lubang di kode, melainkan **kalimat saya yang tidak benar**:
+
+| Klaim saya | Yang sebenarnya |
+|---|---|
+| "indeks uniknya harus parsial, kalau tidak produk kedua yang belum berkode ditolak" | Postgres menganggap tiap `NULL` **berbeda** — diperiksa langsung di PGlite: tiga baris ber-`sku` NULL lolos di indeks unik biasa. Parsialnya pilihan **ukuran**, bukan penjaga kebenaran |
+| "pembatas BU pada `update` mencegah id nyasar menyentuh BU lain" | Pencarian nama di atasnya sudah menolaknya. Ia **lapis kedua**, dan sekarang ditulis begitu |
+
+Keduanya tidak dihapus — komentarnya yang diperbaiki, dan sabotasenya dipindah ke audit dengan alasan yang jujur. Satu sabotase saya bahkan **bukan sabotase**: `const iHeader = 0 || isi.findIndex(…)` bernilai sama persis dengan aslinya, jadi "tertangkap" di sana tidak membuktikan apa pun.
+
+Tiga sisanya jebakan yang sama seperti biasa — **sasaran yang ada di tempat lain**: `confirmDialog({` yang ditemukan di fitur hapus produk, `and p.business_unit_id = p_bu` yang ditemukan di pencarian nama, dan urutan dua baris yang tetap benar meski isinya sudah tidak mengerjakan apa-apa.
+
+- [x] **Kode SKU produk: template unduh-isi-unggah + pemetaan lewat kode** (`0148`) — 32 sabotase
+
+## Berkas yang membantah rancangan saya
+
+> "pemetaan master purpose yang ada di esb, file nya saya lampirkan di chat ini, pemetaan nya sepertinya per kategori yaitu bahan bar, bahan kitchen dan packaging, silahkan di revisi"
+
+**Perlu migration `0147`.**
+
+`0146` memperlakukan Purpose sebagai **pemetaan**: jenis waste (`spoil` / `menu`) dipetakan ke satu nilai Purpose ESB. Berkas Master Purpose yang sesungguhnya membantah bentuk itu dalam tiga baris:
+
+```
+  Waste Kitchen    -> COGS - Food
+  Waste Bar        -> COGS - Beverage
+  Packaging Spoil  -> COGS - Other
+```
+
+Sumbunya **"dapur, bar, atau kemasan"** — bukan "rusak atau terbuang". Rancangan saya salah sumbu, dan salahnya tidak akan pernah terlihat di layar mana pun: tiap waste tetap berangkat membawa sebuah Purpose yang sah.
+
+### Kategori produk juga bukan jawabannya
+
+Dugaan berikutnya — turunkan dari kategori produk — dikejar sampai datanya diperiksa, lalu ditinggalkan. Di ESB kategorinya satu (`Bahan Baku`), sub-kategorinya dua puluh, dan tak satu pun terbelah bersih jadi tiga: `Dairy` bisa masuk dapur atau bar, `Utility` dan `Outlet` tidak jelas ke mana. Kategori di Berjaya Hub lebih lemah lagi — diketik sendiri, dan tidak pernah dibuat untuk pertanyaan ini.
+
+Yang menentukan bukan barangnya, melainkan **di mana ia terbuang**. Gula yang sama terbuang di dapur hari ini dan di bar besok. Jadi yang memilihnya orang yang berdiri di depan barangnya, dan pilihannya disimpan apa adanya di `waste_runs.purpose`.
+
+### Wajib — kecuali kalau belum mungkin
+
+Satu aturan yang mudah ditulis terbalik: **wajib hanya kalau daftarnya ada.**
+
+Sebelum admin mengimpor Master Purpose, daftarnya kosong. Kalau isiannya tetap wajib, staff berdiri di dapur dengan barang rusak di tangan dan tombol Simpan yang menolak — karena sebuah berkas Excel belum diunggah. Maka: daftarnya kosong → kolomnya tidak muncul, kejadiannya tersimpan tanpa Purpose, ekspor ESB yang menahannya, dan admin mengisinya belakangan. Sama persis dengan aturan supplier di `0144`, dan dijaga di tiga tempat yang berbeda.
+
+### Mengisi mundur, dan yang tidak boleh diisi mundur
+
+Seluruh waste yang sudah ada tidak punya Purpose — kolomnya baru lahir. Jadi rekap Waste / Spoil dapat kolom Purpose yang sekaligus **tombol**: yang kosong berbunyi "belum diisi — isi", dan dialognya memakai dropdown yang sama dengan form staff.
+
+Tiga keadaan sengaja **tidak** diberi tombol, dan ketiganya berbunyi beda:
+
+| Keadaan | Sebabnya | Tulisannya |
+|---|---|---|
+| baris sebelum `0135` | tidak punya `waste_runs` sama sekali — tidak akan pernah bisa diekspor | *tidak berlaku* |
+| sudah diekspor ke ESB | berkasnya sudah berangkat membawa nilai lama | *terkunci — sudah diekspor* |
+| daftar induk tak terbaca | masalahnya di tempat lain | *impor Master Purpose dulu* |
+
+Menyamakan ketiganya jadi "tombolnya tidak ada" akan membuat admin menunggu sesuatu yang tidak akan datang.
+
+### Angka pekerjaannya dihitung per kejadian
+
+Satu waste menu melahirkan sepuluh baris bahan yang berbagi **satu** Purpose. Menghitungnya per baris membuat satu pekerjaan terbaca sebagai sepuluh — dan angka yang sepuluh kali lipat terlalu besar akan diabaikan orang, persis kebalikan dari yang diinginkan.
+
+### Tanda tangan lama dibuang, bukan didampingi
+
+`catat_waste` bertambah satu argumen. Tanda tangan enam-argumennya **dihapus**: PostgREST memilih overload lewat himpunan nama argumen, jadi permintaan yang kehilangan `p_purpose` akan diam-diam memilih yang lama dan tersimpan tanpa Purpose — tanpa satu pun pesan. Lebih baik PWA lama mendapat galat yang jelas.
+
+### Empat sabotase yang lolos — satu di antaranya lubang sungguhan
+
+| Sabotase | Apa yang sebenarnya terjadi |
+|---|---|
+| BU pemeriksanya diambil dari baris mana pun | **lubang nyata**: array campuran dua BU bisa membuat `limit 1` memilih waste milik BU lain yang daftarnya kosong — keadaan "belum diimpor" berlaku, nilai apa pun diterima, lalu ditulis ke baris milik BU sendiri. Tesnya ditambah |
+| tabel tidak dimuat ulang sesudah diisi | audit mencari `await muat();` di seluruh berkas, dan kemunculannya yang lain masih ada |
+| tanda tangan 6-argumen dibiarkan hidup | tes PGlite-nya tidak pernah membuat tanda tangan itu, jadi `drop` yang dihapus tidak menghapus apa pun. Harness-nya sekarang memasangnya lebih dulu |
+| jangkar sabotasenya muncul dua kali | yang dirusak jalur staff, bukan jalur admin |
+
+Dan satu bug yang saya buat sendiri saat menulisnya: **kunci kembar di satu objek literal**. `LABEL_JENIS` sempat punya dua `purpose:`, yang satu nama jenis daftar induk dan yang satu alasan penahan. JavaScript membolehkannya, yang belakangan menang, dan langkah "Daftar induk ESB" berbunyi *"5 Purpose kosong (isi di Rekap Waste / Spoil)"*. `node --check` diam. Auditnya sekarang menghitung kunci kembar.
+
+- [x] **Purpose dipilih staff, diisi mundur oleh admin** (`0147`) — 47 sabotase
+
 ## Berkas yang tidak menyebut outlet mana pun
 
 > "tambah ekspor esb untuk waste / spoil, template nya saya lampirkan, tolong di cek, bila ada yang kurang dari data berjaya hub silahkan di infokan"

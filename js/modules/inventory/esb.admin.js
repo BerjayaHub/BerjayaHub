@@ -76,7 +76,9 @@ const LABEL_JENIS = {
   unit: 'Unit',
   item: 'Item',
   supplier: 'Supplier',
-  purpose: 'Purpose (Item Journal)',
+  // Purpose BUKAN pemetaan (lihat 0147) — ia daftar pilihan yang dipakai form
+  // waste. Labelnya tetap ada karena langkah "Daftar induk ESB" menghitungnya.
+  purpose: 'Purpose',
   // Tiga di bawah ini BUKAN pemetaan — tidak ada dropdown untuk memperbaikinya.
   // Ia muncul di tabel "belum dipetakan" karena tabel itulah satu-satunya
   // tempat alasan sebuah dokumen tertahan bisa terbaca. Perbaikannya di nota
@@ -89,20 +91,17 @@ const LABEL_JENIS = {
   // tidak punya biaya rata-rata (0118), dan Item Journal menuntut
   // `Value per Unit`. Mengirim 0 berarti "bahannya gratis" — ESB menerimanya
   // tanpa keluhan, dan nilai kerugiannya jadi lebih kecil dari yang sebenarnya.
-  'nilai-bahan': 'Belum ada harga beli (input dulu notanya)'
+  'nilai-bahan': 'Belum ada harga beli (input dulu notanya)',
+  // KUNCINYA 'purpose-kosong', BUKAN 'purpose'.
+  //
+  // Objek ini melayani dua hal yang berbeda: nama JENIS daftar induk ("5
+  // Purpose tersimpan") dan ALASAN sebuah dokumen tertahan. Percobaan pertama
+  // memakai kunci `purpose` untuk keduanya — dan karena kunci kembar di satu
+  // objek literal itu sah di JavaScript, yang belakangan menang diam-diam:
+  // langkah "Daftar induk ESB" berbunyi "5 Purpose kosong (isi di Rekap Waste
+  // / Spoil)". Tidak ada galat, tidak ada peringatan.
+  'purpose-kosong': 'Purpose kosong (isi di Rekap Waste / Spoil)'
 };
-
-/**
- * Dua jenis waste di Berjaya Hub, jadi dua baris pemetaan Purpose.
- *
- * Nilainya ditulis persis seperti yang tersimpan di `waste_runs.jenis` — itulah
- * yang dicari `barisEsbJournal`. Labelnya dipisah supaya barisnya terbaca
- * manusia tanpa mengubah kuncinya.
- */
-const JENIS_WASTE = [
-  { kunci: 'spoil', label: 'bahan rusak / kedaluwarsa' },
-  { kunci: 'menu', label: 'menu terbuang — bahannya dipotong sesuai resep' }
-];
 
 /** Cara bayar lokal yang selalu perlu padanan, apa pun isi notanya. */
 const CARA_BAYAR = ['kas', 'tempo', 'pusat'];
@@ -255,14 +254,7 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
     supplier: (() => {
       const m = petaSupplier(master);
       return supplierTerpakai.map((t) => String(t?.nama ?? '')).filter((nama) => nama && !m.has(normalNama(nama)));
-    })(),
-    // PURPOSE: dua baris, selamanya dua baris.
-    //
-    // Berjaya Hub tidak punya padanan apa pun untuk kolom ini — yang ada cuma
-    // `jenis` ('spoil'/'menu') dan catatan teks bebas. Catatan sengaja TIDAK
-    // dipakai: ia ditulis staff untuk dibaca manusia, dan mengirimnya ke kolom
-    // bermaster membuat tiap baris membawa nilai yang berbeda-beda.
-    purpose: JENIS_WASTE.map((w) => w.kunci)
+    })()
   };
 
   /** Berapa nota yang tertahan oleh tiap ejaan supplier — untuk ditampilkan. */
@@ -347,8 +339,11 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
     <div class="inline-card" style="max-width:820px;margin-top:12px">
       <h3 style="margin-top:0;font-size:0.95rem">3. Daftar induk ESB</h3>
       <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 8px">
-        Unggah berkas <em>ekspor dari ESB</em> apa adanya — Master Branch, Master Unit of Material, Master Product Data.
-        Diimpor ulang kapan pun ESB berubah; <strong>pemetaan di langkah 5 tidak ikut terhapus</strong>.
+        Unggah berkas <em>ekspor dari ESB</em> apa adanya — Master Branch, Master Unit of Material, Master Product Data,
+        Master Supplier, Master Purpose. Diimpor ulang kapan pun ESB berubah;
+        <strong>pemetaan di langkah 5 tidak ikut terhapus</strong>.
+        <br><strong>Master Purpose</strong> bukan pemetaan: ia mengisi dropdown Purpose di form Waste / Spoil,
+        dan tanpanya setiap waste tertahan saat diekspor.
       </p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <input type="file" id="esb-file" accept=".xlsx,.xls" />
@@ -357,11 +352,12 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
           <option value="unit">Master Unit of Material</option>
           <option value="item">Master Product Data</option>
           <option value="supplier">Master Supplier</option>
+          <option value="purpose">Master Purpose</option>
         </select>
         <button class="primary" id="esb-impor" style="max-width:150px">Impor</button>
       </div>
       <p style="font-size:0.8rem;margin:8px 0 0">
-        Tersimpan: ${['branch', 'unit', 'item', 'supplier']
+        Tersimpan: ${['branch', 'unit', 'item', 'supplier', 'purpose']
           .map((j) => `<strong>${masterPer(j).length}</strong> ${LABEL_JENIS[j]}`)
           .join(' · ')}
       </p>
@@ -722,18 +718,11 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
                 // mendesaknya — dan yang dikerjakan lebih dulu jadi yang
                 // kebetulan paling atas.
                 const pakai = j === 'supplier' ? notaPerSupplier.get(normalNama(k)) : null;
-                // Kunci Purpose adalah nilai mentah `waste_runs.jenis` —
-                // 'spoil' dan 'menu'. Itulah yang dicari saat mengekspor, jadi
-                // yang ditulis di sel tetap kunci itu; artinya disebut di
-                // bawahnya, bukan menggantikannya.
-                const arti = j === 'purpose' ? JENIS_WASTE.find((w) => w.kunci === k)?.label : null;
                 const ket = pakai
                   ? `<br><span style="font-size:0.76rem;color:var(--color-text-muted)">${pakai.jumlah} nota${
                       pakai.belum ? ` · <span class="nota-telat">${pakai.belum} belum diekspor</span>` : ''
                     }</span>`
-                  : arti
-                    ? `<br><span style="font-size:0.76rem;color:var(--color-text-muted)">${esc(arti)}</span>`
-                    : '';
+                  : '';
                 return `<tr data-nama="${esc(k)} ${esc(kini)}"${dipetakan ? '' : ' class="esb-belum"'}>
                           <td data-label="Berjaya Hub">${esc(k)}${ket}</td><td data-label="ESB">${opsi}</td>
                         </tr>`;
@@ -774,12 +763,37 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       // Kecocokan PERSIS saja, sesudah nama disamakan. Kemiripan sebagian
       // ("Telur" ~ "Telur Puyuh") adalah tebakan, dan tebakan di sini menjadi
       // pembelian yang tercatat atas barang yang salah — tanpa satu pun error.
+      //
+      // KODE SKU DIDAHULUKAN DARI NAMA (0148).
+      //
+      // Nama adalah jembatan yang putus saat salah satu ujungnya diganti — dan
+      // keduanya memang diganti: produk diubah namanya di Master Produk, dan
+      // ESB merapikan ejaannya sendiri. Kode tidak ikut berubah.
+      //
+      // Cuma untuk `item`: lima jenis lain tidak punya kode di Berjaya Hub.
+      const kodeEsb = new Map(
+        masterPer('item')
+          .filter((p) => normal(p.kode))
+          .map((p) => [normal(p.kode), p.nama])
+      );
+      const namaKeSku = new Map(
+        produk.filter((p) => normal(p.sku)).map((p) => [normal(p.name), normal(p.sku)])
+      );
+
       const usul = [];
+      let lewatKode = 0;
       for (const j of JENIS_PETA) {
         const m = petaPer(j);
         const idx = new Map(masterPer(j).map((p) => [normal(p.nama), p.nama]));
         for (const k of lokal[j]) {
           if (m.has(normal(k))) continue;
+          const sku = j === 'item' ? namaKeSku.get(normal(k)) : null;
+          const lewatSku = sku ? kodeEsb.get(sku) : null;
+          if (lewatSku) {
+            usul.push({ jenis: j, kunci: k, nilai: lewatSku });
+            lewatKode += 1;
+            continue;
+          }
           const cocok = idx.get(normal(k));
           if (cocok) usul.push({ jenis: j, kunci: k, nilai: cocok });
         }
@@ -791,8 +805,15 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       const ok = await confirmDialog({
         title: `Cocokkan ${usul.length} nilai?`,
         message:
-          `Hanya nama yang <strong>sama persis</strong> yang dicocokkan (beda huruf besar-kecil & tanda baca diabaikan). ` +
-          'Yang mirip tapi tidak sama sengaja dibiarkan — menebaknya berarti pembelian tercatat atas barang yang salah.',
+          (lewatKode
+            ? `<strong>${lewatKode}</strong> dicocokkan lewat <strong>kode SKU</strong> — jembatan yang tidak putus saat namanya diganti. `
+            : '') +
+          `Sisanya lewat nama yang <strong>sama persis</strong> (beda huruf besar-kecil & tanda baca diabaikan). ` +
+          'Yang mirip tapi tidak sama sengaja dibiarkan — menebaknya berarti pembelian tercatat atas barang yang salah.' +
+          (lewatKode
+            ? ''
+            : '<br><br>Belum ada satu pun yang cocok lewat kode. Isi kolom Kode SKU di Master Produk ' +
+              '(tombol "Template Kode SKU") supaya pemetaannya tidak putus saat nama produk diubah.'),
         confirmText: 'Cocokkan'
       });
       if (!ok) return;
@@ -1081,7 +1102,10 @@ async function bacaMasterEsb(file, jenis) {
     item: ['Product Name'],
     // Ekspor "Master Supplier With Bank" — 22 kolom, header di baris ke-6.
     // Barisnya dicari, bukan diasumsikan; lihat catatan di kepala fungsi ini.
-    supplier: ['Supplier Name']
+    supplier: ['Supplier Name'],
+    // Ekspor "Master Purpose Management" — empat kolom (Purpose ID, Purpose
+    // Name, Purpose Account, Status), header di baris ke-6 juga.
+    purpose: ['Purpose Name']
   }[jenis];
 
   const iHeader = aoa.findIndex((r) => kolomWajib.every((k) => r.includes(k)));
@@ -1092,16 +1116,24 @@ async function bacaMasterEsb(file, jenis) {
   const kol = (nama) => header.indexOf(nama);
 
   const iNama = kol(kolomWajib[0]);
-  const KODE = { branch: 'Branch Code', item: 'Product Code', supplier: 'Supplier Code' }[jenis];
-  const KET = { item: 'Category', branch: 'Branch Type', supplier: 'Category' }[jenis];
+  const KODE = { branch: 'Branch Code', item: 'Product Code', supplier: 'Supplier Code', purpose: 'Purpose ID' }[jenis];
+  // Purpose Account ("COGS - Food") ikut sebagai keterangan. Ia tidak dikirim
+  // ke mana pun — ia yang membuat staff bisa membedakan tiga pilihan yang
+  // namanya mirip, di layar tempat ia harus memilih salah satunya.
+  const KET = { item: 'Category', branch: 'Branch Type', supplier: 'Category', purpose: 'Purpose Account' }[jenis];
   const iKode = KODE ? kol(KODE) : -1;
   const iKet = KET ? kol(KET) : -1;
+  // Baris NONAKTIF tidak ikut. ESB menolak nilai yang statusnya bukan Active,
+  // dan menawarkannya di dropdown berarti menawarkan pilihan yang pasti gagal
+  // — kegagalannya baru terbaca saat berkasnya diunggah, berminggu kemudian.
+  const iStatus = kol('Status');
 
   const out = [];
   for (let i = iHeader + 1; i < aoa.length; i++) {
     const r = aoa[i];
     const nama = String(r[iNama] ?? '').trim();
     if (!nama) continue;
+    if (iStatus >= 0 && String(r[iStatus] ?? '').trim().toLowerCase() === 'inactive') continue;
     out.push({
       nama,
       kode: iKode >= 0 ? String(r[iKode] ?? '').trim() : null,

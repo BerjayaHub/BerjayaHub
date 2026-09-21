@@ -43,9 +43,7 @@ const PETA = buatPeta([
   { jenis: 'item', kunci: 'Beras', nilai: 'BERAS PREMIUM' },
   { jenis: 'item', kunci: 'Telur Ayam', nilai: 'TELUR AYAM NEGERI' },
   { jenis: 'unit', kunci: 'gr', nilai: 'GRAM' },
-  { jenis: 'unit', kunci: 'pcs', nilai: 'PCS' },
-  { jenis: 'purpose', kunci: 'spoil', nilai: 'Spoil' },
-  { jenis: 'purpose', kunci: 'menu', nilai: 'Waste' }
+  { jenis: 'unit', kunci: 'pcs', nilai: 'PCS' }
 ]);
 const KODE = new Map([
   ['BERAS PREMIUM', 'P001'],
@@ -56,11 +54,14 @@ const BIAYA = new Map([
   ['p-telur', 2000]
 ]);
 
-const waste = (id, jenis = 'spoil', outlet = OUTLET) => ({
+const waste = (id, purpose = 'Waste Kitchen', outlet = OUTLET) => ({
   id,
   code: `WS-${id}`,
   outlet_id: outlet,
-  jenis,
+  jenis: 'spoil',
+  // Sudah berupa nama ESB kanonik saat sampai ke sini — `purpose_esb_sah()` di
+  // database (0147) yang menjaganya, bukan modul ini.
+  purpose,
   created_at: '2026-09-10T03:00:00Z'
 });
 const item = (product_id, product_name, base_unit, qty) => ({ product_id, product_name, base_unit, qty });
@@ -98,7 +99,7 @@ ok('header di indeks 2 — baris ke-3 di Excel, bukan baris pertama');
 console.log('\n§2 Satu berkas, satu outlet');
 
 assert.throws(
-  () => susun([waste('a'), waste('b', 'spoil', 'out-2')], [['a', [item('p-beras', 'Beras', 'gr', 100)]]]),
+  () => susun([waste('a'), waste('b', 'Waste Kitchen', 'out-2')], [['a', [item('p-beras', 'Beras', 'gr', 100)]]]),
   /satu outlet/i,
   'waste dua outlet DITERIMA — berkas gabungan akan masuk seluruhnya ke satu outlet di ESB'
 );
@@ -125,13 +126,17 @@ ok('waste mengurangi stok — Mode "Deduct", disebut satu kali di satu tempat');
 assert.equal(satu.baris[0][K['Product Name']], 'BERAS PREMIUM');
 assert.equal(satu.baris[0][K['Unit']], 'GRAM');
 assert.equal(satu.baris[0][K['Qty']], 100);
-assert.equal(satu.baris[0][K['Purpose']], 'Spoil');
+assert.equal(satu.baris[0][K['Purpose']], 'Waste Kitchen');
 assert.equal(satu.baris[0][K['No']], 1);
-ok('nama, satuan, qty, purpose, dan nomornya terisi dari pemetaan');
+ok('nama, satuan, qty, purpose, dan nomornya terisi');
 
-const menu = susun([waste('m', 'menu')], [['m', [item('p-telur', 'Telur Ayam', 'pcs', 3)]]]);
-assert.equal(menu.baris[0][K['Purpose']], 'Waste');
-ok('jenis "menu" memakai Purpose-nya sendiri, bukan Purpose spoil');
+// Purpose dibaca APA ADANYA dari kejadiannya — tidak dipetakan, tidak
+// diturunkan dari `jenis` maupun dari kategori produk. Dua waste bahan yang
+// sama persis bisa berbeda Purpose, dan memang begitu: satu terbuang di dapur,
+// satu di bar.
+const bar = susun([waste('b2', 'Waste Bar')], [['b2', [item('p-telur', 'Telur Ayam', 'pcs', 3)]]]);
+assert.equal(bar.baris[0][K['Purpose']], 'Waste Bar');
+ok('INTI: Purpose datang dari kejadiannya, bukan dari jenis atau kategori');
 
 console.log('\n§4 Value per Unit yang tidak diketahui MENAHAN barisnya');
 
@@ -182,27 +187,43 @@ assert.equal(unitKurang.baris.length, 0);
 assert.ok(unitKurang.kurang.some((k) => k.jenis === 'unit' && k.nilai === 'ltr'));
 ok('satuan belum dipetakan juga menahan');
 
-// Purpose belum dipetakan: petanya ADA tapi jenis ini tidak ada isinya.
-const tanpaPurpose = barisEsbJournal({
-  waste: [waste('a', 'spoil')],
-  itemsPerWaste: new Map([['a', [item('p-beras', 'Beras', 'gr', 100)]]]),
-  peta: buatPeta([
-    { jenis: 'item', kunci: 'Beras', nilai: 'BERAS PREMIUM' },
-    { jenis: 'unit', kunci: 'gr', nilai: 'GRAM' }
-  ]),
-  kodeItem: KODE,
-  biaya: BIAYA
-});
-assert.equal(tanpaPurpose.baris.length, 0);
-assert.ok(tanpaPurpose.kurang.some((k) => k.jenis === 'purpose' && k.nilai === 'spoil'));
-ok('Purpose belum dipetakan menahan waste-nya, dan namanya disebut');
+// Purpose KOSONG menahan waste-nya. Menebaknya berarti mengirim biaya waste ke
+// akun COGS yang salah — angkanya tetap terlihat wajar, dan laporan yang
+// memakainya tidak punya satu pun petunjuk.
+// `undefined` dibuat dengan MENGHAPUS kuncinya, bukan dengan melewatkan
+// `undefined` ke pembantu di atas — nilai bawaan parameternya akan mengisinya
+// kembali jadi 'Waste Kitchen', dan pemeriksaannya lolos tanpa menguji apa pun.
+const tanpaKunci = waste('a');
+delete tanpaKunci.purpose;
+for (const [ket, w] of [
+  ['null', waste('a', null)],
+  ['string kosong', waste('a', '')],
+  ['spasi saja', waste('a', '   ')],
+  ['kuncinya tidak ada', tanpaKunci]
+]) {
+  const tanpaPurpose = susun([w], [['a', [item('p-beras', 'Beras', 'gr', 100)]]]);
+  assert.equal(tanpaPurpose.baris.length, 0, `purpose ${ket} lolos`);
+  assert.deepEqual(tanpaPurpose.wasteIds, []);
+}
+ok('INTI: Purpose kosong menahan waste-nya — null, string kosong, spasi, dan kunci yang tidak ada');
 
-// `purpose` harus ada di JENIS_PETA — kalau tidak, `buatPeta` membuang barisnya
-// diam-diam dan SELURUH waste tertahan dengan alasan yang tidak bisa dibereskan
-// dari layar mana pun.
-assert.ok(JENIS_PETA.includes('purpose'), 'purpose tidak terdaftar — petanya tidak akan pernah terisi');
-assert.ok(PETA.purpose.get('spoil'), 'buatPeta membuang baris purpose');
-ok('purpose terdaftar sebagai jenis pemetaan, jadi petanya sungguh terisi');
+const sebabPurpose = susun([waste('a', null), waste('b', null)], [
+  ['a', [item('p-beras', 'Beras', 'gr', 100)]],
+  ['b', [item('p-beras', 'Beras', 'gr', 50)]]
+]).kurang.filter((k) => k.jenis === 'purpose-kosong');
+// SATU baris untuk semuanya, dengan daftar kodenya — bukan satu baris per
+// waste. Tiga puluh baris yang mengulang satu pesan akan menenggelamkan alasan
+// penahan yang lain di tabel yang sama.
+assert.equal(sebabPurpose.length, 1);
+assert.deepEqual(sebabPurpose[0].dok, ['WS-a', 'WS-b']);
+ok('seluruh waste tanpa Purpose berkumpul jadi satu baris, kodenya terdaftar');
+
+// 'purpose' TIDAK boleh ada di JENIS_PETA. Kalau ia kembali ke sana, layar
+// pemetaan menumbuhkan kelompok "Purpose" kosong yang tidak bisa dikerjakan
+// siapa pun — dan yang membukanya menyangka ada pekerjaan yang belum selesai.
+assert.ok(!JENIS_PETA.includes('purpose'), 'purpose kembali jadi jenis pemetaan');
+assert.equal(PETA.purpose, undefined);
+ok('Purpose bukan jenis pemetaan lagi — tidak ada kelompok kosong di layar pemetaan');
 
 console.log('\n§6 Product Code dari daftar induk ESB');
 

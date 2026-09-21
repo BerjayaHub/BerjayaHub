@@ -16,14 +16,16 @@
  * kolom buktinya kosong tepat saat dibaca.
  */
 
-import { toast, infoDialog } from '../../core/ui.js';
+import { toast, infoDialog, formDialog } from '../../core/ui.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { imageToDataUrl } from '../../core/pdf.js';
 import { exportTableXLSXFoto } from '../../core/xlsx-foto.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
-import { susunRekapWaste, KOLOM_FOTO } from './laporan-waste.js';
-import { rekapWaste, getBiayaRataBu, urlFotoWaste, urlFotoWasteBanyak } from './waste.service.js';
+import { susunRekapWaste, KOLOM_FOTO, KOLOM_PURPOSE, PURPOSE_KOSONG } from './laporan-waste.js';
+import { rekapWaste, getBiayaRataBu, urlFotoWaste, urlFotoWasteBanyak, ubahPurposeWaste } from './waste.service.js';
+import { listEsbMaster } from './esb.service.js';
+import { opsiPurpose } from './purpose-esb.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -95,6 +97,18 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
     toast(`Kolom Nilai tidak lengkap — gagal memuat ${sumberGagal.join(' & ')}.`, 'warning');
   }
 
+  // Daftar Purpose ESB (0147). Gagal dimuat berarti tombol Edit tidak
+  // ditawarkan — dan alasannya dikatakan, bukan dibiarkan jadi kolom yang
+  // "tidak bisa diklik" tanpa sebab. Tanpa daftar induknya, dialog isinya akan
+  // jadi kotak ketik bebas, dan nama yang diketik sendiri ditolak ESB.
+  let purposeOptions = [];
+  let purposeGagal = '';
+  try {
+    purposeOptions = opsiPurpose(await listEsbMaster(businessUnitId, 'purpose'));
+  } catch (e) {
+    purposeGagal = String(e?.message ?? e);
+  }
+
   async function muat() {
     hasil.innerHTML = loadingHtml('Memuat rekap waste…', { baris: 4 });
     let baris = [];
@@ -137,7 +151,9 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
             .map(
               (r, i) => `<tr>${r
                 .map((sel, j) =>
-                  j === KOLOM_FOTO
+                  j === KOLOM_PURPOSE
+                    ? `<td data-label="Purpose">${selPurpose(lap.meta[i], sel)}</td>`
+                    : j === KOLOM_FOTO
                     ? `<td data-label="Foto">${
                         lap.meta[i]?.photoPath
                           ? `<button class="ws-foto" data-path="${esc(lap.meta[i].photoPath)}">Lihat</button>`
@@ -167,6 +183,89 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
         });
       })
     );
+
+    hasil.querySelectorAll('.ws-purpose').forEach((b) =>
+      b.addEventListener('click', sekaliJalan(() => isiPurpose(b.dataset.waste, b.dataset.kini ?? '')))
+    );
+  }
+
+  /**
+   * Sel kolom Purpose: tombol kalau masih bisa diubah, tulisan kalau tidak.
+   *
+   * Tiga keadaan yang sengaja dibedakan — ketiganya "tidak ada tombol", dan
+   * menyamakannya membuat admin menunggu sesuatu yang tidak akan datang:
+   *
+   *   baris lama    -> tidak punya `waste_runs` sama sekali. Tidak akan pernah
+   *                    bisa diekspor, jadi Purpose-nya memang tidak berlaku.
+   *   terkunci      -> sudah diekspor. Bisa dibuka lagi, dan caranya disebut.
+   *   daftar gagal  -> daftar induknya tidak terbaca. Masalahnya di tempat lain.
+   */
+  function selPurpose(meta, teksSel) {
+    if (!meta?.wasteId || meta.lama) {
+      return '<span style="color:var(--color-text-muted);font-size:0.78rem" title="Dicatat sebelum dokumen waste ada — tidak bisa diekspor ke ESB">tidak berlaku</span>';
+    }
+    if (meta.terkunci) {
+      return `${esc(meta.purpose || PURPOSE_KOSONG)}<br><span style="font-size:0.74rem;color:var(--color-text-muted)">terkunci — sudah diekspor ke ESB</span>`;
+    }
+    if (!purposeOptions.length) {
+      return `${esc(teksSel)}<br><span style="font-size:0.74rem;color:var(--color-text-muted)">${
+        purposeGagal ? 'daftar Purpose gagal dimuat' : 'impor Master Purpose dulu di Ekspor ESB'
+      }</span>`;
+    }
+    const kosong = !meta.purpose;
+    return (
+      `<button class="ws-purpose" data-waste="${esc(meta.wasteId)}" data-kini="${esc(meta.purpose)}"` +
+      ` style="font-size:0.78rem;padding:2px 8px">${
+        kosong ? `<span class="nota-telat">${esc(PURPOSE_KOSONG)}</span> — isi` : esc(meta.purpose)
+      }</button>`
+    );
+  }
+
+  /**
+   * Isi/ubah Purpose satu kejadian.
+   *
+   * Satu waste menu melahirkan banyak baris bahan yang berbagi SATU
+   * `waste_id` — jadi yang berubah kejadiannya, dan seluruh barisnya ikut.
+   * Itu disebutkan di dialognya supaya tidak terlihat seperti aplikasi yang
+   * mengubah lebih dari yang diminta.
+   */
+  async function isiPurpose(wasteId, kini) {
+    const serumpun = lapTampil?.meta?.filter((m) => m.wasteId === wasteId).length ?? 1;
+    const v = await formDialog({
+      title: 'Purpose kejadian waste',
+      description:
+        'Menentukan biaya waste ini masuk ke akun COGS yang mana di ESB.' +
+        (serumpun > 1 ? ` Kejadian ini punya ${serumpun} baris bahan — semuanya ikut berubah.` : ''),
+      fields: [
+        {
+          name: 'purpose',
+          label: 'Purpose (ESB)',
+          type: 'select',
+          required: true,
+          value: kini,
+          options: purposeOptions.map((o) => ({ value: o.value, label: o.hint ? `${o.label} — ${o.hint}` : o.label }))
+        }
+      ],
+      submitText: 'Simpan'
+    });
+    if (!v?.purpose) return;
+
+    try {
+      const n = await ubahPurposeWaste([wasteId], v.purpose);
+      // Angka dari database DIBANDINGKAN dengan yang diminta. `0` berarti
+      // baris itu bukan milik BU yang dipegang, atau tandanya berubah sejak
+      // halaman ini dimuat — melaporkan "berhasil" begitu saja membuat admin
+      // mengira pekerjaannya selesai.
+      if (n === 0) {
+        toast('Tidak ada yang berubah — kejadian ini mungkin sudah diekspor atau bukan milik BU ini.', 'warning');
+      } else {
+        toast(`Purpose diisi "${v.purpose}".`, 'success');
+      }
+    } catch (e) {
+      toast(e.message ?? 'Gagal menyimpan Purpose.', 'error');
+      return;
+    }
+    await muat();
   }
 
   container.querySelector('#ws-tampil').addEventListener('click', () => {

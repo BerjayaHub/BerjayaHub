@@ -1,5 +1,6 @@
 import { supabase } from '../../config/supabase-client.js';
 import { ambilSemua, ambilPerPotong } from '../../core/ambil-semua.js';
+import { argumenRpc } from '../../core/rpc-args.js';
 export { computeCosts, costForMode, sebabHppKosong, sebabBahan } from './hpp.js';
 
 export const PRODUCT_TYPES = [
@@ -31,15 +32,35 @@ export async function listProducts(businessUnitId) {
   // Sama seperti resep: diambil bertahap. Satu BU di sini sudah punya 785
   // produk — cukup dekat dengan batas 1.000 untuk membuat produk yang
   // ditambahkan bulan depan hilang dari daftar tanpa satu pun pesan.
-  return ambilSemua((dari, sampai) =>
-    supabase
-      .from('products')
-      .select('id, name, product_type, category, subcategory, base_unit, purchase_unit, purchase_qty, purchase_price, sale_price, is_active', { count: 'exact' })
-      .eq('business_unit_id', businessUnitId)
-      .order('product_type')
-      .order('name')
-      .range(dari, sampai)
-  );
+  const KOLOM =
+    'id, name, product_type, category, subcategory, base_unit, purchase_unit, purchase_qty, purchase_price, sale_price, is_active';
+  const ambil = (kolom) =>
+    ambilSemua((dari, sampai) =>
+      supabase
+        .from('products')
+        .select(kolom, { count: 'exact' })
+        .eq('business_unit_id', businessUnitId)
+        .order('product_type')
+        .order('name')
+        .range(dari, sampai)
+    );
+
+  try {
+    return await ambil(`${KOLOM}, sku`);
+  } catch (e) {
+    // KOLOM BARU TIDAK BOLEH MENYANDERA SELURUH APLIKASI.
+    //
+    // `listProducts` dipakai belasan layar — Master Produk, Bahan, Order,
+    // Pengiriman, Menu, rekap waste. Kalau 0148 belum dijalankan sementara
+    // kodenya sudah di-push, PostgREST menolak SELURUH permintaan karena satu
+    // kolom tidak dikenal, dan yang mati bukan satu kolom melainkan hampir
+    // seluruh aplikasi. Pelajaran 0122, dengan taruhan yang jauh lebih besar.
+    //
+    // Galat yang TIDAK menyebut `sku` dilempar apa adanya: masalah izin atau
+    // jaringan tidak boleh menyamar jadi "migrationnya belum dijalankan".
+    if (!/\bsku\b/.test(String(e?.message ?? ''))) throw e;
+    return await ambil(KOLOM);
+  }
 }
 
 export async function createProduct(p) {
@@ -126,6 +147,30 @@ export async function updateProductCategory(id, { category, subcategory }) {
   const { data, error } = await supabase.from('products').update(patch).eq('id', id).select('id');
   if (error) throw error;
   if (!data?.length) throw new Error('Tidak tersimpan — kategori hanya bisa diubah Admin BU atau Super Admin.');
+}
+
+/**
+ * Isi kode SKU banyak produk sekaligus, dari unggahan template (0148).
+ *
+ * Seluruhnya SATU transaksi di database: 647 baris lewat satu permintaan, bukan
+ * 647 permintaan yang bisa berhenti di tengah dan meninggalkan separuh
+ * pekerjaan tanpa ada yang tahu separuh yang mana.
+ *
+ * @param {string} businessUnitId
+ * @param {Array<{id: string, sku: string}>} items hanya yang BERUBAH
+ * @returns {Promise<{diubah: number, asing: string[], bentrok: string[]}>}
+ */
+export async function ubahSkuProduk(businessUnitId, items) {
+  const { data, error } = await supabase.rpc(
+    'ubah_sku_produk',
+    argumenRpc({ p_bu: businessUnitId, p_items: Array.isArray(items) ? items : [] })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return {
+    diubah: Number(data?.diubah) || 0,
+    asing: Array.isArray(data?.asing) ? data.asing : [],
+    bentrok: Array.isArray(data?.bentrok) ? data.bentrok : []
+  };
 }
 
 export async function deleteProduct(id) {
