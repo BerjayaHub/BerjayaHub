@@ -21,6 +21,7 @@ import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { loadXLSX } from '../../core/xlsx.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
+import { listCashCategories } from '../cash/cash.service.js';
 import { getBiayaRataBu } from './waste.service.js';
 import { sayaAdminBu } from '../../core/base-scope.js';
 import { KOLOM_ESB, JENIS_PETA, buatPeta, barisEsbPurchase, ringkasEkspor } from './esb-purchase.js';
@@ -33,6 +34,7 @@ import { susunBarisPemetaan, perluCari } from './urut-pemetaan.js';
 import { saringTabel } from '../dispatch/saring-tabel.js';
 import { KOLOM_TRANSFER, barisEsbTransfer, ringkasTransfer } from './esb-transfer.js';
 import { KOLOM_JOURNAL, BARIS_HEADER_JOURNAL, barisEsbJournal, ringkasJournal } from './esb-journal.js';
+import { KOLOM_DISBURSEMENT, barisEsbDisbursement, ringkasDisbursement } from './esb-disbursement.js';
 import { pasangFormatTanggal } from './tanggal-excel.js';
 import { petaSupplier, petaEjaanSupplier, normalNama } from './cocok-supplier.js';
 import { susunDaftarSupplier, ringkasStatus, pesanRingkas, LABEL_STATUS, STATUS_MENGHAMBAT } from './daftar-supplier.js';
@@ -61,6 +63,10 @@ import {
   tandaiWasteEsb,
   wasteBertandaEsb,
   batalkanTandaWasteEsb,
+  kasUntukEsb,
+  tandaiKasEsb,
+  kasBertandaEsb,
+  batalkanTandaKasEsb,
   batalkanTandaEsb,
   batalkanTandaKirimanEsb
 } from './esb.service.js';
@@ -97,6 +103,10 @@ const LABEL_JENIS = {
   // Dua alasan yang hampir mustahil muncul, dan justru karena itu labelnya
   // harus ada: tanpa label, tabelnya menampilkan kode mentah dan yang
   // membacanya tidak punya petunjuk apa pun.
+  // Disbursement (0149). Ketiganya diperbaiki di entri kasnya sendiri, bukan
+  // lewat dropdown di layar ini — dan labelnya menyebut ke mana perginya.
+  'tanggal-kas': 'Tanggal kas keluar (perbaiki di entri kasnya)',
+  'jumlah-kas': 'Nominalnya nol atau tidak terbaca (perbaiki di entri kasnya)',
   'qty-terlalu-kecil': 'Jumlahnya terlalu kecil untuk 4 desimal (jadi 0)',
   'nilai-terlalu-kecil': 'Nilainya terlalu kecil untuk 4 desimal (jadi 0)',
   // KUNCINYA 'purpose-kosong', BUKAN 'purpose'.
@@ -155,6 +165,13 @@ const DOKUMEN = {
     berkas: 'esb-transfer',
     satuan: 'kiriman'
   },
+  disbursement: {
+    label: 'Disbursement',
+    sumber: 'kas keluar SELAIN pembelian bahan (modul Kas)',
+    kolom: KOLOM_DISBURSEMENT,
+    berkas: 'esb-disbursement',
+    satuan: 'kas keluar'
+  },
   journal: {
     label: 'Item Journal',
     sumber: 'waste & spoil (modul Bahan → Waste / Spoil)',
@@ -212,15 +229,21 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
   let peta = [];
   let produk = [];
   let supplierTerpakai = [];
+  let kategoriKas = [];
   try {
-    [master, peta, produk, supplierTerpakai] = await Promise.all([
+    [master, peta, produk, supplierTerpakai, kategoriKas] = await Promise.all([
       listEsbMaster(businessUnitId).catch(() => []),
       listEsbMap(businessUnitId).catch(() => []),
       listProducts(businessUnitId).catch(() => []),
       // Gagal berarti 0144 belum dijalankan. Layarnya tetap berdiri dengan
       // kelompok Supplier kosong — bukan halaman galat yang mengunci seluruh
       // ekspor ESB hanya karena satu daftar tidak bisa dibaca.
-      namaSupplierTerpakai(businessUnitId).catch(() => [])
+      namaSupplierTerpakai(businessUnitId).catch(() => []),
+      // Kategori biaya kas — jadi kunci pemetaan COA untuk Disbursement (0149).
+      // Gagal dibacanya berarti kelompok COA cuma berisi tiga cara bayar
+      // seperti sebelumnya; layar ESB tidak boleh mati karena satu daftar
+      // tambahan tidak terbaca.
+      listCashCategories(true).catch(() => [])
     ]);
   } catch (e) {
     container.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
@@ -236,7 +259,15 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
     branch: outlets.map((o) => o.name),
     location: outlets.map((o) => o.name),
     payment_method: CARA_BAYAR,
-    coa: CARA_BAYAR,
+    // COA melayani DUA hal sekaligus sejak 0149, dan keduanya memang nomor
+    // akun: cara bayar nota (kas/tempo/pusat) dan kategori biaya kas keluar
+    // yang jadi kolom `Account` di Disbursement.
+    //
+    // Satu kelompok, bukan dua: keduanya dipetakan ke jenis nilai yang sama,
+    // dan memisahkannya berarti dua daftar yang harus dijaga selaras tanpa ada
+    // yang memaksa keselarasannya.
+    coa: [...CARA_BAYAR, ...kategoriKas.map((k) => String(k?.name ?? '').trim()).filter(Boolean)]
+      .filter((v, i, a) => a.findIndex((x) => normal(x) === normal(v)) === i),
     // SATUAN BELI IKUT, dan itu wajib.
     //
     // Sejak ekspor memakai satuan beli, nilai yang dicari di pemetaan bukan
@@ -293,6 +324,7 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
             <option value="purchase">Simple Purchase — nota supplier</option>
             <option value="transfer">Simple Transfer — kiriman antar-outlet</option>
             <option value="journal">Item Journal — waste / spoil</option>
+            <option value="disbursement">Disbursement — kas keluar non-bahan</option>
           </select>
         </div>
         <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="esb-from" value="${range.from}" /></div>
@@ -329,6 +361,7 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
             <option value="purchase">Nota supplier</option>
             <option value="transfer">Kiriman antar-outlet</option>
             <option value="journal">Waste / spoil</option>
+            <option value="disbursement">Kas keluar</option>
           </select>
         </div>
         <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="batal-from" value="${range.from}" /></div>
@@ -448,7 +481,7 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       const from = container.querySelector('#batal-from').value;
       const to = container.querySelector('#batal-to').value;
       const outletId = container.querySelector('#batal-outlet').value || null;
-      const satuan = { transfer: 'kiriman', journal: 'waste' }[jenis] ?? 'nota';
+      const satuan = { transfer: 'kiriman', journal: 'waste', disbursement: 'kas keluar' }[jenis] ?? 'nota';
 
       let baris = [];
       try {
@@ -457,7 +490,9 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
             ? await kirimanBertandaEsb({ businessUnitId, from, to, outletId })
             : jenis === 'journal'
               ? await wasteBertandaEsb({ businessUnitId, from, to, outletId })
-              : await notaBertandaEsb({ businessUnitId, from, to, outletId });
+              : jenis === 'disbursement'
+                ? await kasBertandaEsb({ businessUnitId, from, to, outletId })
+                : await notaBertandaEsb({ businessUnitId, from, to, outletId });
       } catch (e) {
         box.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
         return;
@@ -555,7 +590,9 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
                 ? await batalkanTandaKirimanEsb(ids, periksa.alasan)
                 : jenis === 'journal'
                   ? await batalkanTandaWasteEsb(ids, periksa.alasan)
-                  : await batalkanTandaEsb(ids, periksa.alasan);
+                  : jenis === 'disbursement'
+                    ? await batalkanTandaKasEsb(ids, periksa.alasan)
+                    : await batalkanTandaEsb(ids, periksa.alasan);
             // Angka dari database DIBANDINGKAN dengan yang dicentang. Baris
             // milik BU lain, atau yang tandanya sudah dibuka orang lain sejak
             // halaman ini dimuat, dilewati tanpa melempar galat apa pun —
@@ -913,7 +950,26 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
     let ringkas;
     let ids;
     try {
-      if (jenis === 'journal') {
+      if (jenis === 'disbursement') {
+        const daftar = await kasUntukEsb({ businessUnitId, from, to, outletId });
+        total = daftar.length;
+        if (!total) {
+          hasilEl.innerHTML =
+            '<p style="color:var(--color-text-muted);font-size:0.88rem">Tidak ada kas keluar baru di rentang itu. ' +
+            'Pembayaran nota sengaja TIDAK ikut — bahannya sudah berangkat lewat Simple Purchase, dan mengirimnya lagi ' +
+            'di sini mencatat pengeluaran yang sama dua kali. Yang sudah pernah diekspor juga tidak ditawarkan lagi.</p>';
+          return;
+        }
+        hasil = barisEsbDisbursement({
+          kas: daftar,
+          peta: buatPeta(peta),
+          // Daftar induk supplier yang SAMA dengan nota — bukan daftar kedua
+          // yang cepat atau lambat menyimpang.
+          masterSupplier: petaSupplier(master)
+        });
+        ringkas = ringkasDisbursement(hasil, total);
+        ids = hasil.kasIds;
+      } else if (jenis === 'journal') {
         // DUA SUMBER NILAI, dan keduanya memang perlu — sama persis dengan
         // Rekap Waste / Spoil, lewat fungsi yang sama.
         //
@@ -1043,7 +1099,9 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
               ? await tandaiKirimanEsb(ids)
               : jenis === 'journal'
                 ? await tandaiWasteEsb(ids)
-                : await tandaiNotaEsb(ids);
+                : jenis === 'disbursement'
+                  ? await tandaiKasEsb(ids)
+                  : await tandaiNotaEsb(ids);
           toast(`Berkas terunduh. ${n} ${dok.satuan} ditandai sudah diekspor.`, 'success');
         } catch (e) {
           toast(

@@ -1,4 +1,5 @@
 import { supabase } from '../../config/supabase-client.js';
+import { argumenRpc } from '../../core/rpc-args.js';
 import { compressImage } from '../../core/image-compress.js';
 import { ambilSemua } from '../../core/ambil-semua.js';
 
@@ -54,7 +55,7 @@ export async function deleteCashCategory(id) {
  * Catat kas masuk/keluar. TIDAK menyimpan BU/outlet — sejak 0040 kas melekat
  * pada USER, jadi saldonya sama di BU/outlet mana pun dia login.
  */
-export async function recordCashEntry({ type, amount, categoryId, outletId, accountId, notes, date, qty, unit, file }) {
+export async function recordCashEntry({ type, amount, categoryId, outletId, accountId, notes, date, qty, unit, file, supplier }) {
   const uid = await currentUserId();
   if (!uid) throw new Error('Sesi tidak ditemukan, silakan login ulang.');
 
@@ -101,6 +102,9 @@ export async function recordCashEntry({ type, amount, categoryId, outletId, acco
       qty: qty === '' || qty == null ? null : Number(qty),
       unit: unit?.trim() || null,
       proof_path: path,
+      // Payment To di berkas ESB Disbursement (0149). Hanya kas KELUAR yang
+      // pernah jadi Disbursement, jadi kas masuk tidak pernah mengisinya.
+      supplier: type === 'out' ? supplier?.trim() || null : null,
       entry_date: date || todayWIB(),
       created_by: uid
     })
@@ -348,18 +352,45 @@ export async function riwayatKasSaya(limit = 50) {
  * "jangan sentuh". Alasannya sama dengan `aturKantongKas`: field yang tidak
  * disebut akan terhapus, dan itu bug 0119 lagi.
  */
-export async function ubahKas({ id, amount, categoryId, outletId, notes, qty, unit, date }) {
-  const { error } = await supabase.rpc('ubah_kas', {
-    p_entry: id,
-    p_amount: amount,
-    p_category: categoryId || null,
-    p_outlet: outletId || null,
-    p_notes: notes ?? '',
-    p_qty: qty === '' || qty == null ? null : Number(qty),
-    p_unit: unit?.trim() || null,
-    p_date: date || null
-  });
+export async function ubahKas({ id, amount, categoryId, outletId, notes, qty, unit, date, supplier }) {
+  // `argumenRpc` mengubah `undefined` jadi `null`, dan itu WAJIB di sini:
+  // PostgREST memilih overload lewat HIMPUNAN NAMA ARGUMEN, dan
+  // `JSON.stringify` membuang kunci bernilai `undefined`. Tanpa itu,
+  // pemanggilan tanpa supplier akan mencari `ubah_kas` berargumen delapan —
+  // yang sengaja sudah dibuang di 0149 — dan gagal dengan 42883.
+  const { error } = await supabase.rpc(
+    'ubah_kas',
+    argumenRpc({
+      p_entry: id,
+      p_amount: amount,
+      p_category: categoryId || null,
+      p_outlet: outletId || null,
+      p_notes: notes ?? '',
+      p_qty: qty === '' || qty == null ? null : Number(qty),
+      p_unit: unit?.trim() || null,
+      p_date: date || null,
+      p_supplier: supplier?.trim() || null
+    })
+  );
   if (error) throw error;
+}
+
+/**
+ * Isi Payment To beberapa kas keluar sekaligus (0149).
+ *
+ * Tinggal DI SINI, bukan di `esb.service.js`, karena yang diubahnya data kas —
+ * bukan data ESB. Wewenangnya pun dipinjam dari penjaga koreksi kas yang sudah
+ * ada (`boleh_koreksi_kas`, 0141), bukan dari wewenang ekspor.
+ *
+ * @returns {Promise<number>} berapa entri yang benar-benar berubah
+ */
+export async function ubahSupplierKas(ids, supplier) {
+  const { data, error } = await supabase.rpc(
+    'ubah_supplier_kas',
+    argumenRpc({ p_entries: ids, p_supplier: String(supplier ?? '') })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data) || 0;
 }
 
 /**
@@ -476,8 +507,10 @@ export async function listCashEntriesAdmin({ holderId, entryType, dateFrom, date
         // mengirim sisanya apa adanya; tanpa kolom-kolom ini ia akan mengirim
         // `undefined` dan diam-diam menghapus kategori & jumlah barangnya.
         // Itu bug 0119 ("+ Foto menghapus supplier") dalam bentuk lain.
-        'id, holder_id, entry_type, amount, notes, entry_date, proof_path, penyesuaian_nota, created_at, ' +
-          'category_id, outlet_id, qty, unit, dicoret_at, alasan_coret, diubah_at, ' +
+        'id, business_unit_id, holder_id, entry_type, amount, notes, entry_date, proof_path, penyesuaian_nota, created_at, ' +
+          // `supplier` ikut dengan alasan yang SAMA PERSIS (0149): ia kolom
+          // yang tidak ditampilkan dialog admin, dan `ubah_kas` menulis penuh.
+          'category_id, outlet_id, qty, unit, supplier, esb_exported_at, dicoret_at, alasan_coret, diubah_at, ' +
           'holder:user_profiles!holder_id(full_name), counterpart:user_profiles!counterpart_id(full_name), ' +
           'pencoret:user_profiles!dicoret_by(full_name), pengubah:user_profiles!diubah_by(full_name), cash_categories(name)',
         { count: 'exact' }

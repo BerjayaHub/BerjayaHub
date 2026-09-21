@@ -25,6 +25,7 @@ import {
 import { keadaanKoreksi, jejakKoreksi, totalKas } from './koreksi-kas.js';
 import { loadingHtml, tombolSibuk, sekaliJalan } from '../../core/loading.js';
 import { notaTerkaitEntriKas } from '../inventory/nota.service.js';
+import { listEsbMaster } from '../inventory/esb.service.js';
 import { bukaDialogNota } from '../inventory/nota-dialog.js';
 import { pecahKeterangan, petaNotaPerEntri } from './keterangan-nota.js';
 
@@ -52,14 +53,19 @@ const idKantong = (v) => (!v || v === KAS_UTAMA ? null : v);
 export async function renderCashPage(container, { userId, businessUnitId }) {
   container.innerHTML = loadingHtml('Memuat kas…');
 
-  let categories, members, accounts, limit, outlets;
+  let categories, members, accounts, limit, outlets, daftarSupplier;
   try {
-    [categories, members, accounts, limit, outlets] = await Promise.all([
+    [categories, members, accounts, limit, outlets, daftarSupplier] = await Promise.all([
       listCashCategories().catch(() => []),
       listCashMembers().catch(() => []),
       listMyCashAccounts().catch(() => []),
       getMyCashAccountLimit().catch(() => 1),
-      listMyOutletsAllBu().catch(() => [])
+      listMyOutletsAllBu().catch(() => []),
+      // Daftar supplier ESB (0144) — jadi kolom "Payment To" saat kas keluar
+      // diekspor sebagai Disbursement (0149). Gagal dibacanya berarti kolomnya
+      // tidak muncul dan entrinya tersimpan tanpa supplier; layar Kas tidak
+      // boleh mati karena satu daftar tambahan tidak terbaca.
+      listEsbMaster(businessUnitId, 'supplier').catch(() => [])
     ]);
   } catch (error) {
     container.innerHTML = `<p class="error-text">Gagal memuat: ${escapeHtml(error.message ?? error)}</p>`;
@@ -71,6 +77,13 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
   // daripada tombol export yang mati.
   const namaSaya = members.find((s) => s.user_id === userId)?.full_name ?? 'Kas saya';
   const pakaiKantong = limit > 1;
+
+  // Bentuk opsinya sama persis dengan kolom Supplier di nota: kode ESB-nya
+  // ditampilkan sebagai keterangan, bukan ditempel ke namanya — keterangan
+  // yang ikut jadi bagian nilai adalah bug yang sudah pernah terjadi di sini.
+  const opsiSupplier = daftarSupplier
+    .map((m) => ({ value: m.nama, label: m.nama, hint: m.kode ? `kode ESB ${m.kode}` : '' }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'id'));
 
   // KEPALA HALAMAN DIBEKUKAN, RIWAYATNYA YANG MENGGULIR.
   //
@@ -184,6 +197,21 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
                 }))
               },
               { name: 'category_id', label: 'Kategori biaya', type: 'select', value: e.category_id ?? '', options: catOptions('out') },
+              // PINTU KEDUA. Kolom yang cuma ada di form tambah adalah kolom
+              // yang tidak pernah bisa dibetulkan — dan pola itu sudah
+              // menggigit sekali di proyek ini, pada kolom Supplier nota.
+              ...(daftarSupplier.length
+                ? [
+                    {
+                      name: 'supplier',
+                      label: 'Dibayar ke (supplier)',
+                      type: 'searchselect',
+                      allowCreate: true,
+                      value: e.supplier ?? '',
+                      options: opsiSupplier
+                    }
+                  ]
+                : []),
               { name: 'qty', label: 'Jumlah barang', type: 'qty', value: e.qty ?? '' },
               { name: 'unit', label: 'Satuan', type: 'text', value: e.unit ?? '' }
             ]
@@ -203,7 +231,8 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
         notes: values.notes,
         qty: values.qty,
         unit: values.unit,
-        date: values.date
+        date: values.date,
+        supplier: values.supplier
       });
       toast('Entri kas diperbarui.', 'success');
       await refresh();
@@ -547,6 +576,25 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
           help: 'Uang ini dibelanjakan untuk outlet mana. Boleh lintas BU — pilihannya semua outlet tempat kamu punya peran, di BU mana pun.'
         },
         { name: 'category_id', label: 'Kategori biaya', type: 'select', options: catOptions('out') },
+        // PAYMENT TO untuk berkas ESB Disbursement (0149).
+        //
+        // Daftarnya daftar yang SAMA dengan kolom Supplier di nota — bukan
+        // daftar kedua yang cepat atau lambat menyimpang. `allowCreate`
+        // dibiarkan hidup dengan alasan yang sama pula: pengeluaran mendadak
+        // jam 9 malam tidak boleh gagal dicatat karena namanya belum ada di
+        // daftar induk; ekspornya yang menahannya nanti, dengan alasan terbaca.
+        ...(daftarSupplier.length
+          ? [
+              {
+                name: 'supplier',
+                label: 'Dibayar ke (supplier)',
+                type: 'searchselect',
+                allowCreate: true,
+                options: opsiSupplier,
+                help: 'Jadi kolom "Payment To" saat diekspor ke ESB. Pilih dari daftar — nama yang diketik sendiri ditolak ESB.'
+              }
+            ]
+          : []),
         { name: 'qty', label: 'Jumlah barang', type: 'qty', placeholder: 'mis. 10' },
         { name: 'unit', label: 'Satuan', type: 'text', placeholder: 'mis. liter / pcs / kg' },
         { name: 'date', label: 'Tanggal', type: 'date', value: todayWIB() },
@@ -578,6 +626,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
         qty: values.qty,
         unit: values.unit,
         date: values.date,
+        supplier: values.supplier,
         file: values.file
       });
       toast('Kas keluar tercatat.', 'success');

@@ -9,6 +9,7 @@ import {
   deleteCashCategory,
   listCashBalances,
   listCashEntriesAdmin,
+  ubahSupplierKas,
   getCashProofUrl,
   daftarKantongKas,
   aturKantongKas,
@@ -17,6 +18,7 @@ import {
   coretKas
 } from './cash.service.js';
 import { listMyOutletsAllBu } from '../../core/my-outlets.js';
+import { listEsbMaster } from '../inventory/esb.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { notaTerkaitEntriKas } from '../inventory/nota.service.js';
@@ -154,7 +156,7 @@ async function loadMutasi(content) {
       dicoret ? ` · ${dicoret} dihapus (tidak dihitung)` : ''
     }</p>
     <div class="table-scroll"><table class="data-table kartu-sempit">
-      <thead><tr><th>Tanggal</th><th>Pemegang</th><th>Jenis</th><th>Kategori / Lawan</th><th>Jumlah</th><th>Bukti</th><th>Aksi</th></tr></thead>
+      <thead><tr><th style="width:30px"></th><th>Tanggal</th><th>Pemegang</th><th>Jenis</th><th>Kategori / Lawan</th><th>Jumlah</th><th>Supplier</th><th>Bukti</th><th>Aksi</th></tr></thead>
       <tbody>
         ${rows
           .map((r) => {
@@ -162,7 +164,15 @@ async function loadMutasi(content) {
             const k = keadaanKoreksi(r);
             const ket = r.cash_categories?.name ?? (r.counterpart?.full_name ? `${amt >= 0 ? 'dari' : 'ke'} ${r.counterpart.full_name}` : '-');
             const warna = k.dicoret ? 'var(--color-text-muted)' : amt >= 0 ? 'var(--color-primary)' : 'var(--color-danger)';
+            // Hanya kas KELUAR yang pernah jadi Disbursement, dan hanya yang
+            // belum diekspor & belum dicoret yang masih bisa diisi. Centang
+            // pada baris yang tidak memenuhi itu cuma menawarkan pekerjaan
+            // yang pasti ditolak database.
+            const bisaSupplier = r.entry_type === 'out' && !k.dicoret && !r.esb_exported_at;
             return `<tr${k.dicoret ? ' class="kas-dicoret"' : ''}>
+              <td>${
+                bisaSupplier ? `<input type="checkbox" class="cm-pilih" value="${esc(r.id)}" />` : ''
+              }</td>
               <td style="font-size:0.82rem" data-label="Tanggal">${fmtDate(r.entry_date)}</td>
               <td data-label="Pemegang"><strong>${esc(r.holder?.full_name ?? '-')}</strong></td>
               <td data-label="Jenis">${ENTRY_LABEL[r.entry_type] ?? r.entry_type}</td>
@@ -170,13 +180,30 @@ async function loadMutasi(content) {
                 ${r.notes ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${ketHtml(r.notes, notaPerEntri.get(r.id))}</div>` : ''}
                 ${k.jejak ? `<div class="kas-jejak">${esc(k.jejak)}</div>` : ''}</td>
               <td style="color:${warna};font-weight:600;white-space:nowrap" data-label="Jumlah">${amt >= 0 ? '+' : '−'}${formatRupiah(Math.abs(amt))}</td>
+              <td data-label="Supplier" style="font-size:0.8rem">${
+                r.entry_type !== 'out'
+                  ? '<span style="color:var(--color-text-muted)">—</span>'
+                  : r.supplier
+                    ? esc(r.supplier)
+                    : '<span class="nota-telat">belum diisi</span>'
+              }${
+                r.esb_exported_at
+                  ? '<br><span style="font-size:0.72rem;color:var(--color-text-muted)">terkunci — sudah diekspor</span>'
+                  : ''
+              }</td>
               <td data-label="Bukti">${r.proof_path ? `<button class="btn-proof" data-path="${esc(r.proof_path)}">Bukti</button>` : '<span style="color:var(--color-text-muted)">—</span>'}</td>
               <td data-label="Aksi">${tombolKoreksi(r, k)}</td>
             </tr>`;
           })
-          .join('') || '<tr><td colspan="7">Tidak ada data.</td></tr>'}
+          .join('') || '<tr><td colspan="9">Tidak ada data.</td></tr>'}
       </tbody>
     </table></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+      <button id="cm-isi-supplier">Isi Supplier untuk yang dicentang</button>
+      <span style="font-size:0.78rem;color:var(--color-text-muted)">
+        Payment To untuk ekspor ESB Disbursement. Seluruh kas keluar yang tercatat sebelum kolom ini ada belum terisi.
+      </span>
+    </div>
   `;
   result.querySelectorAll('.btn-proof').forEach((btn) =>
     btn.addEventListener('click', async () => {
@@ -192,6 +219,56 @@ async function loadMutasi(content) {
   const semuaNota = new Map(notas.map((n) => [n.id, n]));
   result.querySelectorAll('.btn-nota').forEach((btn) =>
     btn.addEventListener('click', () => bukaDialogNota(semuaNota.get(btn.dataset.id)))
+  );
+
+  result.querySelector('#cm-isi-supplier')?.addEventListener(
+    'click',
+    sekaliJalan(async () => {
+      // Dibaca dari SELURUH tbody: baris yang disembunyikan penyaring tetap
+      // ada di DOM dan centangnya tetap sah.
+      const ids = [...result.querySelectorAll('.cm-pilih:checked')].map((c) => c.value);
+      if (!ids.length) return toast('Centang dulu kas keluar yang mau diisi suppliernya.', 'warning');
+
+      const bu = rows.find((r) => ids.includes(r.id))?.business_unit_id ?? null;
+      const daftar = await listEsbMaster(bu, 'supplier').catch(() => []);
+      if (!daftar.length) {
+        return toast('Daftar supplier ESB belum diimpor — impor dulu di Ekspor ESB langkah 3.', 'warning');
+      }
+
+      const v = await formDialog({
+        title: `Isi Supplier untuk ${ids.length} kas keluar`,
+        description:
+          'Jadi kolom "Payment To" saat diekspor ke ESB. Seluruh baris yang dicentang diisi nama yang sama — ' +
+          'centang per supplier, bukan sekaligus semuanya.',
+        fields: [
+          {
+            name: 'supplier',
+            label: 'Dibayar ke (supplier)',
+            type: 'searchselect',
+            required: true,
+            allowCreate: true,
+            options: daftar
+              .map((m) => ({ value: m.nama, label: m.nama, hint: m.kode ? `kode ESB ${m.kode}` : '' }))
+              .sort((a, b) => a.label.localeCompare(b.label, 'id'))
+          }
+        ],
+        submitText: 'Simpan'
+      });
+      if (!v?.supplier) return;
+
+      try {
+        const n = await ubahSupplierKas(ids, v.supplier);
+        // Angka dari database DIBANDINGKAN dengan yang dicentang: baris milik
+        // kas yang bukan wewenangnya, atau yang tandanya berubah sejak halaman
+        // ini dimuat, dilewati tanpa melempar — melaporkan "berhasil" begitu
+        // saja membuat admin mengira pekerjaannya selesai.
+        if (n === ids.length) toast(`${n} kas keluar diisi "${v.supplier}".`, 'success');
+        else toast(`${n} dari ${ids.length} terisi — sisanya bukan wewenangmu, sudah diekspor, atau sudah dihapus.`, 'warning');
+      } catch (e) {
+        return toast(e.message ?? 'Gagal menyimpan supplier.', 'error');
+      }
+      await loadMutasi(content);
+    })
   );
 
   const perId = new Map(rows.map((r) => [r.id, r]));
@@ -241,7 +318,16 @@ async function ubahEntriAdmin(r, content) {
   if (!r) return;
   const keluar = r.entry_type === 'out';
   let outlets = [];
-  if (keluar) outlets = await listMyOutletsAllBu().catch(() => []);
+  let daftarSupplier = [];
+  if (keluar) {
+    [outlets, daftarSupplier] = await Promise.all([
+      listMyOutletsAllBu().catch(() => []),
+      // Daftar supplier ESB (0144) — Payment To untuk berkas Disbursement.
+      // Gagal dibacanya berarti kolomnya tidak muncul dan nilainya dikirim apa
+      // adanya; dialognya tidak boleh mati karena satu daftar tambahan.
+      listEsbMaster(r.business_unit_id, 'supplier').catch(() => [])
+    ]);
+  }
   const opsiOutlet = outlets.map((o) => ({
     value: o.id,
     label: o.business_unit_name ? `${o.business_unit_name} — ${o.name}` : o.name
@@ -261,6 +347,24 @@ async function ubahEntriAdmin(r, content) {
       ...(keluar
         ? [{ name: 'outlet_id', label: 'Untuk outlet', type: 'select', required: true, value: r.outlet_id ?? '', options: opsiOutlet }]
         : []),
+      // SELURUH kas keluar yang ada hari ini tidak punya Supplier — kolomnya
+      // baru lahir di 0149. Tanpa kotaknya di sini, satu-satunya yang bisa
+      // mengisinya adalah pemegang kasnya sendiri, satu per satu.
+      ...(keluar && daftarSupplier.length
+        ? [
+            {
+              name: 'supplier',
+              label: 'Dibayar ke (supplier)',
+              type: 'searchselect',
+              allowCreate: true,
+              value: r.supplier ?? '',
+              options: daftarSupplier
+                .map((m) => ({ value: m.nama, label: m.nama, hint: m.kode ? `kode ESB ${m.kode}` : '' }))
+                .sort((a, b) => a.label.localeCompare(b.label, 'id')),
+              help: 'Jadi kolom "Payment To" saat diekspor ke ESB Disbursement.'
+            }
+          ]
+        : []),
       { name: 'date', label: 'Tanggal', type: 'date', value: r.entry_date ?? '' }
     ],
     submitText: 'Simpan perubahan'
@@ -279,6 +383,15 @@ async function ubahEntriAdmin(r, content) {
       notes: values.notes,
       qty: r.qty ?? null,
       unit: r.unit ?? null,
+      // `ubah_kas` menulis PENUH: field yang tidak dikirim akan TERHAPUS.
+      // Tanpa baris ini, admin yang membetulkan satu huruf di keterangan akan
+      // MENGHAPUS Payment To-nya, dan entrinya tertahan saat diekspor dengan
+      // alasan yang terlihat datang entah dari mana. Itu bug 0119 dalam bentuk
+      // ketiga.
+      //
+      // Nilai lamanya dipakai kalau kotaknya tidak digambar — daftar supplier
+      // yang gagal dimuat membuat `values.supplier` undefined.
+      supplier: values.supplier ?? r.supplier ?? null,
       date: values.date
     });
     toast('Entri kas diperbarui.', 'success');

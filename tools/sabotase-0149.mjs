@@ -1,0 +1,480 @@
+/**
+ * SABOTASE: ekspor kas keluar ke ESB Disbursement.
+ *
+ * Kerusakan paling mahal di fitur ini tidak melempar apa pun — ia menghasilkan
+ * berkas yang DITERIMA ESB dengan tenang:
+ *
+ *   - pembayaran nota yang ikut terkirim: pengeluaran yang SAMA tercatat dua
+ *     kali di ESB, sekali sebagai Simple Purchase dan sekali di sini;
+ *   - Supplier yang terhapus diam-diam saat entrinya dikoreksi, lalu entrinya
+ *     tertahan dengan alasan yang terlihat datang entah dari mana.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const AKAR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const P = (rel) => path.join(AKAR, rel);
+
+const MIG = 'supabase/migrations/0149_disbursement_kas.sql';
+const MURNI = 'js/modules/inventory/esb-disbursement.js';
+const TGL = 'js/modules/inventory/tanggal-excel.js';
+const ESVC = 'js/modules/inventory/esb.service.js';
+const CSVC = 'js/modules/cash/cash.service.js';
+const EADM = 'js/modules/inventory/esb.admin.js';
+const CPAGE = 'js/modules/cash/cash.page.js';
+const CADM = 'js/modules/cash/cash.admin.page.js';
+
+const asli = new Map();
+for (const rel of [MIG, MURNI, TGL, ESVC, CSVC, EADM, CPAGE, CADM]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
+
+const pulih = () => {
+  for (const [rel, isi] of asli) fs.writeFileSync(P(rel), isi);
+};
+process.on('exit', pulih);
+process.on('SIGINT', () => process.exit(130));
+process.on('SIGTERM', () => process.exit(143));
+
+const jalan = (cmd) => {
+  try {
+    execFileSync('node', [cmd], { cwd: AKAR, stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+let gagal = 0;
+const sabotase = (nama, rel, dari, ke, pemeriksa) => {
+  if (!fs.existsSync(P(pemeriksa))) {
+    gagal++;
+    console.error(`❌ PEMERIKSANYA TIDAK ADA: ${pemeriksa} — "tertangkap" di sini tidak berarti apa-apa.`);
+    return;
+  }
+  const isi = asli.get(rel);
+  const rusak = isi.replace(dari, ke);
+  if (rusak === isi) {
+    gagal++;
+    console.error(`❌ SABOTASE TIDAK TERPASANG: ${nama} — polanya tidak ketemu di ${rel}.`);
+    return;
+  }
+  if (typeof dari === 'string' && isi.split(dari).length > 2) {
+    gagal++;
+    console.error(`❌ POLANYA MUNCUL >1 KALI: ${nama} di ${rel} — sabotasenya cuma mengenai yang pertama.`);
+    return;
+  }
+  fs.writeFileSync(P(rel), rusak);
+  const hijau = jalan(pemeriksa);
+  pulih();
+  if (hijau) {
+    gagal++;
+    console.error(`❌ LOLOS: ${nama}\n   ${pemeriksa} tetap hijau padahal ${rel} sudah dirusak.`);
+  } else {
+    console.log(`   ✔ tertangkap: ${nama}`);
+  }
+};
+
+const PG = 'tools/test-migrasi-0149.mjs';
+const TES = 'tools/test-esb-disbursement.mjs';
+const AUDIT = 'tools/audit-disbursement.cjs';
+
+console.log('SABOTASE "SELAIN BAHAN" — dobel-catat yang tidak terlihat:');
+
+sabotase(
+  'pembayaran nota ikut terkirim — pengeluaran yang SAMA tercatat dua kali di ESB',
+  ESVC,
+  "      .eq('untuk_nota', false)\n",
+  '',
+  AUDIT
+);
+sabotase(
+  'koreksi otomatis nota ikut jadi dokumen pengeluaran',
+  ESVC,
+  "      .is('penyesuaian_nota', null)\n",
+  '',
+  AUDIT
+);
+sabotase(
+  'entri yang sudah DICORET berangkat sebagai pengeluaran yang sah',
+  ESVC,
+  "      .is('dicoret_at', null)\n",
+  '',
+  AUDIT
+);
+sabotase(
+  'kas masuk & transfer ikut jadi pengeluaran',
+  ESVC,
+  "      .eq('entry_type', 'out')\n      .eq('untuk_nota', false)",
+  "      .eq('untuk_nota', false)",
+  AUDIT
+);
+sabotase(
+  'yang sudah diekspor ditawarkan lagi — pengeluarannya tercatat dua kali',
+  ESVC,
+  "    if (!termasukSudahEkspor) q = q.is('esb_exported_at', null);\n    if (outletId) q = q.eq('outlet_id', outletId);",
+  '    if (outletId) q = q.eq("outlet_id", outletId);',
+  AUDIT
+);
+
+console.log('\nSABOTASE BENTUK BERKASNYA:');
+
+sabotase(
+  'Document Date dikirim sebagai nomor seri Excel — templatenya menuntut TEKS',
+  MURNI,
+  '    const tanggal = tanggalTeksEsb(c.entry_date);',
+  '    const tanggal = serialTanggalExcel(c.entry_date);',
+  AUDIT
+);
+sabotase(
+  'urutan hari/bulan dibalik — "01/09/2026" terbaca 9 Januari di separuh dunia',
+  TGL,
+  '  return `${m[3]}/${m[2]}/${m[1]}`;',
+  '  return `${m[2]}/${m[3]}/${m[1]}`;',
+  TES
+);
+// `tanggalTeksEsb` MEMINJAM penjaga `serialTanggalExcel`. Memeriksa sendiri
+// dengan aturan kedua berarti dua aturan untuk satu pekerjaan — dan yang
+// menyimpang meloloskan 30 Februari.
+sabotase(
+  'tanggal teks diperiksa dengan aturannya sendiri — 30 Februari lolos',
+  TGL,
+  '  const serial = serialTanggalExcel(v);',
+  '  const serial = 1;',
+  TES
+);
+sabotase(
+  'Sequence dikirim sebagai angka — sel templatenya bertipe teks',
+  MURNI,
+  '      String(seq),',
+  '      seq,',
+  TES
+);
+sabotase(
+  'satu kolom dihapus dari daftarnya — sel-selnya bergeser satu kolom ke kiri',
+  MURNI,
+  "  'Cost Center',\n  'Project',",
+  "  'Project',",
+  TES
+);
+sabotase(
+  'kolom yang tidak punya padanan DIKARANG isinya',
+  MURNI,
+  "      '', // Cost Center",
+  "      'CC-01', // Cost Center",
+  TES
+);
+
+console.log('\nSABOTASE ARTI ANGKANYA:');
+
+sabotase(
+  'tanda minusnya ikut terkirim — pengeluaran yang MENAMBAH kas di ESB',
+  MURNI,
+  '    const jumlah = nominal === null ? null : bulatkanEsb(Math.abs(nominal));',
+  '    const jumlah = nominal === null ? null : bulatkanEsb(nominal);',
+  TES
+);
+sabotase(
+  'Amount berangkat mentah — lebih dari 4 desimal, ESB menolak berkasnya',
+  MURNI,
+  '    const jumlah = nominal === null ? null : bulatkanEsb(Math.abs(nominal));',
+  '    const jumlah = nominal === null ? null : Math.abs(nominal);',
+  TES
+);
+sabotase(
+  'nominal nol berangkat — dokumen pengeluaran senilai nol rupiah',
+  MURNI,
+  '    if (jumlah === null || jumlah <= 0) {',
+  '    if (false) {',
+  TES
+);
+sabotase(
+  'tanggal yang tidak terbaca dikosongkan — ESB mengisinya dengan tanggal unggah',
+  MURNI,
+  '    if (tanggal === null) {',
+  '    if (false) {',
+  TES
+);
+
+console.log('\nSABOTASE PEMETAANNYA:');
+
+sabotase(
+  'pencarian COA memakai aturan normalisasi yang BERBEDA dari penyimpannya',
+  MURNI,
+  '    const akun = peta?.coa?.get?.(normalNama(c.kategori_nama)) ?? null;',
+  '    const akun = peta?.coa?.get?.(teks(c.kategori_nama).toLowerCase()) ?? null;',
+  AUDIT
+);
+sabotase(
+  'entri tanpa kategori berangkat dengan sel Account kosong',
+  MURNI,
+  '    if (!akun) {\n      catat(\'coa\', c.kategori_nama, kode);\n      adaMasalah = true;\n    }',
+  '    void akun;',
+  TES
+);
+sabotase(
+  'outlet yang belum dipetakan berangkat dengan Branch kosong',
+  MURNI,
+  "    if (!branch) {\n      catat('branch', c.outlet_nama, kode);\n      adaMasalah = true;\n    }",
+  '    void branch;',
+  TES
+);
+sabotase(
+  'kategori biaya tidak masuk daftar pemetaan COA — SELURUH kas keluar tertahan, tanpa cara membereskannya',
+  EADM,
+  '    coa: [...CARA_BAYAR, ...kategoriKas.map((k) => String(k?.name ?? \'\').trim()).filter(Boolean)]',
+  '    coa: [...CARA_BAYAR]',
+  AUDIT
+);
+sabotase(
+  'satu entri bermasalah menahan entri lain — padahal tiap kas keluar berdiri sendiri',
+  MURNI,
+  '    if (adaMasalah) continue;',
+  '    if (adaMasalah) break;',
+  TES
+);
+
+console.log('\nSABOTASE PAYMENT TO:');
+
+sabotase(
+  'yang berangkat ejaan yang DIKETIK, bukan nama kanonik daftarnya',
+  MURNI,
+  '    const supplier = adaMasterSupplier ? (supplierSiap(cocok) ? cocok.nama : null) : teks(c.supplier);',
+  '    const supplier = teks(c.supplier);',
+  TES
+);
+sabotase(
+  'BU yang belum mengimpor daftar supplier kehilangan SELURUH ekspornya',
+  MURNI,
+  '    const adaMasterSupplier = masterSupplier?.size > 0;',
+  '    const adaMasterSupplier = true;',
+  TES
+);
+sabotase(
+  'Payment To yang kosong ikut berangkat',
+  MURNI,
+  "    if (!supplier) {\n      catat('supplier', c.supplier, kode);\n      adaMasalah = true;\n    }",
+  '    void supplier;',
+  TES
+);
+sabotase(
+  'kotak Supplier hilang dari dialog koreksi — kolomnya tidak pernah bisa dibetulkan',
+  CPAGE,
+  "                      name: 'supplier',\n                      label: 'Dibayar ke (supplier)',",
+  "                      name: 'supplier_nonaktif',\n                      label: 'Dibayar ke (supplier)',",
+  AUDIT
+);
+sabotase(
+  'nilainya tidak dikirim dari form Kas Keluar — kotaknya digambar, isinya tidak sampai',
+  CPAGE,
+  '        supplier: values.supplier,\n        file: values.file',
+  '        file: values.file',
+  AUDIT
+);
+sabotase(
+  'daftar supplier yang gagal dimuat mematikan SELURUH layar Kas',
+  CPAGE,
+  "      listEsbMaster(businessUnitId, 'supplier').catch(() => [])",
+  "      listEsbMaster(businessUnitId, 'supplier')",
+  AUDIT
+);
+
+console.log('\nSABOTASE BUG 0119, BENTUK KETIGA:');
+
+// `ubah_kas` menulis PENUH. Kolom yang tidak dikirim TERHAPUS — dan yang
+// menghapusnya adalah admin yang cuma membetulkan satu huruf di keterangan.
+sabotase(
+  'supplier tidak diteruskan saat admin mengoreksi — Payment To terhapus diam-diam',
+  CADM,
+  '      supplier: values.supplier ?? r.supplier ?? null,',
+  '      supplier: values.supplier ?? null,',
+  AUDIT
+);
+sabotase(
+  'kolom supplier tidak ikut diambil — dialog admin mengirim undefined dan menghapusnya',
+  CSVC,
+  "          'category_id, outlet_id, qty, unit, supplier, esb_exported_at, dicoret_at, alasan_coret, diubah_at, ' +",
+  "          'category_id, outlet_id, qty, unit, dicoret_at, alasan_coret, diubah_at, ' +",
+  AUDIT
+);
+sabotase(
+  'riwayat_kas_saya berhenti mengembalikan supplier — dialog koreksi menampilkannya kosong lalu MENGHAPUSNYA',
+  MIG,
+  '    ce.supplier,\n    ce.esb_exported_at',
+  '    null::text,\n    ce.esb_exported_at',
+  AUDIT
+);
+sabotase(
+  'p_supplier tidak dikirim — PostgREST mencari tanda tangan delapan argumen yang sudah dibuang',
+  CSVC,
+  "      p_supplier: supplier?.trim() || null",
+  '      p_supplier: supplier',
+  AUDIT
+);
+
+console.log('\nSABOTASE MIGRATION 0149:');
+
+sabotase(
+  'tanda tangan 8-argumen dibiarkan hidup — Supplier yang baru dipilih lenyap diam-diam',
+  MIG,
+  'drop function if exists ubah_kas(uuid, numeric, uuid, uuid, text, numeric, text, date);',
+  '',
+  PG
+);
+sabotase(
+  'yang sudah diekspor masih bisa dikoreksi — catatan berbeda di dua tempat, selamanya',
+  MIG,
+  '  if v.esb_exported_at is not null then',
+  '  if false then',
+  PG
+);
+// Menulis ulang sebuah fungsi berarti mengetik ulang SELURUH isinya — dan itu
+// cara paling mudah menghapus satu penjaga tanpa sadar.
+sabotase(
+  'penjaga "pembayaran nota" hilang saat alasan_tolak_koreksi_kas ditulis ulang',
+  MIG,
+  '  select string_agg(code, \', \' order by code) into v_kode\n    from goods_receipts where payment_entry_id = p_entry;',
+  '  v_kode := null;',
+  AUDIT
+);
+sabotase(
+  'penjaga "sudah dicoret" hilang saat ditulis ulang',
+  MIG,
+  '  if v.dicoret_at is not null then',
+  '  if false then',
+  AUDIT
+);
+sabotase(
+  'kas masuk ikut menyimpan supplier — kolom yang tidak akan pernah dipakai',
+  MIG,
+  "         supplier = case when v_type = 'out' then v_supplier else null end,",
+  '         supplier = v_supplier,',
+  PG
+);
+sabotase(
+  'jejak pengisi supplier ditulis ulang tiap koreksi — mengoreksi nominal terlihat seperti mengisi supplier',
+  MIG,
+  '           when v_supplier is distinct from v_lama then (case when v_supplier is null then null else v_uid end)\n           else supplier_diisi_by end,',
+  '           else v_uid end,',
+  PG
+);
+sabotase(
+  'isi-mundur menyentuh entri yang sudah diekspor',
+  MIG,
+  '     and c.esb_exported_at is null\n     -- Wewenangnya dipinjam dari penjaga koreksi kas yang sudah ada (0141):',
+  '     -- Wewenangnya dipinjam dari penjaga koreksi kas yang sudah ada (0141):',
+  PG
+);
+sabotase(
+  'isi-mundur menyentuh kas orang lain — wewenang koreksi kas diabaikan',
+  MIG,
+  '     and boleh_koreksi_kas(c.holder_id);',
+  ';',
+  PG
+);
+sabotase(
+  'isi-mundur menyentuh entri yang sudah dicoret',
+  MIG,
+  '     and c.dicoret_at is null\n     and c.esb_exported_at is null',
+  '     and c.esb_exported_at is null',
+  PG
+);
+sabotase(
+  'mengosongkan supplier lewat isi-mundur diterima — entrinya tetap tertahan, tanpa jejak kenapa',
+  MIG,
+  '  if v_supplier is null then\n    raise exception \'Pilih suppliernya dulu.',
+  '  if false then\n    raise exception \'Pilih suppliernya dulu.',
+  PG
+);
+sabotase(
+  'penandaan menghitung ulang yang sudah bertanda',
+  MIG,
+  '     and c.esb_exported_at is null\n     and c.entry_type = \'out\'\n     and is_bu_admin(v_uid, c.business_unit_id);',
+  "     and c.entry_type = 'out'\n     and is_bu_admin(v_uid, c.business_unit_id);",
+  PG
+);
+sabotase(
+  'siapa pun bisa menandai kas BU mana pun — fungsinya security definer',
+  MIG,
+  "     and c.entry_type = 'out'\n     and is_bu_admin(v_uid, c.business_unit_id);",
+  "     and c.entry_type = 'out';",
+  PG
+);
+sabotase(
+  'pembatalan tidak lagi menuntut alasan',
+  MIG,
+  '  v_alasan text := alasan_batal_esb_sah(p_alasan);',
+  "  v_alasan text := coalesce(p_alasan, '');",
+  PG
+);
+sabotase(
+  'kas yang TIDAK bertanda ikut ditulisi jejak pembatalan yang tidak pernah terjadi',
+  MIG,
+  '     and c.esb_exported_at is not null\n     and is_bu_admin(v_uid, c.business_unit_id);',
+  '     and is_bu_admin(v_uid, c.business_unit_id);',
+  PG
+);
+sabotase(
+  'riwayat_kas_saya lama tidak dibuang — create or replace menolak perubahan daftar kolomnya',
+  MIG,
+  'drop function if exists riwayat_kas_saya(int);',
+  '',
+  PG
+);
+
+console.log('\nSABOTASE JALAN DI LAYARNYA:');
+
+sabotase(
+  'Disbursement hilang dari pilihan UNDUH',
+  EADM,
+  '            <option value="disbursement">Disbursement — kas keluar non-bahan</option>\n',
+  '',
+  AUDIT
+);
+sabotase(
+  'Disbursement hilang dari pilihan "Batalkan tanda ekspor"',
+  EADM,
+  '            <option value="disbursement">Kas keluar</option>\n',
+  '',
+  AUDIT
+);
+sabotase(
+  'jalan membuka tanda ekspor kas dicabut — jalan keluarnya kembali SQL Editor',
+  EADM,
+  '                    ? await batalkanTandaKasEsb(ids, periksa.alasan)',
+  '                    ? 0',
+  AUDIT
+);
+sabotase(
+  'daftar induk supplier tidak dipakai — Payment To berangkat apa adanya',
+  EADM,
+  '          // Daftar induk supplier yang SAMA dengan nota — bukan daftar kedua\n          // yang cepat atau lambat menyimpang.\n          masterSupplier: petaSupplier(master)',
+  '          masterSupplier: new Map()',
+  AUDIT
+);
+sabotase(
+  'jalan mengisi Supplier mundur dicabut — ratusan entri lama harus diisi satu per satu',
+  CADM,
+  '        const n = await ubahSupplierKas(ids, v.supplier);',
+  '        const n = ids.length;',
+  AUDIT
+);
+sabotase(
+  'centang ditawarkan pada baris yang pasti ditolak database',
+  CADM,
+  "            const bisaSupplier = r.entry_type === 'out' && !k.dicoret && !r.esb_exported_at;",
+  '            const bisaSupplier = true;',
+  AUDIT
+);
+sabotase(
+  '"0 terisi" dilaporkan sebagai berhasil',
+  CADM,
+  '        if (n === ids.length) toast(',
+  '        if (true) toast(',
+  AUDIT
+);
+
+console.log('');
+if (gagal === 0) console.log('Semua sabotase Disbursement tertangkap. ✅');
+else console.error(`${gagal} sabotase LOLOS.`);
+process.exit(gagal === 0 ? 0 : 1);

@@ -89,6 +89,44 @@ export function serialTanggalExcel(v) {
 }
 
 /**
+ * Tanggal sebagai **TEKS** `dd/mm/yyyy` — untuk template yang memang menuntutnya.
+ *
+ * ============ KENAPA ADA DUA CARA, DAN INI BUKAN KELALAIAN ============
+ *
+ * Simple Purchase & Simple Transfer menuntut SEL TANGGAL (`type=d`); itu
+ * diperiksa di templatenya dan dicatat di kepala berkas ini.
+ *
+ * Template **Disbursement** menjawab sebaliknya, dan sama tegasnya. Selnya
+ * diperiksa apa adanya:
+ *
+ *     D2 -> type=s, number_format='@', val='30/04/2026'
+ *
+ * `@` adalah format TEKS di Excel. Jadi bukan sel tanggal yang kebetulan
+ * tampil begitu — ia memang teks, dan kolom `Sequence` di sebelahnya pun
+ * bertipe sama.
+ *
+ * Menyeragamkan keduanya "supaya rapi" berarti menebak, dan tebakan di sini
+ * berakhir sebagai berkas yang ditolak ESB — di layar yang berbeda,
+ * berminggu-minggu kemudian. Yang dipakai selalu apa yang ada di templatenya.
+ *
+ * Bentuk masukannya sama ketatnya dengan `serialTanggalExcel`: hanya
+ * `YYYY-MM-DD` (atau timestamp yang diawali begitu). Menebak "01/09/2026"
+ * berarti memilih antara 1 September dan 9 Januari.
+ *
+ * @param {string|null|undefined} v
+ * @returns {string|null} `'30/04/2026'`, atau `null` kalau tidak terbaca
+ */
+export function tanggalTeksEsb(v) {
+  const serial = serialTanggalExcel(v);
+  // Dipinjamkan ke penjaga yang sudah ada, bukan diperiksa ulang dengan aturan
+  // kedua: tanggal yang TIDAK ADA (`2026-02-30`) harus ditolak di kedua jalur,
+  // dan dua aturan untuk satu pekerjaan pasti menyimpang.
+  if (serial === null) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v).trim());
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+/**
  * Pasang format tanggal pada satu kolom sebuah worksheet SheetJS.
  *
  * Nilainya sudah berupa angka seri saat sampai di sini, dan angka tanpa format

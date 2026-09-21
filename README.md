@@ -6813,6 +6813,78 @@ Bentuk selain `YYYY-MM-DD` ditolak, tidak ditebak: menebak `01/09/2026` berarti 
 
 - [x] **Kolom Date Purchase & Transfer berisi tanggal sungguhan** — 19 sabotase
 
+## Template keempat yang membantah template pertama
+
+> "yang saya lampirkan ini adalah template disbursement untuk import ke esb, ini berkaitan dengan kas keluar di berjaya hub"
+
+**Perlu migration `0149`.**
+
+Delapan belas kolom, header di baris 1. Dua hal langsung terlihat saat selnya diperiksa — bukan namanya, **selnya**:
+
+```
+  A2 Sequence       -> type=s, format='@'   '1'
+  D2 Document Date  -> type=s, format='@'   '30/04/2026'
+```
+
+`@` adalah format **teks** di Excel. Template Simple Purchase menuntut sel tanggal sungguhan (`type=d`) dan menolak teks — itu sudah dicatat di repo ini, lengkap dengan angka serinya. Template ini menjawab sebaliknya, dan sama tegasnya.
+
+Menyeragamkan keduanya "supaya rapi" adalah menebak. Yang dipakai selalu apa yang ada di templatenya, dan `tanggalTeksEsb` **meminjam penjaga `serialTanggalExcel`** alih-alih memeriksa sendiri — dua aturan untuk satu pekerjaan pasti menyimpang, dan yang menyimpang meloloskan 30 Februari.
+
+### Dua kolom yang tidak punya padanan
+
+| Kolom ESB | Keadaannya | Yang dilakukan |
+|---|---|---|
+| **Payment To** | kas keluar tidak punya "dibayar ke siapa" — yang ada Keterangan, teks bebas berisi "Bensin" | kolom baru, dropdown dari **daftar supplier yang sama dengan nota** (`0144`) — bukan daftar kedua |
+| **Account** | nomor COA | dipetakan dari **Kategori biaya** lewat jenis `coa` yang sudah ada sejak `0127` — tidak ada tabel baru |
+
+Lima kolom lain (`Supplier Bank Account Number`, `Cost Center`, `Project`, `Credit Terms`, `Supplier Invoice Number`) dikosongkan. Di contoh templatenya pun sebagiannya kosong, dan mengarang isinya jauh lebih buruk.
+
+### "Hanya pengeluaran selain bahan" — dan itu tidak perlu ditebak
+
+> "disbursement ini hanya untuk pengeluaran selain bahan, jadi di berjaya hub apa bisa dipisah juga"
+
+Bisa, tepat. `untuk_nota` (`0122`) menandai entri yang membayar nota penerimaan barang, dan `penyesuaian_nota` (`0131`) menandai koreksinya. Keduanya dijaga **constraint trigger** yang menuntut notanya sungguh menunjuk entri itu — flag-nya tidak bisa dikarang dari klien.
+
+Kalau keduanya ikut terkirim, pengeluaran yang **sama** tercatat dua kali di ESB: sekali lewat Simple Purchase, sekali di sini. Dua baris yang keduanya terlihat wajar.
+
+### Kepala & rincian sama nilainya, dan itu pernyataan — bukan kemalasan
+
+Templatenya memisahkan `Branch`/`Account` (kepala dokumen) dari `Branch Detail`/`Account Detail` (barisnya), dan contohnya memakai dua baris per `Sequence`. Berjaya Hub mengirim **satu baris per entri kas**: tiap kas keluar adalah pengeluaran yang berdiri sendiri dengan satu outlet dan satu kategori. Menggabungkannya jadi satu dokumen menuntut aturan pengelompokan yang tidak dimiliki datanya — dan kelompok yang ditebak tidak akan pernah terlihat salah di layar mana pun.
+
+Konsekuensi lain dari "berdiri sendiri": satu entri bermasalah menahan **dirinya saja**, tidak seperti nota yang barisnya satu kesatuan.
+
+### Bug 0119, bentuk ketiga
+
+`ubah_kas` menulis **penuh** — kolom yang tidak dikirim terhapus. Menambah satu kolom berarti membuka lubang yang sama untuk ketiga kalinya, di tiga tempat sekaligus:
+
+| Pintu | Kalau terlewat |
+|---|---|
+| dialog koreksi staff | kotaknya ada, isinya sampai |
+| dialog koreksi admin | admin membetulkan satu huruf di Keterangan → **Payment To terhapus** |
+| `riwayat_kas_saya` | RPC-nya tidak mengembalikan `supplier` → kotaknya tampil **kosong** untuk entri yang sudah terisi, lalu Simpan **menghapusnya** |
+
+Yang ketiga paling senyap: tidak ada kode yang salah — yang kurang cuma satu kolom di daftar `returns table` sebuah fungsi yang ditulis delapan migration sebelumnya.
+
+### Dan yang sudah diekspor terkunci
+
+Penjaganya ditaruh di `alasan_tolak_koreksi_kas`, **bukan** di `ubah_kas`. Dari sanalah ketiga pintu membacanya: `ubah_kas`, `coret_kas`, dan layar yang memutuskan tombol mana digambar. Menaruhnya di satu pintu berarti dua pintu lain tetap terbuka.
+
+Menulis ulang fungsi itu berarti **mengetik ulang seluruh isinya** — cara paling mudah menghapus satu penjaga tanpa sadar. Auditnya sekarang menghitung kelimanya satu per satu.
+
+### Lima sabotase yang lolos
+
+| Sabotase | Sebabnya |
+|---|---|
+| `entry_type = 'out'` dicabut | polanya ada di **dua** fungsi; `String.replace` cuma mengenai yang pertama |
+| daftar induk supplier tidak dipakai | audit mencari `masterSupplier: petaSupplier(master)` yang **juga ada di cabang Simple Purchase** |
+| jejak pengisi supplier ditulis ulang | tesnya memakai orang yang **sama** untuk kedua koreksi — `supplier_diisi_by` tetap sama entah jejaknya disentuh atau tidak |
+| `drop function riwayat_kas_saya` dihapus | harness-nya tidak pernah membuat versi lamanya, jadi `drop` yang hilang tidak menghapus apa pun |
+| pengganti yang bukan sabotase | menimpa hasilnya dengan nilai yang sama persis — operasi kosong yang "lolos" karena tidak merusak apa pun |
+
+Dan satu jebakan lama, untuk **ketiga** kalinya di sesi ini: sebuah backtick di dalam komentar SQL yang tinggal di dalam template literal JavaScript, yang menutup literalnya lebih awal.
+
+- [x] **Kas keluar non-bahan diekspor sebagai Disbursement** (`0149`) — 46 sabotase
+
 ## Satu aturan yang tinggal di tiga kepala, dan tertinggal di kepala keempat
 
 > "coba kamu ingatkan lagi seharusnya ada berapa angka dibelakang koma agar bisa di import di esb"

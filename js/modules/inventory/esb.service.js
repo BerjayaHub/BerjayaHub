@@ -458,6 +458,125 @@ export async function batalkanTandaWasteEsb(wasteIds, alasan) {
   return Number(data) || 0;
 }
 
+// ---- Kas keluar untuk diekspor (Disbursement, 0149) ----
+
+/**
+ * Kode yang bisa dibaca manusia untuk sebuah entri kas.
+ *
+ * `cash_entries` tidak punya kolom nomor — ia tidak pernah perlu satu, karena
+ * tidak ada dokumen fisik yang menunjuknya. Untuk berkas ESB kolom itu wajib
+ * ada: `Additional Information` adalah satu-satunya cara mencocokkan baris di
+ * ESB kembali ke entri kas di sini saat angkanya dipertanyakan.
+ *
+ * Diturunkan dari id-nya, bukan nomor berjalan baru: nomor berjalan menuntut
+ * tabel penghitung dan bisa berulang kalau dua orang mencatat bersamaan.
+ */
+export function kodeKas(id) {
+  return `KAS-${String(id ?? '').slice(0, 8).toUpperCase()}`;
+}
+
+/**
+ * Kas keluar yang siap diekspor sebagai Disbursement.
+ *
+ * ============ HANYA PENGELUARAN SELAIN BAHAN ============
+ *
+ * Empat saringan, dan tiga di antaranya bukan selera:
+ *
+ *   entry_type = 'out'      -> kas masuk & transfer bukan pengeluaran
+ *   untuk_nota = false      -> pembayaran nota; bahannya sudah berangkat lewat
+ *                              Simple Purchase, dan mengirimnya lagi di sini
+ *                              mencatat pengeluaran yang sama dua kali
+ *   penyesuaian_nota null   -> koreksi otomatis dari nota, bukan catatan kas
+ *                              yang berdiri sendiri
+ *   dicoret_at null         -> entri yang sudah dihapus (0141)
+ *
+ * Keduanya yang pertama dijaga CONSTRAINT TRIGGER di database (0122/0131),
+ * jadi flag-nya tidak bisa dikarang dari klien — pemisahannya bisa dipercaya.
+ */
+export async function kasUntukEsb({ businessUnitId, from, to, outletId = null, termasukSudahEkspor = false }) {
+  const baris = await ambilSemua((dari, sampai) => {
+    let q = supabase
+      .from('cash_entries')
+      .select(
+        'id, entry_date, amount, notes, supplier, outlet_id, category_id, esb_exported_at, ' +
+          'outlets!outlet_id(name), cash_categories!category_id(name)',
+        { count: 'exact' }
+      )
+      .eq('business_unit_id', businessUnitId)
+      .eq('entry_type', 'out')
+      .eq('untuk_nota', false)
+      .is('penyesuaian_nota', null)
+      .is('dicoret_at', null)
+      // `entry_date` bertipe DATE — disaring apa adanya, tanpa batas WIB.
+      // Membubuhkan jam pada kolom DATE justru menggeser hasilnya.
+      .gte('entry_date', from)
+      .lte('entry_date', to)
+      .order('entry_date')
+      .order('id');
+    if (!termasukSudahEkspor) q = q.is('esb_exported_at', null);
+    if (outletId) q = q.eq('outlet_id', outletId);
+    return q.range(dari, sampai);
+  });
+
+  return baris.map((c) => ({
+    id: c.id,
+    kode: kodeKas(c.id),
+    entry_date: c.entry_date,
+    amount: c.amount,
+    notes: c.notes,
+    supplier: c.supplier,
+    outlet_nama: c.outlets?.name ?? '',
+    kategori_nama: c.cash_categories?.name ?? ''
+  }));
+}
+
+/** Tandai kas keluar yang BENAR-BENAR ikut terunduh. Dipanggil sesudah berkasnya jadi. */
+export async function tandaiKasEsb(ids) {
+  const { data, error } = await supabase.rpc('tandai_kas_esb', argumenRpc({ p_entries: ids }));
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data) || 0;
+}
+
+/** Batalkan penandaan kas keluar. Alasan WAJIB (0143). */
+export async function batalkanTandaKasEsb(ids, alasan) {
+  const { data, error } = await supabase.rpc(
+    'batalkan_tanda_kas_esb',
+    argumenRpc({ p_entries: ids, p_alasan: String(alasan ?? '') })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data) || 0;
+}
+
+/** Kas keluar yang SUDAH bertanda ekspor, untuk layar "Batalkan tanda ekspor". */
+export async function kasBertandaEsb({ businessUnitId, from, to, outletId = null }) {
+  const baris = await ambilSemua((dari, sampai) => {
+    let q = supabase
+      .from('cash_entries')
+      .select(
+        'id, entry_date, amount, notes, supplier, outlet_id, esb_exported_at, esb_dibatalkan_at, esb_alasan_batal, ' +
+          'outlets!outlet_id(name), pembatal:user_profiles!esb_dibatalkan_by(full_name)',
+        { count: 'exact' }
+      )
+      .eq('business_unit_id', businessUnitId)
+      .eq('entry_type', 'out')
+      .not('esb_exported_at', 'is', null)
+      .gte('entry_date', from)
+      .lte('entry_date', to)
+      .order('esb_exported_at', { ascending: false });
+    if (outletId) q = q.eq('outlet_id', outletId);
+    return q.range(dari, sampai);
+  });
+  // Bentuknya disamakan dengan nota, kiriman & waste supaya layar "Batalkan
+  // tanda ekspor" tidak perlu tahu ia sedang menampilkan jenis dokumen mana.
+  return baris.map((c) => ({
+    ...c,
+    code: kodeKas(c.id),
+    receipt_date: c.entry_date,
+    supplier: c.supplier || c.notes || '',
+    outlet_name: c.outlets?.name ?? ''
+  }));
+}
+
 /** Waste yang SUDAH bertanda ekspor, untuk layar "Batalkan tanda ekspor". */
 export async function wasteBertandaEsb({ businessUnitId, from, to, outletId = null }) {
   const baris = await ambilSemua((dari, sampai) => {
