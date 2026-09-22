@@ -383,6 +383,20 @@ sabotase(
   TES
 );
 sabotase(
+  'keterangan outlet & pemegang pindah ke `hint` — `select` membuangnya, dropdown jadi tidak bisa dibedakan',
+  MURNI,
+  '  const outlet = namaOutlet(k);\n  const pemegang = teks(k?.user_profiles?.full_name);',
+  '  const outlet = \'\';\n  const pemegang = \'\';',
+  TES
+);
+sabotase(
+  'label Pusat tidak lagi menjelaskan dirinya — terbaca seperti nama kantong',
+  MURNI,
+  "export const LABEL_PUSAT = 'Dibayar Pusat — tidak mengurangi kas siapa pun';",
+  "export const LABEL_PUSAT = 'Pusat';",
+  TES
+);
+sabotase(
   'nama outlet cuma dibaca dari satu bentuk — separuh layar kehilangan keterangannya',
   MURNI,
   "  return teks(k?.outlet_name) || teks(k?.outlets?.name);",

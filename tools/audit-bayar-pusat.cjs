@@ -279,6 +279,39 @@ if (modul) {
   if (!/if \(entri\?\.dibayar_pusat\) return false;/.test(kode)) {
     salah('kantong-wajib.js: baris Pusat ditandai perlu dibereskan — menyuruh orang membetulkan sesuatu yang sudah benar.');
   }
+  // ---- KETERANGAN DI `label`, BUKAN DI `hint` ----
+  //
+  // `formDialog` menggambar `type: 'select'` HANYA dari `o.label`; `o.hint`
+  // tidak dipakai sama sekali (lihat `js/core/ui.js`). Keterangan yang cuma
+  // ada di `hint` dibuang di baris terakhir, tanpa satu pun galat — dan
+  // dropdown-nya menampilkan dua kantong milik dua orang di dua outlet yang
+  // tidak bisa dibedakan.
+  if (!/const outlet = namaOutlet\(k\);/.test(kode) || !/const pemegang = teks\(k\?\.user_profiles\?\.full_name\);/.test(kode)) {
+    salah(
+      'kantong-wajib.js: `labelKantong` tidak lagi memuat outlet & pemegangnya. `select` membuang `hint`, jadi ' +
+        'keterangan yang pindah ke sana hilang tanpa jejak.'
+    );
+  }
+  if (!/tidak mengurangi kas/.test(kode)) {
+    salah('kantong-wajib.js: label pilihan Pusat tidak lagi menjelaskan dirinya — tanpa itu ia terbaca seperti nama kantong.');
+  }
+}
+
+// Dan penggambarnya memang begitu. Kalau `ui.js` suatu saat MULAI memakai
+// `hint` untuk select, catatan panjang di `labelKantong` jadi salah — dan
+// catatan yang salah lebih buruk daripada tidak ada catatan.
+const ui = baca('js/core/ui.js');
+if (ui) {
+  const kode = tanpaKomentar(ui);
+  const i = kode.indexOf("if (f.type === 'select')");
+  const blok = i < 0 ? '' : kode.slice(i, i + 600);
+  if (!blok) salah("js/core/ui.js: blok `type === 'select'` tidak ketemu — audit ini kehilangan sasarannya.");
+  else if (/hint/.test(blok)) {
+    salah(
+      "js/core/ui.js: penggambar `select` sekarang memakai `hint`. Catatan di `labelKantong` mengatakan sebaliknya — " +
+        'perbarui keduanya, jangan biarkan satu catatan berbohong.'
+    );
+  }
 }
 
 // ---------------------------------------------------------------

@@ -71,6 +71,8 @@ export const HINT_TANPA_OUTLET = 'belum punya outlet — akan tertahan saat diek
  * yang sama dipakai `p_tanpa_kantong` di 0140.
  */
 export const BAYAR_PUSAT = '__pusat__';
+// Kalimatnya LENGKAP di label, bukan setengah di `hint`: `select` membuang
+// `hint`, dan "Dibayar Pusat" tanpa penjelasan terbaca seperti nama kantong.
 export const LABEL_PUSAT = 'Dibayar Pusat — tidak mengurangi kas siapa pun';
 export const HINT_PUSAT = 'kantor pusat yang membayar; tercatat sebagai biaya, saldo kas tidak berkurang';
 
@@ -132,11 +134,30 @@ export function namaOutlet(k) {
   return teks(k?.outlet_name) || teks(k?.outlets?.name);
 }
 
-/** "Kas CK iis (Iis)" — nama kantong dan pemegangnya. */
+/**
+ * "Kas CK iis — Central Kitchen Tangerang (Iis)".
+ *
+ * ============ SELURUHNYA DI `label`, DAN ITU BUKAN PILIHAN GAYA ============
+ *
+ * `formDialog` menggambar `type: 'select'` begini (js/core/ui.js):
+ *
+ *     `<option value="${o.value}">${escapeHtml(o.label)}</option>`
+ *
+ * `o.hint` TIDAK DIPAKAI SAMA SEKALI — hanya `searchselect` yang membacanya.
+ * Versi pertama menaruh nama outletnya di `hint`, dan hasilnya: dropdown yang
+ * cuma menampilkan "Kas Serpong" dan "Kas CK", dua kantong milik dua orang di
+ * dua outlet yang tidak bisa dibedakan sama sekali. Tidak ada galat; keterangan
+ * yang ditulis dengan hati-hati itu dibuang di baris terakhir.
+ *
+ * `hint` TETAP diisi — `searchselect` di layar lain memakainya, dan
+ * mengosongkannya di sini akan mengambil keterangan yang sudah bekerja di sana.
+ */
 export function labelKantong(k) {
   const nama = teks(k?.name) || '(tanpa nama)';
+  const outlet = namaOutlet(k);
   const pemegang = teks(k?.user_profiles?.full_name);
-  return pemegang ? `${nama} (${pemegang})` : nama;
+  const ekor = [outlet && `— ${outlet}`, pemegang && `(${pemegang})`].filter(Boolean).join(' ');
+  return ekor ? `${nama} ${ekor}` : nama;
 }
 
 /** Apakah pilihan ini "Dibayar Pusat"? */

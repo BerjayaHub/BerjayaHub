@@ -184,11 +184,26 @@ const embed = opsiKantong([{ id: 'x', name: 'Kas CK', outlet_id: 'o9', outlets: 
 assert.equal(embed[0].hint, 'Central Kitchen');
 ok('INTI: nama outlet terbaca dari bentuk datar maupun embed');
 
-// Nama pemegang ikut di label — dua kantong bernama mirip milik dua orang
-// tidak bisa dibedakan tanpa itu.
-const milikIis = opsiKantong([{ id: 'y', name: 'Kas CK', outlet_id: 'o9', user_profiles: { full_name: 'Iis' } }]);
-assert.equal(milikIis[0].label, 'Kas CK (Iis)');
-assert.equal(opsiKantong([SERPONG])[0].label, 'Kas Serpong');
-ok('nama pemegangnya ikut kalau ada, tidak kalau tidak');
+// OUTLET & PEMEGANG ikut di `label`, bukan di `hint`.
+//
+// `formDialog` menggambar `type: 'select'` hanya dari `o.label` — `o.hint`
+// tidak dipakai sama sekali (js/core/ui.js). Versi pertama menaruh nama
+// outletnya di `hint`, dan dropdown-nya cuma menampilkan "Kas Serpong" dan
+// "Kas CK": dua kantong milik dua orang di dua outlet, tidak bisa dibedakan.
+const milikIis = opsiKantong([
+  { id: 'y', name: 'Kas CK', outlet_id: 'o9', outlets: { name: 'Central Kitchen Tangerang' }, user_profiles: { full_name: 'Iis' } }
+]);
+assert.equal(milikIis[0].label, 'Kas CK — Central Kitchen Tangerang (Iis)');
+ok('INTI: outlet & pemegangnya ada di LABEL — `select` membuang `hint`');
+
+// Yang tidak punya keduanya tetap ringkas, bukan "Kas Pribadi —  ()".
+assert.equal(opsiKantong([{ id: 'z', name: 'Kas Pribadi' }])[0].label, 'Kas Pribadi');
+assert.equal(opsiKantong([SERPONG])[0].label, 'Kas Serpong — AB Gading Serpong');
+ok('tanpa outlet/pemegang labelnya tetap bersih');
+
+// Pilihan Pusat menjelaskan dirinya SENDIRI di label — tanpa itu ia terbaca
+// seperti nama kantong.
+assert.match(LABEL_PUSAT, /tidak mengurangi kas/);
+ok('pilihan Pusat menjelaskan dirinya di label, bukan di hint yang dibuang');
 
 console.log(`\n${n} pemeriksaan kantong kas lolos. ✅`);

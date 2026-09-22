@@ -7880,3 +7880,17 @@ Jadi isinya disalin mentah dari migration asalnya lewat skrip, lalu `audit-bayar
 Keduanya sekarang dihitung atau diikat ke blok yang memuatnya.
 
 - [x] **Kas keluar dari kantong outlet lain + Dibayar Pusat** (`0153`) — 48 sabotase
+
+### Keterangan yang ditulis dengan hati-hati, lalu dibuang di baris terakhir
+
+`formDialog` menggambar `type: 'select'` begini (`js/core/ui.js`):
+
+```js
+`<option value="${escapeAttr(o.value)}">${escapeHtml(o.label)}</option>`
+```
+
+**`o.hint` tidak dipakai sama sekali** — hanya `searchselect` yang membacanya. `opsiKantong` menaruh nama outletnya di `hint`, jadi dropdown Sumber dana menampilkan "Kas Serpong" dan "Kas CK": dua kantong, milik dua orang, di dua outlet, tidak bisa dibedakan. Penjelasan pilihan "Dibayar Pusat" ikut hilang di sana.
+
+Tidak ada galat, dan tidak ada satu pun tes yang bisa menyebutnya rusak — `opsiKantong` mengembalikan persis apa yang diminta. Yang salah adalah anggapan tentang siapa yang membacanya.
+
+Sekarang seluruh keterangannya ada di `label` (`Kas CK iis — Central Kitchen Tangerang (Iis)`), `hint` tetap diisi untuk `searchselect` di layar lain, dan `audit-bayar-pusat.cjs` ikut membaca `js/core/ui.js`: kalau penggambar `select` suatu saat MULAI memakai `hint`, catatan di `labelKantong` jadi salah — dan catatan yang salah lebih buruk daripada tidak ada catatan.
