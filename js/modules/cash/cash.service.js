@@ -483,6 +483,36 @@ export async function getCashProofUrls(paths, expiresIn = 3600) {
 
 // ---- Admin ----
 
+/**
+ * Kantong kas AKTIF milik seorang pemegang (0152).
+ *
+ * `daftarKantongKas()` di atas super-admin-only; ini dipakai layar yang
+ * memindahkan entri, dan wewenangnya mengikuti `boleh_koreksi_kas` supaya
+ * admin BU tidak melihat daftar kosong yang terbaca sebagai "orang ini tidak
+ * punya kantong".
+ */
+export async function kantongPemegang(holderId) {
+  if (!holderId) return [];
+  const { data, error } = await supabase.rpc('kantong_pemegang', { p_holder: holderId });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Pindahkan beberapa entri kas ke sebuah kantong (0152).
+ *
+ * Mengembalikan jumlah baris yang SUNGGUH berubah — layarnya membandingkannya
+ * dengan yang dicentang, karena melaporkan "berhasil" untuk 0 baris membuat
+ * orang mengira pekerjaannya selesai.
+ */
+export async function ubahKantongKas(entryIds, accountId) {
+  const ids = [...new Set((entryIds ?? []).filter(Boolean))];
+  if (!ids.length) return 0;
+  const { data, error } = await supabase.rpc('ubah_kantong_kas', argumenRpc({ p_entries: ids, p_account: accountId }));
+  if (error) throw error;
+  return Number(data) || 0;
+}
+
 /** Saldo semua pemegang kas (RLS: hanya super admin yang dapat baris orang lain). */
 export async function listCashBalances() {
   const { data, error } = await supabase.from('cash_balances').select('holder_id, balance');
@@ -528,6 +558,12 @@ export async function listCashEntriesAdmin({ holderId, entryType, dateFrom, date
           // Sumbu yang benar sama dengan 0150: BU diturunkan dari OUTLET
           // peruntukan, yang wajib ada pada tiap kas keluar sejak 0063.
           'outlets!outlet_id(name, business_unit_id), ' +
+          // KANTONGNYA IKUT. Sejak 0151 kantong entri adalah sumber kolom
+          // `Account` berkas Disbursement, jadi entri tanpa kantong tertahan —
+          // dan tanpa kolom ini tidak ada satu pun cara di layar untuk tahu
+          // baris mana yang bermasalah. Yang membacanya cuma melihat "2
+          // tertahan" di layar lain, tanpa nomor kas untuk dicari.
+          'cash_accounts(name), ' +
           'pencoret:user_profiles!dicoret_by(full_name), pengubah:user_profiles!diubah_by(full_name), cash_categories(name)',
         { count: 'exact' }
       )

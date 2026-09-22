@@ -29,6 +29,7 @@ import { listEsbMaster } from '../inventory/esb.service.js';
 import { bukaDialogNota } from '../inventory/nota-dialog.js';
 import { pecahKeterangan, petaNotaPerEntri } from './keterangan-nota.js';
 import { supplierKasWajib, opsiSupplierKas, periksaSupplierKas } from './supplier-kas.js';
+import { kantongWajib, opsiKantong, periksaKantong, NAMA_TANPA_KANTONG } from './kantong-wajib.js';
 
 /**
  * Penanda "Kas Utama" di dalam <select>.
@@ -77,7 +78,20 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
   // tetap dibuat tanpa nama — kehilangan satu baris judul jauh lebih ringan
   // daripada tombol export yang mati.
   const namaSaya = members.find((s) => s.user_id === userId)?.full_name ?? 'Kas saya';
-  const pakaiKantong = limit > 1;
+  // DUA PERTANYAAN YANG BERBEDA, dan dulu dijawab satu variabel.
+  //
+  //   `bolehTambahKantong` — jatahnya. Mengatur apakah ia boleh MEMBUAT
+  //                          kantong baru; itu memang urusan admin.
+  //   `punyaKantong`       — apakah ia PUNYA kantong. Inilah yang menentukan
+  //                          kantongnya ditanyakan, terlihat di riwayat, dan
+  //                          bisa dipindahkan.
+  //
+  // Menyatukan keduanya sebagai `limit > 1` membuat pemegang berjatah 1 yang
+  // sudah punya satu kantong tidak pernah ditanya kantongnya, tidak melihat
+  // kolom Kantong di riwayatnya, dan tidak punya tombol ⇄ Pindah Kas — jadi
+  // uang yang terlanjur di Kas Utama terkunci di sana.
+  const bolehTambahKantong = limit > 1;
+  const punyaKantong = accounts.length > 0;
 
   // Bentuk opsinya sama persis dengan kolom Supplier di nota: kode ESB-nya
   // ditampilkan sebagai keterangan, bukan ditempel ke namanya — keterangan
@@ -105,9 +119,9 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
         <button class="primary" id="cash-in" style="max-width:130px">+ Kas Masuk</button>
         <button id="cash-out">− Kas Keluar</button>
-        ${pakaiKantong ? '<button id="cash-move">⇄ Pindah Kas</button>' : ''}
+        ${punyaKantong ? '<button id="cash-move">⇄ Pindah Kas</button>' : ''}
         <button id="cash-transfer">Transfer</button>
-        ${pakaiKantong ? '<button id="cash-manage">🏷️ Kelola Kas</button>' : ''}
+        ${bolehTambahKantong ? '<button id="cash-manage">🏷️ Kelola Kas</button>' : ''}
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:20px">
@@ -122,7 +136,6 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     { value: '', label: '-- tanpa kategori --' },
     ...categories.filter((c) => c.direction === 'both' || c.direction === dir).map((c) => ({ value: c.id, label: c.name }))
   ];
-  const akunOptions = () => accounts.map((a) => ({ value: a.id, label: a.name }));
 
   // Entri yang sedang tampil, dipakai tombol Export PDF. Mengambil ulang dari
   // server saat export berisiko menghasilkan PDF yang ISINYA BERBEDA dari yang
@@ -315,7 +328,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
         // entri yang dicatat orang lain ke kantongku, karena embed PostgREST
         // tunduk pada `outlets_select`. Alasan panjangnya di cash.service.js.
         riwayatKasSaya(),
-        pakaiKantong ? listMyCashAccountBalances().catch(() => []) : Promise.resolve([])
+        punyaKantong ? listMyCashAccountBalances().catch(() => []) : Promise.resolve([])
       ]);
       entriTampil = entries;
       saldoKantong = saldoAkun;
@@ -356,7 +369,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       box.innerHTML = entries.length
         ? `<div class="table-scroll kas-riwayat">
             <table class="data-table table-freeze-1 kartu-sempit">
-            <thead><tr><th>Keterangan</th><th>Tanggal</th><th>Jenis</th>${pakaiKantong ? '<th>Kantong</th>' : ''}<th>Outlet</th><th>Jumlah</th><th>Bukti</th><th>Aksi</th></tr></thead>
+            <thead><tr><th>Keterangan</th><th>Tanggal</th><th>Jenis</th>${punyaKantong ? '<th>Kantong</th>' : ''}<th>Outlet</th><th>Jumlah</th><th>Bukti</th><th>Aksi</th></tr></thead>
             <tbody>
               ${entries
                 .map((e) => {
@@ -374,7 +387,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
                       ${k.jejak ? `<div class="kas-jejak">${escapeHtml(k.jejak)}</div>` : ''}</td>
                     <td style="font-size:0.82rem" data-label="Tanggal">${fmtDate(e.entry_date)}</td>
                     <td style="font-size:0.82rem" data-label="Jenis">${escapeHtml(ENTRY_LABEL[e.entry_type] ?? e.entry_type)}</td>
-                    ${pakaiKantong ? `<td style="font-size:0.82rem" data-label="Kantong">${escapeHtml(e.account_name ?? 'Kas Utama')}</td>` : ''}
+                    ${punyaKantong ? `<td style="font-size:0.82rem" data-label="Kantong">${escapeHtml(e.account_name ?? NAMA_TANPA_KANTONG)}</td>` : ''}
                     <td style="font-size:0.82rem" data-label="Outlet">${escapeHtml(e.outlet_name ?? '-')}</td>
                     <td style="color:${color};font-weight:600;white-space:nowrap" data-label="Jumlah">${amt >= 0 ? '+' : '−'}${formatRupiah(Math.abs(amt))}</td>
                     <td data-label="Bukti">${e.proof_path ? `<button class="btn-proof" data-path="${escapeHtml(e.proof_path)}">Bukti</button>` : '<span style="color:var(--color-text-muted)">—</span>'}</td>
@@ -470,7 +483,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
           fmtDate(e.entry_date),
           jejak ? `${ket}\n[${jejak}]` : ket,
           ENTRY_LABEL[e.entry_type] ?? e.entry_type,
-          ...(pakaiKantong ? [e.account_name ?? 'Kas Utama'] : []),
+          ...(punyaKantong ? [e.account_name ?? NAMA_TANPA_KANTONG] : []),
           e.outlet_name ?? '-',
           jumlah,
           // Tanda − (minus panjang) diganti tanda hubung biasa: helvetica bawaan
@@ -495,7 +508,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
           { header: 'Tanggal', width: 0.9 },
           { header: 'Keterangan', width: 2 },
           { header: 'Jenis', width: 0.9 },
-          ...(pakaiKantong ? [{ header: 'Kantong', width: 1 }] : []),
+          ...(punyaKantong ? [{ header: 'Kantong', width: 1 }] : []),
           { header: 'Outlet', width: 1.1 },
           { header: 'Jumlah', width: 0.8 },
           { header: 'Nominal', width: 1.2, align: 'right' },
@@ -520,14 +533,22 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
         { name: 'amount', label: 'Jumlah uang (Rp)', type: 'money', required: true },
         { name: 'notes', label: 'Keterangan', type: 'text', required: true, placeholder: 'mis. setoran dari owner' },
         { name: 'date', label: 'Tanggal', type: 'date', value: todayWIB() },
-        ...(pakaiKantong && accounts.length
+        // DITANYAKAN BEGITU IA PUNYA KANTONG — bukan `pakaiKantong` (jatah > 1).
+        //
+        // Kas MASUK ikut ditanya, dan itu bukan tambahan yang bisa dilewat:
+        // kalau hanya kas keluar yang diwajibkan, uang masuk terus menumpuk di
+        // Kas Utama sementara belanjanya membebani kantong — kantongnya makin
+        // negatif tiap bulan, dan saldo kantong negatif adalah keadaan yang
+        // mustahil di dunia nyata. Itu persis angka yang terlihat di layar
+        // Kantong Kas sebelum ini diperbaiki.
+        ...(kantongWajib(accounts)
           ? [
               {
                 name: 'account_id',
                 label: 'Masuk ke kantong',
                 type: 'select',
                 required: true,
-                options: akunOptions(),
+                options: opsiKantong(accounts),
                 help: 'Kalau uangnya perlu dibagi ke beberapa kantong, catat satu per satu — atau pakai ⇄ Pindah Kas setelahnya.'
               }
             ]
@@ -544,6 +565,8 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     });
     if (!values) return;
     if (!(values.amount > 0)) return toast('Jumlah uang harus lebih dari 0.', 'warning');
+    const salahKantongMasuk = periksaKantong(values.account_id, accounts, 'in');
+    if (salahKantongMasuk) return toast(salahKantongMasuk, 'warning');
     try {
       await recordCashEntry({
         type: 'in',
@@ -611,8 +634,23 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
         { name: 'qty', label: 'Jumlah barang', type: 'qty', placeholder: 'mis. 10' },
         { name: 'unit', label: 'Satuan', type: 'text', placeholder: 'mis. liter / pcs / kg' },
         { name: 'date', label: 'Tanggal', type: 'date', value: todayWIB() },
-        ...(pakaiKantong && accounts.length
-          ? [{ name: 'account_id', label: 'Diambil dari kantong', type: 'select', required: true, options: akunOptions() }]
+        // DITANYAKAN BEGITU IA PUNYA KANTONG. Gerbang lamanya `jatah > 1`
+        // menjawab pertanyaan yang salah — jatah mengatur berapa banyak kantong
+        // boleh dipunyai, bukan apakah perlu ditanya. Pemegang berjatah 1
+        // dengan satu kantong tidak pernah ditanya, dan seluruh kas keluarnya
+        // mendarat di Kas Utama: tercatat penuh, tapi tanpa kantong, jadi
+        // tertahan saat diekspor ke ESB (0151).
+        ...(kantongWajib(accounts)
+          ? [
+              {
+                name: 'account_id',
+                label: 'Diambil dari kantong',
+                type: 'select',
+                required: true,
+                options: opsiKantong(accounts),
+                help: 'Uangnya keluar dari kantong mana. Ini yang jadi nomor akun kas saat diekspor ke ESB.'
+              }
+            ]
           : []),
         {
           name: 'file',
@@ -631,6 +669,8 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     // Tanpa `nilaiLama`: entri BARU tidak punya nilai warisan untuk dimaafkan.
     const salahSupplier = periksaSupplierKas(values.supplier, daftarSupplier);
     if (salahSupplier) return toast(salahSupplier, 'warning');
+    const salahKantong = periksaKantong(values.account_id, accounts, 'out');
+    if (salahKantong) return toast(salahKantong, 'warning');
     try {
       await recordCashEntry({
         type: 'out',

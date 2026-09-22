@@ -7762,3 +7762,69 @@ Semuanya bentuk yang sama — **hijau karena sasarannya ada di tempat lain** —
 Yang baru dijaga dengan **hitungan**, bukan keberadaan: `periksaSupplierKas` harus muncul dua kali di tiap layar kas, `masterSupplier: petaSupplier(master)` dua kali di `esb.admin.js`. Pola yang muncul lebih dari sekali sekarang ditolak sabotase-nya sebelum dijalankan.
 
 - [x] **COA Disbursement dari kantong + supplier kas wajib** (`0151`) — 33 sabotase
+
+## Gerbang yang menjawab pertanyaan yang salah
+
+> *"jadi apakah ada kemungkinan staff tidak memakai kantong kas, sehingga tidak tercatat?"*
+
+Ya — dan bukan karena staff lalai. **Formnya tidak pernah bertanya.**
+
+### `limit > 1` menjawab "berapa banyak", bukan "apakah perlu ditanya"
+
+Pilihan kantong di form Kas Masuk & Kas Keluar digantung pada satu baris:
+
+```js
+const pakaiKantong = limit > 1;
+```
+
+`limit` adalah **jatah** — berapa banyak kantong seseorang boleh punya, diatur admin di Master User. Orang berjatah 1 yang sudah punya satu kantong justru yang paling jelas jawabannya, dan justru dia yang tidak pernah ditanya. `account_id` tinggal `NULL`, dan uangnya mendarat di "Kas Utama".
+
+Sementara itu **pembayaran nota lewat modul Bahan selalu memilih kantong secara eksplisit**. Dua jalur menulis tabel yang sama; satu bertanya, satu tidak. Hasilnya angka yang mustahil di layar Kantong Kas:
+
+```
+Kas Serpong   Rp  -46.000    <- nota, membebani kantong
+Kas Utama     Rp +101.600    <- kas masuk & keluar tanpa kantong
+```
+
+Saldo totalnya benar (Rp 55.600). Uangnya tercatat penuh — ada di Mutasi Kas, ada foto notanya, ada suppliernya. **Tidak ada satu pun angka di layar yang terlihat salah.** Yang rusak pembagiannya, dan sejak `0151` pembagian itulah kolom `Account` berkas Disbursement — jadi entri Kas Utama tertahan.
+
+### Kas MASUK ikut ditanya, dan itu bukan tambahan yang bisa dilewat
+
+Kalau hanya kas keluar yang diwajibkan, keadaannya justru **memburuk**: uang masuk terus menumpuk di Kas Utama sementara belanjanya membebani kantong, jadi kantongnya makin negatif setiap bulan. Persis bentuk angka di atas. Yang harus berhenti adalah uang masuk tanpa kantong.
+
+### Dua kelonggaran yang sengaja tetap ada
+
+- **Wajib hanya kalau ia punya kantong.** Bentuk yang sama dengan Purpose (`0147`) dan Supplier kas (`0151`). Menolak form orang yang belum punya kantong hanya membuat pengeluaran jam 9 malam tidak tercatat sama sekali — jauh lebih buruk daripada tercatat di Kas Utama, yang setidaknya bisa dipindahkan belakangan.
+- **Kantong tanpa outlet tetap ditawarkan**, dengan keterangan *"belum punya outlet — akan tertahan saat diekspor ke ESB"*. Membuangnya akan membuat orang yang seluruh kantongnya belum ber-outlet menghadapi dropdown kosong yang wajib diisi.
+
+"Kas Utama" sendiri **tidak** ditawarkan: ia bukan kantong, ia nama untuk ketiadaan kantong, dan menawarkannya berarti menawarkan keadaan yang sedang diperbaiki sebagai jawaban yang sah.
+
+### ⇄ Pindah Kas tidak memperbaiki entri yang terlanjur
+
+`pindah_kas()` (0063) memindahkan **saldo** dengan membuat sepasang entri baru. Entri belanja aslinya tetap ber-`account_id` NULL, jadi tetap tertahan saat diekspor. Yang perlu diubah adalah kantong pada entrinya sendiri — dan `cash.admin.page.js` justru berkata *"Pemegang, kantong, jenis, dan foto notanya tidak bisa diubah dari sini."*
+
+Aturan itu tetap berlaku untuk entri yang **berpasangan dengan baris lain**: pembayaran nota, penyesuaian nota, transfer. Yang dibuka `ubah_kantong_kas` hanya entri kas yang berdiri sendiri — dan supaya "berdiri sendiri" tidak punya dua definisi, fungsinya **menumpang `alasan_tolak_koreksi_kas`** alih-alih menyalin daftar syaratnya. Tesnya membuktikan itu bukan sekadar niat: melonggarkan penjaganya sementara ikut melonggarkan aksi massalnya.
+
+### Lubang NULL yang ditemukan tesnya sendiri
+
+Menulis §4 tes 0152 memunculkan ini di `boleh_koreksi_kas` (0141):
+
+```sql
+select is_super_admin(auth.uid())
+    or p_holder = auth.uid()      -- NULL saat tidak ada sesi
+    or exists (…);
+```
+
+`false or NULL or false` adalah **NULL**, bukan false. Dan di pemanggilnya, `if not boleh_koreksi_kas(…) then return 'bukan wewenangmu'` — `not NULL` juga NULL, jadi **IF-nya tidak menyala**. `alasan_tolak_koreksi_kas` jatuh sampai `return null`, yang artinya "tidak ada alasan menolak": pemanggil tanpa sesi dinyatakan **boleh**.
+
+Hari ini tidak bisa dicapai dari luar — `grant execute` hanya untuk `authenticated`, jadi PostgREST menolak anon sebelum fungsinya jalan. Tapi fungsi ini satu-satunya tempat jawaban "boleh atau tidak" tinggal, dan jawaban NULL dari sana akan diteruskan apa adanya oleh pemanggil berikutnya yang lupa mem-`coalesce`. Ditutup di sumbernya, sekali, dengan ketiga penjaga lamanya disalin apa adanya.
+
+### Satu migration yang isinya sudah hilang tanpa ada yang tahu
+
+`audit-esb-transfer.cjs` merah dengan alasan yang tidak ada hubungannya dengan pekerjaan ini: `tandai_kiriman_esb` di `0128` **kehilangan baris `and d.esb_exported_at is null`** — yang tersisa di berkasnya cuma baris kosong berisi lima spasi, persis di tempatnya. Kemungkinan besar satu sabotase lama mati sebelum sempat memulihkan berkasnya.
+
+Tanpa penjaga itu, kiriman yang sudah bertanda ikut ditimpa stempel barunya, dan jejak kapan ia benar-benar berangkat ke ESB hilang — jejak yang jadi satu-satunya jawaban untuk "kenapa ini terunggah dua kali" berbulan-bulan kemudian. Dipulihkan, dan sabotase-nya diarahkan ke penjaga itu, bukan ke indeks parsial yang kebetulan memuat kata yang sama.
+
+`sabotase-0128.mjs` juga punya satu sabotase yang **lolos karena namanya masih ada**: ia menyisipkan `const n = 0; void (…)` di depan rantai penandaan, dan `indexOf('tandaiKirimanEsb(')` milik auditnya tetap menemukannya sesudah `unduhEsb`. Yang dicabut sekarang pemanggilannya sendiri.
+
+- [x] **Kantong wajib dipilih + entri bisa dipindahkan ke kantong** (`0152`) — 29 sabotase

@@ -10,6 +10,8 @@ import {
   listCashBalances,
   listCashEntriesAdmin,
   ubahSupplierKas,
+  kantongPemegang,
+  ubahKantongKas,
   getCashProofUrl,
   daftarKantongKas,
   aturKantongKas,
@@ -28,6 +30,7 @@ import { keadaanKoreksi, totalKas } from './koreksi-kas.js';
 import { LABEL_PENGELUARAN, saringPengeluaran, ringkasPengeluaran } from './jenis-pengeluaran.js';
 import { kodeKas, cocokKodeKas } from './kode-kas.js';
 import { buKasEntri, supplierKasWajib, opsiSupplierKas, periksaSupplierKas } from './supplier-kas.js';
+import { opsiKantong, namaKantong, tanpaKantong, NAMA_TANPA_KANTONG } from './kantong-wajib.js';
 
 const DIRECTIONS = [
   { value: 'both', label: 'Masuk & Keluar' },
@@ -180,6 +183,12 @@ async function loadMutasi(content) {
   const { masuk, keluar, dicoret } = totalKas(rows);
   const rincian = ringkasPengeluaran(rows);
   const semuaBaris = rows;
+  // Dibangun dari SELURUH baris, bukan dari yang lolos saringan: centang
+  // bertahan di DOM saat saringan berubah, jadi id yang tercentang bisa
+  // menunjuk baris yang sedang tersembunyi. Peta yang cuma memuat yang
+  // tampak akan menjawab `undefined` untuknya — dan aksinya diam-diam
+  // memproses lebih sedikit baris daripada yang dicentang.
+  const semuaPerId = new Map(semuaBaris.map((r) => [r.id, r]));
   rows = saringPengeluaran(rows, saringBahan);
   if (cariKode.trim()) rows = rows.filter((r) => cocokKodeKas(r.id, cariKode));
 
@@ -197,7 +206,7 @@ async function loadMutasi(content) {
       }
     </p>
     <div class="table-scroll"><table class="data-table kartu-sempit">
-      <thead><tr><th style="width:30px"></th><th>No. Kas</th><th>Tanggal</th><th>Pemegang</th><th>Jenis</th><th>Kategori / Lawan</th><th>Jumlah</th><th>Supplier</th><th>Bukti</th><th>Aksi</th></tr></thead>
+      <thead><tr><th style="width:30px"></th><th>No. Kas</th><th>Tanggal</th><th>Pemegang</th><th>Kantong</th><th>Jenis</th><th>Kategori / Lawan</th><th>Jumlah</th><th>Supplier</th><th>Bukti</th><th>Aksi</th></tr></thead>
       <tbody>
         ${rows
           .map((r) => {
@@ -210,13 +219,30 @@ async function loadMutasi(content) {
             // pada baris yang tidak memenuhi itu cuma menawarkan pekerjaan
             // yang pasti ditolak database.
             const bisaSupplier = r.entry_type === 'out' && !k.dicoret && !r.esb_exported_at;
+            // KANTONG boleh dipindahkan untuk kas MASUK juga — justru kas
+            // masuk tanpa kantong yang menumpuk di Kas Utama dan membuat
+            // saldo kantongnya negatif. Syarat sisanya ditegakkan database
+            // lewat `alasan_tolak_koreksi_kas`; di sini cuma supaya centangnya
+            // tidak ditawarkan pada baris yang pasti ditolak.
+            const bisaKantong = !k.dicoret && !r.esb_exported_at && !k.alasanTolak;
             return `<tr${k.dicoret ? ' class="kas-dicoret"' : ''}>
               <td>${
-                bisaSupplier ? `<input type="checkbox" class="cm-pilih" value="${esc(r.id)}" />` : ''
+                bisaSupplier || bisaKantong
+                  ? `<input type="checkbox" class="cm-pilih" value="${esc(r.id)}"${bisaSupplier ? '' : ' data-hanya-kantong="1"'} />`
+                  : ''
               }</td>
               <td data-label="No. Kas" style="font-size:0.76rem;white-space:nowrap;font-family:monospace">${esc(kodeKas(r.id))}</td>
               <td style="font-size:0.82rem" data-label="Tanggal">${fmtDate(r.entry_date)}</td>
               <td data-label="Pemegang"><strong>${esc(r.holder?.full_name ?? '-')}</strong></td>
+              <td data-label="Kantong" style="font-size:0.8rem">${
+                // Entri tanpa kantong DITANDAI, bukan sekadar diberi nama.
+                // Ia yang menahan ekspornya, dan sebelum kolom ini ada tidak
+                // ada satu pun cara di layar untuk tahu baris mana itu — yang
+                // membacanya cuma melihat "2 tertahan" di layar lain.
+                tanpaKantong(r)
+                  ? `<span class="nota-telat">${esc(NAMA_TANPA_KANTONG)}</span>`
+                  : esc(namaKantong(r))
+              }</td>
               <td data-label="Jenis">${ENTRY_LABEL[r.entry_type] ?? r.entry_type}</td>
               <td data-label="Kategori / Lawan">${esc(ket)}
                 ${r.notes ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${ketHtml(r.notes, notaPerEntri.get(r.id))}</div>` : ''}
@@ -237,13 +263,15 @@ async function loadMutasi(content) {
               <td data-label="Aksi">${tombolKoreksi(r, k)}</td>
             </tr>`;
           })
-          .join('') || '<tr><td colspan="10">Tidak ada data.</td></tr>'}
+          .join('') || '<tr><td colspan="11">Tidak ada data.</td></tr>'}
       </tbody>
     </table></div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
       <button id="cm-isi-supplier">Isi Supplier untuk yang dicentang</button>
+      <button id="cm-pindah-kantong">Pindahkan ke kantong</button>
       <span style="font-size:0.78rem;color:var(--color-text-muted)">
         Payment To untuk ekspor ESB Disbursement. Seluruh kas keluar yang tercatat sebelum kolom ini ada belum terisi.
+        Entri ber-<strong>Kas Utama</strong> tidak punya kantong — itu yang menahannya saat diekspor.
       </span>
     </div>
   `;
@@ -275,7 +303,7 @@ async function loadMutasi(content) {
       // dan aksi ini pun tidak pernah menemukan satu pun supplier karenanya:
       // ia selalu berhenti di "Daftar supplier ESB belum diimpor", kalimat
       // yang menyuruh mengimpor daftar yang sebenarnya sudah ada.
-      const bu = buKasEntri(rows.find((r) => ids.includes(r.id)));
+      const bu = buKasEntri(semuaPerId.get(ids[0]));
       const daftar = await listEsbMaster(bu, 'supplier').catch(() => []);
       if (!daftar.length) {
         return toast('Daftar supplier ESB belum diimpor — impor dulu di Ekspor ESB langkah 3.', 'warning');
@@ -316,6 +344,74 @@ async function loadMutasi(content) {
         else toast(`${n} dari ${ids.length} terisi — sisanya bukan wewenangmu, sudah diekspor, atau sudah dihapus.`, 'warning');
       } catch (e) {
         return toast(e.message ?? 'Gagal menyimpan supplier.', 'error');
+      }
+      await loadMutasi(content);
+    })
+  );
+
+  // ---- Pindahkan entri ke kantong (0152) ----
+  //
+  // Bentuknya sengaja SAMA dengan "Isi Supplier" di atas: dua aksi massal yang
+  // berbeda bentuk di satu tabel membuat yang kedua harus dipelajari ulang.
+  result.querySelector('#cm-pindah-kantong')?.addEventListener(
+    'click',
+    sekaliJalan(async () => {
+      const ids = [...result.querySelectorAll('.cm-pilih:checked')].map((c) => c.value);
+      if (!ids.length) return toast('Centang dulu entri kas yang mau dipindahkan kantongnya.', 'warning');
+
+      // SATU PEMEGANG SAJA. Kantong milik orang lain akan ditolak database,
+      // tapi ditolak SEBAGIAN: sebagian baris pindah, sebagian tidak, dan
+      // hasilnya "3 dari 7 terisi" yang tidak menjelaskan apa-apa. Lebih baik
+      // dikatakan sebelum dialognya dibuka.
+      const dipilih = ids.map((id) => semuaPerId.get(id)).filter(Boolean);
+      const pemegang = [...new Set(dipilih.map((r) => r.holder_id))];
+      if (pemegang.length !== 1) {
+        return toast('Centang entri milik SATU pemegang saja — kantong kas melekat pada orangnya.', 'warning');
+      }
+      const namaPemegang = dipilih[0]?.holder?.full_name ?? 'pemegangnya';
+
+      let kantong = [];
+      try {
+        kantong = await kantongPemegang(pemegang[0]);
+      } catch (e) {
+        return toast(e.message ?? 'Gagal membaca kantong kasnya.', 'error');
+      }
+      if (!kantong.length) {
+        return toast(
+          `${namaPemegang} belum punya satu kantong pun. Buatkan dulu di tab Kantong Kas, lalu beri outletnya.`,
+          'warning'
+        );
+      }
+
+      const v = await formDialog({
+        title: `Pindahkan ${ids.length} entri ke kantong`,
+        description:
+          `Entri milik ${namaPemegang}. Saldo per kantongnya ikut berubah — itu memang maksudnya: ` +
+          'entri yang tidak berada di kantong mana pun membuat saldo kantong lain terlihat negatif, ' +
+          'dan menahannya saat diekspor ke ESB. Perubahan ini tercatat atas namamu.',
+        fields: [
+          {
+            name: 'account_id',
+            label: 'Pindahkan ke kantong',
+            type: 'select',
+            required: true,
+            options: opsiKantong(kantong)
+          }
+        ],
+        submitText: 'Pindahkan'
+      });
+      if (!v?.account_id) return;
+
+      try {
+        const n = await ubahKantongKas(ids, v.account_id);
+        // Dibandingkan dengan yang dicentang. Baris yang sudah diekspor,
+        // pembayaran nota, atau sudah berada di kantong itu dilewati database
+        // tanpa melempar — melaporkan "berhasil" begitu saja membuat admin
+        // mengira pekerjaannya selesai.
+        if (n === ids.length) toast(`${n} entri dipindahkan.`, 'success');
+        else toast(`${n} dari ${ids.length} dipindahkan — sisanya sudah di kantong itu, sudah diekspor, atau terkunci.`, 'warning');
+      } catch (e) {
+        return toast(e.message ?? 'Gagal memindahkan.', 'error');
       }
       await loadMutasi(content);
     })

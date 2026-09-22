@@ -638,7 +638,7 @@ if (halAdm) {
   // diimpor" — kalimat yang menyuruh mengimpor daftar yang sudah ada.
   for (const [nama, pola] of [
     ['dialog koreksi', /listEsbMaster\(buKasEntri\(r\), 'supplier'\)/],
-    ['aksi massal "Isi Supplier"', /const bu = buKasEntri\(rows\.find\(\(r\) => ids\.includes\(r\.id\)\)\);/]
+    ['aksi massal "Isi Supplier"', /const bu = buKasEntri\(semuaPerId\.get\(ids\[0\]\)\);/]
   ]) {
     if (!pola.test(kode)) {
       salah(

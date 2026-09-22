@@ -94,12 +94,12 @@ sabotase(
 sabotase(
   'stempel lama boleh tertimpa — jejak kapan ia benar-benar berangkat hilang',
   MIG,
-  // Polanya dulu `and d.esb_exported_at is null` — bentuk lama fungsinya.
-  // Yang tersisa dari 0128 adalah indeks parsialnya; syarat "belum berangkat"
-  // pindah ke fungsi yang ditulis ulang di migration berikutnya.
-  /  where esb_exported_at is null;/,
-  '  ;',
-  TES_MIG
+  // Penjaganya di dalam `tandai_kiriman_esb` — dan ia SEMPAT HILANG dari
+  // berkasnya, kemungkinan karena satu sabotase lama mati sebelum memulihkan.
+  // Yang menemukannya adalah `audit-esb-transfer`, berbulan-bulan kemudian.
+  '     and d.esb_exported_at is null\n',
+  '',
+  AUDIT
 );
 
 sabotase(
@@ -241,9 +241,13 @@ sabotase(
   HAL,
   // Bentuknya berubah saat dokumen ketiga & keempat lahir (Item Journal &
   // Disbursement): satu baris ternary jadi rantai empat cabang. Yang dijaga
-  // tetap sama — penandaan terjadi SESUDAH `unduhEsb`, bukan sebelum.
-  /          const n =\n            jenis === 'transfer'/,
-  '          const n = 0;\n          void (\n            jenis === \'transfer\'',
+  // tetap sama — penandaannya SUNGGUH terjadi, dan sesudah `unduhEsb`.
+  //
+  // Percobaan pertama menyisipkan `const n = 0; void (…)` dan LOLOS: nama
+  // fungsinya masih ada di berkas, jadi `indexOf` auditnya tetap menemukannya
+  // sesudah `unduhEsb`. Yang dicabut sekarang pemanggilannya sendiri.
+  '              ? await tandaiKirimanEsb(ids)',
+  '              ? 0',
   AUDIT
 );
 

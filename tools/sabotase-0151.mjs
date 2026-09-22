@@ -331,8 +331,8 @@ sabotase(
 sabotase(
   'aksi massal "Isi Supplier" kembali memakai kolom yang selalu NULL',
   CADM,
-  'const bu = buKasEntri(rows.find((r) => ids.includes(r.id)));',
-  'const bu = rows.find((r) => ids.includes(r.id))?.business_unit_id ?? null;',
+  'const bu = buKasEntri(semuaPerId.get(ids[0]));',
+  'const bu = semuaPerId.get(ids[0])?.business_unit_id ?? null;',
   AUDIT
 );
 
