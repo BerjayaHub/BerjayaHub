@@ -505,8 +505,31 @@ export async function kasUntukEsb({ businessUnitId, from, to, outletId = null, t
     notes: c.notes,
     supplier: c.supplier,
     outlet_nama: c.outlet_nama ?? '',
-    kategori_nama: c.kategori_nama ?? ''
+    kategori_nama: c.kategori_nama ?? '',
+    // Outlet MILIK KANTONG (0151) — sumber kolom `Account`. Dibedakan dari
+    // `outlet_nama` yang outlet PERUNTUKAN dan jadi kolom `Branch`. Keduanya
+    // sering sama; menyatukannya membuat pengeluaran lintas outlet mendarat
+    // di akun kas yang bukan sumbernya.
+    kantong_nama: c.kantong_nama ?? '',
+    kantong_outlet_nama: c.kantong_outlet_nama ?? ''
   }));
+}
+
+/**
+ * Nama outlet kantong yang perlu punya baris di pemetaan COANo (0151).
+ *
+ * Gagal = daftar kosong, bukan lempar: layar Ekspor ESB tidak boleh mati
+ * karena satu daftar tambahan. Yang hilang cuma baris pemetaan untuk outlet
+ * kantong lintas BU — dan itu akan terlihat sebagai alasan tertahan, bukan
+ * sebagai berkas yang salah.
+ */
+export async function outletKantongKasEsb(businessUnitId) {
+  const { data, error } = await supabase.rpc('outlet_kantong_kas_esb', argumenRpc({ p_bu: businessUnitId }));
+  if (error) {
+    console.warn('[esb] gagal membaca outlet kantong kas:', error.message);
+    return [];
+  }
+  return (Array.isArray(data) ? data : []).map((r) => String(r?.nama ?? '').trim()).filter(Boolean);
 }
 
 /** Tandai kas keluar yang BENAR-BENAR ikut terunduh. Dipanggil sesudah berkasnya jadi. */

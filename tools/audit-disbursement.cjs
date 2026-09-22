@@ -380,7 +380,8 @@ if (murni) {
   // Pencarian peta memakai normalisasi yang SAMA dengan `buatPeta`.
   for (const [nama, pola] of [
     ['branch', /peta\?\.branch\?\.get\?\.\(normalNama\(c\.outlet_nama\)\)/],
-    ['coa', /peta\?\.coa\?\.get\?\.\(normalNama\(c\.kategori_nama\)\)/],
+    // COA dari OUTLET MILIK KANTONG (0151), bukan kategori biaya.
+    ['coa', /peta\?\.coa\?\.get\?\.\(normalNama\(c\.kantong_outlet_nama\)\)/],
     ['payment_method', /peta\?\.payment_method\?\.get\?\.\(normalNama\(caraBayar\)\)/]
   ]) {
     if (!pola.test(kode)) {
@@ -389,6 +390,32 @@ if (murni) {
           '`buatPeta` yang menyimpan kuncinya, jadi nilai ber-spasi ganda tidak akan pernah ketemu padanannya.'
       );
     }
+  }
+  // ============ COA TIDAK BOLEH KEMBALI KE KATEGORI, ATAU JATUH KE BRANCH ============
+  //
+  // Dua regresi yang menghasilkan berkas yang DITERIMA ESB dengan tenang dan
+  // mendarat di akun yang salah — tidak ada layar Berjaya Hub yang bisa
+  // menunjukkannya, dan yang menemukannya membaca laporan ESB berminggu-minggu
+  // kemudian.
+  if (/peta\?\.coa\?\.get\?\.\(normalNama\(c\.kategori_nama\)\)/.test(kode)) {
+    salah(
+      'esb-disbursement.js: kolom `Account` kembali dibaca dari KATEGORI BIAYA. Contoh di templatenya berisi ' +
+        "'1 1 02 01' — akun HARTA. Kolom itu menyatakan dari mana uangnya keluar, bukan untuk apa dibelanjakan."
+    );
+  }
+  if (/peta\?\.coa\?\.get\?\.\(normalNama\(c\.outlet_nama\)\)/.test(kode)) {
+    salah(
+      'esb-disbursement.js: kolom `Account` jatuh ke outlet PERUNTUKAN. Itu kolom `Branch`; sumber dananya adalah ' +
+        'outlet MILIK KANTONG. Keduanya sering sama — dan berbeda persis di baris yang paling perlu diperiksa.'
+    );
+  }
+  // Entri tanpa outlet kantong TERTAHAN, tidak ditebak.
+  if (!/catat\('kantong', c\.kantong_nama, kode\)/.test(kode)) {
+    salah(
+      'esb-disbursement.js: entri yang kantongnya tanpa outlet tidak ditahan dengan alasan sendiri. Tanpa itu ia ' +
+        'berangkat dengan sel Account kosong, atau ditahan dengan alasan "COANo (kosong)" yang tidak menunjuk ke ' +
+        'layar mana pun.'
+    );
   }
   // Satu entri bermasalah tidak menahan yang lain.
   if (!/if \(adaMasalah\) continue;/.test(kode)) {
@@ -427,6 +454,19 @@ if (svc) {
   // TIDAK menyusun saringannya sendiri lagi.
   if (!/supabase\.rpc\(\s*'kas_untuk_esb'/.test(kode)) {
     salah('esb.service.js `kasUntukEsb`: tidak lewat RPC `kas_untuk_esb` — saringannya disusun lagi di klien.');
+  }
+  // Keterangan kantong diteruskan APA ADANYA. Kalau ia diratakan jadi string
+  // kosong di sini, SELURUH kas keluar tertahan dengan alasan "kantongnya
+  // belum punya outlet" — untuk kantong yang outletnya ada dan terlihat jelas
+  // di layar Kantong Kas. Tes murni tidak bisa melihatnya: ia tidak menyentuh
+  // layanan sama sekali.
+  for (const k of ['kantong_nama', 'kantong_outlet_nama']) {
+    if (!new RegExp(`${k}: c\\.${k} \\?\\? ''`).test(kode)) {
+      salah(`esb.service.js \`kasUntukEsb\`: \`${k}\` tidak diteruskan dari RPC — kolom Account kehilangan sumbernya, diam-diam.`);
+    }
+  }
+  if (!/outlet_kantong_kas_esb/.test(kode)) {
+    salah('esb.service.js: `outletKantongKasEsb` tidak ada — layar pemetaan kehilangan nama outlet kantong lintas BU.');
   }
   if (/\.from\('cash_entries'\)/.test(kode)) {
     salah(
@@ -518,19 +558,36 @@ if (adm) {
   if (iUnduh < 0 || iTandai < 0 || iTandai < iUnduh) {
     salah('esb.admin.js: kas ditandai SEBELUM berkasnya jadi — kalau pembuatan berkasnya gagal, entrinya hilang dari daftar.');
   }
-  // Kategori biaya masuk daftar pemetaan COA — tanpa itu kolom Account tidak
-  // akan pernah punya padanan, dan SELURUH kas keluar tertahan.
-  if (!/coa: \[\.\.\.CARA_BAYAR, \.\.\.kategoriKas\.map\(/.test(kode)) {
+  // ============ DAFTAR PEMETAAN COA (0151) ============
+  //
+  // Kuncinya SUMBER DANA: cara bayar nota + outlet pemilik kantong. Tanpa
+  // outletnya di daftar, kolom `Account` tidak akan pernah punya padanan,
+  // SELURUH kas keluar tertahan, dan tidak ada satu pun baris di layar untuk
+  // membereskannya.
+  if (!/coa: \[\.\.\.CARA_BAYAR, \.\.\.outlets\.map\(\(o\) => o\.name\), \.\.\.outletKantong\]/.test(kode)) {
     salah(
-      'esb.admin.js: kategori biaya kas tidak masuk daftar pemetaan COA. Kolom `Account` tidak akan pernah punya ' +
-        'padanan, SELURUH kas keluar tertahan, dan tidak ada satu pun baris di layar untuk membereskannya.'
+      'esb.admin.js: daftar pemetaan COA tidak berisi outlet + outlet kantong. Kolom `Account` tidak akan pernah ' +
+        'punya padanan, dan alasan tertahannya menunjuk ke baris yang tidak ada.'
     );
   }
-  if (!/listCashCategories\(true\)\.catch\(\(\) => \[\]\)/.test(kode)) {
-    salah('esb.admin.js: daftar kategori biaya tidak dimuat, atau kegagalannya tidak ditangkap.');
+  // Outlet kantong LINTAS BU ikut — tanpa RPC-nya, nama seperti itu muncul
+  // sebagai alasan tertahan tanpa baris untuk memperbaikinya.
+  if (!/outletKantongKasEsb\(businessUnitId\)\.catch\(\(\) => \[\]\)/.test(kode)) {
+    salah('esb.admin.js: daftar outlet kantong tidak dimuat, atau kegagalannya tidak ditangkap.');
   }
-  for (const k of ['tanggal-kas', 'jumlah-kas']) {
-    if (!new RegExp(`'${k}': `).test(kode)) {
+  // KATEGORI BIAYA TIDAK BOLEH KEMBALI. Selama ia di sana, layar ini
+  // menampilkan baris merah abadi untuk pekerjaan yang tidak dipakai berkas
+  // mana pun — di tabel yang gunanya justru menyebutkan pekerjaan yang perlu.
+  if (/kategoriKas/.test(kode) || /listCashCategories/.test(kode)) {
+    salah(
+      'esb.admin.js: kategori biaya kas kembali ke daftar pemetaan COA. Ia dibuang di 0151 — kolom `Account` ' +
+        'menyatakan sumber dana, bukan jenis biaya.'
+    );
+  }
+  for (const k of ['tanggal-kas', 'jumlah-kas', 'kantong']) {
+    // Kunci tanpa tanda hubung ditulis tanpa kutip di objek literal; keduanya
+    // diterima supaya audit ini tidak menuntut gaya penulisan tertentu.
+    if (!new RegExp(`(?:'${k}'|\\b${k}): `).test(kode)) {
       salah(`esb.admin.js: alasan "${k}" tidak punya label — tabel penahan menampilkan kode mentah.`);
     }
   }
@@ -575,6 +632,27 @@ if (halAdm) {
   if (!/ubahSupplierKas\(ids, v\.supplier\)/.test(kode)) {
     salah('cash.admin.page.js: tidak ada jalan mengisi Supplier mundur — ratusan entri lama harus diisi satu per satu.');
   }
+  // DUA tempat memuat daftar supplier, dan KEDUANYA pernah memakai kolom yang
+  // selalu NULL. Yang pertama membuat kotaknya tidak pernah digambar; yang
+  // kedua membuat aksi massalnya selalu berhenti di "Daftar supplier ESB belum
+  // diimpor" — kalimat yang menyuruh mengimpor daftar yang sudah ada.
+  for (const [nama, pola] of [
+    ['dialog koreksi', /listEsbMaster\(buKasEntri\(r\), 'supplier'\)/],
+    ['aksi massal "Isi Supplier"', /const bu = buKasEntri\(rows\.find\(\(r\) => ids\.includes\(r\.id\)\)\);/]
+  ]) {
+    if (!pola.test(kode)) {
+      salah(
+        `cash.admin.page.js: ${nama} tidak memakai \`buKasEntri\`. \`cash_entries.business_unit_id\` DEPRECATED ` +
+          'sejak 0040 dan selalu NULL — daftar suppliernya kosong, tanpa satu pun galat.'
+      );
+    }
+  }
+  if (/business_unit_id/.test(kode)) {
+    salah(
+      'cash.admin.page.js: `business_unit_id` dibaca langsung dari barisnya lagi. Kolom itu selalu NULL sejak 0040; ' +
+        'BU-nya diturunkan dari outlet lewat `buKasEntri`.'
+    );
+  }
   // Centang hanya pada baris yang memang bisa diisi.
   if (!/const bisaSupplier = r\.entry_type === 'out' && !k\.dicoret && !r\.esb_exported_at;/.test(kode)) {
     salah('cash.admin.page.js: centang ditawarkan pada baris yang pasti ditolak database — kas masuk, yang dicoret, atau yang sudah diekspor.');
@@ -601,6 +679,149 @@ if (tgl) {
   }
   if (!/return `\$\{m\[3\]\}\/\$\{m\[2\]\}\/\$\{m\[1\]\}`;/.test(kode)) {
     salah('tanggal-excel.js: urutan hari/bulan/tahunnya berubah — "01/09/2026" terbaca sebagai 9 Januari di separuh dunia.');
+  }
+}
+
+// ---------------------------------------------------------------
+// 7. Migration 0151 — COA lewat outlet MILIK KANTONG.
+// ---------------------------------------------------------------
+const mig151 = baca('supabase/migrations/0151_coa_disbursement_dari_kantong.sql');
+if (mig151) {
+  // Tipe kembalian berubah, jadi `create or replace` saja akan ditolak
+  // Postgres dengan "cannot change return type" — dan migration yang gagal di
+  // tengah meninggalkan setengah perubahan.
+  if (!/drop function if exists kas_untuk_esb\(uuid, date, date, uuid, boolean\);/.test(mig151)) {
+    salah('0151: `kas_untuk_esb` tidak di-drop dulu. Menambah kolom pada `returns table` ditolak `create or replace`.');
+  }
+  for (const k of ['kantong_nama text', 'kantong_outlet_nama text']) {
+    if (!mig151.includes(k)) salah(`0151: kolom \`${k}\` tidak ada di kembalian \`kas_untuk_esb\`.`);
+  }
+  // KEDUANYA `left join`. `join` biasa menghilangkan entri yang kantongnya
+  // tanpa outlet — dan hilang dari daftar berarti hilang dari daftar tertahan
+  // juga: "12 siap, 0 tertahan" untuk 20 entri, tanpa satu pun tempat bagi
+  // delapan sisanya untuk muncul.
+  for (const [nama, pola] of [
+    ['cash_accounts', /left join cash_accounts ca on ca\.id = ce\.account_id/],
+    ['outlet kantong', /left join outlets ko on ko\.id = ca\.outlet_id/]
+  ]) {
+    if (!pola.test(mig151)) {
+      salah(`0151: \`${nama}\` tidak di-LEFT JOIN — entri tanpa kantong lenyap dari daftar, termasuk dari daftar tertahan.`);
+    }
+  }
+  if (!/coalesce\(ca\.name, 'Kas Utama'\)/.test(mig151)) {
+    salah('0151: kantong tanpa baris tidak dinamai "Kas Utama" — alasan tertahannya tidak cocok dengan yang dilihat orang di Staff App.');
+  }
+  // Saringan "selain bahan" & wewenang outlet HARUS ikut terbawa saat fungsinya
+  // ditulis ulang. Menulis ulang fungsi berarti mengetik ulang seluruh isinya.
+  for (const [nama, pola] of [
+    ['untuk_nota', /and ce\.untuk_nota = false/],
+    ['penyesuaian_nota', /and ce\.penyesuaian_nota is null/],
+    ['dicoret', /and ce\.dicoret_at is null/],
+    ['sumbu outlet', /and o\.business_unit_id = p_bu/],
+    ['belum diekspor', /and \(p_termasuk_sudah_ekspor or ce\.esb_exported_at is null\)/],
+    ['wewenang outlet', /and is_admin_of_outlet\(auth\.uid\(\), ce\.outlet_id\)/]
+  ]) {
+    if (!pola.test(mig151)) {
+      salah(`0151: penjaga "${nama}" HILANG saat \`kas_untuk_esb\` ditulis ulang di 0151.`);
+    }
+  }
+  if (!/create or replace function outlet_kantong_kas_esb\(p_bu uuid\)/.test(mig151)) {
+    salah('0151: `outlet_kantong_kas_esb` tidak ada — outlet kantong lintas BU akan menahan entri tanpa baris untuk memperbaikinya.');
+  }
+  if (!/grant execute on function outlet_kantong_kas_esb\(uuid\) to authenticated;/.test(mig151)) {
+    salah('0151: `outlet_kantong_kas_esb` tidak bisa dipanggil siapa pun — RPC-nya balas 404, dan layarnya diam saja.');
+  }
+}
+
+// ---------------------------------------------------------------
+// 8. Supplier kas WAJIB & dari daftar — satu aturan, tiga form.
+// ---------------------------------------------------------------
+const sup = baca('js/modules/cash/supplier-kas.js');
+if (sup) {
+  const kode = bersih(sup, 'supplier-kas.js', ['export function periksaSupplierKas']);
+  // BU dari OUTLET, bukan kolom yang selalu NULL.
+  if (!/return entri\.outlets\?\.business_unit_id \?\? entri\.business_unit_id \?\? null;/.test(kode)) {
+    salah(
+      'supplier-kas.js: `buKasEntri` tidak membaca BU dari outletnya. `cash_entries.business_unit_id` DEPRECATED ' +
+        'sejak 0040 dan selalu NULL — daftar suppliernya kosong, dan kotaknya tidak pernah digambar.'
+    );
+  }
+  // Wajib HANYA kalau daftarnya ada — sama dengan aturan Purpose (0147).
+  if (!/return Array\.isArray\(daftarInduk\) && daftarInduk\.length > 0;/.test(kode)) {
+    salah(
+      'supplier-kas.js: kewajiban tidak lagi bergantung pada adanya daftar induk. BU yang belum mengimpor Master ' +
+        'Supplier akan kehilangan SELURUH kemampuan mencatat kas keluar.'
+    );
+  }
+  // Nilai lama di luar daftar tetap ditawarkan — kalau tidak, koreksi hal lain
+  // MENGHAPUS nama yang sudah tersimpan (bug 0119, bentuk keempat).
+  if (!/opsi\.unshift\(\{ value: lama, label: lama, hint: HINT_DI_LUAR_DAFTAR \}\)/.test(kode)) {
+    salah('supplier-kas.js: nilai lama di luar daftar tidak ditawarkan — membuka dialog koreksi akan menghapusnya saat disimpan.');
+  }
+  // …dan nilai lama yang tidak disentuh tetap boleh disimpan, kalau tidak
+  // dialognya jadi form yang tidak bisa disimpan sama sekali.
+  if (!/if \(lama && normalNama\(v\) === normalNama\(lama\)\) return null;/.test(kode)) {
+    salah('supplier-kas.js: nilai lama ditolak setiap kali — dialog koreksi entri lama jadi form yang mustahil disimpan.');
+  }
+  if (!/import \{ normalNama \} from '\.\.\/inventory\/cocok-supplier\.js';/.test(kode)) {
+    salah('supplier-kas.js: pembanding namanya disalin, bukan dipinjam dari `cocok-supplier.js` — dua aturan untuk satu pekerjaan pasti menyimpang.');
+  }
+}
+
+// Ketiga form memakai modul itu, dan tidak satu pun masih membolehkan nama
+// bebas. `allowCreate` di kolom supplier kas adalah nama yang ditolak ESB saat
+// berkasnya diimpor — jauh dari orang yang mengetiknya.
+for (const rel of ['js/modules/cash/cash.page.js', 'js/modules/cash/cash.admin.page.js']) {
+  const isi = baca(rel);
+  if (!isi) continue;
+  const kode = bersih(isi, rel, ["name: 'supplier'"]);
+  const nama = rel.split('/').pop();
+  if (!/from '\.\/supplier-kas\.js'/.test(kode)) {
+    salah(`${nama}: aturan supplier kas ditulis ulang di layar alih-alih diambil dari \`supplier-kas.js\`.`);
+  }
+  // DIHITUNG, bukan sekadar "ada". Kedua berkas ini punya DUA form yang
+  // menulis kolom supplier — form tambah & dialog koreksi di `cash.page.js`,
+  // dialog koreksi & aksi massal di `cash.admin.page.js`. Mencari satu
+  // kemunculan membuat audit ini tetap hijau saat pemeriksaan di salah satu
+  // form dicabut: yang ketemu adalah pemeriksaan milik form yang lain.
+  //
+  // Bentuk kegagalan itu sudah berulang kali muncul di repo ini — audit hijau
+  // karena sasarannya ada di tempat lain.
+  const nPeriksa = (kode.match(/periksaSupplierKas\(/g) ?? []).length;
+  if (nPeriksa < 2) {
+    salah(
+      `${nama}: isian supplier cuma diperiksa di ${nPeriksa} dari 2 tempat. Nama di luar daftar yang lolos lewat ` +
+        'form yang longgar baru ketahuan berminggu-minggu kemudian, sebagai baris tertahan.'
+    );
+  }
+  // Blok kolom suppliernya saja yang diperiksa: `allowCreate` sah di kolom lain.
+  for (const m of kode.matchAll(/name: 'supplier',[\s\S]{0,400}?\n\s*\}/g)) {
+    if (/allowCreate/.test(m[0])) {
+      salah(`${nama}: kolom supplier kas masih membolehkan nama diketik sendiri — ESB menolaknya saat berkasnya diimpor.`);
+    }
+    if (!/required: true/.test(m[0])) {
+      salah(`${nama}: kolom supplier kas tidak wajib diisi.`);
+    }
+  }
+}
+
+// Embed outletnya ikut diambil — tanpa itu `buKasEntri` tidak punya apa pun
+// untuk dibaca, dan kotak suppliernya kembali tidak digambar.
+const svcKas = baca('js/modules/cash/cash.service.js');
+if (svcKas) {
+  const kode = bersih(svcKas, 'cash.service.js', ['listCashEntriesAdmin']);
+  const i = kode.indexOf('listCashEntriesAdmin');
+  // Jendelanya lebar karena `tanpaKomentar` MENGOSONGKAN komentar tanpa
+  // memendekkan berkasnya — offsetnya tetap, jadi blok ini sebagian besar
+  // berisi spasi. Jendela sempit membuat audit ini merah karena panjang
+  // komentar, bukan karena kodenya.
+  const blok = i < 0 ? '' : kode.slice(i, i + 4000);
+  if (!/outlets!outlet_id\(name, business_unit_id\)/.test(blok)) {
+    salah(
+      'cash.service.js: `listCashEntriesAdmin` tidak mengambil `outlets!outlet_id(name, business_unit_id)`. Tanpa ' +
+        'itu BU entrinya tidak diketahui, daftar suppliernya kosong, dan kotak Supplier di dialog admin tidak ' +
+        'pernah digambar — tanpa satu pun galat.'
+    );
   }
 }
 

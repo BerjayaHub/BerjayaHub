@@ -7693,3 +7693,72 @@ Ketiganya diarahkan ulang ke **sifat** yang dijaga, bukan ke ejaan atau posisi: 
 ### Satu audit lama yang merah tanpa ada yang rusak
 
 `tools/audit-istirahat.cjs` mencari `pastikanDiAreaOutlet(openSession, 'Istirahat')` apa adanya. Saat clock out dibolehkan di outlet mana pun yang ber-geofence, gerbangnya berganti nama jadi `pastikanDiAreaPresensi` dan menerima objek — auditnya merah, padahal gerbangnya utuh. Audit merah yang tidak menunjuk kerusakan apa pun adalah audit yang lama-lama diabaikan, jadi ia diarahkan ulang: yang dicek sekarang gerbangnya **dipanggil** untuk aksi Istirahat, dan kalimat penolakan GPS dibaca di `area-outlet.js` tempat aturannya sekarang tinggal.
+
+## Kolom akun yang salah, dan kotak isian yang tidak pernah digambar
+
+> *"ada miss disini, ternyata COA untuk disbursement diambil dari kantong kas outlet"*
+
+### `1 1 02 01` bukan akun biaya
+
+`0149` memetakan kolom `Account` berkas Disbursement dari **kategori biaya** entri kasnya — Bahan, Beban Biaya, Transportasi. Itu salah baca terhadap templatenya sendiri. Keempat baris contoh di `ESB_FNB_DISBURSEMENT_TEMPLATE_INDEX.xlsx` berisi `1 1 02 01` dan `1 1 02 02`: akun **harta**. Kolom itu menyatakan dari mana uangnya keluar, bukan untuk apa dibelanjakan.
+
+Pemetaan COANo yang sudah ada mengatakan hal yang sama, dan terlihat di layar sepanjang waktu: `kas → 1 1 01 01`, `pusat → 1 1 02 00`, `tempo → 1 1 02 00`. Ketiganya cara bayar — sumber dana. Kategori biaya ditempelkan ke daftar yang sama dan tidak pernah cocok dengan isinya.
+
+**Yang membuatnya mahal:** tidak ada satu pun layar Berjaya Hub yang bisa menunjukkannya. Berkasnya terunduh rapi, ESB menerimanya tanpa keluhan, dan pengeluarannya mendarat di akun yang salah. Yang menemukannya membaca laporan ESB berminggu-minggu kemudian, saat tidak ada lagi yang ingat pengeluaran mana itu.
+
+### Sumbernya: outlet MILIK KANTONG, bukan outlet peruntukan
+
+Uang kas tinggal di **kantong** (`cash_accounts`, 0063), dan sejak `0120` sebuah kantong bisa ditempeli outlet. Outlet itulah yang punya akun kas di ESB.
+
+Ini bukan `cash_entries.outlet_id`. Yang itu outlet **peruntukan** ("uang ini dibelanjakan untuk outlet mana") dan sudah jadi kolom `Branch`. Keduanya sering sama dan kadang tidak: staff Gading Serpong boleh membelanjakan uang untuk outlet lain, dan uangnya tetap keluar dari kantong Gading Serpong. Memakai satu untuk keduanya benar di sebagian besar baris — dan diam-diam salah persis di baris yang paling perlu diperiksa. Tes PGlite-nya sengaja memakai dua outlet yang **berbeda**, dan menegaskannya (`§1 INTI: keduanya BERBEDA — kalau sama, tes ini tidak membuktikan apa pun`).
+
+### Yang tidak punya kantong ditahan, bukan ditebak
+
+Pemegang berjatah satu kantong tidak punya baris `cash_accounts` sama sekali — uangnya hidup sebagai `account_id IS NULL`, yang di layar bernama "Kas Utama". Entri seperti itu tidak punya outlet kantong untuk dibaca.
+
+Jalan yang mudah adalah jatuh kembali ke outlet peruntukannya. Jalan itu tidak diambil: ia menghasilkan nomor akun yang **terlihat benar** untuk entri yang sumber dananya tidak diketahui, dan tidak ada layar yang bisa menunjukkan mana yang ditebak. Entri seperti itu tertahan dengan alasannya sendiri — *"Kantong kasnya belum punya outlet (Kas → Kantong Kas)"* — bukan dengan `COANo (kosong)` yang menunjuk ke layar pemetaan, tempat pekerjaan itu memang tidak bisa diselesaikan.
+
+Keduanya `left join` di `kas_untuk_esb`. `join` biasa akan **menghilangkan** entri tanpa kantong — dan hilang dari daftar berarti hilang dari daftar tertahan juga: layar berbunyi "1 siap, 0 tertahan" untuk tiga entri, dan dua sisanya tidak punya satu pun tempat untuk muncul.
+
+### Kategori biaya dibuang dari layar pemetaan
+
+Selama ia di sana, Ekspor ESB menampilkan tiga baris merah abadi untuk pekerjaan yang tidak dipakai berkas mana pun — di tabel yang gunanya justru menyebutkan pekerjaan yang perlu. Penggantinya: nama outlet, dari **dua** sumber. Outlet BU ini (supaya sudah siap dipetakan sebelum pengeluaran pertamanya) dan `outlet_kantong_kas_esb()`, yang menyebut outlet kantong yang sungguh pernah dipakai — termasuk yang berada di **BU lain**, karena kas melekat pada orang (0040). Tanpa yang kedua, nama seperti itu muncul sebagai alasan tertahan tanpa satu pun baris untuk memperbaikinya; pola yang sudah berulang kali berakhir di SQL Editor.
+
+### Kotak Supplier yang tidak pernah digambar
+
+> *"di form aksi edit kas ini saya tidak bisa menambahkan supplier"*
+
+Kotaknya ada di kode sejak `0149`, dengan syarat: digambar kalau daftar supplier ESB-nya tidak kosong. Daftarnya dimuat lewat `listEsbMaster(r.business_unit_id, 'supplier')`.
+
+`cash_entries.business_unit_id` **deprecated sejak 0040** dan selalu `NULL`. Jadi daftarnya selalu kosong, jadi kotaknya tidak pernah muncul — tanpa satu pun galat, di dialog yang terbuka lengkap. Aksi massal "Isi Supplier" kena kolom yang sama: ia selalu berhenti di *"Daftar supplier ESB belum diimpor"*, kalimat yang menyuruh mengimpor daftar yang sudah ada.
+
+Ini kolom yang **sama persis** yang membuat `kas_untuk_esb` mengembalikan nol baris sebelum `0150`. Dua gejala, satu sebab, dan yang kedua tidak ketahuan saat yang pertama dibetulkan. Sekarang BU-nya diturunkan dari outlet lewat `buKasEntri()`, dan `listCashEntriesAdmin` ikut mengambil `outlets!outlet_id(name, business_unit_id)`.
+
+### Supplier wajib, dan hanya dari daftar
+
+> *"wajibkan staff untuk isi supplier sesuai dengan data supplier yang sudah terdaftar"*
+
+`allowCreate` dicabut dari ketiga form. Versi pertama membiarkannya hidup supaya pengeluaran mendadak jam 9 malam tidak gagal dicatat, dan menyerahkan penyaringannya ke ekspor. Yang terjadi: nama bebas tersimpan, entrinya tertahan berminggu-minggu kemudian, dan yang membetulkannya bukan orang yang mengetiknya — ia sudah tidak ingat nota mana itu.
+
+Dua kelonggaran yang **tetap ada**, keduanya karena tanpanya form ini jadi form yang tidak bisa disimpan:
+
+- **Wajib hanya kalau daftar induknya ada.** Bentuk yang sama persis dengan Purpose (`0147`). "Sesuai data terdaftar" tidak bisa dipenuhi kalau belum ada yang terdaftar; BU yang belum mengimpor Master Supplier akan kehilangan seluruh kemampuan mencatat kas keluar.
+- **Nilai lama di luar daftar tetap ditawarkan, dan tetap boleh disimpan.** Tanpa yang pertama, membuka dialog koreksi untuk membetulkan satu huruf di keterangan akan **menghapus** nama yang sudah tersimpan — bug 0119 dalam bentuknya yang keempat. Tanpa yang kedua, entri bersupplier "Toko Ani" tidak bisa dikoreksi sama sekali sampai seseorang menemukan padanan ESB untuknya. Ia tidak jadi sah karenanya: keterangan di pilihannya berbunyi *"di luar daftar ESB — akan tertahan saat diekspor"*.
+
+Aturannya tinggal di satu modul (`supplier-kas.js`) yang dipakai ketiga form. Ditulis tiga kali, yang terjadi bukan galat melainkan celah: satu form mewajibkan, dua tidak, dan yang lolos lewat form yang longgar baru ketahuan sebagai baris tertahan.
+
+### Lima alat verifikasi yang ternyata tidak memverifikasi
+
+Semuanya bentuk yang sama — **hijau karena sasarannya ada di tempat lain** — dan tiga di antaranya sudah begitu sejak sebelum pekerjaan ini:
+
+| Alat | Kenapa ia tidak menjaga apa pun |
+|---|---|
+| `audit-master-supplier.cjs` | mencari **satu** `masterSupplier: petaSupplier(master)`. Ada dua (Purchase & Disbursement), jadi daftarnya bisa dicabut dari salah satunya dan auditnya menemukan yang lain |
+| `sabotase-0144.mjs` | tidak punya penjaga `>1 kali` sama sekali. Setelah ditambahkan, **dua** sabotase lain ikut ketahuan mengenai tempat yang salah selama ini |
+| `sabotase-0128.mjs` | tiga polanya sudah tidak ada di berkasnya — bentuk kodenya berubah saat dokumen ketiga & keempat lahir. Sabotase yang tidak terpasang tidak membuktikan apa pun |
+| `sabotase-0141.mjs` | daftar kolom `listCashEntriesAdmin` tumbuh di 0149; polanya tidak menunjuk ke mana pun lagi |
+| `audit-disbursement.cjs` | jendela `slice(i, i + 2000)`-nya sebagian besar berisi spasi, karena `tanpaKomentar` **mengosongkan** komentar tanpa memendekkan berkasnya |
+
+Yang baru dijaga dengan **hitungan**, bukan keberadaan: `periksaSupplierKas` harus muncul dua kali di tiap layar kas, `masterSupplier: petaSupplier(master)` dua kali di `esb.admin.js`. Pola yang muncul lebih dari sekali sekarang ditolak sabotase-nya sebelum dijalankan.
+
+- [x] **COA Disbursement dari kantong + supplier kas wajib** (`0151`) — 33 sabotase

@@ -28,6 +28,7 @@ import { notaTerkaitEntriKas } from '../inventory/nota.service.js';
 import { listEsbMaster } from '../inventory/esb.service.js';
 import { bukaDialogNota } from '../inventory/nota-dialog.js';
 import { pecahKeterangan, petaNotaPerEntri } from './keterangan-nota.js';
+import { supplierKasWajib, opsiSupplierKas, periksaSupplierKas } from './supplier-kas.js';
 
 /**
  * Penanda "Kas Utama" di dalam <select>.
@@ -81,9 +82,9 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
   // Bentuk opsinya sama persis dengan kolom Supplier di nota: kode ESB-nya
   // ditampilkan sebagai keterangan, bukan ditempel ke namanya — keterangan
   // yang ikut jadi bagian nilai adalah bug yang sudah pernah terjadi di sini.
-  const opsiSupplier = daftarSupplier
-    .map((m) => ({ value: m.nama, label: m.nama, hint: m.kode ? `kode ESB ${m.kode}` : '' }))
-    .sort((a, b) => a.label.localeCompare(b.label, 'id'));
+  // Aturannya tinggal di `supplier-kas.js` supaya form tambah, form ubah, dan
+  // dialog admin tidak bisa menyimpang satu sama lain.
+  const opsiSupplier = opsiSupplierKas(daftarSupplier);
 
   // KEPALA HALAMAN DIBEKUKAN, RIWAYATNYA YANG MENGGULIR.
   //
@@ -200,15 +201,18 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
               // PINTU KEDUA. Kolom yang cuma ada di form tambah adalah kolom
               // yang tidak pernah bisa dibetulkan — dan pola itu sudah
               // menggigit sekali di proyek ini, pada kolom Supplier nota.
-              ...(daftarSupplier.length
+              ...(supplierKasWajib(daftarSupplier)
                 ? [
                     {
                       name: 'supplier',
                       label: 'Dibayar ke (supplier)',
                       type: 'searchselect',
-                      allowCreate: true,
+                      required: true,
                       value: e.supplier ?? '',
-                      options: opsiSupplier
+                      // Nilai lama yang di luar daftar ikut ditawarkan — tanpa
+                      // itu, membetulkan satu huruf di keterangan MENGHAPUS
+                      // nama yang sudah tersimpan.
+                      options: opsiSupplierKas(daftarSupplier, e.supplier ?? '')
                     }
                   ]
                 : []),
@@ -222,6 +226,10 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     });
     if (!values) return;
     if (!(values.amount > 0)) return toast('Jumlah uang harus lebih dari 0.', 'warning');
+    if (keluar) {
+      const salahSupplier = periksaSupplierKas(values.supplier ?? e.supplier ?? '', daftarSupplier, { nilaiLama: e.supplier ?? '' });
+      if (salahSupplier) return toast(salahSupplier, 'warning');
+    }
     try {
       await ubahKas({
         id: e.id,
@@ -576,22 +584,27 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
           help: 'Uang ini dibelanjakan untuk outlet mana. Boleh lintas BU — pilihannya semua outlet tempat kamu punya peran, di BU mana pun.'
         },
         { name: 'category_id', label: 'Kategori biaya', type: 'select', options: catOptions('out') },
-        // PAYMENT TO untuk berkas ESB Disbursement (0149).
+        // PAYMENT TO untuk berkas ESB Disbursement (0149), WAJIB sejak 0151.
         //
         // Daftarnya daftar yang SAMA dengan kolom Supplier di nota — bukan
-        // daftar kedua yang cepat atau lambat menyimpang. `allowCreate`
-        // dibiarkan hidup dengan alasan yang sama pula: pengeluaran mendadak
-        // jam 9 malam tidak boleh gagal dicatat karena namanya belum ada di
-        // daftar induk; ekspornya yang menahannya nanti, dengan alasan terbaca.
-        ...(daftarSupplier.length
+        // daftar kedua yang cepat atau lambat menyimpang.
+        //
+        // `allowCreate` DICABUT. Versi pertama membiarkannya hidup supaya
+        // pengeluaran mendadak jam 9 malam tidak gagal dicatat, dan
+        // menyerahkan penyaringannya ke ekspor. Yang terjadi: nama bebas
+        // tersimpan, entrinya tertahan berminggu-minggu kemudian, dan yang
+        // membetulkannya bukan orang yang mengetiknya — ia sudah tidak ingat
+        // nota mana itu. Memberi tahu sekarang, saat orangnya masih memegang
+        // notanya, jauh lebih murah.
+        ...(supplierKasWajib(daftarSupplier)
           ? [
               {
                 name: 'supplier',
                 label: 'Dibayar ke (supplier)',
                 type: 'searchselect',
-                allowCreate: true,
+                required: true,
                 options: opsiSupplier,
-                help: 'Jadi kolom "Payment To" saat diekspor ke ESB. Pilih dari daftar — nama yang diketik sendiri ditolak ESB.'
+                help: 'Jadi kolom "Payment To" saat diekspor ke ESB. Hanya nama yang terdaftar di ESB — yang diketik sendiri ditolak saat diimpor.'
               }
             ]
           : []),
@@ -615,6 +628,9 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     if (!values) return;
     if (!(values.amount > 0)) return toast('Jumlah uang harus lebih dari 0.', 'warning');
     if (!values.file) return toast('Foto nota wajib dilampirkan.', 'warning');
+    // Tanpa `nilaiLama`: entri BARU tidak punya nilai warisan untuk dimaafkan.
+    const salahSupplier = periksaSupplierKas(values.supplier, daftarSupplier);
+    if (salahSupplier) return toast(salahSupplier, 'warning');
     try {
       await recordCashEntry({
         type: 'out',

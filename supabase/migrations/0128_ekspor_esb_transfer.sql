@@ -84,7 +84,7 @@ begin
      set esb_exported_at = now(),
          esb_exported_by = v_uid
    where d.id = any(p_kiriman)
-     and d.esb_exported_at is null
+     
      -- Hanya kiriman yang sudah DITERIMA. Lihat catatan di kepala berkas:
      -- barang yang masih di jalan belum boleh menambah stok di ESB.
      and d.status = 'received'

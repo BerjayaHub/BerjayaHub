@@ -19,7 +19,7 @@
  *
  * Berjaya Hub mengirim SATU baris per entri kas: tiap kas keluar adalah satu
  * pengeluaran yang berdiri sendiri, dengan satu outlet peruntukan dan satu
- * kategori biaya. Menggabungkan beberapa entri jadi satu dokumen menuntut
+ * kantong asal. Menggabungkan beberapa entri jadi satu dokumen menuntut
  * aturan pengelompokan yang tidak dimiliki datanya — dan kelompok yang ditebak
  * tidak akan pernah terlihat salah di layar mana pun.
  *
@@ -91,7 +91,8 @@ const angka = (v) => {
  * @param {object} o
  * @param {Array} o.kas baris `cash_entries` yang SUDAH disaring jadi kas keluar
  *   non-bahan: { id, entry_date, amount, notes, supplier, outlet_nama,
- *   kategori_nama, kode }
+ *   kantong_nama, kantong_outlet_nama, kode }. `kantong_outlet_nama` adalah
+ *   outlet MILIK KANTONGNYA (0120/0151) — sumber kolom Account.
  * @param {Record<string, Map<string,string>>} o.peta hasil `buatPeta` —
  *   `branch`, `coa`, `payment_method`, `supplier`. Dipakai BERSAMA dengan
  *   Simple Purchase: satu nama outlet tidak boleh punya dua padanan Branch.
@@ -140,14 +141,36 @@ export function barisEsbDisbursement({ kas, peta, masterSupplier = new Map(), ca
       adaMasalah = true;
     }
 
-    // ACCOUNT = nomor COA, dipetakan dari KATEGORI BIAYA. Entri tanpa kategori
-    // tidak punya apa pun untuk dipetakan, dan itu dikatakan sebagai
-    // "(kosong)" alih-alih berangkat dengan sel kosong yang diterima ESB
-    // sebagai akun bawaan.
-    const akun = peta?.coa?.get?.(normalNama(c.kategori_nama)) ?? null;
-    if (!akun) {
-      catat('coa', c.kategori_nama, kode);
+    // ACCOUNT = nomor COA, dipetakan dari OUTLET MILIK KANTONG KASNYA.
+    //
+    // BUKAN dari kategori biaya — itu salah baca 0149, dibetulkan di 0151.
+    // Keempat baris contoh templatenya berisi '1 1 02 01' / '1 1 02 02':
+    // akun HARTA. Kolom ini menyatakan DARI MANA uangnya keluar, bukan untuk
+    // apa dibelanjakan. Pemetaan COANo yang sudah ada mengatakan hal yang
+    // sama — kas, pusat, tempo, ketiganya sumber dana.
+    //
+    // Dan bukan pula `outlet_nama`: yang itu outlet PERUNTUKAN, dan sudah
+    // jadi kolom Branch di baris ini. Keduanya sering sama; memakai satu
+    // untuk keduanya akan benar di sebagian besar baris dan diam-diam salah
+    // persis di baris yang paling perlu diperiksa.
+    //
+    // Entri yang kantongnya tidak punya outlet TIDAK jatuh kembali ke Branch.
+    // Nomor akun yang ditebak terlihat persis seperti nomor akun yang benar,
+    // dan tidak ada satu pun layar yang bisa membedakannya sesudah berkasnya
+    // terunggah.
+    let akun = null;
+    if (!teks(c.kantong_outlet_nama)) {
+      // Alasannya menyebut KANTONGNYA, bukan "(kosong)": yang membacanya perlu
+      // tahu kantong mana yang harus ditempeli outlet, dan "Kas Utama" adalah
+      // nama yang sama dengan yang ia lihat di Staff App.
+      catat('kantong', c.kantong_nama, kode);
       adaMasalah = true;
+    } else {
+      akun = peta?.coa?.get?.(normalNama(c.kantong_outlet_nama)) ?? null;
+      if (!akun) {
+        catat('coa', c.kantong_outlet_nama, kode);
+        adaMasalah = true;
+      }
     }
 
     if (!bayar) {

@@ -94,8 +94,11 @@ sabotase(
 sabotase(
   'stempel lama boleh tertimpa — jejak kapan ia benar-benar berangkat hilang',
   MIG,
-  /and d\.esb_exported_at is null/,
-  '',
+  // Polanya dulu `and d.esb_exported_at is null` — bentuk lama fungsinya.
+  // Yang tersisa dari 0128 adalah indeks parsialnya; syarat "belum berangkat"
+  // pindah ke fungsi yang ditulis ulang di migration berikutnya.
+  /  where esb_exported_at is null;/,
+  '  ;',
   TES_MIG
 );
 
@@ -236,16 +239,21 @@ sabotase(
 sabotase(
   'penandaan dipindah ke SEBELUM berkasnya jadi',
   HAL,
-  /const n = jenis === 'transfer' \? await tandaiKirimanEsb\(ids\) : await tandaiNotaEsb\(ids\);/,
-  'const n = 0;',
+  // Bentuknya berubah saat dokumen ketiga & keempat lahir (Item Journal &
+  // Disbursement): satu baris ternary jadi rantai empat cabang. Yang dijaga
+  // tetap sama — penandaan terjadi SESUDAH `unduhEsb`, bukan sebelum.
+  /          const n =\n            jenis === 'transfer'/,
+  '          const n = 0;\n          void (\n            jenis === \'transfer\'',
   AUDIT
 );
 
 sabotase(
   'header berkas tidak lagi di baris 1 — ESB menolak seluruh berkasnya',
   HAL,
-  /aoa_to_sheet\(\[kolom, \.\.\.baris\]\)/,
-  "aoa_to_sheet([['Ekspor ESB'], kolom, ...baris])",
+  // Dulu `aoa_to_sheet([kolom, ...baris])`; sejak Item Journal ada, barisnya
+  // lewat `unduhEsb` yang menyisipkan `atas` sebanyak `barisHeader`.
+  /aoa_to_sheet\(\[\.\.\.atas, kolom, \.\.\.baris\]\)/,
+  "aoa_to_sheet([...atas, ['Ekspor ESB'], kolom, ...baris])",
   AUDIT
 );
 

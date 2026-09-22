@@ -27,6 +27,7 @@ import { pecahKeterangan, petaNotaPerEntri } from './keterangan-nota.js';
 import { keadaanKoreksi, totalKas } from './koreksi-kas.js';
 import { LABEL_PENGELUARAN, saringPengeluaran, ringkasPengeluaran } from './jenis-pengeluaran.js';
 import { kodeKas, cocokKodeKas } from './kode-kas.js';
+import { buKasEntri, supplierKasWajib, opsiSupplierKas, periksaSupplierKas } from './supplier-kas.js';
 
 const DIRECTIONS = [
   { value: 'both', label: 'Masuk & Keluar' },
@@ -270,7 +271,11 @@ async function loadMutasi(content) {
       const ids = [...result.querySelectorAll('.cm-pilih:checked')].map((c) => c.value);
       if (!ids.length) return toast('Centang dulu kas keluar yang mau diisi suppliernya.', 'warning');
 
-      const bu = rows.find((r) => ids.includes(r.id))?.business_unit_id ?? null;
+      // BU dari OUTLET barisnya — `business_unit_id` selalu NULL sejak 0040,
+      // dan aksi ini pun tidak pernah menemukan satu pun supplier karenanya:
+      // ia selalu berhenti di "Daftar supplier ESB belum diimpor", kalimat
+      // yang menyuruh mengimpor daftar yang sebenarnya sudah ada.
+      const bu = buKasEntri(rows.find((r) => ids.includes(r.id)));
       const daftar = await listEsbMaster(bu, 'supplier').catch(() => []);
       if (!daftar.length) {
         return toast('Daftar supplier ESB belum diimpor — impor dulu di Ekspor ESB langkah 3.', 'warning');
@@ -287,15 +292,19 @@ async function loadMutasi(content) {
             label: 'Dibayar ke (supplier)',
             type: 'searchselect',
             required: true,
-            allowCreate: true,
-            options: daftar
-              .map((m) => ({ value: m.nama, label: m.nama, hint: m.kode ? `kode ESB ${m.kode}` : '' }))
-              .sort((a, b) => a.label.localeCompare(b.label, 'id'))
+            // Tanpa `allowCreate`: aksi ini ADA untuk membuka ekspor, dan nama
+            // yang diketik sendiri justru menahannya lagi.
+            options: opsiSupplierKas(daftar)
           }
         ],
         submitText: 'Simpan'
       });
       if (!v?.supplier) return;
+      // Diperiksa walau pilihannya SEKARANG hanya berisi daftar induk: aturan
+      // yang cuma dijaga oleh bentuk dropdown-nya adalah aturan yang hilang
+      // begitu seseorang menghidupkan `allowCreate` lagi.
+      const salahSupplier = periksaSupplierKas(v.supplier, daftar);
+      if (salahSupplier) return toast(salahSupplier, 'warning');
 
       try {
         const n = await ubahSupplierKas(ids, v.supplier);
@@ -364,9 +373,15 @@ async function ubahEntriAdmin(r, content) {
     [outlets, daftarSupplier] = await Promise.all([
       listMyOutletsAllBu().catch(() => []),
       // Daftar supplier ESB (0144) — Payment To untuk berkas Disbursement.
+      //
+      // BU-nya lewat `buKasEntri`, yang membacanya dari OUTLET entrinya.
+      // Sebelumnya `r.business_unit_id` — kolom yang DEPRECATED sejak 0040 dan
+      // selalu NULL, jadi daftarnya selalu kosong dan kotak suppliernya tidak
+      // pernah digambar sama sekali.
+      //
       // Gagal dibacanya berarti kolomnya tidak muncul dan nilainya dikirim apa
       // adanya; dialognya tidak boleh mati karena satu daftar tambahan.
-      listEsbMaster(r.business_unit_id, 'supplier').catch(() => [])
+      listEsbMaster(buKasEntri(r), 'supplier').catch(() => [])
     ]);
   }
   const opsiOutlet = outlets.map((o) => ({
@@ -391,18 +406,20 @@ async function ubahEntriAdmin(r, content) {
       // SELURUH kas keluar yang ada hari ini tidak punya Supplier — kolomnya
       // baru lahir di 0149. Tanpa kotaknya di sini, satu-satunya yang bisa
       // mengisinya adalah pemegang kasnya sendiri, satu per satu.
-      ...(keluar && daftarSupplier.length
+      ...(keluar && supplierKasWajib(daftarSupplier)
         ? [
             {
               name: 'supplier',
               label: 'Dibayar ke (supplier)',
               type: 'searchselect',
-              allowCreate: true,
+              required: true,
+              // `allowCreate` DIMATIKAN: nama yang diketik sendiri ditolak ESB
+              // saat berkasnya diimpor, dan penolakannya terjadi jauh dari
+              // sini. Nilai lama yang di luar daftar tetap ditawarkan oleh
+              // `opsiSupplierKas` supaya koreksi hal lain tidak menghapusnya.
               value: r.supplier ?? '',
-              options: daftarSupplier
-                .map((m) => ({ value: m.nama, label: m.nama, hint: m.kode ? `kode ESB ${m.kode}` : '' }))
-                .sort((a, b) => a.label.localeCompare(b.label, 'id')),
-              help: 'Jadi kolom "Payment To" saat diekspor ke ESB Disbursement.'
+              options: opsiSupplierKas(daftarSupplier, r.supplier ?? ''),
+              help: 'Jadi kolom "Payment To" saat diekspor ke ESB Disbursement. Hanya nama yang terdaftar di ESB.'
             }
           ]
         : []),
@@ -412,6 +429,10 @@ async function ubahEntriAdmin(r, content) {
   });
   if (!values) return;
   if (!(values.amount > 0)) return toast('Jumlah uang harus lebih dari 0.', 'warning');
+  if (keluar) {
+    const salahSupplier = periksaSupplierKas(values.supplier ?? r.supplier ?? '', daftarSupplier, { nilaiLama: r.supplier ?? '' });
+    if (salahSupplier) return toast(salahSupplier, 'warning');
+  }
   try {
     await ubahKas({
       id: r.id,

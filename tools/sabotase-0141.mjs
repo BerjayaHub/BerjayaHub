@@ -340,8 +340,12 @@ sabotase(
 sabotase(
   'kolom kategori tidak ikut diambil layar admin — menyunting keterangan MENGHAPUS kategorinya',
   SVC,
-  "'category_id, outlet_id, qty, unit, dicoret_at, alasan_coret, diubah_at, '",
-  "'outlet_id, dicoret_at, alasan_coret, diubah_at, '",
+  // Daftar kolomnya tumbuh di 0149 (supplier, untuk_nota, esb_exported_at) —
+  // pola lamanya sudah tidak menunjuk ke mana pun. Yang dijaga tetap sama:
+  // `ubah_kas` menulis PENUH, jadi kolom yang tidak ikut diambil akan
+  // TERHAPUS saat admin membetulkan keterangannya.
+  "'category_id, outlet_id, qty, unit, supplier, untuk_nota, esb_exported_at, dicoret_at, alasan_coret, diubah_at, '",
+  "'outlet_id, supplier, untuk_nota, esb_exported_at, dicoret_at, alasan_coret, diubah_at, '",
   AUDIT
 );
 sabotase(

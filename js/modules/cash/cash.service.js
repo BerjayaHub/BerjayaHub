@@ -517,6 +517,17 @@ export async function listCashEntriesAdmin({ holderId, entryType, dateFrom, date
           // baris ini memuat seluruhnya.
           'category_id, outlet_id, qty, unit, supplier, untuk_nota, esb_exported_at, dicoret_at, alasan_coret, diubah_at, ' +
           'holder:user_profiles!holder_id(full_name), counterpart:user_profiles!counterpart_id(full_name), ' +
+          // OUTLET IKUT DEMI `business_unit_id`-NYA.
+          //
+          // `cash_entries.business_unit_id` di baris atas DEPRECATED sejak
+          // 0040 dan selalu NULL. Dialog admin memakainya untuk memuat daftar
+          // supplier ESB — jadi daftarnya selalu kosong, jadi kotak Supplier
+          // TIDAK PERNAH DIGAMBAR. Tidak ada galat: dialognya terbuka lengkap,
+          // hanya tanpa satu-satunya kolom yang bisa membuka ekspornya.
+          //
+          // Sumbu yang benar sama dengan 0150: BU diturunkan dari OUTLET
+          // peruntukan, yang wajib ada pada tiap kas keluar sejak 0063.
+          'outlets!outlet_id(name, business_unit_id), ' +
           'pencoret:user_profiles!dicoret_by(full_name), pengubah:user_profiles!diubah_by(full_name), cash_categories(name)',
         { count: 'exact' }
       )

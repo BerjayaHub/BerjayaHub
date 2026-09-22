@@ -394,18 +394,23 @@ sabotase(
 
 console.log('\nSABOTASE PEMETAANNYA:');
 
+// SUMBER COA PINDAH DI 0151 — dari kategori biaya ke outlet MILIK KANTONG.
+// Sabotase yang menyebut `kategori_nama` di sini sudah tidak menunjuk ke mana
+// pun; penggantinya hidup di `sabotase-0151.mjs`, bersama sabotase yang
+// membuktikan kategori biaya TIDAK BOLEH kembali. Yang tinggal di sini cuma
+// yang memang masih milik 0149.
 sabotase(
   'pencarian COA memakai aturan normalisasi yang BERBEDA dari penyimpannya',
   MURNI,
-  '    const akun = peta?.coa?.get?.(normalNama(c.kategori_nama)) ?? null;',
-  '    const akun = peta?.coa?.get?.(teks(c.kategori_nama).toLowerCase()) ?? null;',
+  '      akun = peta?.coa?.get?.(normalNama(c.kantong_outlet_nama)) ?? null;',
+  '      akun = peta?.coa?.get?.(teks(c.kantong_outlet_nama).toLowerCase()) ?? null;',
   AUDIT
 );
 sabotase(
-  'entri tanpa kategori berangkat dengan sel Account kosong',
+  'entri yang COA-nya belum dipetakan berangkat dengan sel Account kosong',
   MURNI,
-  '    if (!akun) {\n      catat(\'coa\', c.kategori_nama, kode);\n      adaMasalah = true;\n    }',
-  '    void akun;',
+  "      if (!akun) {\n        catat('coa', c.kantong_outlet_nama, kode);\n        adaMasalah = true;\n      }",
+  '      void akun;',
   TES
 );
 sabotase(
@@ -416,9 +421,9 @@ sabotase(
   TES
 );
 sabotase(
-  'kategori biaya tidak masuk daftar pemetaan COA — SELURUH kas keluar tertahan, tanpa cara membereskannya',
+  'kunci COA menyusut jadi cara bayar saja — SELURUH kas keluar tertahan, tanpa cara membereskannya',
   EADM,
-  '    coa: [...CARA_BAYAR, ...kategoriKas.map((k) => String(k?.name ?? \'\').trim()).filter(Boolean)]',
+  '    coa: [...CARA_BAYAR, ...outlets.map((o) => o.name), ...outletKantong]',
   '    coa: [...CARA_BAYAR]',
   AUDIT
 );

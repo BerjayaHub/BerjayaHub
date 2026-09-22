@@ -38,8 +38,10 @@ const K = Object.fromEntries(KOLOM_DISBURSEMENT.map((k, i) => [k, i]));
 
 const PETA = buatPeta([
   { jenis: 'branch', kunci: 'AB Gading Serpong', nilai: 'Awal Bermula Serpong' },
-  { jenis: 'coa', kunci: 'Bensin', nilai: '1 1 02 01' },
-  { jenis: 'coa', kunci: 'ATK', nilai: '1 1 02 02' },
+  // COA = SUMBER DANA, dipetakan dari outlet MILIK KANTONG (0151) — bukan dari
+  // kategori biaya. Kuncinya sengaja dipilih outlet yang BERBEDA dari outlet
+  // peruntukan di atas, supaya tes ini tidak bisa lolos dengan membaca Branch.
+  { jenis: 'coa', kunci: 'AB Alam Sutera', nilai: '1 1 02 01' },
   { jenis: 'payment_method', kunci: 'kas', nilai: 'CASH' }
 ]);
 const MASTER = petaSupplier([
@@ -56,7 +58,12 @@ const kas = (o = {}) => ({
   notes: o.notes ?? 'Bensin motor operasional',
   supplier: o.supplier ?? 'Pasar',
   outlet_nama: o.outlet_nama ?? 'AB Gading Serpong',
-  kategori_nama: o.kategori_nama ?? 'Bensin'
+  kategori_nama: o.kategori_nama ?? 'Bensin',
+  // Kantongnya milik outlet LAIN — uangnya keluar dari kas Alam Sutera dan
+  // dibelanjakan untuk Gading Serpong. Persis keadaan yang membuat
+  // `outlet_nama` tidak boleh dipakai sebagai COA.
+  kantong_nama: o.kantong_nama ?? 'Kas Operasional',
+  kantong_outlet_nama: o.kantong_outlet_nama ?? 'AB Alam Sutera'
 });
 
 const susun = (daftar, extra = {}) =>
@@ -142,7 +149,7 @@ ok('Payment Method, Description, dan Additional Information terisi');
 // salah bagi ESB, tapi yang mencocokkannya mengira ada dokumen yang hilang.
 const tigaSatuTertahan = susun([
   kas({ id: 'a', kode: 'K-A' }),
-  kas({ id: 'b', kode: 'K-B', kategori_nama: 'Tidak Dipetakan' }),
+  kas({ id: 'b', kode: 'K-B', kantong_outlet_nama: 'Outlet Tidak Dipetakan' }),
   kas({ id: 'c', kode: 'K-C' })
 ]);
 assert.deepEqual(tigaSatuTertahan.kasIds, ['a', 'c']);
@@ -162,21 +169,53 @@ assert.equal(branchKurang.baris.length, 0);
 assert.ok(branchKurang.kurang.some((x) => x.jenis === 'branch' && x.nilai === 'Outlet Baru'));
 ok('outlet yang belum dipetakan menahan barisnya');
 
-// Kategori biaya KOSONG tidak punya apa pun untuk dipetakan — dan itu
-// dikatakan, bukan berangkat dengan sel Account kosong yang diterima ESB
-// sebagai akun bawaan.
-const tk = kas();
-tk.kategori_nama = null;
-const tanpaKategori = susun([tk]);
-assert.equal(tanpaKategori.baris.length, 0);
-assert.ok(tanpaKategori.kurang.some((x) => x.jenis === 'coa' && x.nilai === '(kosong)'));
-ok('entri tanpa kategori biaya menahan barisnya, dan disebut "(kosong)"');
+// KANTONG TANPA OUTLET tidak punya apa pun untuk dipetakan — dan itu
+// dikatakan lewat alasannya sendiri, bukan berangkat dengan sel Account kosong
+// yang diterima ESB sebagai akun bawaan, dan bukan pula jatuh ke Branch.
+//
+// Nilainya ditimpa SESUDAH objeknya jadi: `o.x ?? 'default'` mengembalikan
+// nilai bawaan untuk `null` DAN `undefined`, jadi lewat argumen pembantunya
+// kedua keadaan ini tidak akan pernah benar-benar teruji.
+for (const kosong of ['', null, undefined, '   ']) {
+  const tk = kas();
+  tk.kantong_outlet_nama = kosong;
+  const tanpaKantong = susun([tk]);
+  assert.equal(tanpaKantong.baris.length, 0, `kantong ${JSON.stringify(kosong)} tidak menahan barisnya`);
+  // Alasannya menyebut KANTONGNYA, bukan "(kosong)" — yang membacanya perlu
+  // tahu kantong mana yang harus ditempeli outlet.
+  assert.ok(tanpaKantong.kurang.some((x) => x.jenis === 'kantong' && x.nilai === 'Kas Operasional'));
+  // Dan TIDAK boleh tertahan sebagai 'coa': itu alasan yang menunjuk ke layar
+  // pemetaan, tempat pekerjaan ini tidak bisa diselesaikan.
+  assert.ok(!tanpaKantong.kurang.some((x) => x.jenis === 'coa'));
+}
+ok('INTI: kantong tanpa outlet menahan barisnya, dan alasannya menyebut nama kantongnya');
+
+// Yang PALING berbahaya: COA jatuh ke outlet peruntukan. Berkasnya akan
+// diterima ESB dengan tenang dan mendarat di akun kas yang bukan sumbernya.
+const petaBranchSajaCoa = buatPeta([
+  { jenis: 'branch', kunci: 'AB Gading Serpong', nilai: 'Awal Bermula Serpong' },
+  { jenis: 'coa', kunci: 'AB Gading Serpong', nilai: '9 9 99 99' },
+  { jenis: 'payment_method', kunci: 'kas', nilai: 'CASH' }
+]);
+const jatuhKeBranch = barisEsbDisbursement({ kas: [kas()], peta: petaBranchSajaCoa, masterSupplier: MASTER });
+assert.equal(jatuhKeBranch.baris.length, 0);
+assert.ok(jatuhKeBranch.kurang.some((x) => x.jenis === 'coa' && x.nilai === 'AB Alam Sutera'));
+ok('INTI: COA tidak jatuh ke outlet peruntukan walau outlet itu SUDAH punya padanan COA');
+
+// Kategori biaya tidak lagi menentukan apa pun — entri tanpa kategori tetap
+// berangkat. Kalau tes ini merah, COA kembali dibaca dari kategori.
+const tanpaKategori = kas();
+tanpaKategori.kategori_nama = null;
+const kategoriTakRelevan = susun([tanpaKategori]);
+assert.equal(kategoriTakRelevan.baris.length, 1);
+assert.equal(kategoriTakRelevan.baris[0][K['Account']], '1 1 02 01');
+ok('INTI: kategori biaya tidak lagi menentukan Account — entri tanpa kategori tetap berangkat');
 
 const tanpaBayar = barisEsbDisbursement({
   kas: [kas()],
   peta: buatPeta([
     { jenis: 'branch', kunci: 'AB Gading Serpong', nilai: 'Awal Bermula Serpong' },
-    { jenis: 'coa', kunci: 'Bensin', nilai: '1 1 02 01' }
+    { jenis: 'coa', kunci: 'AB Alam Sutera', nilai: '1 1 02 01' }
   ]),
   masterSupplier: MASTER
 });

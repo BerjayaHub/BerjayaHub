@@ -21,7 +21,6 @@ import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { loadXLSX } from '../../core/xlsx.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
-import { listCashCategories } from '../cash/cash.service.js';
 import { getBiayaRataBu } from './waste.service.js';
 import { sayaAdminBu } from '../../core/base-scope.js';
 import { KOLOM_ESB, JENIS_PETA, buatPeta, barisEsbPurchase, ringkasEkspor } from './esb-purchase.js';
@@ -64,6 +63,7 @@ import {
   wasteBertandaEsb,
   batalkanTandaWasteEsb,
   kasUntukEsb,
+  outletKantongKasEsb,
   tandaiKasEsb,
   kasBertandaEsb,
   batalkanTandaKasEsb,
@@ -107,6 +107,11 @@ const LABEL_JENIS = {
   // lewat dropdown di layar ini — dan labelnya menyebut ke mana perginya.
   'tanggal-kas': 'Tanggal kas keluar (perbaiki di entri kasnya)',
   'jumlah-kas': 'Nominalnya nol atau tidak terbaca (perbaiki di entri kasnya)',
+  // BUKAN pemetaan. Kolom `Account` dibaca dari outlet MILIK KANTONG kasnya
+  // (0151), dan kantong yang belum ditempeli outlet tidak punya apa pun untuk
+  // dibaca. Labelnya menyebut layarnya, karena tanpa itu yang membacanya akan
+  // mencari baris dropdown yang memang tidak ada.
+  kantong: 'Kantong kasnya belum punya outlet (Kas → Kantong Kas)',
   'qty-terlalu-kecil': 'Jumlahnya terlalu kecil untuk 4 desimal (jadi 0)',
   'nilai-terlalu-kecil': 'Nilainya terlalu kecil untuk 4 desimal (jadi 0)',
   // KUNCINYA 'purpose-kosong', BUKAN 'purpose'.
@@ -229,9 +234,9 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
   let peta = [];
   let produk = [];
   let supplierTerpakai = [];
-  let kategoriKas = [];
+  let outletKantong = [];
   try {
-    [master, peta, produk, supplierTerpakai, kategoriKas] = await Promise.all([
+    [master, peta, produk, supplierTerpakai, outletKantong] = await Promise.all([
       listEsbMaster(businessUnitId).catch(() => []),
       listEsbMap(businessUnitId).catch(() => []),
       listProducts(businessUnitId).catch(() => []),
@@ -239,11 +244,11 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       // kelompok Supplier kosong — bukan halaman galat yang mengunci seluruh
       // ekspor ESB hanya karena satu daftar tidak bisa dibaca.
       namaSupplierTerpakai(businessUnitId).catch(() => []),
-      // Kategori biaya kas — jadi kunci pemetaan COA untuk Disbursement (0149).
-      // Gagal dibacanya berarti kelompok COA cuma berisi tiga cara bayar
-      // seperti sebelumnya; layar ESB tidak boleh mati karena satu daftar
-      // tambahan tidak terbaca.
-      listCashCategories(true).catch(() => [])
+      // Outlet pemilik kantong kas — kunci pemetaan COA untuk Disbursement
+      // (0151). Gagal dibacanya berarti kelompok COA cuma berisi cara bayar +
+      // outlet BU ini; layar ESB tidak boleh mati karena satu daftar tambahan
+      // tidak terbaca.
+      outletKantongKasEsb(businessUnitId).catch(() => [])
     ]);
   } catch (e) {
     container.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
@@ -259,14 +264,25 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
     branch: outlets.map((o) => o.name),
     location: outlets.map((o) => o.name),
     payment_method: CARA_BAYAR,
-    // COA melayani DUA hal sekaligus sejak 0149, dan keduanya memang nomor
-    // akun: cara bayar nota (kas/tempo/pusat) dan kategori biaya kas keluar
-    // yang jadi kolom `Account` di Disbursement.
+    // COA melayani DUA hal, dan keduanya SUMBER DANA — bukan jenis biaya:
     //
-    // Satu kelompok, bukan dua: keduanya dipetakan ke jenis nilai yang sama,
-    // dan memisahkannya berarti dua daftar yang harus dijaga selaras tanpa ada
-    // yang memaksa keselarasannya.
-    coa: [...CARA_BAYAR, ...kategoriKas.map((k) => String(k?.name ?? '').trim()).filter(Boolean)]
+    //   cara bayar nota          kas / tempo / pusat   (Simple Purchase)
+    //   outlet pemilik kantong   AB Gading Serpong…    (Disbursement, 0151)
+    //
+    // KATEGORI BIAYA DIBUANG DARI SINI. 0149 menempelkannya karena salah baca
+    // templatenya: contoh Disbursement berisi '1 1 02 01', akun HARTA. Selama
+    // tiga kategori itu ikut, layar ini menampilkan tiga baris merah abadi
+    // yang tidak dipakai berkas mana pun — pekerjaan yang tidak menyelesaikan
+    // apa pun, di tabel yang gunanya justru menyebutkan pekerjaan yang perlu.
+    //
+    // Outletnya digabung dari DUA sumber: outlet BU ini (supaya sudah siap
+    // dipetakan sebelum pengeluaran pertamanya) dan outlet kantong yang
+    // sungguh pernah dipakai (yang bisa berada di BU lain — kas melekat pada
+    // orang, 0040). Tanpa yang kedua, nama seperti itu muncul sebagai alasan
+    // tertahan tanpa satu pun baris untuk memperbaikinya.
+    coa: [...CARA_BAYAR, ...outlets.map((o) => o.name), ...outletKantong]
+      .map((v) => String(v ?? '').trim())
+      .filter(Boolean)
       .filter((v, i, a) => a.findIndex((x) => normal(x) === normal(v)) === i),
     // SATUAN BELI IKUT, dan itu wajib.
     //
@@ -303,10 +319,10 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
   container.innerHTML = `
     <h2 style="font-size:1.05rem">Ekspor ke ESB</h2>
     <p style="font-size:0.82rem;color:var(--color-text-muted);max-width:760px">
-      Berjaya Hub jadi tempat input, ESB menerima berkasnya. Tiga jenis dokumen didukung —
+      Berjaya Hub jadi tempat input, ESB menerima berkasnya. Empat jenis dokumen didukung —
       <strong>Simple Purchase</strong> dari nota penerimaan, <strong>Simple Transfer</strong> dari modul Pengiriman,
-      dan <strong>Item Journal</strong> dari waste &amp; spoil — dan ketiganya memakai
-      <strong>pemetaan yang sama</strong>. Dokumen yang ada nilainya belum terpetakan
+      <strong>Item Journal</strong> dari waste &amp; spoil, dan <strong>Disbursement</strong> dari kas keluar selain
+      bahan — dan keempatnya memakai <strong>pemetaan yang sama</strong>. Dokumen yang ada nilainya belum terpetakan
       <strong>tidak ikut terunduh</strong>; ia muncul di daftar di bawah, supaya ketahuan alih-alih berangkat dengan
       sel kosong yang ditolak ESB belakangan.
     </p>

@@ -243,8 +243,19 @@ if (adm) {
   if (!/<option value="supplier">Master Supplier<\/option>/.test(kode)) {
     salah('esb.admin.js: "Master Supplier" tidak ada di dropdown impor — daftarnya tidak bisa dimasukkan dari layar mana pun.');
   }
-  if (!/masterSupplier: petaSupplier\(master\)/.test(kode)) {
-    salah('esb.admin.js: daftar induk supplier tidak diberikan ke `barisEsbPurchase` — pemeriksaannya tidak akan pernah menyala.');
+  // DIHITUNG, bukan sekadar "ada". Dua dokumen memakai daftar induk supplier:
+  // Simple Purchase (dari nota) dan Disbursement (dari kas keluar, 0149).
+  //
+  // Mencari satu kemunculan membuat audit ini tetap hijau saat daftarnya
+  // dicabut dari salah satunya: yang ketemu adalah pemanggilan milik dokumen
+  // yang lain. Sabotase yang membuktikannya memang pernah lolos di sini —
+  // bentuk kegagalan yang sudah berulang kali muncul di repo ini.
+  const nMaster = (kode.match(/masterSupplier: petaSupplier\(master\)/g) ?? []).length;
+  if (nMaster < 2) {
+    salah(
+      `esb.admin.js: daftar induk supplier cuma diberikan ke ${nMaster} dari 2 dokumen (Simple Purchase & ` +
+        'Disbursement) — pemeriksaan suppliernya tidak akan pernah menyala di yang satunya.'
+    );
   }
   if (!/supplier: 'Supplier'/.test(kode)) {
     salah('esb.admin.js: jenis "supplier" tidak punya label — ia muncul mentah di tabel yang tertahan.');

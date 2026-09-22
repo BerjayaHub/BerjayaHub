@@ -51,6 +51,16 @@ const sabotase = (nama, rel, dari, ke, pemeriksa) => {
     console.error(`❌ SABOTASE TIDAK TERPASANG: ${nama} — polanya tidak ketemu di ${rel}.`);
     return;
   }
+  // `String.replace` dengan string hanya mengganti kemunculan PERTAMA. Pola
+  // yang muncul lebih dari sekali berarti sabotasenya mengenai tempat yang
+  // bukan sasarannya — dan pemeriksanya tetap hijau karena sasaran yang
+  // sebenarnya masih utuh di tempat lain. Itu persis yang terjadi pada
+  // `masterSupplier: petaSupplier(master)`, yang dipakai DUA dokumen.
+  if (typeof dari === 'string' && isi.split(dari).length > 2) {
+    gagal++;
+    console.error(`❌ POLANYA MUNCUL >1 KALI: ${nama} di ${rel} — sabotasenya cuma mengenai yang pertama.`);
+    return;
+  }
   fs.writeFileSync(P(rel), rusak);
   const hijau = jalan(pemeriksa);
   pulih();
@@ -115,8 +125,11 @@ sabotase(
 sabotase(
   'nama constraint lama DITEBAK, bukan dicari di katalog',
   MIG,
-  '  select conname into v_nama from pg_constraint',
-  "  select 'esb_master_jenis_check'::text into v_nama from pg_constraint",
+  // Konteks `esb_master` disertakan supaya sasarannya UNIK: potongan yang
+  // sama ada di blok `esb_map`, dan tanpa konteks sabotasenya mengenai yang
+  // pertama sementara auditnya menemukan yang kedua.
+  "  select conname into v_nama from pg_constraint\n   where conrelid = 'esb_master'::regclass",
+  "  select 'esb_master_jenis_check'::text into v_nama from pg_constraint\n   where conrelid = 'esb_master'::regclass",
   AUDIT
 );
 
@@ -307,10 +320,16 @@ sabotase(
   AUDIT
 );
 sabotase(
-  'daftar induk supplier tidak diberikan ke ekspor — pemeriksaannya tidak pernah menyala',
+  'daftar induk supplier dicabut dari ekspor Disbursement — pemeriksaannya tidak pernah menyala di sana',
   ADM,
-  'masterSupplier: petaSupplier(master)',
-  'masterSupplier: new Map()',
+  // Konteksnya disertakan supaya sasarannya UNIK: pemanggilan yang sama ada
+  // di cabang Simple Purchase, dan tanpa konteks sabotasenya mengenai yang
+  // pertama sementara auditnya menemukan yang kedua — hijau, tanpa menjaga
+  // apa pun.
+  '          // Daftar induk supplier yang SAMA dengan nota — bukan daftar kedua\n' +
+    '          // yang cepat atau lambat menyimpang.\n' +
+    '          masterSupplier: petaSupplier(master)',
+  '          masterSupplier: new Map()',
   AUDIT
 );
 sabotase(
@@ -323,8 +342,12 @@ sabotase(
 sabotase(
   'staff DIPAKSA memilih dari daftar — pembelian mendadak jam 9 malam tidak bisa dicatat',
   NOTA,
-  '                  allowCreate: true',
-  '                  allowCreate: false',
+  // Indentasinya yang membedakan: `allowCreate: true` ada juga di dialog Edit
+  // nota, delapan spasi lebih dalam. Tanpa konteks, sabotasenya mengenai form
+  // TAMBAH dan auditnya menemukan yang di dialog Edit — hijau, tanpa menjaga
+  // apa pun.
+  "                  placeholder: 'pilih atau ketik nama supplier…',\n                  allowCreate: true",
+  "                  placeholder: 'pilih atau ketik nama supplier…',\n                  allowCreate: false",
   AUDIT
 );
 sabotase(
