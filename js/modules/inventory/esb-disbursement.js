@@ -159,7 +159,20 @@ export function barisEsbDisbursement({ kas, peta, masterSupplier = new Map(), ca
     // dan tidak ada satu pun layar yang bisa membedakannya sesudah berkasnya
     // terunggah.
     let akun = null;
-    if (!teks(c.kantong_outlet_nama)) {
+    if (c.dibayar_pusat) {
+      // DIBAYAR PUSAT (0153): uangnya tidak keluar dari kantong mana pun, jadi
+      // tidak ada outlet kantong untuk dibaca — dan itu BUKAN kekurangan yang
+      // perlu dibereskan. Kuncinya `'pusat'`, cara bayar yang sudah punya
+      // barisnya sendiri di pemetaan COANo sejak lama (`pusat -> 1 1 02 00`).
+      //
+      // Konstanta ini sengaja ditulis di sini, bukan diimpor dari `esb.admin.js`:
+      // berkas ini tidak boleh mengimpor layar. Auditnya yang mengikat keduanya.
+      akun = peta?.coa?.get?.(normalNama('pusat')) ?? null;
+      if (!akun) {
+        catat('coa', 'pusat', kode);
+        adaMasalah = true;
+      }
+    } else if (!teks(c.kantong_outlet_nama)) {
       // Alasannya menyebut KANTONGNYA, bukan "(kosong)": yang membacanya perlu
       // tahu kantong mana yang harus ditempeli outlet, dan "Kas Utama" adalah
       // nama yang sama dengan yang ia lihat di Staff App.

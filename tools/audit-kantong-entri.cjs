@@ -175,7 +175,7 @@ if (modul) {
     salah('kantong-wajib.js: "Kas Utama" ikut jadi pilihan — keadaan yang sedang diperbaiki ditawarkan sebagai jawaban yang sah.');
   }
   // Kantong tanpa outlet TETAP ditawarkan.
-  if (!/hint: k\.outlet_id \? teks\(k\.outlet_name\) : HINT_TANPA_OUTLET/.test(kode)) {
+  if (!/hint: k\.outlet_id \? namaOutlet\(k\) : HINT_TANPA_OUTLET/.test(kode)) {
     salah(
       'kantong-wajib.js: kantong tanpa outlet dibuang dari daftar. Orang yang seluruh kantongnya belum ber-outlet ' +
         'akan menghadapi dropdown kosong yang wajib diisi — form yang tidak bisa disimpan.'
@@ -194,13 +194,28 @@ if (hal) {
   const kode = bersih(hal, 'cash.page.js', ['async function openKeluar', 'async function openMasuk']);
   // Kas MASUK ikut ditanya. Tanpa itu keadaannya justru MEMBURUK: uang masuk
   // menumpuk di Kas Utama sementara belanjanya membebani kantong.
-  const nTanya = (kode.match(/kantongWajib\(accounts\)/g) ?? []).length;
+  // Kas MASUK bertanya dari kantong SENDIRI (`accounts`); kas KELUAR dari
+  // kantong yang boleh dibebani (`bisaDibebani`, 0153) — daftar yang berbeda,
+  // pertanyaan yang sama. Dihitung bersama supaya mencabut salah satunya tidak
+  // bisa disembunyikan di balik yang lain.
+  const nTanya = (kode.match(/kantongWajib\((?:accounts|bisaDibebani)\)/g) ?? []).length;
   if (nTanya < 2) {
     salah(
       `cash.page.js: kantong cuma ditanyakan di ${nTanya} dari 2 arah (Kas Masuk & Kas Keluar). Kalau hanya kas ` +
         'keluar yang diwajibkan, uang masuk menumpuk di Kas Utama sementara belanjanya membebani kantong — dan ' +
         'saldo kantongnya jadi negatif, keadaan yang mustahil di dunia nyata.'
     );
+  }
+  // Dan kas keluar HARUS memakai daftar yang lebih luas — kalau ia kembali ke
+  // `accounts`, kantong outlet lain hilang dari pilihannya tanpa satu pun galat.
+  if (!/kantongWajib\(bisaDibebani\)/.test(kode) || !/opsiKantong\(bisaDibebani, \{ pusat: true \}\)/.test(kode)) {
+    salah(
+      'cash.page.js: form Kas Keluar tidak memakai daftar kantong yang boleh dibebani + pilihan Pusat. Izinnya ada ' +
+        'di database sejak 0126; tanpa daftarnya di layar, kemampuan itu tidak bisa dicapai dari mana pun.'
+    );
+  }
+  if (!/listKantongBisaKubebani\(\)\.catch\(\(\) => \[\]\)/.test(kode)) {
+    salah('cash.page.js: daftar kantong yang boleh dibebani tidak dimuat, atau kegagalannya tidak ditangkap.');
   }
   const nPeriksa = (kode.match(/periksaKantong\(/g) ?? []).length;
   if (nPeriksa < 2) {

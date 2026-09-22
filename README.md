@@ -7828,3 +7828,55 @@ Tanpa penjaga itu, kiriman yang sudah bertanda ikut ditimpa stempel barunya, dan
 `sabotase-0128.mjs` juga punya satu sabotase yang **lolos karena namanya masih ada**: ia menyisipkan `const n = 0; void (…)` di depan rantai penandaan, dan `indexOf('tandaiKirimanEsb(')` milik auditnya tetap menemukannya sesudah `unduhEsb`. Yang dicabut sekarang pemanggilannya sendiri.
 
 - [x] **Kantong wajib dipilih + entri bisa dipindahkan ke kantong** (`0152`) — 29 sabotase
+
+## Izin yang ada di database dan tidak ada di layar — lagi
+
+> *"untuk cash ledger, seharusnya kantong kas bisa ambil dari kantong kas outlet manapun ... termasuk bisa dibayar pusat, jadi tidak mengurangi jumlah kas outlet nya"*
+
+### Bagian pertamanya sudah ada sejak `0126`
+
+`boleh_membebani_kas` membuka kantong **ber-outlet** untuk siapa pun yang bertugas di BU outlet itu, dan `catat_kas_di` (0120) sudah menulisnya dengan `holder_id` = pemilik kantongnya. Modul Bahan memakai keduanya untuk pembayaran nota sejak lama.
+
+Form Kas Keluar memanggil `listMyCashAccounts()` — kantong **sendiri**. Jadi Risma bisa membelanjakan kas Central Kitchen lewat modul Bahan, dan tidak bisa lewat modul Kas. Kemampuannya ada, jalannya tidak ada di layar; ini kesekian kalinya pola itu muncul di proyek ini.
+
+Satu hal yang memang kurang di database: `catat_kas_di` lahir sebelum kolom `supplier` ada (`0149`). Lewat jalur itu Payment To akan diam-diam kosong, dan entrinya tertahan saat diekspor dengan alasan yang terlihat datang entah dari mana. Tanda tangan lamanya dibuang — PostgREST memilih overload lewat himpunan nama argumen, dan dua tanda tangan berarti permintaan lama memilih yang lama.
+
+### "Dibayar Pusat": `0125` sudah menjawab, dan jawabannya tidak bisa dipakai
+
+Untuk **nota**, pembayaran Pusat sengaja tidak meninggalkan satu baris pun di `cash_entries`; faktanya disimpan di notanya (`payment_source`). `0125` juga menolak membuat kantong "Kas Pusat", karena saldonya akan minus terus-menerus dan ada yang harus merekonsiliasinya.
+
+Untuk Cash Ledger tidak ada nota yang bisa menyimpannya — entri kasnya sendiri satu-satunya catatan. Tanpa baris, pengeluarannya tidak tercatat di mana pun dan tidak bisa diekspor sebagai Disbursement.
+
+Jadi barisnya **ada**, ditandai `dibayar_pusat`, dan dikecualikan dari setiap perhitungan saldo. Kolom `pusat` di pemetaan COANo sudah ada sejak lama (`pusat → 1 1 02 00`), jadi ekspornya sudah punya akun untuk dituju sebelum fitur ini ditulis.
+
+### Satu tempat yang terlewat tidak melempar apa pun
+
+Kalimat itu ditulis `0141` saat mengecualikan `dicoret_at`, dan ia mengerjakan seluruh tempatnya sekaligus. `0153` melakukan hal yang sama untuk `dibayar_pusat`:
+
+| Tempat | Kalau terlewat |
+|---|---|
+| `cash_balances` | saldo pemegang berkurang oleh uang yang tak pernah ada di tangannya |
+| `cash_account_balances` | saldo per kantong ikut salah |
+| `pindah_kas` | uang yang **sungguh** ada di Kas Utama tidak bisa dipindahkan — "saldo tidak cukup" untuk angka yang terlihat jelas di layar sebelah |
+| `daftar_kantong_kas` | layar Kantong Kas menyebut angka yang berbeda dari `cash_balances` |
+
+`atur_kantong_kas` **tidak** ikut, dan itu disengaja: pemeriksaan "kantong masih berisi" di sana menyaring `account_id = p_id`, dan baris Pusat selalu ber-`account_id` NULL. Menambahkan saringan yang tidak bisa mengubah satu pun jawaban hanya membuat orang berikutnya mengira ia load-bearing.
+
+### Tujuh tempat menulis `coalesce(ca.name, 'Kas Utama')`
+
+Baris Pusat ber-`account_id` NULL, jadi ketujuhnya akan menyebutnya "Kas Utama" — laporan yang mengatakan uangnya keluar dari kas pemegangnya, padahal ia tidak pernah ada di tangannya. Satu fungsi (`label_kantong_kas`) dipakai semua yang menampilkan, bukan tujuh salinan `case when` yang cepat atau lambat berbeda.
+
+### Lima fungsi DISALIN, bukan diketik ulang
+
+`pindah_kas`, `daftar_kantong_kas`, `riwayat_kas_saya`, `laporan_kas_user`, `rincian_mutasi_kas` — semuanya panjang, dan semuanya harus berubah pada satu ekspresi saja. Mengetiknya ulang berarti mengetik ulang seluruh isinya; yang terlupa tidak melempar error, ia cuma menghilangkan satu penjaga.
+
+Jadi isinya disalin mentah dari migration asalnya lewat skrip, lalu `audit-bayar-pusat.cjs` memeriksa tiap penjaga lamanya satu per satu — `boleh_lihat_kas`, saringan "milikku" di riwayat, jatah kantong, `sort_order`, rumus nilai baris nota. Sabotase-nya mencabut masing-masing dan memastikan auditnya merah.
+
+**Dua di antaranya lolos di percobaan pertama**, keduanya bentuk yang sama — sasarannya ada di tempat lain:
+
+- `daftar_kantong_kas` punya **dua** cabang `union all`, masing-masing dengan `is_super_admin(auth.uid())`-nya sendiri. Mencabut yang pertama tidak membuat auditnya merah: yang ketemu milik cabang kedua.
+- pembersih foto yatim di `catatKasKeluar` bentuknya sama persis dengan yang ada di `recordCashEntry`. Mencabutnya tidak terlihat.
+
+Keduanya sekarang dihitung atau diikat ke blok yang memuatnya.
+
+- [x] **Kas keluar dari kantong outlet lain + Dibayar Pusat** (`0153`) — 48 sabotase

@@ -57,11 +57,25 @@
  * Tidak ada impor di berkas ini, supaya bisa diuji tanpa browser.
  */
 
-export const PESAN_WAJIB = 'Pilih dulu kantong kasnya — uangnya keluar dari kantong mana.';
+export const PESAN_WAJIB = 'Pilih dulu sumber dananya — uangnya keluar dari kantong mana, atau dibayar Pusat.';
 export const PESAN_WAJIB_MASUK = 'Pilih dulu kantong kasnya — uangnya masuk ke kantong mana.';
 
 /** Keterangan pada kantong yang belum ditempeli outlet. */
 export const HINT_TANPA_OUTLET = 'belum punya outlet — akan tertahan saat diekspor ke ESB';
+
+/**
+ * DIBAYAR PUSAT — penanda, bukan id kantong.
+ *
+ * Nilai sentinel, bukan uuid nol: uuid nol terlihat seperti id sungguhan di
+ * log, di URL, dan di kepala orang yang membacanya enam bulan lagi. Alasan
+ * yang sama dipakai `p_tanpa_kantong` di 0140.
+ */
+export const BAYAR_PUSAT = '__pusat__';
+export const LABEL_PUSAT = 'Dibayar Pusat — tidak mengurangi kas siapa pun';
+export const HINT_PUSAT = 'kantor pusat yang membayar; tercatat sebagai biaya, saldo kas tidak berkurang';
+
+/** Nama yang dipakai SEMUA layar untuk entri bertanda Pusat. */
+export const NAMA_PUSAT = 'Pusat';
 
 const teks = (v) => (v === null || v === undefined ? '' : String(v).trim());
 
@@ -92,14 +106,53 @@ export function kantongWajib(kantong) {
  *
  * @param {Array} kantong `[{ id, name, outlet_id, outlet_name }]`
  */
-export function opsiKantong(kantong) {
-  return (Array.isArray(kantong) ? kantong : [])
+export function opsiKantong(kantong, { pusat = false } = {}) {
+  const daftar = (Array.isArray(kantong) ? kantong : [])
     .filter((k) => k && k.id)
     .map((k) => ({
       value: k.id,
-      label: teks(k.name) || '(tanpa nama)',
-      hint: k.outlet_id ? teks(k.outlet_name) : HINT_TANPA_OUTLET
+      // Nama PEMEGANGNYA ikut kalau ada — sejak kantong outlet lain boleh
+      // dibebani (0126/0153), "Kas CK iis" dan "Kas CK" milik dua orang
+      // berbeda tidak bisa dibedakan dari namanya saja.
+      label: labelKantong(k),
+      // DUA BENTUK, satu pertanyaan. `kantong_pemegang` (0152) mengembalikan
+      // `outlet_name` datar; query `cash_accounts` mengembalikannya sebagai
+      // embed `outlets.name`. Modul ini menerima keduanya — kalau tidak,
+      // separuh layar menampilkan keterangan kosong tanpa satu pun galat.
+      hint: k.outlet_id ? namaOutlet(k) : HINT_TANPA_OUTLET
     }));
+  // Pusat di PALING BAWAH: ia jawaban yang benar untuk sebagian kecil
+  // pengeluaran, dan menaruhnya di atas membuatnya terpilih karena kebetulan
+  // paling dekat, bukan karena memang itu yang terjadi.
+  return pusat ? [...daftar, { value: BAYAR_PUSAT, label: LABEL_PUSAT, hint: HINT_PUSAT }] : daftar;
+}
+
+/** Nama outlet kantong, dari bentuk datar maupun embed. */
+export function namaOutlet(k) {
+  return teks(k?.outlet_name) || teks(k?.outlets?.name);
+}
+
+/** "Kas CK iis (Iis)" — nama kantong dan pemegangnya. */
+export function labelKantong(k) {
+  const nama = teks(k?.name) || '(tanpa nama)';
+  const pemegang = teks(k?.user_profiles?.full_name);
+  return pemegang ? `${nama} (${pemegang})` : nama;
+}
+
+/** Apakah pilihan ini "Dibayar Pusat"? */
+export function pilihPusat(nilai) {
+  return teks(nilai) === BAYAR_PUSAT;
+}
+
+/**
+ * Terjemahkan pilihan layar jadi argumen `catat_kas_di`.
+ *
+ * SATU tempat, dipakai form-nya. Menulisnya di layar berarti dua penerjemahan
+ * — form tambah dan (nanti) form lain — yang cepat atau lambat berbeda, dan
+ * bedanya berbentuk entri Pusat yang diam-diam membebani sebuah kantong.
+ */
+export function sumberDana(nilai) {
+  return pilihPusat(nilai) ? { accountId: null, dibayarPusat: true } : { accountId: teks(nilai) || null, dibayarPusat: false };
 }
 
 /**
@@ -114,6 +167,10 @@ export function periksaKantong(nilai, kantong, jenis = 'out') {
   if (!kantongWajib(kantong)) return null;
   const v = teks(nilai);
   if (!v) return jenis === 'in' ? PESAN_WAJIB_MASUK : PESAN_WAJIB;
+  // PUSAT hanya sah untuk kas KELUAR. Uang masuk yang "dibayar pusat" tidak
+  // berarti apa-apa, dan database menolaknya lewat constraint yang pesannya
+  // berbicara tentang nama constraint, bukan tentang uang.
+  if (pilihPusat(v)) return jenis === 'in' ? 'Kas masuk tidak bisa "dibayar Pusat". Pilih kantongnya.' : null;
   // Id yang tidak ada di daftarnya ditolak, bukan diteruskan: database memang
   // akan menolaknya juga, tapi pesannya di sana berbicara tentang foreign key.
   return kantong.some((k) => k?.id === v) ? null : 'Kantong itu bukan milikmu. Muat ulang halamannya.';
@@ -130,10 +187,22 @@ export function periksaKantong(nilai, kantong, jenis = 'out') {
 export const NAMA_TANPA_KANTONG = 'Kas Utama';
 
 export function namaKantong(entri) {
+  // Aturan yang SAMA PERSIS dengan `label_kantong_kas()` di database (0153).
+  // Dua aturan untuk satu pertanyaan akan menyimpang, dan menyimpangnya
+  // berbentuk: tabel admin berkata "Kas Utama", laporan berkata "Pusat", untuk
+  // baris yang sama.
+  if (entri?.dibayar_pusat) return NAMA_PUSAT;
   return teks(entri?.cash_accounts?.name) || NAMA_TANPA_KANTONG;
 }
 
-/** Apakah baris ini yang bikin ekspornya tertahan? Dipakai menandai di tabel. */
+/**
+ * Apakah baris ini yang bikin ekspornya tertahan? Dipakai menandai di tabel.
+ *
+ * Baris PUSAT tidak termasuk: ia memang sengaja tanpa kantong, dan ekspornya
+ * tahu itu (COA-nya `pusat`). Menandainya merah akan menyuruh orang
+ * membereskan sesuatu yang sudah benar.
+ */
 export function tanpaKantong(entri) {
+  if (entri?.dibayar_pusat) return false;
   return !entri?.account_id;
 }

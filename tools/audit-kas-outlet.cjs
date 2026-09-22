@@ -104,7 +104,11 @@ if (mig) {
 const svc = baca('js/modules/cash/cash.service.js');
 if (svc) {
   const kode = tanpaKomentar(svc);
-  if (!/rpc\('catat_kas_di'/.test(kode)) {
+  // Spasi/baris baru ditoleransi: sejak `catatKasDi` memakai `argumenRpc`,
+  // nama fungsinya turun satu baris. Yang dijaga PANGGILANNYA, bukan tata
+  // letaknya — audit yang merah karena `prettier` adalah audit yang lama-lama
+  // diabaikan.
+  if (!/rpc\(\s*'catat_kas_di'/.test(kode)) {
     salah(
       "js/modules/cash/cash.service.js: tidak ada pemanggilan RPC `catat_kas_di`. " +
         'Mencatat kas atas nama orang lain lewat `.insert()` akan ditolak RLS — dan PostgREST tidak ' +

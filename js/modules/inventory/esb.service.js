@@ -511,7 +511,12 @@ export async function kasUntukEsb({ businessUnitId, from, to, outletId = null, t
     // sering sama; menyatukannya membuat pengeluaran lintas outlet mendarat
     // di akun kas yang bukan sumbernya.
     kantong_nama: c.kantong_nama ?? '',
-    kantong_outlet_nama: c.kantong_outlet_nama ?? ''
+    kantong_outlet_nama: c.kantong_outlet_nama ?? '',
+    // DIBAYAR PUSAT (0153) — tanda, bukan nama kantong palsu. Entri bertanda
+    // memakai kunci COA `pusat`; tanpa kolom ini ia akan tertahan dengan
+    // alasan "kantongnya belum punya outlet", untuk pengeluaran yang memang
+    // SENGAJA tidak punya kantong.
+    dibayar_pusat: c.dibayar_pusat === true
   }));
 }
 

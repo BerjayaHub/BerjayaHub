@@ -12,6 +12,8 @@ import {
   getCashProofUrl,
   getCashProofUrls,
   listMyCashAccounts,
+  listKantongBisaKubebani,
+  catatKasKeluar,
   getMyCashAccountLimit,
   saveCashAccount,
   hapusKantongKas,
@@ -29,7 +31,7 @@ import { listEsbMaster } from '../inventory/esb.service.js';
 import { bukaDialogNota } from '../inventory/nota-dialog.js';
 import { pecahKeterangan, petaNotaPerEntri } from './keterangan-nota.js';
 import { supplierKasWajib, opsiSupplierKas, periksaSupplierKas } from './supplier-kas.js';
-import { kantongWajib, opsiKantong, periksaKantong, NAMA_TANPA_KANTONG } from './kantong-wajib.js';
+import { kantongWajib, opsiKantong, periksaKantong, sumberDana, NAMA_TANPA_KANTONG } from './kantong-wajib.js';
 
 /**
  * Penanda "Kas Utama" di dalam <select>.
@@ -55,9 +57,9 @@ const idKantong = (v) => (!v || v === KAS_UTAMA ? null : v);
 export async function renderCashPage(container, { userId, businessUnitId }) {
   container.innerHTML = loadingHtml('Memuat kas…');
 
-  let categories, members, accounts, limit, outlets, daftarSupplier;
+  let categories, members, accounts, limit, outlets, daftarSupplier, bisaDibebani;
   try {
-    [categories, members, accounts, limit, outlets, daftarSupplier] = await Promise.all([
+    [categories, members, accounts, limit, outlets, daftarSupplier, bisaDibebani] = await Promise.all([
       listCashCategories().catch(() => []),
       listCashMembers().catch(() => []),
       listMyCashAccounts().catch(() => []),
@@ -67,7 +69,17 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       // diekspor sebagai Disbursement (0149). Gagal dibacanya berarti kolomnya
       // tidak muncul dan entrinya tersimpan tanpa supplier; layar Kas tidak
       // boleh mati karena satu daftar tambahan tidak terbaca.
-      listEsbMaster(businessUnitId, 'supplier').catch(() => [])
+      listEsbMaster(businessUnitId, 'supplier').catch(() => []),
+      // KANTONG YANG BOLEH KUBEBANI — bukan cuma kantongku.
+      //
+      // Izinnya sudah ada sejak 0126: kantong BER-OUTLET boleh dibebani siapa
+      // pun yang bertugas di BU outlet itu, dan modul Bahan sudah memakainya
+      // untuk pembayaran nota. Form Kas Keluar memanggil `listMyCashAccounts()`
+      // selama ini — jadi Risma (basis Serpong) tidak pernah bisa membelanjakan
+      // kas Central Kitchen dari sini, padahal ia berhak dan bisa
+      // melakukannya lewat modul Bahan. Kemampuannya ada, jalannya tidak ada
+      // di layar.
+      listKantongBisaKubebani().catch(() => [])
     ]);
   } catch (error) {
     container.innerHTML = `<p class="error-text">Gagal memuat: ${escapeHtml(error.message ?? error)}</p>`;
@@ -640,15 +652,18 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
         // dengan satu kantong tidak pernah ditanya, dan seluruh kas keluarnya
         // mendarat di Kas Utama: tercatat penuh, tapi tanpa kantong, jadi
         // tertahan saat diekspor ke ESB (0151).
-        ...(kantongWajib(accounts)
+        ...(kantongWajib(bisaDibebani)
           ? [
               {
                 name: 'account_id',
-                label: 'Diambil dari kantong',
+                label: 'Sumber dana',
                 type: 'select',
                 required: true,
-                options: opsiKantong(accounts),
-                help: 'Uangnya keluar dari kantong mana. Ini yang jadi nomor akun kas saat diekspor ke ESB.'
+                // Kantong outlet mana pun yang boleh ia bebani, PLUS "Dibayar
+                // Pusat" (0153) untuk pengeluaran yang tidak mengurangi kas
+                // siapa pun.
+                options: opsiKantong(bisaDibebani, { pusat: true }),
+                help: 'Uangnya keluar dari kantong mana — boleh kantong outlet lain. Ini yang jadi nomor akun kas saat diekspor ke ESB.'
               }
             ]
           : []),
@@ -669,15 +684,19 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     // Tanpa `nilaiLama`: entri BARU tidak punya nilai warisan untuk dimaafkan.
     const salahSupplier = periksaSupplierKas(values.supplier, daftarSupplier);
     if (salahSupplier) return toast(salahSupplier, 'warning');
-    const salahKantong = periksaKantong(values.account_id, accounts, 'out');
+    const salahKantong = periksaKantong(values.account_id, bisaDibebani, 'out');
     if (salahKantong) return toast(salahKantong, 'warning');
+    // Penerjemahan pilihan layar -> argumen RPC tinggal di `kantong-wajib.js`,
+    // bukan di sini: dua penerjemahan yang berbeda akan berbentuk entri Pusat
+    // yang diam-diam membebani sebuah kantong.
+    const { accountId, dibayarPusat } = sumberDana(values.account_id);
     try {
-      await recordCashEntry({
-        type: 'out',
+      await catatKasKeluar({
         amount: values.amount,
         categoryId: values.category_id,
         outletId: values.outlet_id,
-        accountId: values.account_id,
+        accountId,
+        dibayarPusat,
         notes: values.notes,
         qty: values.qty,
         unit: values.unit,
@@ -685,7 +704,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
         supplier: values.supplier,
         file: values.file
       });
-      toast('Kas keluar tercatat.', 'success');
+      toast(dibayarPusat ? 'Kas keluar tercatat — dibayar Pusat, saldo kasmu tidak berkurang.' : 'Kas keluar tercatat.', 'success');
       await refresh();
     } catch (error) {
       toast(error.message ?? 'Gagal menyimpan.', 'error');

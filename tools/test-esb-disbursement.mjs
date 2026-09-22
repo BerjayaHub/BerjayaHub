@@ -42,6 +42,9 @@ const PETA = buatPeta([
   // kategori biaya. Kuncinya sengaja dipilih outlet yang BERBEDA dari outlet
   // peruntukan di atas, supaya tes ini tidak bisa lolos dengan membaca Branch.
   { jenis: 'coa', kunci: 'AB Alam Sutera', nilai: '1 1 02 01' },
+  // Cara bayar 'pusat' sudah punya barisnya sendiri di pemetaan COANo sejak
+  // lama — entri DIBAYAR PUSAT (0153) memakai kunci itu.
+  { jenis: 'coa', kunci: 'pusat', nilai: '1 1 02 00' },
   { jenis: 'payment_method', kunci: 'kas', nilai: 'CASH' }
 ]);
 const MASTER = petaSupplier([
@@ -63,7 +66,8 @@ const kas = (o = {}) => ({
   // dibelanjakan untuk Gading Serpong. Persis keadaan yang membuat
   // `outlet_nama` tidak boleh dipakai sebagai COA.
   kantong_nama: o.kantong_nama ?? 'Kas Operasional',
-  kantong_outlet_nama: o.kantong_outlet_nama ?? 'AB Alam Sutera'
+  kantong_outlet_nama: o.kantong_outlet_nama ?? 'AB Alam Sutera',
+  dibayar_pusat: o.dibayar_pusat ?? false
 });
 
 const susun = (daftar, extra = {}) =>
@@ -222,6 +226,40 @@ const tanpaBayar = barisEsbDisbursement({
 assert.equal(tanpaBayar.baris.length, 0);
 assert.ok(tanpaBayar.kurang.some((x) => x.jenis === 'payment_method'));
 ok('cara bayar yang belum dipetakan menahan barisnya');
+
+// ============ DIBAYAR PUSAT (0153) ============
+//
+// Uangnya tidak keluar dari kantong mana pun, dan itu BUKAN kekurangan yang
+// perlu dibereskan. Tanpa cabang ini ia tertahan dengan alasan "kantongnya
+// belum punya outlet" — untuk pengeluaran yang memang sengaja tidak punya
+// kantong, dan yang tidak bisa dibereskan di layar mana pun.
+const pusat = kas({ id: 'p', kode: 'K-P', dibayar_pusat: true, kantong_nama: 'Pusat' });
+pusat.kantong_outlet_nama = '';
+const hasilPusat = susun([pusat]);
+assert.equal(hasilPusat.baris.length, 1);
+assert.equal(hasilPusat.baris[0][K['Account']], '1 1 02 00');
+assert.equal(hasilPusat.baris[0][K['Account Detail']], '1 1 02 00');
+ok('INTI: entri DIBAYAR PUSAT berangkat dengan COA `pusat`, walau tanpa kantong');
+
+// Dan Branch-nya TETAP outlet peruntukan — yang berubah cuma akunnya.
+assert.equal(hasilPusat.baris[0][K['Branch']], 'Awal Bermula Serpong');
+ok('Branch entri Pusat tetap outlet peruntukannya');
+
+// Kalau 'pusat' belum dipetakan, ia tertahan sebagai `coa` bernama "pusat" —
+// bukan sebagai "kantong", yang akan menyuruh orang menempeli outlet pada
+// kantong yang memang tidak ada.
+const tanpaPetaPusat = barisEsbDisbursement({
+  kas: [pusat],
+  peta: buatPeta([
+    { jenis: 'branch', kunci: 'AB Gading Serpong', nilai: 'Awal Bermula Serpong' },
+    { jenis: 'payment_method', kunci: 'kas', nilai: 'CASH' }
+  ]),
+  masterSupplier: MASTER
+});
+assert.equal(tanpaPetaPusat.baris.length, 0);
+assert.ok(tanpaPetaPusat.kurang.some((x) => x.jenis === 'coa' && x.nilai === 'pusat'));
+assert.ok(!tanpaPetaPusat.kurang.some((x) => x.jenis === 'kantong'));
+ok('INTI: `pusat` yang belum dipetakan tertahan sebagai COA, bukan sebagai kantong');
 
 console.log('\n§5 Payment To — aturan yang sama dengan nota');
 

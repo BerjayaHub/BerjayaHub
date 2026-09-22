@@ -18,6 +18,12 @@ import {
   tanpaKantong,
   NAMA_TANPA_KANTONG,
   HINT_TANPA_OUTLET,
+  BAYAR_PUSAT,
+  LABEL_PUSAT,
+  NAMA_PUSAT,
+  pilihPusat,
+  sumberDana,
+  namaOutlet,
   PESAN_WAJIB,
   PESAN_WAJIB_MASUK
 } from '../js/modules/cash/kantong-wajib.js';
@@ -121,5 +127,68 @@ assert.deepEqual(opsiKantong(null), []);
 assert.deepEqual(opsiKantong([{ name: 'tanpa id' }, null, {}]), []);
 assert.equal(opsiKantong([{ id: 'x' }])[0].label, '(tanpa nama)');
 ok('daftar cacat tidak melempar, dan tidak menghasilkan pilihan tanpa nilai');
+
+console.log('\n§7 Dibayar Pusat');
+
+// Pusat TIDAK ditawarkan kecuali diminta — form Kas MASUK memakai fungsi yang
+// sama, dan uang masuk yang "dibayar pusat" tidak berarti apa-apa.
+assert.ok(!opsiKantong([SERPONG]).some((o) => o.value === BAYAR_PUSAT));
+const denganPusat = opsiKantong([SERPONG], { pusat: true });
+assert.equal(denganPusat.length, 2);
+// Di PALING BAWAH: menaruhnya di atas membuatnya terpilih karena kebetulan
+// paling dekat, bukan karena memang itu yang terjadi.
+assert.equal(denganPusat[denganPusat.length - 1].value, BAYAR_PUSAT);
+assert.equal(denganPusat[denganPusat.length - 1].label, LABEL_PUSAT);
+ok('INTI: Pusat cuma muncul kalau diminta, dan di paling bawah');
+
+// Sentinel, bukan uuid nol — uuid nol terlihat seperti id sungguhan di log.
+assert.equal(BAYAR_PUSAT, '__pusat__');
+assert.equal(pilihPusat(BAYAR_PUSAT), true);
+assert.equal(pilihPusat('a1'), false);
+assert.equal(pilihPusat(''), false);
+assert.equal(pilihPusat(null), false);
+ok('penandanya sentinel yang tidak bisa tertukar dengan id kantong');
+
+// Penerjemahan ke argumen RPC tinggal di SATU tempat.
+assert.deepEqual(sumberDana(BAYAR_PUSAT), { accountId: null, dibayarPusat: true });
+assert.deepEqual(sumberDana('a1'), { accountId: 'a1', dibayarPusat: false });
+assert.deepEqual(sumberDana(''), { accountId: null, dibayarPusat: false });
+assert.deepEqual(sumberDana(null), { accountId: null, dibayarPusat: false });
+ok('INTI: Pusat tidak pernah membawa accountId — keduanya ditolak database');
+
+// Pusat sah untuk kas KELUAR, ditolak untuk kas MASUK.
+assert.equal(periksaKantong(BAYAR_PUSAT, [SERPONG], 'out'), null);
+assert.match(periksaKantong(BAYAR_PUSAT, [SERPONG], 'in') ?? '', /tidak bisa/);
+ok('INTI: Pusat hanya sah untuk kas keluar');
+
+// Barisnya TIDAK ditandai merah di tabel: ia sengaja tanpa kantong, dan
+// ekspornya tahu itu. Menandainya akan menyuruh orang membereskan yang sudah
+// benar.
+assert.equal(namaKantong({ dibayar_pusat: true, account_id: null, cash_accounts: null }), NAMA_PUSAT);
+assert.equal(tanpaKantong({ dibayar_pusat: true, account_id: null }), false);
+assert.equal(tanpaKantong({ dibayar_pusat: false, account_id: null }), true);
+assert.equal(NAMA_PUSAT, 'Pusat');
+ok('INTI: baris Pusat dinamai "Pusat" dan tidak ditandai perlu dibereskan');
+
+console.log('\n§8 Dua bentuk nama outlet');
+
+// `kantong_pemegang` (0152) mengembalikan `outlet_name` datar; query
+// `cash_accounts` mengembalikannya sebagai embed `outlets.name`. Modul ini
+// menerima keduanya — kalau tidak, separuh layar menampilkan keterangan
+// kosong tanpa satu pun galat.
+assert.equal(namaOutlet({ outlet_name: 'AB Gading Serpong' }), 'AB Gading Serpong');
+assert.equal(namaOutlet({ outlets: { name: 'Central Kitchen' } }), 'Central Kitchen');
+assert.equal(namaOutlet({}), '');
+assert.equal(namaOutlet(null), '');
+const embed = opsiKantong([{ id: 'x', name: 'Kas CK', outlet_id: 'o9', outlets: { name: 'Central Kitchen' } }]);
+assert.equal(embed[0].hint, 'Central Kitchen');
+ok('INTI: nama outlet terbaca dari bentuk datar maupun embed');
+
+// Nama pemegang ikut di label — dua kantong bernama mirip milik dua orang
+// tidak bisa dibedakan tanpa itu.
+const milikIis = opsiKantong([{ id: 'y', name: 'Kas CK', outlet_id: 'o9', user_profiles: { full_name: 'Iis' } }]);
+assert.equal(milikIis[0].label, 'Kas CK (Iis)');
+assert.equal(opsiKantong([SERPONG])[0].label, 'Kas Serpong');
+ok('nama pemegangnya ikut kalau ada, tidak kalau tidak');
 
 console.log(`\n${n} pemeriksaan kantong kas lolos. ✅`);

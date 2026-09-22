@@ -118,6 +118,76 @@ export async function recordCashEntry({ type, amount, categoryId, outletId, acco
   return data;
 }
 
+/**
+ * CATAT KAS KELUAR — satu jalur untuk ketiga sumber dana.
+ *
+ * ============ KENAPA BUKAN `recordCashEntry` ============
+ *
+ * Sejak 0153 kas keluar punya tiga kemungkinan sumber: kantong sendiri,
+ * kantong outlet lain, dan Pusat. Yang kedua HARUS lewat `catat_kas_di` —
+ * `.insert()` langsung akan menyimpan `holder_id = aku`, padahal uangnya
+ * keluar dari kas orang lain.
+ *
+ * Menulisnya sebagai dua jalur (insert untuk kantong sendiri, RPC untuk yang
+ * lain) berarti dua kumpulan penjaga yang cepat atau lambat berbeda — dan
+ * bedanya baru terlihat sebagai entri yang lolos lewat jalur yang lebih
+ * longgar. Satu jalur, dan penjaganya seluruhnya di server.
+ *
+ * Fotonya diunggah LEBIH DULU, sama dengan `recordCashEntry`: `catat_kas_di`
+ * menolak kas keluar tanpa bukti, jadi path-nya harus sudah ada saat RPC-nya
+ * dipanggil. Kalau RPC-nya gagal, fotonya dibuang lagi — berkas yatim di
+ * Storage tidak pernah ditemukan siapa pun dan tidak pernah dihapus.
+ */
+export async function catatKasKeluar({
+  accountId,
+  dibayarPusat = false,
+  amount,
+  categoryId,
+  outletId,
+  notes,
+  date,
+  qty,
+  unit,
+  file,
+  supplier
+}) {
+  const uid = await currentUserId();
+  if (!uid) throw new Error('Sesi tidak ditemukan, silakan login ulang.');
+  if (!file) throw new Error('Foto nota wajib dilampirkan untuk kas keluar.');
+  if (!outletId) throw new Error('Pilih outlet peruntukan untuk kas keluar.');
+
+  const kecil = await compressImage(file, { preset: 'bukti' });
+  const ext = (kecil.name?.split('.').pop() || 'jpg').toLowerCase();
+  // Nama berkasnya uuid acak, BUKAN id entrinya: `catat_kas_di` yang membuat
+  // barisnya, jadi id-nya belum ada saat fotonya diunggah. Prefix `uid` tetap
+  // dipakai supaya kebijakan Storage-nya sama dengan jalur lama.
+  const path = `${uid}/${crypto.randomUUID()}.${ext}`;
+  const { error: upErr } = await supabase.storage
+    .from('cash-proofs')
+    .upload(path, kecil, { upsert: true, contentType: kecil.type || 'image/jpeg' });
+  if (upErr) throw upErr;
+
+  try {
+    return await catatKasDi({
+      accountId: accountId || null,
+      dibayarPusat,
+      type: 'out',
+      amount,
+      categoryId,
+      outletId,
+      notes,
+      proofPath: path,
+      date,
+      qty,
+      unit,
+      supplier
+    });
+  } catch (e) {
+    await supabase.storage.from('cash-proofs').remove([path]).catch(() => {});
+    throw e;
+  }
+}
+
 // ---- Kantong kas (sub-kas) ----
 
 /** Kantong kas milik user yang login. Kosong = dia memakai kas tunggal. */
@@ -145,8 +215,12 @@ export async function listMyCashAccounts(onlyActive = true) {
  * mengizinkan membaca kantong milik siapa pun di outlet yang sama, dan
  * `boleh_membebani_kas()` di server yang memutuskan boleh-tidaknya menulis.
  */
-export async function listKantongBisaKubebani(outletId) {
-  if (!outletId) return [];
+export async function listKantongBisaKubebani(outletId = null) {
+  // `outletId` TIDAK menyaring apa pun — lihat catatan di bawah. Ia dulu jadi
+  // penjaga "belum pilih outlet, jangan tanya server dulu", dan sejak form Kas
+  // Keluar memakai daftar ini SEBELUM outletnya dipilih, penjaga itu justru
+  // membuat dropdown-nya kosong selamanya. Dibiarkan opsional.
+  void outletId;
   const uid = await currentUserId();
   // SELURUH kantong yang RLS izinkan kubaca, bukan cuma kantong outlet ini.
   //
@@ -179,19 +253,42 @@ export async function listKantongBisaKubebani(outletId) {
  * nominal, dan kewajiban outlet/bukti untuk kas keluar semuanya ada di server.
  * Menulis langsung ke tabel berarti menirukan keempatnya di klien.
  */
-export async function catatKasDi({ accountId, type, amount, categoryId, outletId, notes, proofPath, date, qty, unit }) {
-  const { data, error } = await supabase.rpc('catat_kas_di', {
-    p_account: accountId,
-    p_type: type,
-    p_amount: amount,
-    p_category: categoryId ?? null,
-    p_outlet: outletId ?? null,
-    p_notes: notes ?? null,
-    p_proof: proofPath ?? null,
-    p_date: date ?? null,
-    p_qty: qty ?? null,
-    p_unit: unit ?? null
-  });
+export async function catatKasDi({
+  accountId,
+  type,
+  amount,
+  categoryId,
+  outletId,
+  notes,
+  proofPath,
+  date,
+  qty,
+  unit,
+  supplier,
+  dibayarPusat = false
+}) {
+  // `argumenRpc` mengubah `undefined` jadi `null`, dan itu WAJIB di sini:
+  // PostgREST memilih overload lewat HIMPUNAN NAMA ARGUMEN, dan `JSON.stringify`
+  // membuang kunci ber-nilai `undefined`. Permintaan yang kehilangan
+  // `p_supplier` akan memilih tanda tangan lama — yang sudah dibuang 0153,
+  // jadi jawabannya 42883 dan bukan data yang diam-diam salah.
+  const { data, error } = await supabase.rpc(
+    'catat_kas_di',
+    argumenRpc({
+      p_account: accountId,
+      p_type: type,
+      p_amount: amount,
+      p_category: categoryId ?? null,
+      p_outlet: outletId ?? null,
+      p_notes: notes ?? null,
+      p_proof: proofPath ?? null,
+      p_date: date ?? null,
+      p_qty: qty ?? null,
+      p_unit: unit ?? null,
+      p_supplier: supplier ?? null,
+      p_dibayar_pusat: !!dibayarPusat
+    })
+  );
   if (error) throw error;
   return data;
 }
@@ -563,7 +660,7 @@ export async function listCashEntriesAdmin({ holderId, entryType, dateFrom, date
           // dan tanpa kolom ini tidak ada satu pun cara di layar untuk tahu
           // baris mana yang bermasalah. Yang membacanya cuma melihat "2
           // tertahan" di layar lain, tanpa nomor kas untuk dicari.
-          'cash_accounts(name), ' +
+          'cash_accounts(name), dibayar_pusat, ' +
           'pencoret:user_profiles!dicoret_by(full_name), pengubah:user_profiles!diubah_by(full_name), cash_categories(name)',
         { count: 'exact' }
       )
