@@ -7941,3 +7941,106 @@ Yang ketiga dibuang dari kodenya alih-alih dijaga sabotase yang tidak bisa merus
 Ditemukan sambil menambahkan filter Catatan: kalimat "filter yang sedang aktif" ditulis di **tiga** tempat dan ketiganya sudah menyimpang. Subjudul PDF tidak menyebut kata pencarian sama sekali — jadi menyaring "kursi" lalu mengunduh PDF menghasilkan berkas berjudul *"Semua outlet · 3 jenis barang"* untuk data yang sudah disaring, dan yang menerimanya tidak punya cara tahu ia melihat sebagian. Sekarang satu fungsi (`saringan-aset.js`), dipakai ketiganya.
 
 - [x] **Filter Catatan + impor Excel bergambar untuk Inventaris Aset** — 31 sabotase
+
+## Unduhan yang menjawab pertanyaan tentang BARANG, bukan tentang dokumen
+
+> *"cek di modul pengiriman, apakah ada download excel untuk barang yang sudah terkirim di outlet?"*
+
+Tidak ada. Yang ada cuma ekspor **per satu surat jalan**, dan tabel di Admin Portal berisi *dokumen* — No. Surat Jalan, Waktu, Dari, Ke, Status. Untuk menjawab *"bulan ini Serpong menerima apa saja dari CK"* orang harus membuka surat jalan satu per satu dan menggabungkannya sendiri di Excel.
+
+Sekarang ada dua tombol di halaman Pengiriman, plus saringan **Dari outlet** & **Ke outlet**. Satu berkas, dua sheet: **Rincian** per baris barang, dan **Rekap** yang menjumlahkannya per barang.
+
+### `received_qty` NULL bukan NOL
+
+Ini aturan terpenting di fitur ini.
+
+Kiriman yang masih di jalan punya `received_qty` NULL. Menjumlahkannya sebagai 0 menghasilkan laporan yang berbunyi **"Dikirim 100, Diterima 40"** — dan yang membacanya akan mencari 60 kilo yang tidak pernah hilang. `Number(null)` adalah `0`, jadi kesalahan ini tidak melempar apa pun; ia cuma menulis angka yang salah dengan rapi.
+
+Tiga hal yang mengikutinya:
+
+- Baris yang belum diterima **mengosongkan** Diterima, Selisih & Nilai Diterima — kosongnya sendiri adalah informasi, dan aturan yang sama sudah dipakai `dokumen.js` untuk satu surat jalan.
+- Rekap punya kolom **"Belum diterima (baris)"**. Angka itulah yang membuat dua kolom lainnya bisa dipercaya.
+- Selisih dijumlahkan **per baris**, bukan dihitung dari `Diterima − Dikirim` atas kolomnya. Kolom Dikirim memuat seluruh baris termasuk yang masih di jalan; mengurangkannya menghasilkan angka minus besar yang terbaca sebagai kehilangan. Untuk 10 kirim / 9 terima / 90 masih di jalan, Selisih-nya **−1**, bukan −91.
+
+Dan `received_qty` **nol sungguhan** tetap dibedakan dari NULL: barangnya dihitung, hasilnya nol, Selisih-nya −4.
+
+### Kedua bentuk disusun bersama
+
+`susunRekapKiriman` mengembalikan rincian **dan** rekap dari satu penelusuran. Disusun terpisah, keduanya akan menyimpang — dan yang terlihat bukan galat: sheet Rincian menjumlahkan 412 kg, sheet Rekap menulis 408 kg, dan tidak ada satu pun layar yang bisa menjelaskan empat kilo itu ke mana. Tesnya menegaskan totalnya identik.
+
+Rekapnya dikelompokkan per **produk**, bukan per nama: dua produk boleh bernama sama dengan satuan berbeda, dan menggabungkannya lewat nama akan menjumlahkan kilogram dengan pack.
+
+### "Nilai" berarti sama dengan di surat jalan
+
+`dokumen.js` menghitung Nilai = HPP × **dikirim**. Berkas ini memakai arti yang sama persis, dan nilai versi penerima diberi nama sendiri — **Nilai Diterima**. Dua kolom bernama sama yang menghitung hal berbeda adalah cara paling halus membuat dua laporan saling membantah.
+
+### Audit lama yang menangkap bug baru
+
+`audit-kolom-tabel.cjs` merah begitu query-nya ditulis:
+
+```
+.order('created_at') pada tabel dispatch_items — kolom itu tidak ada di skema.
+```
+
+Benar, dan lebih dalam dari yang disebutkannya. Saya menulis `.order('created_at', { referencedTable: 'dispatches' })` — dan PostgREST **tidak** mengurutkan baris tingkat atas lewat kolom embed to-one. Akibatnya bukan sekadar urutan yang salah: `ambilSemua` memanggil `.range()` berulang, dan **paginasi tanpa urutan yang pasti** membuat halaman kedua memuat baris yang sudah terbawa halaman pertama sementara yang lain hilang sama sekali. Totalnya salah, tanpa satu pun galat.
+
+Diurutkan lewat `id` milik `dispatch_items` untuk paginasinya, lalu urutan yang dilihat orang disusun di memori.
+
+Sekalian dibuang: `round()` di `dispatch.admin.page.js` yang didefinisikan dan tidak pernah dipanggil.
+
+- [x] **Unduhan barang terkirim: Rincian + Rekap per barang** — 29 sabotase
+
+## Tautan yang mati diam-diam, dan izin yang tidak pernah diputuskan
+
+> *"jika foto yang ditabel itu di tap jadi hitam … tapi hanya di beberapa staff saja, tidak semua, di saya bisa"*
+
+Dua sebab berbeda bertumpuk di satu gejala, dan dua-duanya terlihat seperti "role" atau "sinyal" — dua dugaan pertama yang selalu muncul, dan dua-duanya salah.
+
+### Sebab 1 — tautannya dibekukan saat halaman dimuat
+
+Bucket foto privat, jadi satu-satunya jalan masuk adalah signed URL, dan signed URL punya `exp`. Layar sebelumnya membuat URL-nya **sekali** untuk seluruh baris, lalu menaruhnya di `img.src` dan `<a href>`. Gambarnya sudah terunduh dan tinggal di cache, jadi tabelnya tetap terlihat normal selamanya — tidak ada satu pun tanda bahwa tautannya sudah mati.
+
+Yang membedakan antar-orang bukan **siapa** mereka, melainkan **berapa lama** halamannya dibiarkan terbuka. Staff yang berkeliling outlet sambil mencocokkan barang, atau yang berpindah aplikasi lalu kembali (Android mengembalikan halaman lama apa adanya, tanpa memuat ulang), menekan tautan berumur dua jam. Yang membuka lalu langsung menekan tidak pernah melihatnya. Itulah "hanya di beberapa staff".
+
+Jawabannya bukan memperpanjang umurnya. Umur panjang adalah harga yang dibayar orang lain: tautan sejam yang terlanjur tersalin ke WhatsApp bisa dibuka **siapa pun** selama sejam — tanpa login, tanpa peran, tanpa jejak. Jadi arahnya sebaliknya — **dibuat saat diketuk, dan umurnya pendek**: 60 detik untuk ketukan, 600 detik untuk thumbnail (`loading="lazy"` memuatnya saat digulir, jadi ia harus hidup beberapa menit). Selama dibuat tepat sebelum dipakai, pendek tidak pernah mengganggu siapa pun.
+
+### Sebab 2 — satu layar, dua aturan izin
+
+|  | policy | penjaga |
+|---|---|---|
+| baris aset | `assets_select` (`0045`) | `has_bu_scope` |
+| foto aset | `asset_photo_select` (`0050`) | `has_outlet_scope` |
+
+Staff yang cakupannya di satu outlet **melihat** baris aset outlet tetangga se-BU, dan tidak bisa membuka fotonya. Bukan karena ada yang memutuskan begitu: `0050` menyamakan keempat policy-nya ke prefix path sekaligus, dan SELECT ikut terbawa tanpa pertanyaan tersendiri.
+
+`0154` menyamakannya — **hanya SELECT**. INSERT dan UPDATE tetap `has_outlet_scope`, DELETE tetap `is_admin_of_outlet`. Melonggarkan menulis "sekalian saja, kan berkasnya sama" adalah cara paling sering sebuah izin melebar tanpa ada yang memutuskan.
+
+### Policy tidak boleh membaca tabel langsung
+
+Versi pertama `0154` menulis `exists (select 1 from outlets …)` di dalam `using`, dan tes PGlite-nya menjawab `42501 permission denied for table outlets`. Ekspresi policy dinilai dengan hak **pemanggilnya** — jadi setiap pembacaan foto ikut menuntut hak SELECT atas `outlets`, dan yang tidak punya mendapat galat yang jatuh pada query **fotonya**, tanpa menyebut `outlets` sama sekali.
+
+Diperbaiki dengan `asset_photo_bu(text)` — `security definer`, meneruskan `asset_photo_outlet` satu langkah ke BU-nya. Ini bug migration sungguhan, bukan bug harness.
+
+### `createSignedUrls` menolak per objek, bukan per permintaan
+
+Path yang tidak berizin cuma **hilang** dari hasilnya: tidak ada galat, tidak ada peringatan. Layarnya lalu menggambar tombol "Lihat" untuk baris itu, persis seperti baris yang tautannya gagal karena jaringan. Yang membacanya menyimpulkan "fotonya belum diunggah" — dan memfoto ulang barang yang fotonya sudah ada sejak setahun lalu.
+
+### Satu kalimat untuk tiga sebab
+
+Semua kegagalan foto dulu memakai kalimat yang sama, dan kalimat itu menuduh **peran outlet**. Yang tautannya cuma kedaluwarsa pergi meminta hak akses yang sudah ia punya. Sekarang `pesanGagalFoto` membedakan tiga:
+
+- `"exp" claim timestamp check failed` → *muat ulang halamannya* (dan ia diperiksa **sebelum** kode 403-nya — kalau urutannya terbalik, justru kasus yang paling sering yang salah dikenali)
+- 403/401/**404** → izin. "Not found" ikut di sini karena Storage sengaja tidak membocorkan keberadaan berkas.
+- sisanya → kalimat umum, tanpa menuduh apa pun.
+
+### PGlite berjalan sebagai superuser
+
+`alter table … force row level security` **tidak cukup** untuk menguji policy di PGlite: superuser melewati RLS sepenuhnya, jadi tes yang mengira sedang memeriksa penolakan sebenarnya memeriksa nol hal. Tes 0154 memakai `set role authenticated` untuk berperan sebagai staff dan `reset role` untuk menjalankan migration-nya.
+
+### Sabotase yang lolos, lagi, dengan bentuk yang sama
+
+`if (error) throw error;` ada di banyak fungsi `asset.service.js`. Mencabutnya dari `getAssetPhotoUrl` tidak membuat auditnya merah — yang ketemu milik fungsi lain. Diikat ke bloknya lewat `indexOf`.
+
+Sekalian ketahuan saat sweep: fixture `contoh-impor-aset.xlsx` pernah terbuka di Excel dan tersimpan ulang, dan Excel menulis jangkar gambarnya `<xdr:oneCellAnchor>` — dengan awalan namespace — sementara openpyxl menulisnya polos. Pembaca fixture-nya jadi melihat **nol** gambar di berkas yang jelas-jelas bergambar. `baca-xlsx.cjs` sekarang menerima kedua bentuk.
+
+- [x] **Foto aset terlihat se-BU + tautan dibuat saat diketuk** (`0154`) — 23 sabotase

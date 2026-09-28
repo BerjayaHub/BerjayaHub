@@ -481,7 +481,7 @@ export async function getDispatchForPdf(dispatchId) {
   return { header, items };
 }
 
-export async function listDispatchesAdmin({ businessUnitId, status, dateFrom, dateTo }) {
+export async function listDispatchesAdmin({ businessUnitId, status, fromOutletId, toOutletId, dateFrom, dateTo }) {
   // `ambilSemua`, BUKAN `.limit(N)` tunggal. Rentang tanggalnya berarti orangnya
   // meminta SELURUH periode itu; batas keras tanpa paginasi memotongnya
   // diam-diam, dan karena urutannya menurun yang hilang selalu bagian TERTUA
@@ -499,10 +499,116 @@ export async function listDispatchesAdmin({ businessUnitId, status, dateFrom, da
     .eq('business_unit_id', businessUnitId)
     .order('created_at', { ascending: false });
   if (status) query = query.eq('status', status);
+  // Disaring DI SERVER, sama dengan `listItemKirimanAdmin`.
+  //
+  // Versi pertama menyaringnya di klien dengan `d.from_outlet_id` — kolom yang
+  // TIDAK ikut di `select` ini, jadi nilainya `undefined` dan saringannya
+  // membuang SELURUH baris. Tabelnya berbunyi "Tidak ada data" sementara
+  // unduhannya penuh isi, dan tidak ada satu pun galat. Itu bentuk kegagalan
+  // yang sudah berulang kali muncul di repo ini: kolom yang tidak diminta,
+  // dibaca sebagai "tidak ada isinya".
+  if (fromOutletId) query = query.eq('from_outlet_id', fromOutletId);
+  if (toOutletId) query = query.eq('to_outlet_id', toOutletId);
   if (dateFrom) query = query.gte('created_at', dateFrom);
   if (dateTo) query = query.lte('created_at', dateTo);
   return query.range(dari, sampai);
   });
+}
+
+/**
+ * ITEM kiriman se-periode — satu baris per barang per surat jalan.
+ *
+ * ============ KENAPA BUKAN MEMANGGIL `getDispatchItems` BERULANG ============
+ *
+ * Layar Pengiriman sudah punya daftar dokumennya. Menggabungkan itemnya dengan
+ * satu permintaan per dokumen berarti 80 permintaan untuk sebulan kiriman —
+ * sebagian tertunda lama, sebagian ditolak, dan hasilnya berkas yang "sebagian
+ * barangnya hilang" tanpa sebab yang jelas. Bentuk kegagalan yang sama sudah
+ * dua kali terjadi di jalur foto (PDF & Excel aset).
+ *
+ * Jadi satu query atas `dispatch_items`, dengan headernya sebagai embed
+ * `!inner` supaya saringan outlet/status/tanggal bisa menempel padanya.
+ *
+ * ============ `ambilSemua`, DAN INI BUKAN KEHATI-HATIAN BERLEBIHAN ============
+ *
+ * PostgREST memotong di sekitar 1.000 baris. Satu bulan kiriman satu BU sudah
+ * melewatinya — dan yang hilang bukan galat, cuma baris-baris terakhir menurut
+ * urutannya. Totalnya jadi lebih kecil tanpa ada yang menyadarinya, persis
+ * gejala Rekap NBM yang dulu dilaporkan.
+ *
+ * @param {object} o
+ * @param {string} o.businessUnitId
+ * @param {string} [o.status] saringan status dokumen
+ * @param {string} [o.fromOutletId] outlet ASAL
+ * @param {string} [o.toOutletId] outlet TUJUAN
+ * @param {string} [o.dateFrom] ISO
+ * @param {string} [o.dateTo] ISO
+ */
+export async function listItemKirimanAdmin({ businessUnitId, status, fromOutletId, toOutletId, dateFrom, dateTo }) {
+  const baris = await ambilSemua((dari, sampai) => {
+    let query = supabase
+      .from('dispatch_items')
+      // `received_qty` IKUT, dan NULL-nya bermakna: belum diterima, BUKAN nol.
+      // `ordered_qty` & `keterangan` ikut supaya baris ber-kirim-0 bisa
+      // menjawab sendiri "berapa yang diminta" dan "kenapa nol" (0132).
+      .select(
+        'id, sent_qty, received_qty, ordered_qty, keterangan, product_id, products(name, base_unit), ' +
+          'dispatches!inner(id, code, status, created_at, received_at, ' +
+          'from_outlet:outlets!from_outlet_id(name), to_outlet:outlets!to_outlet_id(name))',
+        { count: 'exact' }
+      )
+      .eq('dispatches.business_unit_id', businessUnitId)
+      // DIURUTKAN LEWAT `id` MILIK `dispatch_items`, bukan tanggal headernya.
+      //
+      // Dua alasan, dan keduanya load-bearing:
+      //
+      //   1. `created_at` TIDAK ADA di `dispatch_items` — ia milik `dispatches`.
+      //      Percobaan pertama memakai `referencedTable: 'dispatches'`, dan
+      //      PostgREST tidak mengurutkan baris TINGKAT ATAS lewat kolom embed
+      //      to-one; yang terjadi cuma urutan yang tidak dijanjikan siapa pun.
+      //      `tools/audit-kolom-tabel.cjs` yang menemukannya.
+      //   2. `ambilSemua` memanggil `.range()` berulang. Paginasi TANPA urutan
+      //      yang pasti membuat halaman kedua bisa memuat baris yang sudah
+      //      terbawa halaman pertama — dan yang lain hilang sama sekali.
+      //      Tidak ada galat; totalnya saja yang salah.
+      //
+      // Urutan yang dilihat orang disusun SESUDAHNYA, di memori.
+      .order('id');
+    if (status) query = query.eq('dispatches.status', status);
+    if (fromOutletId) query = query.eq('dispatches.from_outlet_id', fromOutletId);
+    if (toOutletId) query = query.eq('dispatches.to_outlet_id', toOutletId);
+    if (dateFrom) query = query.gte('dispatches.created_at', dateFrom);
+    if (dateTo) query = query.lte('dispatches.created_at', dateTo);
+    return query.range(dari, sampai);
+  });
+
+  // Diratakan di sini, bukan di layar: modul murni yang menyusun kedua
+  // bentuknya tidak boleh mengenal bentuk embed PostgREST — kalau tidak, ia
+  // tidak bisa diuji tanpa jaringan.
+  return (baris ?? [])
+    .map((it) => ({
+      item_id: it.id,
+      dispatch_id: it.dispatches?.id ?? null,
+      code: it.dispatches?.code ?? null,
+      status: it.dispatches?.status ?? null,
+      created_at: it.dispatches?.created_at ?? null,
+      received_at: it.dispatches?.received_at ?? null,
+      from_outlet: it.dispatches?.from_outlet?.name ?? '',
+      to_outlet: it.dispatches?.to_outlet?.name ?? '',
+      product_id: it.product_id,
+      product_name: it.products?.name ?? '',
+      base_unit: it.products?.base_unit ?? '',
+      ordered_qty: it.ordered_qty,
+      sent_qty: it.sent_qty,
+    // APA ADANYA, termasuk NULL-nya. Meratakannya jadi 0 di sini membuat
+    // seluruh lapisan di atasnya kehilangan bedanya "belum diterima" dan
+    // "diterima nol" — dan dua hal itu terbaca sama di laporan.
+      received_qty: it.received_qty,
+      keterangan: it.keterangan ?? ''
+    }))
+    // Terbaru dulu, sama dengan daftar dokumennya. Diurutkan di memori karena
+    // `created_at` milik headernya — lihat catatan pada `.order('id')` di atas.
+    .sort((a, b) => String(b.created_at ?? '').localeCompare(String(a.created_at ?? '')));
 }
 
 export async function listRecentDispatchActivity({ limit = 25, before = null } = {}) {

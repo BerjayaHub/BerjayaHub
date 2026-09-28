@@ -112,8 +112,15 @@ sabotase(
 sabotase(
   'pembaca fixture salah membaca jangkar — tesnya berhenti menguji berkas sungguhan',
   BACA,
-  '    const row = Number(from.match(/<row>(\\d+)<\\/row>/)?.[1]);',
-  '    const row = Number(from.match(/<row>(\\d+)<\\/row>/)?.[1]) + 1;',
+  '    const row = Number(from.match(polaRow)?.[1]);',
+  '    const row = Number(from.match(polaRow)?.[1]) + 1;',
+  TES
+);
+sabotase(
+  'pembaca fixture cuma mengenali tag tanpa awalan namespace — berkas simpanan Excel jadi NOL gambar',
+  BACA,
+  "  const T = (nama) => `(?:\\\\w+:)?${nama}`;",
+  '  const T = (nama) => nama;',
   TES
 );
 

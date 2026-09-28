@@ -19,6 +19,7 @@ import { supabase } from '../../config/supabase-client.js';
 import { ambilSemua } from '../../core/ambil-semua.js';
 import { argumenRpc } from '../../core/rpc-args.js';
 import { pesanGagalUnggah } from './pesan-unggah.js';
+import { UMUR_TAUTAN_KETUK } from '../../core/tautan-foto.js';
 
 const BUCKET = 'receipt-photos';
 
@@ -407,10 +408,23 @@ export async function unggahFotoNota(outletId, file) {
   return path;
 }
 
-/** URL sementara untuk melihat foto nota. */
-export async function urlFotoNota(path, expiresIn = 600) {
+/**
+ * URL sementara untuk melihat foto nota.
+ *
+ * MELEMPAR saat gagal, tidak mengembalikan `null`.
+ *
+ * Versi sebelumnya menelan galatnya, dan akibatnya seluruh kegagalan foto
+ * terbaca sama: yang tautannya kedaluwarsa, yang tidak berizin, dan yang cuma
+ * kehilangan sinyal — ketiganya mendapat kalimat yang menuduh soal peran
+ * outlet. Orang yang tautannya cuma kedaluwarsa lalu pergi meminta hak akses
+ * yang sudah ia punya.
+ *
+ * Umurnya dari `core/tautan-foto.js`: pendek, karena tautannya dibuat tepat
+ * sebelum dipakai.
+ */
+export async function urlFotoNota(path, expiresIn = UMUR_TAUTAN_KETUK) {
   if (!path) return null;
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, expiresIn);
-  if (error) return null;
+  if (error) throw error;
   return data?.signedUrl ?? null;
 }

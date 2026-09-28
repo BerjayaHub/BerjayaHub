@@ -39,6 +39,7 @@ import {
 import { listKantongBisaKubebani } from '../cash/cash.service.js';
 import { statusTempo, bolehDibayar, kelompokPerSupplier } from './hutang-nota.js';
 import { karenaBucketHilang } from './pesan-unggah.js';
+import { pesanGagalFoto, PESAN_GAGAL_UMUM } from '../../core/tautan-foto.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -976,8 +977,13 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products, daf
 
     box.querySelectorAll('.nota-foto-lihat').forEach((b) =>
       b.addEventListener('click', async () => {
-        const url = await urlFotoNota(b.dataset.path);
-        if (!url) return toast('Foto tidak bisa dibuka.', 'error');
+        let url = null;
+        try {
+          url = await urlFotoNota(b.dataset.path);
+        } catch (error) {
+          return toast(pesanGagalFoto(error), 'error');
+        }
+        if (!url) return toast(PESAN_GAGAL_UMUM, 'error');
         await infoDialog({ title: 'Foto Nota', bodyHtml: `<img src="${url}" alt="Foto nota" style="max-width:100%;border-radius:8px" />` });
       })
     );

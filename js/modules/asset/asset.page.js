@@ -25,6 +25,7 @@ import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 // pencarian sama sekali, jadi PDF hasil saringan terlihat seperti laporan
 // lengkap di tangan orang yang menerimanya.
 import { adaSaringan, ringkasSaringan } from './saringan-aset.js';
+import { pesanGagalFoto, PESAN_GAGAL_UMUM } from '../../core/tautan-foto.js';
 // Aturan impornya tinggal di modul murni — bisa diuji terhadap berkas .xlsx
 // sungguhan tanpa browser, dan layar ini cuma menggambarkannya.
 import { barisTemplateAset, susunImporAset, nilaiSimpan, ringkasImpor } from './impor-aset.js';
@@ -239,20 +240,32 @@ async function render(container, { businessUnitId }, isAdmin) {
     });
     syncPindah();
 
-    list.querySelectorAll('.as-thumb').forEach((img) =>
-      img.addEventListener('click', () => window.open(img.src, '_blank'))
-    );
-    list.querySelectorAll('.as-photo').forEach((b) =>
-      b.addEventListener('click', async () => {
-        try {
-          const url = await getAssetPhotoUrl(b.dataset.path);
-          if (url) window.open(url, '_blank');
-          else toast('Foto tidak ditemukan.', 'warning');
-        } catch (error) {
-          toast(error.message ?? 'Gagal membuka foto.', 'error');
-        }
-      })
-    );
+    // THUMBNAIL DAN TOMBOL "LIHAT" MEMBUKA LEWAT JALAN YANG SAMA.
+    //
+    // Versi sebelumnya membuka `img.src` — tautan yang dibuat saat TABELNYA
+    // dimuat, untuk seluruh baris sekaligus. Gambarnya sudah terunduh dan
+    // tinggal di cache, jadi tabelnya tetap terlihat normal selamanya; yang
+    // mati cuma tautannya. Staff yang halamannya terbuka berjam-jam menekan
+    // tautan kedaluwarsa dan mendapat layar hitam berisi JSON, sementara yang
+    // membuka halaman lalu langsung menekan tidak pernah melihatnya.
+    //
+    // Sekarang keduanya membuat tautan BARU saat diketuk.
+    const bukaFoto = async (path) => {
+      if (!path) return;
+      try {
+        const url = await getAssetPhotoUrl(path);
+        if (url) window.open(url, '_blank');
+        else toast(PESAN_GAGAL_UMUM, 'warning');
+      } catch (error) {
+        // Kalimatnya dibedakan: kedaluwarsa menyuruh memuat ulang, izin
+        // menyuruh menghubungi admin. Satu kalimat untuk keduanya membuat
+        // orang yang tautannya cuma kedaluwarsa pergi meminta hak akses yang
+        // sudah ia punya.
+        toast(pesanGagalFoto(error), 'error');
+      }
+    };
+    list.querySelectorAll('.as-thumb').forEach((img) => img.addEventListener('click', () => bukaFoto(img.dataset.path)));
+    list.querySelectorAll('.as-photo').forEach((b) => b.addEventListener('click', () => bukaFoto(b.dataset.path)));
     list.querySelectorAll('.as-edit').forEach((b) => b.addEventListener('click', () => openForm(rows.find((a) => a.id === b.dataset.id))));
     list.querySelectorAll('.as-del').forEach((b) =>
       b.addEventListener('click', sekaliJalan(async () => {

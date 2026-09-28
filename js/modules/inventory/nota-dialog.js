@@ -24,10 +24,16 @@
 import { infoDialog, escapeHtml, toast } from '../../core/ui.js';
 import { itemNota, urlFotoNota } from './nota.service.js';
 import { susunRincianNota } from './rincian-nota.js';
+import { pesanGagalFoto, PESAN_GAGAL_UMUM, PESAN_KEDALUWARSA } from '../../core/tautan-foto.js';
 
-const PESAN_FOTO_GAGAL =
-  'Foto notanya tidak bisa dibuka dari sini. Izin membuka foto nota mengikuti OUTLET notanya, ' +
-  'jadi ini terjadi kalau kamu tidak punya peran di outlet itu — meski notanya sendiri boleh kamu lihat.';
+// `PESAN_FOTO_GAGAL` DIBUANG, bukan dibiarkan menganggur.
+//
+// Kalimatnya menuduh satu sebab — peran outlet — untuk SETIAP kegagalan foto,
+// termasuk yang tautannya cuma kedaluwarsa dan yang cuma kehilangan sinyal.
+// Yang membacanya lalu pergi meminta hak akses yang sudah ia punya.
+//
+// Penggantinya `pesanGagalFoto()` di `core/tautan-foto.js`: satu sebab, satu
+// kalimat, dan masing-masing menunjuk ke tindakan yang benar.
 
 /**
  * Buka dialog rincian satu nota.
@@ -123,29 +129,44 @@ async function muatFoto(body, path) {
   const kotak = body?.querySelector('[data-foto]');
   if (!kotak || !path) return;
   let url = null;
+  let galat = null;
   try {
     url = await urlFotoNota(path);
-  } catch {
-    url = null;
+  } catch (e) {
+    galat = e;
   }
   // Dialognya bisa sudah ditutup selama menunggu. Menulis ke simpul yang sudah
   // lepas dari dokumen tidak melempar error — ia cuma tidak terlihat — jadi
   // tidak ada yang perlu dijaga selain tidak mengasumsikan sebaliknya.
   if (!url) {
-    kotak.innerHTML = `<p class="nota-foto-status error-text">${escapeHtml(PESAN_FOTO_GAGAL)}</p>`;
+    kotak.innerHTML = `<p class="nota-foto-status error-text">${escapeHtml(galat ? pesanGagalFoto(galat) : PESAN_GAGAL_UMUM)}</p>`;
     return;
   }
+  // GAMBARNYA memakai tautan ini; KETUKANNYA tidak.
+  //
+  // Versi sebelumnya membungkusnya dengan `<a href="${url}">`, dan tautan itu
+  // DIBEKUKAN saat dialog dibuka. Gambarnya sudah terunduh, jadi dialognya
+  // terlihat normal selama apa pun — tapi menekan fotonya sepuluh menit
+  // kemudian membuka tautan yang sudah mati, dan yang muncul layar hitam
+  // berisi JSON 403.
   kotak.innerHTML = `
-    <a href="${escapeHtml(url)}" target="_blank" rel="noopener">
-      <img src="${escapeHtml(url)}" alt="Foto nota" loading="lazy" />
-    </a>
+    <img src="${escapeHtml(url)}" alt="Foto nota" loading="lazy" style="cursor:zoom-in" />
     <p class="nota-foto-status">Ketuk fotonya untuk membukanya ukuran penuh.</p>
   `;
   const img = kotak.querySelector('img');
-  // Tautan bertanda tangan punya masa berlaku. Kalau gambarnya gagal dimuat,
-  // yang terlihat tanpa penjaga ini cuma ikon gambar rusak — yang terbaca
-  // seperti "notanya tidak ada", bukan "tautannya kedaluwarsa".
+  img?.addEventListener('click', async () => {
+    try {
+      const baru = await urlFotoNota(path);
+      if (baru) window.open(baru, '_blank', 'noopener');
+      else kotak.innerHTML = `<p class="nota-foto-status error-text">${escapeHtml(PESAN_GAGAL_UMUM)}</p>`;
+    } catch (error) {
+      kotak.innerHTML = `<p class="nota-foto-status error-text">${escapeHtml(pesanGagalFoto(error))}</p>`;
+    }
+  });
+  // Kalau GAMBARNYA sendiri gagal dimuat, yang terlihat tanpa penjaga ini cuma
+  // ikon gambar rusak — yang terbaca seperti "notanya tidak ada", bukan
+  // "tautannya kedaluwarsa".
   img?.addEventListener('error', () => {
-    kotak.innerHTML = `<p class="nota-foto-status error-text">${escapeHtml(PESAN_FOTO_GAGAL)}</p>`;
+    kotak.innerHTML = `<p class="nota-foto-status error-text">${escapeHtml(PESAN_KEDALUWARSA)}</p>`;
   });
 }

@@ -1,6 +1,10 @@
 import { supabase } from '../../config/supabase-client.js';
 import { compressImage } from '../../core/image-compress.js';
 import { ambilSemua } from '../../core/ambil-semua.js';
+// Umur tautan bertanda tangan tinggal di SATU tempat. Angka yang ditulis
+// langsung di tiap pemanggil akan menyimpang, dan yang menyimpang berbentuk
+// satu layar yang tautannya mati lebih cepat dari layar sebelahnya.
+import { UMUR_TAUTAN_KETUK, UMUR_TAUTAN_THUMBNAIL } from '../../core/tautan-foto.js';
 // Pustaka yang SAMA dengan yang menulis Excel bergambar. SheetJS versi
 // komunitas tidak bisa membaca gambar sama sekali — dan memakai dua pustaka
 // untuk satu berkas berarti dua anggapan tentang bentuknya.
@@ -320,9 +324,19 @@ export async function deleteAsset(id) {
   }
 }
 
+/**
+ * Satu tautan, untuk DIBUKA SEKARANG.
+ *
+ * Umurnya pendek dengan sengaja — ia dibuat tepat sebelum dipakai, jadi pendek
+ * tidak pernah mengganggu siapa pun, sementara panjang membuat tautan yang
+ * terlanjur tersalin bisa dibuka siapa saja tanpa login.
+ *
+ * MELEMPAR saat gagal, tidak mengembalikan null: pemanggilnya perlu tahu
+ * BEDANYA kedaluwarsa dan tidak berizin, dan `null` menghapus bedanya.
+ */
 export async function getAssetPhotoUrl(path) {
   if (!path) return null;
-  const { data, error } = await supabase.storage.from('asset-photos').createSignedUrl(path, 600);
+  const { data, error } = await supabase.storage.from('asset-photos').createSignedUrl(path, UMUR_TAUTAN_KETUK);
   if (error) throw error;
   return data?.signedUrl ?? null;
 }
@@ -338,7 +352,7 @@ export async function getAssetPhotoUrl(path) {
  * Gagal = Map kosong, bukan lempar error. Foto adalah pelengkap; daftar aset
  * harus tetap tampil meski fotonya tidak bisa diambil.
  */
-export async function getAssetPhotoUrls(paths, expiresIn = 3600) {
+export async function getAssetPhotoUrls(paths, expiresIn = UMUR_TAUTAN_THUMBNAIL) {
   const bersih = [...new Set((paths ?? []).filter(Boolean))];
   if (!bersih.length) return new Map();
   const { data, error } = await supabase.storage.from('asset-photos').createSignedUrls(bersih, expiresIn);

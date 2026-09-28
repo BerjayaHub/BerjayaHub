@@ -207,8 +207,15 @@ if (dlg) {
         'dan itu terbaca sebagai "notanya tidak ada" — bukan "tautannya kedaluwarsa/tidak berwenang".'
     );
   }
-  if (!/PESAN_FOTO_GAGAL/.test(kode)) {
-    salah('nota-dialog.js: sebab foto tidak bisa dibuka tidak dikatakan — izin foto mengikuti OUTLET notanya, bukan BU-nya.');
+  // SEBABNYA DIBEDAKAN, bukan sekadar dikatakan.
+  //
+  // Dulu yang dijaga di sini `PESAN_FOTO_GAGAL` — SATU kalimat untuk setiap
+  // kegagalan, yang selalu menuduh peran outlet. Tautan yang cuma kedaluwarsa
+  // ikut mendapat kalimat itu, dan yang membacanya pergi meminta hak akses
+  // yang sudah ia punya. Izin foto nota memang masih mengikuti OUTLET notanya
+  // (0084) — yang berubah cuma: sebab lain tidak lagi menyamar jadi izin.
+  if (!/pesanGagalFoto\(/.test(kode)) {
+    salah('nota-dialog.js: sebab foto tidak bisa dibuka tidak dibedakan — kedaluwarsa, tidak berizin, dan gangguan jaringan terbaca sama.');
   }
   // Isi nota gagal dimuat tidak boleh membatalkan dialognya: kepala notanya
   // sudah di tangan dan sering itu saja yang dicari orangnya.

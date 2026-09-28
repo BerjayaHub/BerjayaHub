@@ -135,12 +135,28 @@ function bacaXlsx(path) {
   // Jangkar gambar. `oneCellAnchor` & `twoCellAnchor` sama-sama punya `<from>`,
   // dan `<from><row>` itulah baris tempat gambarnya menempel — 0-based, sama
   // sistem dengan indeks `aoa`. Ini angka yang sedang dibuktikan tesnya.
+  // ============ AWALAN NAMESPACE ITU OPSIONAL, DAN EXCEL MEMAKAINYA ============
+  //
+  // openpyxl menulis `<oneCellAnchor><from><row>`; EXCEL menulis
+  // `<xdr:oneCellAnchor><xdr:from><xdr:row>`. Keduanya XML yang sama sahnya —
+  // awalan namespace boleh ada, boleh tidak.
+  //
+  // Versi pertama berkas ini cuma mengenali bentuk tanpa awalan, jadi begitu
+  // fixture-nya sekali dibuka-dan-disimpan lewat Excel, ia melaporkan NOL
+  // gambar. Untungnya tesnya menuntut tiga dan langsung merah — tapi kalau
+  // tesnya cuma menuntut "tidak melempar", pencocokan foto akan berhenti diuji
+  // sama sekali tanpa ada yang tahu.
   const gambar = [];
   const drawing = ambil('xl/drawings/drawing1.xml');
-  for (const a of drawing.matchAll(/<(?:oneCellAnchor|twoCellAnchor)[^>]*>([\s\S]*?)<\/(?:oneCellAnchor|twoCellAnchor)>/g)) {
-    const from = a[1].match(/<from>([\s\S]*?)<\/from>/)?.[1] ?? '';
-    const row = Number(from.match(/<row>(\d+)<\/row>/)?.[1]);
-    const col = Number(from.match(/<col>(\d+)<\/col>/)?.[1]);
+  const T = (nama) => `(?:\\w+:)?${nama}`;
+  const polaJangkar = new RegExp(`<${T('(?:one|two)CellAnchor')}[^>]*>([\\s\\S]*?)<\\/${T('(?:one|two)CellAnchor')}>`, 'g');
+  const polaFrom = new RegExp(`<${T('from')}>([\\s\\S]*?)<\\/${T('from')}>`);
+  const polaRow = new RegExp(`<${T('row')}>(\\d+)<\\/${T('row')}>`);
+  const polaCol = new RegExp(`<${T('col')}>(\\d+)<\\/${T('col')}>`);
+  for (const a of drawing.matchAll(polaJangkar)) {
+    const from = a[1].match(polaFrom)?.[1] ?? '';
+    const row = Number(from.match(polaRow)?.[1]);
+    const col = Number(from.match(polaCol)?.[1]);
     const nama = a[1].match(/name="([^"]*)"/)?.[1] ?? '';
     if (Number.isInteger(row)) gambar.push({ row, col, nama });
   }
