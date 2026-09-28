@@ -1,6 +1,10 @@
 import { supabase } from '../../config/supabase-client.js';
 import { compressImage } from '../../core/image-compress.js';
 import { ambilSemua } from '../../core/ambil-semua.js';
+// Pustaka yang SAMA dengan yang menulis Excel bergambar. SheetJS versi
+// komunitas tidak bisa membaca gambar sama sekali — dan memakai dua pustaka
+// untuk satu berkas berarti dua anggapan tentang bentuknya.
+import { loadExcelJS } from '../../core/xlsx-foto.js';
 
 export const ASSET_CONDITION = { normal: 'Normal', rusak: 'Rusak', lainnya: 'Lain-lain' };
 export const ASSET_CONDITION_BADGE = { normal: 'badge-approved', rusak: 'badge-rejected', lainnya: 'badge-pending' };
@@ -12,7 +16,7 @@ export function conditionText(a) {
   return a.condition === 'lainnya' && a.condition_note ? `${base} — ${a.condition_note}` : base;
 }
 
-export async function listAssets({ businessUnitId, outletId, condition, category, q, limit = 500 }) {
+export async function listAssets({ businessUnitId, outletId, condition, category, q, catatan, limit = 500 }) {
   let query = supabase
     .from('assets')
     // Tanpa embed nama pendaftar: layar aset tidak menggambarnya, dan embed
@@ -25,6 +29,16 @@ export async function listAssets({ businessUnitId, outletId, condition, category
   if (condition) query = query.eq('condition', condition);
   if (category) query = query.eq('category', category);
   if (q) query = query.ilike('name', `%${q}%`);
+  // CATATAN dicari TERPISAH dari nama, dan keduanya menyempit bersama.
+  //
+  // Menggabungkannya jadi satu kotak (`or(name.ilike,notes.ilike)`) terdengar
+  // lebih ramah, tapi ia menjawab pertanyaan yang berbeda: "kursi" akan
+  // memunculkan barang yang CATATANNYA menyebut kursi. Dua kotak menjawab dua
+  // pertanyaan, dan bisa dipakai bersamaan — "kursi" yang catatannya "pecah".
+  //
+  // `notes` boleh NULL, dan `ilike` pada NULL tidak pernah cocok. Itu memang
+  // yang benar: barang tanpa catatan bukan jawaban untuk pencarian catatan.
+  if (catatan) query = query.ilike('notes', `%${catatan}%`);
   const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
@@ -41,6 +55,63 @@ export async function listAssets({ businessUnitId, outletId, condition, category
  * Diambil TANPA batas baris: daftar yang terpotong akan menyembunyikan
  * kategori lama dari kotak pencarian, dan orang akan membuat duplikatnya.
  */
+/**
+ * Baca berkas .xlsx impor: isi selnya DAN gambar yang tertanam di dalamnya.
+ *
+ * ============ SATU-SATUNYA TEMPAT YANG TAHU BENTUK ExcelJS ============
+ *
+ * Modul `impor-aset.js` sengaja tidak mengenal ExcelJS sama sekali — ia
+ * menerima `aoa` biasa dan daftar `{ row, ... }`, jadi seluruh aturannya bisa
+ * diuji tanpa Excel maupun browser. Penerjemahan bentuknya cuma di sini.
+ *
+ * ============ `nativeRow` 0-BASED, SAMA DENGAN INDEKS `aoa` ============
+ *
+ * Inilah anggapan yang menopang seluruh pencocokan foto, dan ia dibuktikan
+ * terhadap berkas .xlsx sungguhan di `tools/test-impor-aset.mjs`: gambar yang
+ * dijangkar di sel A5 menghasilkan baris 4, dan baris data pertama memang ada
+ * di `aoa[4]`.
+ *
+ * `row.values` milik ExcelJS 1-BASED dan jarang rapat — indeks 0-nya selalu
+ * kosong. `.slice(1)` yang hilang akan menggeser SELURUH kolom satu langkah ke
+ * kanan: nama barang terbaca sebagai ID, dan setiap baris ditolak dengan
+ * "ID tidak ada di inventaris ini" — pesan yang menuduh orangnya mengubah
+ * kolom yang tidak pernah ia sentuh.
+ */
+export async function bacaBerkasImporAset(file) {
+  const ExcelJS = await loadExcelJS();
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(await file.arrayBuffer());
+  const ws = wb.worksheets[0];
+  if (!ws) throw new Error('Berkasnya tidak punya satu pun sheet yang bisa dibaca.');
+
+  const aoa = [];
+  ws.eachRow({ includeEmpty: true }, (row, nomor) => {
+    // `row.values` 1-based; indeks 0-nya selalu kosong.
+    aoa[nomor - 1] = (row.values ?? []).slice(1).map((v) => {
+      if (v === null || v === undefined) return null;
+      // Sel berformula & rich text datang sebagai objek. Yang dibaca hasilnya,
+      // bukan `[object Object]` yang lolos sebagai nama barang.
+      if (typeof v === 'object') return v.result ?? v.text ?? (Array.isArray(v.richText) ? v.richText.map((t) => t.text).join('') : '');
+      return v;
+    });
+  });
+  for (let i = 0; i < aoa.length; i++) if (!aoa[i]) aoa[i] = [];
+
+  const gambar = [];
+  for (const im of ws.getImages() ?? []) {
+    const media = wb.getImage(Number(im.imageId));
+    if (!media?.buffer) continue;
+    gambar.push({
+      row: Number(im.range?.tl?.nativeRow),
+      col: Number(im.range?.tl?.nativeCol),
+      nama: media.name || `gambar-${im.imageId}`,
+      buffer: media.buffer,
+      ext: media.extension || 'png'
+    });
+  }
+  return { aoa, gambar };
+}
+
 export async function listKategoriAset(businessUnitId) {
   const rows = await ambilSemua((dari, sampai) =>
     supabase

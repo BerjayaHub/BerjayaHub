@@ -7894,3 +7894,50 @@ Keduanya sekarang dihitung atau diikat ke blok yang memuatnya.
 Tidak ada galat, dan tidak ada satu pun tes yang bisa menyebutnya rusak — `opsiKantong` mengembalikan persis apa yang diminta. Yang salah adalah anggapan tentang siapa yang membacanya.
 
 Sekarang seluruh keterangannya ada di `label` (`Kas CK iis — Central Kitchen Tangerang (Iis)`), `hint` tetap diisi untuk `searchselect` di layar lain, dan `audit-bayar-pusat.cjs` ikut membaca `js/core/ui.js`: kalau penggambar `select` suatu saat MULAI memakai `hint`, catatan di `labelKantong` jadi salah — dan catatan yang salah lebih buruk daripada tidak ada catatan.
+
+## Gambar Excel menempel pada koordinat, bukan pada baris
+
+> *"di admin portal, saya ingin ada import excel untuk inventaris asset ini, beserta foto nya apakah bisa?"*
+
+Bisa — dan yang membuatnya berbahaya bukan teknisnya, melainkan caranya gagal.
+
+### Yang ada di dalam berkas .xlsx
+
+Gambar disimpan sebagai berkas di `xl/media/`, dan posisinya ditulis di `xl/drawings/` sebagai **jangkar**: *"mulai di kolom 0, baris 7"*. Ia tidak menempel pada baris seperti isi sel. Kalau jangkarnya bergeser satu, kursi memakai foto meja dan meja memakai foto lemari — setiap barisnya terisi, setiap kolomnya wajar, dan **tidak ada satu pun kolom yang bisa dipakai memeriksanya**.
+
+Karena itu dua hal jadi wajib, dan keduanya dijaga sabotase:
+
+1. **Pratinjau sebelum simpan.** Foto yang salah barang hanya bisa ketahuan oleh mata orang yang punya barangnya. Layarnya menampilkan "baris 5 — Kursi Kayu — *foto ini*" lebih dulu; `saveAsset` tidak pernah dipanggil dari jalur baca.
+2. **Foto melayang dilaporkan, bukan dibuang.** Gambar yang jatuh di luar baris data adalah tanda paling awal bahwa jangkarnya tidak sejalan lagi. Membuangnya diam-diam menghilangkan satu-satunya petunjuk yang ada.
+
+Thumbnail di pratinjau dicocokkan lewat **nomor baris**, bukan urutan `querySelectorAll('img')[i]` — mencocokkan dua daftar lewat posisi adalah persis kesalahan yang sedang dijaga layar itu, dan pratinjau yang salah justru *membenarkan* foto yang salah.
+
+### Diuji terhadap berkas .xlsx sungguhan
+
+`tools/fixtures/contoh-impor-aset.xlsx` adalah berkas Excel asli dengan tiga gambar tertanam, dan `tools/lib/baca-xlsx.cjs` membacanya dengan `zlib` bawaan Node — tanpa satu pun dependensi.
+
+Fixture yang ditulis tangan sebagai JSON akan **memantulkan kembali anggapan yang sedang diuji**: kalau saya salah mengira jangkarnya 1-based, fixture-nya pun saya tulis 1-based, dan tesnya hijau untuk kode yang salah. Berkas sungguhan tidak bisa berbohong: gambar di sel A5 menghasilkan baris 4, dan baris data pertama memang ada di `aoa[4]`.
+
+(ExcelJS sengaja tidak dipakai di tesnya — `npm install` gagal di mesin ini dengan ENOTEMPTY saat rename di dalam folder yang di-mount, dan tes yang menuntut pustaka yang tidak bisa dipasang adalah tes yang tidak pernah dijalankan siapa pun.)
+
+### `row.values` milik ExcelJS 1-based
+
+`.slice(1)` yang hilang menggeser **seluruh** kolom satu langkah: nama barang terbaca sebagai ID, dan setiap baris ditolak dengan *"ID tidak ada di inventaris ini"* — pesan yang menuduh orangnya mengubah kolom yang tidak pernah ia sentuh.
+
+### Tiga sabotase yang tidak menyabotase apa pun
+
+Ditemukan saat menjalankan harness-nya pertama kali, dan ketiganya jenis yang sama — **pemeriksa yang menjaga ejaan, bukan sifat**:
+
+| Sabotase | Kenapa ia tidak merusak |
+|---|---|
+| header dikenali dari satu judul | fixture-nya tidak punya baris palsu yang memuat "Nama Barang" — jadi mencabut syarat kedua tidak mengubah hasil apa pun |
+| kolom dibaca lewat indeks tetap | auditnya melarang `row[0]`; penggantinya `row?.[KOLOM.indexOf(judul)]` adalah indeks tetap juga, dan lolos larangan itu |
+| `angkaSel` menerima sel kosong | klausa `teks(v) === ''` **tidak pernah mengubah satu pun jawaban** — `''` maupun `'   '` sama-sama gagal di penjaga `/\d/` di bawahnya |
+
+Yang ketiga dibuang dari kodenya alih-alih dijaga sabotase yang tidak bisa merusak apa pun. Dua yang lain diarahkan ke sifatnya: fixture yang benar-benar menjebak, dan bentuk positif `kolom[judul]`.
+
+### Satu laporan yang diam-diam tidak lengkap
+
+Ditemukan sambil menambahkan filter Catatan: kalimat "filter yang sedang aktif" ditulis di **tiga** tempat dan ketiganya sudah menyimpang. Subjudul PDF tidak menyebut kata pencarian sama sekali — jadi menyaring "kursi" lalu mengunduh PDF menghasilkan berkas berjudul *"Semua outlet · 3 jenis barang"* untuk data yang sudah disaring, dan yang menerimanya tidak punya cara tahu ia melihat sebagian. Sekarang satu fungsi (`saringan-aset.js`), dipakai ketiganya.
+
+- [x] **Filter Catatan + impor Excel bergambar untuk Inventaris Aset** — 31 sabotase

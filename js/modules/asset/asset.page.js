@@ -15,10 +15,19 @@ import {
   getAssetPhotoUrl,
   getAssetPhotoUrls,
   listKategoriAset,
+  bacaBerkasImporAset,
   pindahAset,
   pindahFotoAset
 } from './asset.service.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
+// Kalimat "yang sedang disaring" tinggal di SATU tempat. Tiga salinan sudah
+// menyimpang sebelum berkas itu ada: subjudul PDF tidak menyebut kata
+// pencarian sama sekali, jadi PDF hasil saringan terlihat seperti laporan
+// lengkap di tangan orang yang menerimanya.
+import { adaSaringan, ringkasSaringan } from './saringan-aset.js';
+// Aturan impornya tinggal di modul murni — bisa diuji terhadap berkas .xlsx
+// sungguhan tanpa browser, dan layar ini cuma menggambarkannya.
+import { barisTemplateAset, susunImporAset, nilaiSimpan, ringkasImpor } from './impor-aset.js';
 
 /**
  * Inventaris Aset — dipakai Staff App maupun Admin Portal.
@@ -45,7 +54,7 @@ async function render(container, { businessUnitId }, isAdmin) {
     return;
   }
 
-  const state = { outletId: isAdmin ? '' : outlets[0].id, condition: '', category: '', q: '' };
+  const state = { outletId: isAdmin ? '' : outlets[0].id, condition: '', category: '', q: '', catatan: '' };
   let rows = [];
   /** Kategori yang sudah dipakai di BU ini — sumber dropdown & pilihan form. */
   let kategori = await listKategoriAset(businessUnitId).catch(() => []);
@@ -60,6 +69,8 @@ async function render(container, { businessUnitId }, isAdmin) {
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button id="as-pdf">⇩ Export PDF</button>
         ${isAdmin ? '<button id="as-xlsx">⇩ Export Excel</button>' : ''}
+        ${isAdmin ? '<button id="as-tpl">⇩ Template Impor</button>' : ''}
+        ${isAdmin ? '<button id="as-impor">⇧ Impor Excel</button><input type="file" id="as-file" accept=".xlsx" hidden />' : ''}
         ${isAdmin ? '<button id="as-move" disabled>↔ Pindahkan (0)</button>' : ''}
         <button class="primary" id="as-new" style="max-width:170px">+ Tambah Aset</button>
       </div>
@@ -81,8 +92,10 @@ async function render(container, { businessUnitId }, isAdmin) {
         <select id="as-cond"><option value="">Semua</option>${ASSET_CONDITION_OPTIONS.map((c) => `<option value="${c.value}">${esc(c.label)}</option>`).join('')}</select>
       </div>
       <div class="field" style="margin:0;max-width:220px"><label>Cari nama barang</label><input type="text" id="as-q" placeholder="mis. kursi" /></div>
+      <div class="field" style="margin:0;max-width:220px"><label>Cari catatan</label><input type="text" id="as-note" placeholder="mis. pecah, hibah" /></div>
     </div>
 
+    <div id="as-impor-hasil" style="margin-top:12px"></div>
     <div id="as-list" style="margin-top:12px"></div>
   `;
 
@@ -99,11 +112,24 @@ async function render(container, { businessUnitId }, isAdmin) {
     state.category = e.target.value;
     refresh();
   });
+  // SATU penunda untuk KEDUA kotak.
+  //
+  // Dua `let timer` terpisah terlihat lebih rapi dan salah: mengetik cepat
+  // bergantian di dua kotak menembakkan dua permintaan yang balapan, dan yang
+  // menang belum tentu yang terakhir diketik. Tabelnya lalu menampilkan hasil
+  // pencarian yang sudah diganti orangnya.
   let timer;
-  container.querySelector('#as-q').addEventListener('input', (e) => {
-    state.q = e.target.value.trim();
+  const tunda = () => {
     clearTimeout(timer);
     timer = setTimeout(refresh, 300);
+  };
+  container.querySelector('#as-q').addEventListener('input', (e) => {
+    state.q = e.target.value.trim();
+    tunda();
+  });
+  container.querySelector('#as-note').addEventListener('input', (e) => {
+    state.catatan = e.target.value.trim();
+    tunda();
   });
   container.querySelector('#as-new').addEventListener('click', () => openForm(null));
   container.querySelector('#as-pdf').addEventListener('click', exportPdf);
@@ -112,6 +138,18 @@ async function render(container, { businessUnitId }, isAdmin) {
   // menghasilkan dua file yang sebagian fotonya kosong.
   container.querySelector('#as-xlsx')?.addEventListener('click', sekaliJalan(exportXlsx, { teks: 'Menyiapkan…' }));
   container.querySelector('#as-move')?.addEventListener('click', sekaliJalan(bukaPindah, { teks: 'Memindahkan…' }));
+  container.querySelector('#as-tpl')?.addEventListener('click', sekaliJalan(unduhTemplate, { teks: 'Menyiapkan…' }));
+  const berkasImpor = container.querySelector('#as-file');
+  container.querySelector('#as-impor')?.addEventListener('click', () => berkasImpor?.click());
+  berkasImpor?.addEventListener('change', async () => {
+    const f = berkasImpor.files?.[0];
+    // Kotaknya DIKOSONGKAN sebelum diproses. Tanpa ini, memilih berkas yang
+    // SAMA dua kali tidak menyalakan `change` sama sekali — dan orang yang
+    // baru membetulkan isinya akan mengira tombolnya rusak.
+    berkasImpor.value = '';
+    if (f) await bacaImpor(f);
+  });
+  const hasilImpor = container.querySelector('#as-impor-hasil');
 
   async function refresh() {
     list.innerHTML = loadingHtml('Memuat…', { baris: 5 });
@@ -121,7 +159,8 @@ async function render(container, { businessUnitId }, isAdmin) {
         outletId: state.outletId,
         condition: state.condition,
         category: state.category,
-        q: state.q
+        q: state.q,
+        catatan: state.catatan
       });
     } catch (error) {
       list.innerHTML = `<p class="error-text">${esc(error.message ?? error)}</p>`;
@@ -164,7 +203,7 @@ async function render(container, { businessUnitId }, isAdmin) {
                 )
                 .join('') ||
                 `<tr><td colspan="${isAdmin ? 9 : 7}">${
-                  state.q || state.category || state.condition
+                  adaSaringan(state)
                     ? 'Tidak ada aset yang cocok dengan saringan ini.'
                     : 'Belum ada aset tercatat.'
                 }</td></tr>`
@@ -495,7 +534,7 @@ async function render(container, { businessUnitId }, isAdmin) {
 
       await exportTablePDF({
         title: 'Inventaris Aset',
-        subtitle: `${nama}${state.category ? ` · Kategori: ${state.category}` : ''}${state.condition ? ` · Kondisi: ${ASSET_CONDITION[state.condition]}` : ''} · ${rows.length} jenis barang`,
+        subtitle: `${nama}${ringkasSaringan(state, ASSET_CONDITION)} · ${rows.length} jenis barang`,
         columns: [
           { header: 'Foto', width: 0.9 },
           { header: 'Nama Barang', width: 1.8 },
@@ -562,7 +601,7 @@ async function render(container, { businessUnitId }, isAdmin) {
         filename: `inventaris-aset-${new Date().toISOString().slice(0, 10)}`,
         sheetName: 'Inventaris Aset',
         title: 'Inventaris Aset',
-        subtitle: `${nama}${state.category ? ` · Kategori: ${state.category}` : ''}${state.condition ? ` · Kondisi: ${ASSET_CONDITION[state.condition]}` : ''}${state.q ? ` · Cari: "${state.q}"` : ''} · ${rows.length} jenis barang · diunduh ${new Date().toLocaleString('id-ID')}`,
+        subtitle: `${nama}${ringkasSaringan(state, ASSET_CONDITION)} · ${rows.length} jenis barang · diunduh ${new Date().toLocaleString('id-ID')}`,
         columns: [
           { header: 'Foto', foto: true },
           { header: 'Nama Barang', width: 28 },
@@ -597,6 +636,239 @@ async function render(container, { businessUnitId }, isAdmin) {
     } catch (error) {
       toast(error.message ?? 'Gagal membuat Excel.', 'error');
     }
+  }
+
+  // ---- Impor Excel (admin) ----
+
+  /**
+   * Template = berkas Export Excel yang sudah ada, PLUS kolom ID.
+   *
+   * Sengaja berisi data yang sudah ada, bukan berkas kosong: baris ber-ID
+   * itulah yang membuat unggahannya bisa MEMPERBARUI, bukan cuma menambah.
+   * Berkas kosong hanya bisa menambah, dan mengimpornya dua kali menghasilkan
+   * duplikat yang harus dibersihkan tangan.
+   */
+  async function unduhTemplate() {
+    if (!rows.length) return toast('Tidak ada aset untuk dijadikan template. Tambahkan satu dulu, atau longgarkan saringannya.', 'warning');
+    try {
+      // Berurutan, BUKAN Promise.all — alasan yang sama dengan Export Excel:
+      // ratusan gambar serentak membuat sebagian permintaan tertunda lama, dan
+      // hasilnya berkas yang "sebagian fotonya hilang" tanpa sebab yang jelas.
+      const fotoSel = new Map();
+      for (const a of rows) {
+        if (!a.photo_path) continue;
+        const url = fotoUrl.get(a.photo_path);
+        const dataUrl = url ? await imageToDataUrl(url, 220, 0.72) : null;
+        fotoSel.set(a.id, dataUrl ?? 'GAGAL');
+      }
+      await exportTableXLSXFoto({
+        filename: `template-impor-aset-${new Date().toISOString().slice(0, 10)}`,
+        sheetName: 'Inventaris Aset',
+        title: 'Template Impor Inventaris Aset',
+        // Subjudulnya ikut jadi PETUNJUK. Kalimat pengantar di layar tidak ikut
+        // terbawa ke dalam berkas, dan yang membukanya seminggu lagi cuma
+        // punya berkasnya.
+        subtitle:
+          'Baris ber-ID akan DIPERBARUI · baris tanpa ID jadi barang BARU · sel yang dikosongkan dibiarkan apa adanya · ' +
+          'tempelkan foto di kolom A pada baris barangnya',
+        columns: [
+          { header: 'Foto', foto: true },
+          { header: 'ID (jangan diubah)', width: 38 },
+          { header: 'Nama Barang', width: 28 },
+          { header: 'Kategori', width: 18 },
+          { header: 'Jumlah', numeric: true, width: 10 },
+          { header: 'Ukuran', width: 16 },
+          { header: 'Kondisi', width: 14 },
+          { header: 'Catatan kondisi', width: 24 },
+          { header: 'Outlet', width: 22 },
+          { header: 'Catatan', width: 30 }
+        ],
+        rows: barisTemplateAset(rows, fotoSel)
+      });
+      toast('Template terunduh. Isi di Excel, lalu tekan ⇧ Impor Excel.', 'success');
+    } catch (error) {
+      toast(error.message ?? 'Gagal membuat template.', 'error');
+    }
+  }
+
+  /** Rencana impor yang sedang ditunggu persetujuan. */
+  let rencanaImpor = null;
+
+  /**
+   * Baca berkasnya, lalu TAMPILKAN RENCANANYA — jangan langsung simpan.
+   *
+   * ============ KENAPA HARUS ADA PRATINJAU ============
+   *
+   * Gambar di Excel menempel pada KOORDINAT, bukan pada baris. Kalau jangkarnya
+   * bergeser satu, kursi memakai foto meja dan meja memakai foto lemari —
+   * SEMUANYA terlihat wajar, dan tidak ada satu pun kolom yang bisa dipakai
+   * memeriksanya. Satu-satunya yang bisa memastikannya adalah mata orang yang
+   * punya barangnya, sebelum disimpan.
+   */
+  async function bacaImpor(file) {
+    hasilImpor.innerHTML = loadingHtml('Membaca berkas…', { baris: 3 });
+    rencanaImpor = null;
+    let berkas;
+    try {
+      berkas = await bacaBerkasImporAset(file);
+    } catch (error) {
+      hasilImpor.innerHTML = `<p class="error-text">Gagal membaca berkasnya: ${esc(error.message ?? error)}</p>`;
+      return;
+    }
+
+    // Aset PEMBANDING diambil TANPA saringan layar.
+    //
+    // Kalau dipakai `rows`, ID yang sah tapi sedang tersembunyi saringan akan
+    // ditolak dengan "ID tidak ada di inventaris ini" — menuduh orangnya
+    // mengubah kolom yang tidak pernah ia sentuh.
+    let semua = [];
+    try {
+      semua = await listAssets({ businessUnitId });
+    } catch (error) {
+      hasilImpor.innerHTML = `<p class="error-text">${esc(error.message ?? error)}</p>`;
+      return;
+    }
+
+    const rencana = susunImporAset({ aoa: berkas.aoa, gambar: berkas.gambar, asetSekarang: semua, outlets });
+    if (rencana.galat) {
+      hasilImpor.innerHTML = `<p class="error-text">${esc(rencana.galat)}</p>`;
+      return;
+    }
+    rencanaImpor = rencana;
+    const r = ringkasImpor(rencana);
+    const semuaBaris = [...rencana.ubah, ...rencana.tambah].sort((a, b) => a.baris - b.baris);
+
+    hasilImpor.innerHTML = `
+      <div class="inline-card">
+        <h3 style="margin-top:0;font-size:0.95rem">Pratinjau impor — belum disimpan</h3>
+        <p style="font-size:0.84rem;margin:0 0 8px">
+          <strong>${r.ubah}</strong> diperbarui · <strong>${r.tambah}</strong> barang baru ·
+          <strong>${r.foto}</strong> foto ikut${r.tolak ? ` · <span class="nota-telat">${r.tolak} ditolak</span>` : ''}
+        </p>
+        ${
+          r.melayang || r.ganda
+            ? `<p class="error-text" style="font-size:0.82rem;margin:0 0 8px">
+                 ${r.melayang ? `${r.melayang} foto tidak menempel di baris data mana pun. ` : ''}${
+                   r.ganda ? `${r.ganda} foto bertumpuk di baris yang sama. ` : ''
+                 }Foto di Excel menempel pada posisi, bukan pada baris — periksa dulu daftar di bawah sebelum menyimpan.
+               </p>`
+            : ''
+        }
+        <div class="table-scroll" style="max-height:340px"><table class="data-table kartu-sempit">
+          <thead><tr><th>Baris</th><th>Foto</th><th>Nama Barang</th><th>Outlet</th><th>Jumlah</th><th>Kondisi</th><th>Tindakan</th></tr></thead>
+          <tbody>
+            ${
+              semuaBaris
+                .map((b) => {
+                  const nama = b.name || b.lama?.name || '-';
+                  const outlet = outlets.find((o) => o.id === (b.outlet_id ?? b.lama?.outlet_id))?.name ?? '-';
+                  return `<tr>
+                    <td data-label="Baris">${b.baris}</td>
+                    <td data-label="Foto">${
+                      b.fotoDi
+                        ? `<img data-baris="${b.baris}" alt="" style="width:48px;height:36px;object-fit:cover;border-radius:4px;background:var(--color-border)" />`
+                        : '<span style="color:var(--color-text-muted)">—</span>'
+                    }</td>
+                    <td data-label="Nama Barang"><strong>${esc(nama)}</strong></td>
+                    <td data-label="Outlet">${esc(outlet)}</td>
+                    <td data-label="Jumlah">${b.qty === null ? '<span style="color:var(--color-text-muted)">tetap</span>' : formatNum(b.qty)}</td>
+                    <td data-label="Kondisi">${esc(ASSET_CONDITION[b.condition ?? b.lama?.condition] ?? '-')}</td>
+                    <td data-label="Tindakan">${b.id ? 'Diperbarui' : '<strong>Baru</strong>'}</td>
+                  </tr>`;
+                })
+                .join('') || '<tr><td colspan="7">Tidak ada baris yang bisa disimpan.</td></tr>'
+            }
+          </tbody>
+        </table></div>
+        ${
+          rencana.tolak.length
+            ? `<p style="font-size:0.82rem;margin:10px 0 4px;font-weight:600">Ditolak — tidak akan disimpan:</p>
+               <ul style="font-size:0.8rem;margin:0;padding-left:18px">
+                 ${rencana.tolak.map((t) => `<li>Baris ${t.baris}${t.nama ? ` (${esc(t.nama)})` : ''} — ${esc(t.sebab)}</li>`).join('')}
+               </ul>`
+            : ''
+        }
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button class="primary" id="as-impor-simpan" style="max-width:220px"${semuaBaris.length ? '' : ' disabled'}>Simpan ${semuaBaris.length} baris</button>
+          <button id="as-impor-batal">Batal</button>
+        </div>
+      </div>
+    `;
+
+    // Thumbnail dipasang lewat NOMOR BARIS, bukan lewat urutan.
+    //
+    // Mencocokkan `querySelectorAll('img')[i]` dengan `daftar.filter(...)[i]`
+    // adalah persis kesalahan yang sedang dijaga layar ini: dua daftar yang
+    // diurutkan terpisah, dicocokkan lewat posisi. Satu baris tanpa foto yang
+    // ikut tergambar sudah cukup menggeser seluruhnya — dan pratinjaunya akan
+    // MEMBENARKAN foto yang salah.
+    const perBaris = new Map(semuaBaris.filter((b) => b.fotoDi?.buffer).map((b) => [String(b.baris), b]));
+    for (const img of hasilImpor.querySelectorAll('img[data-baris]')) {
+      const b = perBaris.get(img.dataset.baris);
+      if (!b) continue;
+      const jenis = `image/${b.fotoDi.ext === 'jpg' ? 'jpeg' : b.fotoDi.ext}`;
+      img.src = URL.createObjectURL(new Blob([b.fotoDi.buffer], { type: jenis }));
+    }
+
+    hasilImpor.querySelector('#as-impor-batal')?.addEventListener('click', () => {
+      rencanaImpor = null;
+      hasilImpor.innerHTML = '';
+    });
+    hasilImpor.querySelector('#as-impor-simpan')?.addEventListener('click', sekaliJalan(simpanImpor, { teks: 'Menyimpan…' }));
+  }
+
+  /**
+   * Simpan rencananya, BARIS PER BARIS, dan katakan apa adanya.
+   *
+   * Satu baris yang gagal tidak menghentikan sisanya — berkas 200 baris yang
+   * berhenti di baris ke-3 karena satu outlet yang sudah dihapus memaksa
+   * orangnya mengulang seluruhnya. Yang gagal dikumpulkan dan disebut nomor
+   * barisnya, supaya bisa dibetulkan di berkas yang sama lalu diunggah ulang.
+   */
+  async function simpanImpor() {
+    if (!rencanaImpor) return;
+    const daftar = [...rencanaImpor.ubah, ...rencanaImpor.tambah].sort((a, b) => a.baris - b.baris);
+    if (!daftar.length) return;
+
+    const gagal = [];
+    let berhasil = 0;
+    for (const b of daftar) {
+      const nilai = nilaiSimpan(b);
+      try {
+        await saveAsset({
+          id: nilai.id,
+          businessUnitId,
+          outletId: nilai.outlet_id,
+          name: nilai.name,
+          category: nilai.category,
+          qty: nilai.qty,
+          size: nilai.size,
+          condition: nilai.condition,
+          conditionNote: nilai.condition_note,
+          notes: nilai.notes,
+          // Buffer dari Excel dibungkus jadi `File` supaya `saveAsset` bisa
+          // mengompresnya dengan jalur yang SAMA dengan foto dari kamera —
+          // bukan jalur unggah kedua yang aturannya bisa menyimpang.
+          file: b.fotoDi?.buffer
+            ? new File([b.fotoDi.buffer], `impor.${b.fotoDi.ext}`, { type: `image/${b.fotoDi.ext === 'jpg' ? 'jpeg' : b.fotoDi.ext}` })
+            : null
+        });
+        berhasil += 1;
+      } catch (error) {
+        gagal.push(`Baris ${b.baris} (${b.name || b.lama?.name || '-'}) — ${error.message ?? error}`);
+      }
+    }
+
+    rencanaImpor = null;
+    hasilImpor.innerHTML = gagal.length
+      ? `<div class="inline-card"><p style="margin:0 0 6px"><strong>${berhasil}</strong> baris tersimpan, <strong>${gagal.length}</strong> gagal:</p>
+         <ul style="font-size:0.8rem;margin:0;padding-left:18px">${gagal.map((g) => `<li>${esc(g)}</li>`).join('')}</ul></div>`
+      : '';
+    if (gagal.length) toast(`${berhasil} tersimpan, ${gagal.length} gagal — rinciannya di atas tabel.`, 'warning');
+    else toast(`${berhasil} baris tersimpan dari Excel.`, 'success');
+
+    kategori = await listKategoriAset(businessUnitId).catch(() => kategori);
+    await refresh();
   }
 
   await refresh();
