@@ -183,6 +183,37 @@ export async function detectTelegramChats() {
   return invokeFunction('notify-telegram', { detect_chats: true });
 }
 
+/**
+ * Jalankan rekap reservasi harian SEKARANG — pratinjau atau sungguhan.
+ *
+ * ============ KENAPA TOMBOL TES TIDAK CUKUP ============
+ *
+ * `sendTelegramTest` memanggil `notify-telegram` langsung dan mengirim satu
+ * pesan karangan. Ia membuktikan bot, chat_id, dan rutenya benar — lalu
+ * berhenti di situ.
+ *
+ * Rekap harian jalannya lewat CRON, jalur yang sepenuhnya berbeda. Cron yang
+ * tidak pernah dipasang terlihat persis seperti cron yang sehat: dua-duanya
+ * diam, dan tes di atas hijau pada kedua keadaan. Fungsi inilah satu-satunya
+ * cara membedakan "isinya salah" dari "tidak ada yang memanggilnya".
+ *
+ * @param {object} o
+ * @param {boolean} [o.dryRun=true] true = tidak mengirim apa pun, hanya pratinjau
+ * @param {number} [o.offsetDays=0] 0 = hari ini, 1 = besok
+ * @param {boolean} [o.force=false] kirim ulang walau penanda anti-ganda sudah ada
+ */
+export async function jalankanRekapReservasi({ dryRun = true, offsetDays = 0, force = false } = {}) {
+  return invokeFunction('send-reservation-digest', {
+    // `dry_run` dikirim EKSPLISIT, bukan dihilangkan saat false. Edge
+    // Function-nya memeriksa `=== true`, jadi kunci yang hilang memang berarti
+    // "kirim sungguhan" — dan mengandalkan ketiadaan kunci untuk memicu
+    // pengiriman sungguhan adalah cara yang terlalu mudah untuk salah.
+    dry_run: dryRun === true,
+    offset_days: offsetDays,
+    force: force === true
+  });
+}
+
 /** Kirim pesan tes ke grup tertentu (chat_id langsung, atau lewat rute event). */
 export async function sendTelegramTest({ chatId, eventKey, eventLabel, businessUnitId } = {}) {
   // invokeFunction sudah membaca badan respons non-2xx, jadi pesan Telegram

@@ -8,8 +8,10 @@ import {
   deleteTelegramRoute,
   sendTelegramTest,
   detectTelegramChats,
-  getIntegrationStatus
+  getIntegrationStatus,
+  jalankanRekapReservasi
 } from './telegram.service.js';
+import { diagnosaRekap, ikonVonis } from './diagnosa-rekap.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 /**
@@ -94,6 +96,24 @@ on conflict (key) do update set value = excluded.value, updated_at = now();</pre
       }
     </div>
 
+    <div class="inline-card" style="max-width:660px;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <h3 style="margin:0">🗒️ Rekap Reservasi Harian</h3>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button id="rk-pratinjau">👁 Pratinjau hari ini</button>
+          <button id="rk-kirim" class="primary">Kirim sekarang</button>
+        </div>
+      </div>
+      <p style="font-size:0.82rem;color:var(--color-text-muted);margin:6px 0 0">
+        Rekap ini jalannya lewat <strong>cron harian</strong>, bukan trigger — jadi kalau tidak ada yang memanggilnya,
+        tidak ada apa pun yang terjadi, <strong>termasuk tidak ada galat</strong>. Tombol <strong>Tes</strong> di tabel bawah
+        tidak bisa membedakannya: ia mengirim pesan karangan lewat jalur yang berbeda.
+        <strong>Pratinjau</strong> tidak mengirim apa pun — ia memanggil rekapnya sungguhan dan memperlihatkan
+        isi persis yang akan masuk ke tiap grup, berikut sebabnya kalau kosong.
+      </p>
+      <div id="rk-hasil" style="margin-top:10px"></div>
+    </div>
+
     <div id="tg-routes"></div>
 
     <div class="inline-card" style="max-width:660px;margin-top:16px">
@@ -109,6 +129,7 @@ on conflict (key) do update set value = excluded.value, updated_at = now();</pre
 
   const host = container.querySelector('#tg-routes');
   wireDetect(container);
+  wireRekap(container);
   draw();
 
   function routeFor(key) {
@@ -310,6 +331,137 @@ function wireDetect(container) {
       btn.disabled = false;
     }
   });
+}
+
+/**
+ * Jalankan rekap reservasi harian dari sini — pratinjau atau sungguhan.
+ *
+ * ============ KENAPA PRATINJAU DIDAHULUKAN ============
+ *
+ * Pertanyaan yang membawa orang ke tombol ini selalu "kenapa rekapnya tidak
+ * datang?", dan jawabannya ada di ISI pratinjaunya — bukan di hasil kiriman.
+ * Tombol yang langsung mengirim akan menjawab pertanyaan itu dengan membanjiri
+ * grup, lalu meninggalkan sebabnya tetap tidak diketahui.
+ */
+function wireRekap(container) {
+  const btnPratinjau = container.querySelector('#rk-pratinjau');
+  const btnKirim = container.querySelector('#rk-kirim');
+  const box = container.querySelector('#rk-hasil');
+
+  const gambar = (d, { dikirim = false, jawaban = null } = {}) => {
+    box.innerHTML = `
+      <p style="margin:0 0 6px;font-size:0.86rem">
+        ${ikonVonis(d.vonis)} <strong>${esc(d.ringkas)}</strong>
+      </p>
+      <p style="margin:0 0 10px;font-size:0.8rem;color:var(--color-text-muted)">${esc(d.saran)}</p>
+      ${
+        d.baris.length
+          ? `<table class="data-table kartu-sempit"><thead><tr><th>Outlet</th><th>Keadaan</th></tr></thead><tbody>
+               ${d.baris
+                 .map(
+                   (b) => `<tr>
+                     <td data-label="Outlet"><strong>${esc(b.outlet)}</strong></td>
+                     <td data-label="Keadaan" style="font-size:0.82rem">${ikonVonis(b.vonis)} ${esc(b.pesan)}</td>
+                   </tr>`
+                 )
+                 .join('')}
+             </tbody></table>`
+          : ''
+      }
+      ${
+        // Isi pesannya ditampilkan APA ADANYA. Ringkasan "3 reservasi" tidak
+        // bisa menjawab "kenapa outlet ini tertulis kosong padahal ada booking"
+        // — yang menjawab itu cuma teks yang sungguh akan dikirim.
+        !dikirim && Array.isArray(jawaban?.telegram) && jawaban.telegram.length
+          ? `<details style="margin-top:10px">
+               <summary style="cursor:pointer;font-size:0.82rem">Lihat isi pesan yang akan dikirim</summary>
+               ${jawaban.telegram
+                 .map(
+                   (t) => `<pre style="font-size:0.72rem;background:var(--color-bg);padding:8px;border-radius:8px;overflow:auto;margin:6px 0 0;white-space:pre-wrap">${esc(
+                     String(t.preview ?? '').replace(/<\/?[bi]>/g, '')
+                   )}</pre>`
+                 )
+                 .join('')}
+             </details>`
+          : ''
+      }
+      ${
+        jawaban?.sudah_dikirim_hari_ini && !dikirim
+          ? '<p style="margin:10px 0 0;font-size:0.8rem;color:var(--color-text-muted)">ℹ️ Penanda anti-kirim-ganda untuk hari ini sudah ada — "Kirim sekarang" akan menanyakan apakah mau dipaksa.</p>'
+          : ''
+      }`;
+  };
+
+  btnPratinjau.addEventListener(
+    'click',
+    sekaliJalan(async () => {
+      box.innerHTML = '<p style="color:var(--color-text-muted)">Menjalankan rekap tanpa mengirim…</p>';
+      try {
+        const jawaban = await jalankanRekapReservasi({ dryRun: true });
+        gambar(diagnosaRekap(jawaban), { jawaban });
+      } catch (error) {
+        gambar(diagnosaRekap(null, error));
+      }
+    })
+  );
+
+  btnKirim.addEventListener(
+    'click',
+    sekaliJalan(async () => {
+      const ok = await confirmDialog({
+        title: 'Kirim rekap sekarang?',
+        message:
+          '<p>Rekap hari ini dikirim ke grup Telegram <strong>dan</strong> sebagai notifikasi push — sungguhan, bukan tes.</p>' +
+          '<p style="margin:6px 0 0;font-size:0.85rem;color:var(--color-text-muted)">Kalau cron paginya ternyata memang jalan, ' +
+          'tim akan menerima rekap yang sama dua kali hari ini.</p>',
+        confirmText: 'Kirim sekarang'
+      });
+      if (!ok) return;
+
+      box.innerHTML = '<p style="color:var(--color-text-muted)">Mengirim…</p>';
+      try {
+        let jawaban = await jalankanRekapReservasi({ dryRun: false });
+
+        // Penanda anti-kirim-ganda menahan kiriman kedua di hari yang sama.
+        // Itu benar untuk cron, dan menjengkelkan untuk orang yang menekan
+        // tombol ini justru karena yang pagi tadi tidak sampai — jadi
+        // ditanyakan, bukan ditolak diam-diam dan bukan dipaksa diam-diam.
+        if (jawaban?.skipped) {
+          const paksa = await confirmDialog({
+            title: 'Sudah tercatat terkirim hari ini',
+            message:
+              `<p>${esc(jawaban.reason ?? 'Sudah dikirim.')}</p>` +
+              '<p style="margin:6px 0 0">Kirim ulang paksa? Pakai ini kalau penandanya ada tapi pesannya tidak pernah sampai.</p>',
+            confirmText: 'Kirim ulang paksa',
+            danger: true
+          });
+          if (!paksa) {
+            gambar(diagnosaRekap(jawaban), { dikirim: true });
+            return;
+          }
+          jawaban = await jalankanRekapReservasi({ dryRun: false, force: true });
+        }
+
+        const gagal = (jawaban?.telegram ?? []).filter((t) => !t.ok);
+        box.innerHTML = `
+          <p style="margin:0 0 6px;font-size:0.86rem">${jawaban?.ok ? '✅' : '❌'} <strong>${
+            jawaban?.ok ? 'Terkirim' : 'Tidak ada yang terkirim'
+          }</strong> · ${Number(jawaban?.total_reservasi) || 0} reservasi · push ${Number(jawaban?.push?.terkirim) || 0}</p>
+          ${
+            gagal.length
+              ? `<ul style="font-size:0.82rem;color:var(--color-danger);padding-left:18px;margin:0">${gagal
+                  .map((t) => `<li>${esc(t.outlet)}: ${esc(t.error ?? 'gagal')}</li>`)
+                  .join('')}</ul>`
+              : `<p style="margin:0;font-size:0.82rem;color:var(--color-text-muted)">${
+                  (jawaban?.telegram ?? []).length
+                } grup menerima rekapnya.</p>`
+          }`;
+        toast(jawaban?.ok ? 'Rekap terkirim.' : 'Rekap tidak terkirim — lihat keterangannya.', jawaban?.ok ? 'success' : 'error');
+      } catch (error) {
+        gambar(diagnosaRekap(null, error), { dikirim: true });
+      }
+    })
+  );
 }
 
 function esc(s) {

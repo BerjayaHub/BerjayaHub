@@ -8144,3 +8144,62 @@ Memeriksa POLA sabotasenya tidak bisa jadi jawaban: bentuknya tidak terbatas, da
 Keempat puluh sembilan harness sekarang menulisnya, dan `audit-sisa-sabotase.cjs` berteriak kalau ia tertinggal — berikut nama harness yang harus dijalankan ulang. Auditnya juga menghitung harness yang **tidak** memasang penanda: yang satu itu adalah lubang persis sebesar dirinya sendiri.
 
 - [x] **Penanda "sabotase sedang terpasang" + `audit-sisa-sabotase`** — 49 harness
+
+## Cron yang tidak pernah dipasang terlihat persis seperti cron yang sehat
+
+> *"notifikasi reservasi masuk sudah aman selalu masuk, sedangkan notifikasi rekap reservasi setiap pagi … masih belum saya terima selama ini, apa yang salah?"*
+
+Dua notifikasi itu berjalan di **dua jalur yang berbeda total**, dan itulah yang membuat yang satu hidup sementara yang lain diam tanpa satu pun galat:
+
+| | pemicu | gagal berbunyi apa |
+|---|---|---|
+| Reservasi baru | trigger DB → `notify-reservation` | ada data, ada panggilan, ada error kalau gagal |
+| Rekap harian | **cron** → `send-reservation-digest` | **tidak ada panggilan sama sekali** |
+
+Dan tombol **Tes** yang sudah ada tidak bisa membedakannya. Tes itu memanggil `notify-telegram` langsung dari browser dan mengirim satu pesan karangan — ia membuktikan bot, chat_id, dan rutenya benar, lalu berhenti di situ. Ia hijau baik saat cron-nya terpasang maupun saat tidak pernah ada.
+
+Jadi empat keadaan yang sangat berbeda semuanya terlihat sama dari dalam aplikasi:
+
+1. cron belum pernah dipasang
+2. cron terpasang tapi balasannya `401` karena header `Authorization` hilang — dan `cron.job_run_details` tetap melaporkan **`succeeded`**, karena bagi pg_net permintaannya memang terkirim
+3. BU-nya belum mengaktifkan modul Reservasi, jadi function berhenti di baris pertama — sementara reservasi masuk tetap normal, karena **trigger tidak memeriksa `bu_modules`**
+4. semuanya jalan, grupnya saja yang belum diatur untuk event ini
+
+### Jawabannya: jalankan rekapnya dari dalam aplikasi
+
+**👁 Pratinjau hari ini** memanggil `send-reservation-digest` sungguhan dengan `dry_run`, lalu menampilkan isi persis yang akan masuk ke tiap grup — berikut vonis per outlet. Yang penting bukan tombolnya, melainkan satu kalimat di ujungnya:
+
+> Isi & tujuannya sudah benar. Kalau rekap paginya tetap tidak datang, yang kurang bukan di sini melainkan **CRON**-nya.
+
+"Siap" di layar ini hanya berarti *"kalau ada yang memanggil, pesannya masuk"*. Ia tidak mengatakan apa pun tentang apakah ada yang memanggil — dan justru itu keadaan yang sedang dicari orangnya. Vonis yang berbunyi "semuanya beres" akan menutup satu-satunya sebab yang tersisa, jadi `audit-rekap-reservasi.cjs` menjaga kalimat itu secara khusus.
+
+### Function yang hanya bisa dipanggil cron tidak bisa didiagnosa
+
+Supaya tombolnya ada gunanya, `send-reservation-digest` perlu dibuka untuk pemanggil kedua:
+
+- **CORS + `OPTIONS`.** Tanpa menjawab preflight, permintaannya mati sebelum sampai ke kode — dan yang muncul di layar adalah *"Failed to fetch"*, kalimat yang menuduh jaringan dan tidak menyebut CORS sama sekali.
+- **Peran diperiksa sungguhan.** Gerbang Supabase hanya memastikan tokennya sah *sebagai token*; ia tidak tahu apa-apa tentang peran orangnya. Menganggap "lolos gerbang" sama dengan "dia admin" berarti setiap staff yang login bisa menyuruh bot membanjiri grup kapan saja. Jadi JWT-nya diverifikasi lewat `auth.getUser()` — dengan **anon key**, bukan service-role, karena service-role tidak memverifikasi siapa pun — lalu perannya dicari di `membership_scopes`.
+
+### Rute yang dipilih urutan baris
+
+Ditemukan sambil membaca: `cariRute` lama mengambil event `reservation_digest` **dan** `reservation` dalam satu query, lalu memakai baris pertama yang BU-nya cocok — tanpa melihat `event_key`. Jadi kalau sebuah BU punya kedua rute, grup tujuan rekapnya ditentukan urutan baris yang dikembalikan PostgREST: bisa benar hari ini dan berubah sendiri besok tanpa ada yang mengubah apa pun.
+
+Itu tidak pernah menggigit selama kedua rutenya menunjuk grup yang sama — dan justru itu yang membuatnya berbahaya. Ia menunggu sampai orangnya memisahkan grup rekap dari grup reservasi baru, yaitu saat terakhir ia akan dicurigai. Sekarang urutannya ditulis eksplisit (`reservation_digest` ber-BU → `reservation_digest` umum → `reservation` ber-BU → `reservation` umum → secret cadangan), dan rute yang akhirnya dipakai **dilaporkan ke layar** — "jatuh ke rute Reservasi baru" tidak boleh jadi sesuatu yang harus disimpulkan sendiri.
+
+### `insert` yang melempar sesudah pesannya terkirim
+
+Penanda anti-kirim-ganda dulu ditulis dengan `insert`. Untuk cron itu benar. Untuk tombol "Kirim ulang paksa" ia salah dengan cara yang paling membingungkan: barisnya sudah ada, `insert` melanggar `unique (kind, ref)` dan melempar — **sesudah** pesannya masuk ke grup. Yang dilihat orangnya: Telegram berbunyi, layar bilang gagal. Sekarang `upsert` dengan `ignoreDuplicates`.
+
+Dan `force` sengaja hanya dipakai tombol manual. Kalau cron bisa memaksa, dedupe-nya tidak berarti apa-apa lagi dan satu cron yang salah jadwal akan membanjiri grup.
+
+### Tiga sabotase yang lolos — ketiganya bentuk yang sama
+
+| Sabotase | Kenapa auditnya tetap hijau |
+|---|---|
+| rute yang dipakai tidak lagi diisi | `sumber_rute` muncul juga di blok dry-run dan di hasil kiriman |
+| separuh jalur gagal berhenti memakai `diagnosaRekap` | ada **dua** `catch` — pratinjau & kirim; mencabut satu menyisakan yang lain |
+| peringatan "`Authorization` wajib" dihapus dari DEPLOY.md | kata "Authorization" muncul di setiap potongan `jsonb_build_object` di sana |
+
+Ketiganya diperbaiki dengan cara yang sama seperti sebelumnya: **mengikat ke tempat yang penting** (`sumber_rute: rute.sumber`), **menghitung** (harus 2 jalur), atau **menjaga kalimatnya**, bukan katanya.
+
+- [x] **Rekap reservasi harian bisa dijalankan & didiagnosa dari Admin Portal** — 23 sabotase

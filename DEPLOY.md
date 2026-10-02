@@ -307,6 +307,17 @@ select cron.schedule(
 > melaporkan `succeeded`, karena bagi pg_net permintaannya memang terkirim.
 > Ini yang dulu membuat reminder clock-in diam berminggu-minggu.
 
+> 🩺 **Cara tercepat memastikan rekap ini hidup:** Admin Portal → Notifikasi
+> Telegram → **👁 Pratinjau hari ini**. Tombol itu menjalankan rekapnya
+> sungguhan tanpa mengirim apa pun, lalu menyebutkan vonisnya: grup belum
+> diatur, modul Reservasi mati, atau *"isi & tujuannya benar — yang kurang
+> cron-nya"*. Tombol **Tes** di tabel rute **tidak bisa** membedakan itu: ia
+> memanggil `notify-telegram` lewat jalur yang sama sekali berbeda, jadi ia
+> hijau baik saat cron ini terpasang maupun saat tidak pernah ada.
+>
+> `send-reservation-digest` harus **di-deploy ulang** setelah perubahan ini —
+> ia kini menerima pemanggilan dari Admin Portal, bukan hanya dari cron.
+
 ---
 
 ## 5. Verifikasi setelah deploy
