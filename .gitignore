@@ -19,3 +19,7 @@ node_modules/
 # Build/output artifacts
 dist/
 outputs/
+
+# Penanda "sabotase sedang terpasang" (tools/audit-sisa-sabotase.cjs).
+# Sengaja TIDAK ikut commit: ia menandai keadaan satu mesin, bukan keadaan repo.
+tools/.sabotase-aktif

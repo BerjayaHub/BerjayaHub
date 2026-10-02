@@ -87,6 +87,42 @@ export async function batalkanOpname(countId, alasan) {
   if (error) throw new Error(error.message ?? String(error));
 }
 
+/**
+ * ADMIN SAJA. Perbaiki hasil opname yang SUDAH DITUTUP — atau tambahkan bahan
+ * yang terlewat (0155). Mengembalikan delta stok yang ditulis.
+ *
+ * Pergerakan koreksinya bertanggal `closed_at` sesi aslinya, BUKAN hari ini,
+ * supaya saldo per tanggal dan laporan COGS periode itu ikut benar. Itu juga
+ * berarti laporan yang sudah dicetak sebelum revisi akan berbeda angkanya —
+ * karena itu alasannya wajib dan angka lamanya disimpan.
+ */
+export async function revisiHitungan({ countId, productId, counted, alasan }) {
+  const { data, error } = await supabase.rpc('revisi_hitungan_opname', {
+    p_count: countId,
+    p_product: productId,
+    p_counted: counted,
+    p_alasan: alasan
+  });
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data ?? 0);
+}
+
+/**
+ * ADMIN SAJA. Buang satu baris hitungan dari sesi yang sudah ditutup.
+ *
+ * Stok bahan itu kembali ke angka SEBELUM opname — bukan ke nol. Barisnya
+ * tidak dihapus, hanya ditandai.
+ */
+export async function hapusHitungan({ countId, productId, alasan }) {
+  const { data, error } = await supabase.rpc('hapus_hitungan_opname', {
+    p_count: countId,
+    p_product: productId,
+    p_alasan: alasan
+  });
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data ?? 0);
+}
+
 /** Isi satu sesi, lengkap dengan nama produk & penghitungnya. */
 export async function itemOpname(countId) {
   if (!countId) return [];
@@ -94,7 +130,15 @@ export async function itemOpname(countId) {
     supabase
       .from('stock_count_items')
       .select(
-        'product_id, system_qty, counted_qty, counted_at, sebelumnya, notes, products(name, base_unit, category), penghitung:user_profiles!counted_by(full_name)',
+        // `revisi`, `dibuang_at` & kawannya WAJIB ikut diminta (0155).
+        //
+        // Kolom yang tidak diminta terbaca sebagai TIDAK ADA — bukan sebagai
+        // galat. Tanpa `dibuang_at`, `itemTerpakai` tidak menyaring apa pun dan
+        // baris yang hitungannya sudah dicabut dari stok ikut masuk Nilai
+        // Opname, yaitu angka stok akhir di laporan COGS. Tanpa `revisi`,
+        // kolom Dihitung berhenti menulis "(semula …)" dan laporan yang sudah
+        // berubah terlihat seperti laporan yang tidak pernah disentuh.
+        'product_id, system_qty, counted_qty, counted_at, sebelumnya, notes, revisi, dibuang_at, dibuang_alasan, products(name, base_unit, category), penghitung:user_profiles!counted_by(full_name), pembuang:user_profiles!dibuang_by(full_name)',
         { count: 'exact' }
       )
       .eq('count_id', countId)
@@ -108,7 +152,12 @@ export async function riwayatOpname(businessUnitId, { outletId = null, dateFrom 
     let q = supabase
       .from('stock_counts')
       .select(
-        'id, code, count_date, status, notes, outlet_id, opened_at, closed_at, outlets!outlet_id(name), pembuka:user_profiles!opened_by(full_name), penutup:user_profiles!closed_by(full_name)',
+        // `closed_at` dipakai memutuskan sesi mana yang TERAKHIR di sebuah
+        // outlet (0155) — bukan cuma untuk ditampilkan. Tanpa kolom itu,
+        // `bolehRevisiOpname` membandingkan undefined dengan undefined dan
+        // menyimpulkan tidak ada yang lebih baru, lalu menawarkan revisi pada
+        // sesi yang angkanya sudah tergantikan hitungan fisik sesudahnya.
+        'id, code, count_date, status, notes, outlet_id, opened_at, closed_at, direvisi_at, outlets!outlet_id(name), pembuka:user_profiles!opened_by(full_name), penutup:user_profiles!closed_by(full_name), perevisi:user_profiles!direvisi_by(full_name)',
         { count: 'exact' }
       )
       .eq('business_unit_id', businessUnitId)

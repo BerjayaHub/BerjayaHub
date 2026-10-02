@@ -656,7 +656,7 @@ begin
   -- saldonya tetap terlihat wajar sampai ada yang menghitung uang fisiknya.
   v_amount := case when p_type = 'out' then -abs(p_amount) else abs(p_amount) end;
 
-  if false then
+  if p_type = 'out' and p_outlet is null then
     raise exception 'Kas keluar harus menyebut outlet peruntukannya.';
   end if;
   if p_type = 'out' and nullif(p_proof, '') is null then

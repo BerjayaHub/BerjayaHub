@@ -18,8 +18,32 @@ const P = (rel) => path.join(AKAR, rel);
 const CSS = 'css/styles.css';
 const asli = new Map([[CSS, fs.readFileSync(P(CSS), 'utf8')]]);
 
+// ============ JEJAK "SABOTASE SEDANG TERPASANG" ============
+//
+// `process.on('exit')` TIDAK berjalan kalau prosesnya di-SIGKILL — mis. saat
+// harness ini kena batas waktu di luar. Yang tertinggal adalah berkas repo
+// yang masih tersabotase, dan ia TIDAK terlihat sebagai apa pun: migration-nya
+// tetap sah, aplikasinya tetap jalan, dan satu-satunya tanda adalah satu tes
+// yang merah entah kenapa berjam-jam kemudian.
+//
+// Itu benar-benar terjadi: `0153` tertinggal dengan `if false then` di tempat
+// penjaga "kas keluar harus menyebut outlet peruntukannya".
+//
+// Jadi penanda ini ditulis SEBELUM berkas pertama dirusak dan dibuang sesudah
+// semuanya pulih. `tools/audit-sisa-sabotase.cjs` berteriak kalau ia tertinggal.
+const PENANDA = path.join(AKAR, 'tools/.sabotase-aktif');
+const tandai = (rel) => fs.writeFileSync(PENANDA, `${path.basename(process.argv[1])} merusak ${rel}\n`);
+const lepasTanda = () => {
+  try {
+    fs.unlinkSync(PENANDA);
+  } catch {
+    /* belum pernah ada — tidak apa-apa */
+  }
+};
+
 const pulih = () => {
   for (const [rel, isi] of asli) fs.writeFileSync(P(rel), isi);
+  lepasTanda();
 };
 process.on('exit', pulih);
 process.on('SIGINT', () => process.exit(130));
@@ -48,6 +72,7 @@ const sabotase = (nama, dari, ke, pemeriksa) => {
     console.error(`❌ SABOTASE TIDAK TERPASANG: ${nama} — polanya tidak ketemu di ${CSS}.`);
     return;
   }
+  tandai(CSS);
   fs.writeFileSync(P(CSS), rusak);
   const hijau = jalan(pemeriksa);
   pulih();

@@ -8044,3 +8044,103 @@ Semua kegagalan foto dulu memakai kalimat yang sama, dan kalimat itu menuduh **p
 Sekalian ketahuan saat sweep: fixture `contoh-impor-aset.xlsx` pernah terbuka di Excel dan tersimpan ulang, dan Excel menulis jangkar gambarnya `<xdr:oneCellAnchor>` — dengan awalan namespace — sementara openpyxl menulisnya polos. Pembaca fixture-nya jadi melihat **nol** gambar di berkas yang jelas-jelas bergambar. `baca-xlsx.cjs` sekarang menerima kedua bentuk.
 
 - [x] **Foto aset terlihat se-BU + tautan dibuat saat diketuk** (`0154`) — 23 sabotase
+
+## Memperbaiki opname yang sudah ditutup — dan tanggal mana yang diperbaiki
+
+> *"setelah stock opname selesai dan ditutup, ada case staff masih salah input, apakah admin bisa mengubah hasil stock opname ini agar sesuai"*
+
+Bisa. Yang menentukan bentuknya bukan teknisnya, melainkan satu pertanyaan yang mudah terlewat: koreksinya berlaku sejak **kapan**.
+
+### Dua cara memperbaiki, dan keduanya bukan hal yang sama
+
+Menutup opname (`0085`) menulis `adjustment` ke `stock_movements`, dan `created_at`-nya adalah sumbu waktu yang dipakai `saldo_stok_pada` (`0137`) — yaitu stok akhir periode pada laporan COGS.
+
+| | saldo hari ini | saldo per tanggal opname | COGS bulan itu |
+|---|---|---|---|
+| koreksi bertanggal **hari ini** | benar | **tetap salah** | **tetap salah** |
+| koreksi bertanggal **saat opname ditutup** | benar | benar | benar |
+
+Dua-duanya berbunyi "berhasil" di layar. Hanya yang kedua menjawab *"agar sesuai"*, jadi `created_at` pergerakan koreksinya **disetel eksplisit** ke `closed_at` sesi aslinya.
+
+Harganya ditulis terang-terangan di dialognya: laporan yang sudah diekspor sebelum revisi akan berbeda dari laporan yang sama kalau dicetak ulang. Itu sebabnya alasannya **wajib** dan angka lamanya disimpan — laporan yang berubah sendiri tanpa jejak tidak bisa dibedakan dari angka yang dikarang.
+
+### `system_qty` tidak boleh dibaca ulang
+
+Jebakan paling mahal di `0155`.
+
+`system_qty` adalah potret stok menurut sistem **saat bahannya dihitung**, dan penyesuaiannya `dihitung − sistem`. Begitu sesinya ditutup, stok sekarang **sudah memuat** penyesuaian itu. Membacanya ulang saat revisi berarti menghitung selisih terhadap angka yang sudah mengandung hasil opname itu sendiri — dan koreksinya berlaku dua kali. Itu persis bentuk bug nanas di `0114`: 6.400 dihitung 4.600, hasilnya 11.000.
+
+Jadi potretnya **dibekukan**, dan yang ditulis ke buku stok adalah:
+
+| | delta |
+|---|---|
+| ubah angka | `counted_baru − counted_lama` |
+| tambah bahan terlewat | `counted − stok saat sesi ditutup` |
+| buang baris salah barang | `system_qty − counted_lama` |
+
+Ketiganya menjawab satu pertanyaan yang sama — *"berapa yang harus ditambahkan supaya saldo pada saat itu menjadi seperti seharusnya"* — dan ketiganya benar tanpa peduli apakah penutupan dulu menulis pergerakan atau tidak (bahan yang cocok dengan sistem tidak menghasilkan pergerakan sama sekali).
+
+Yang **buang** khususnya: stoknya pulih ke angka **sebelum opname**, bukan ke nol. `tutup_opname` sengaja tidak menyentuh bahan yang tidak dihitung, jadi membuang hitungannya harus mengembalikan keadaan itu persis.
+
+### Hanya sesi tertutup terakhir per outlet
+
+Opname yang sudah ketiban opname berikutnya angkanya sudah tergantikan hitungan fisik yang lebih sahih; menulis koreksi bertanggal lampau di bawahnya cuma menggeser saldo hari ini sebesar koreksi yang tidak relevan lagi.
+
+Sesi yang **sedang berjalan** juga menghalangi, dan alasannya bukan kerapian: `catat_hitungan_opname` memotret stok sistem saat hitungannya disimpan, jadi revisi membuat potret yang sudah terisi di sesi itu basi — dan basinya tidak terlihat sampai sesinya ditutup dengan penyesuaian yang salah.
+
+Jalur *"buka sesi opname perbaikan"* yang sudah dipakai sejak `0137` tetap berlaku dan tidak berubah; `0155` adalah pilihan kedua untuk kasus "angkanya salah ketik", bukan penggantinya.
+
+### Jejaknya tidak menumpang `sebelumnya`
+
+Kolom `stock_count_items.sebelumnya` sudah ada dan bentuknya cocok — tapi `laporan-opname.js` membacanya sebagai *"bahan ini pernah dihitung dua orang dengan angka berbeda, periksa dulu"* dan menghitungnya di `jumlahBentrok`.
+
+Menumpang di sana akan membuat setiap bahan yang direvisi admin muncul sebagai pertengkaran antar-penghitung yang tidak pernah terjadi. Kolomnya tetap valid, laporannya tetap tergambar, tidak ada satu pun galat — yang rusak cuma **artinya**. Jadi revisi punya kolom sendiri.
+
+### Tidak dihitung ≠ tidak ditampilkan
+
+Baris yang dibuang dikecualikan dari setiap angka (termasuk Nilai Opname, yaitu stok akhir di COGS) tapi **tidak dihapus**, dan dialog "Lihat" tetap menampilkannya beserta siapa yang membuangnya. Hitungan di bahan yang salah adalah satu-satunya petunjuk bahwa ada rak lain yang mungkin belum dihitung; menghapusnya menyisakan sesi yang terlihat rapi.
+
+Yang menemukan kekurangan ini bukan saya — `audit-embed-mubazir.cjs` yang sudah ada: ia melaporkan embed `pembuang:user_profiles` diminta tapi tidak pernah digambar. Embed yang gagal membatalkan seluruh query PostgREST, jadi embed yang tidak ditampilkan bukan sekadar mubazir; ia menambah cara untuk gagal. Pilihannya jadi "buang embednya" atau "tampilkan datanya", dan yang kedua ternyata memang yang kurang.
+
+### Empat sabotase yang tidak menyabotase apa pun
+
+Ditemukan saat menjalankan harness-nya, dan tiga di antaranya satu bentuk: **fixture-nya tidak menjebak**.
+
+| Sabotase | Kenapa ia tidak merusak |
+|---|---|
+| potret bahan terlewat memakai stok hari ini | BERAS di fixture tidak punya pergerakan sesudah penutupan, jadi stok-hari-ini dan stok-saat-ditutup kebetulan sama |
+| ringkasan menghitung baris dibuang sebagai "direvisi" | baris yang dibuang di fixture `revisi`-nya kosong, jadi angkanya tidak berubah |
+| `closed_at` kosong dianggap "paling baru" | yang diuji satu sisi kosong — dan apa pun memang lebih besar dari string kosong; penjaganya baru bekerja kalau **dua-duanya** kosong, yaitu tepat keadaan saat `closed_at` lupa diminta dari PostgREST |
+| dampak pergerakan tidak diperlihatkan sebelum disimpan | auditnya cuma menuntut `teksDelta(` ada di berkasnya, dan ia masih dipakai di toast sesudah tersimpan |
+
+Yang keempat diperbaiki dengan **menghitung**: `teksDelta(d)` (delta pratinjau, berbeda dari `d2` yang ditulis server) harus muncul dua kali — sekali di dialog ubah, sekali di dialog buang.
+
+### Komentar SQL bukan kode
+
+Pemeriksa "`now()` tidak boleh ada di `catat_koreksi_opname`" berteriak pada kode yang justru benar, karena `tanpaKomentar()` dibuat untuk JavaScript dan komentar `--` di dalam blok `$$` lolos — termasuk catatan `-- BUKAN now().` yang menjelaskan aturannya.
+
+Arah sebaliknya lebih berbahaya dan bentuknya sama: potongan yang dicari sebuah pemeriksa bisa ada **hanya di dalam komentar** yang menjelaskannya, sementara kodenya sendiri sudah hilang. Auditnya sekarang membuang `--` sampai akhir baris, kecuali yang berada di dalam string literal.
+
+- [x] **Revisi hasil opname yang sudah ditutup** (`0155`) — 42 sabotase
+
+## Harness sabotase yang mati sebelum memulihkan berkasnya
+
+Ditemukan bukan dengan mencarinya: `test-migrasi-0153.mjs` merah pada migration yang tidak sedang disentuh siapa pun, berjam-jam sesudah pekerjaan di sana selesai.
+
+`0153` masih memegang sabotase di disk:
+
+```sql
+if false then
+  raise exception 'Kas keluar harus menyebut outlet peruntukannya.';
+end if;
+```
+
+Setiap harness memulihkan berkasnya lewat `process.on('exit', pulih)`, yang menutup keluar normal, Ctrl-C, dan SIGTERM — **tapi tidak SIGKILL**. Dan SIGKILL bukan hal langka di sini: ia terjadi saat harness-nya kena batas waktu dari luar, dan saat beberapa PGlite berjalan sekaligus lalu kehabisan memori. Dua-duanya terjadi di sesi yang sama.
+
+Yang tertinggal tidak terlihat sebagai apa pun. Migration-nya tetap sah, aplikasinya tetap jalan, dan `grep` untuk kalimat penjaganya tetap ketemu — kalimatnya memang masih di sana, cuma tidak pernah dijalankan lagi. Satu-satunya tanda adalah satu tes merah di tempat yang salah.
+
+Memeriksa POLA sabotasenya tidak bisa jadi jawaban: bentuknya tidak terbatas, dan sabotase yang menghapus satu baris tidak meninggalkan jejak tekstual apa pun untuk dicari. Yang bisa adalah penanda **kehadiran** — satu berkas yang ditulis sebelum berkas pertama dirusak dan dibuang sesudah semuanya pulih, karena berkas di disk adalah satu-satunya hal yang bertahan melewati SIGKILL.
+
+Keempat puluh sembilan harness sekarang menulisnya, dan `audit-sisa-sabotase.cjs` berteriak kalau ia tertinggal — berikut nama harness yang harus dijalankan ulang. Auditnya juga menghitung harness yang **tidak** memasang penanda: yang satu itu adalah lubang persis sebesar dirinya sendiri.
+
+- [x] **Penanda "sabotase sedang terpasang" + `audit-sisa-sabotase`** — 49 harness

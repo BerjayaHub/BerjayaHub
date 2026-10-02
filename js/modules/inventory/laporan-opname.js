@@ -22,8 +22,26 @@
  * akal dibaca, tidak menghasilkan error, dan kalau tertukar maka laporan
  * kehilangan barang berubah jadi laporan kelebihan barang.
  *
- * Tidak ada impor di file ini, supaya bisa diuji tanpa browser.
+ * ============ BARIS YANG DIBUANG TIDAK IKUT DIHITUNG ============
+ *
+ * Sejak `0155` admin bisa membuang baris yang salah barang, dan barisnya
+ * SENGAJA tidak dihapus dari database — ia tetap jadi petunjuk bahwa ada rak
+ * yang mungkin belum dihitung.
+ *
+ * Tapi ia tidak boleh ikut satu pun angka di sini. Membiarkannya ikut membuat
+ * "12 item, 3 selisih" memuat hitungan yang sudah dicabut dari stok, dan Nilai
+ * Opname — yang dipakai sebagai stok akhir di COGS — menghitung barang yang
+ * tidak pernah ada di rak itu.
+ *
+ * Jumlahnya tetap dilaporkan lewat `jumlahDibuang`, karena nol yang berasal
+ * dari "tidak ada yang dibuang" dan nol yang berasal dari "dibuangnya tidak
+ * dihitung" terlihat sama persis.
+ *
+ * Tidak ada impor selain modul murni `revisi-opname.js`, supaya bisa diuji
+ * tanpa browser.
  */
+
+import { itemTerpakai, ringkasRevisi, labelDihitung } from './revisi-opname.js';
 
 const rupiah = (n) =>
   n == null || !Number.isFinite(Number(n)) ? '-' : 'Rp ' + Math.round(Number(n)).toLocaleString('id-ID');
@@ -73,7 +91,11 @@ export function susunLaporanOpname({ sesi, items, hpp = new Map(), denganNilai =
   let jumlahSelisih = 0;
   let jumlahBentrok = 0;
 
-  const baris = (items ?? []).map((it) => {
+  // Dihitung SEBELUM penyaringan, dari daftar lengkapnya: yang dibuang justru
+  // yang perlu dilaporkan jumlahnya, dan ia tidak ada lagi sesudah disaring.
+  const { jumlahDirevisi, jumlahDibuang } = ringkasRevisi(items);
+
+  const baris = itemTerpakai(items).map((it) => {
     const sistem = Number(it.system_qty ?? 0);
     const dihitung = Number(it.counted_qty ?? 0);
     const selisih = dihitung - sistem;
@@ -90,7 +112,11 @@ export function susunLaporanOpname({ sesi, items, hpp = new Map(), denganNilai =
       it.products?.name ?? '(produk terhapus)',
       it.products?.base_unit ?? '',
       angka(sistem),
-      angka(dihitung),
+      // "4.600 (semula 46.000)" untuk yang pernah direvisi admin. Angka hasil
+      // revisi yang berdiri sendiri tidak bisa dibedakan dari angka yang
+      // memang diisi staff — dan laporan COGS periode itu ikut berubah
+      // karenanya, jadi perubahannya harus terbaca di laporannya sendiri.
+      labelDihitung(it),
       // Tanda + ditulis eksplisit untuk yang positif. Tanpa itu "5" dan "-5"
       // beda satu karakter di kolom yang dibaca cepat.
       (selisih > 0 ? '+' : '') + angka(selisih),
@@ -133,13 +159,21 @@ export function susunLaporanOpname({ sesi, items, hpp = new Map(), denganNilai =
     subjudul:
       [sesi?.outletName, tanggal, sesi?.status === 'open' ? 'MASIH BERJALAN' : 'selesai']
         .filter(Boolean)
-        .join(' · ') + ` · ${baris.length} item, ${jumlahSelisih} selisih` + (jumlahBentrok ? `, ${jumlahBentrok} perlu dicek ⚠` : ''),
+        .join(' · ') +
+      ` · ${baris.length} item, ${jumlahSelisih} selisih` +
+      (jumlahBentrok ? `, ${jumlahBentrok} perlu dicek ⚠` : '') +
+      (jumlahDirevisi ? `, ${jumlahDirevisi} direvisi admin` : '') +
+      (jumlahDibuang ? `, ${jumlahDibuang} dibuang` : ''),
     namaBerkas: 'opname-' + String(sesi?.code ?? 'tanpa-nomor').replace(/[^\w.-]+/g, '-'),
     kolom,
     baris,
     jumlahItem: baris.length,
     jumlahSelisih,
     jumlahBentrok,
+    // Jejak revisi admin (0155). Keduanya dihitung dari daftar LENGKAP, bukan
+    // dari `baris` — yang dibuang sudah tidak ada di sana.
+    jumlahDirevisi,
+    jumlahDibuang,
     // Kurang dan lebih DIPISAH, tidak dijumlahkan jadi satu angka bersih.
     // Kehilangan 2 juta yang tertutup kelebihan 2 juta bukan "impas": itu dua
     // masalah, dan angka bersih nol menyembunyikan keduanya.
