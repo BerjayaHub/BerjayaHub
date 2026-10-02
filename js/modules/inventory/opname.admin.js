@@ -196,7 +196,7 @@ export async function renderOpnameAdmin(container, { businessUnitId, outlets }) 
         const lap = susunLaporanOpname({ sesi: { code: btn.dataset.code }, items, hpp, denganNilai: true });
         const ok = await confirmDialog({
           title: `Tutup ${btn.dataset.code}?`,
-          message:
+          messageHtml:
             `<p><strong>${lap.jumlahItem}</strong> bahan dihitung, <strong>${lap.jumlahSelisih}</strong> berselisih.</p>` +
             `<p style="margin:6px 0">Kurang: <strong style="color:var(--color-danger)">${lap.nilaiKurangTeks}</strong> · ` +
             `Lebih: <strong>${lap.nilaiLebihTeks}</strong></p>` +
@@ -350,7 +350,7 @@ export async function renderOpnameAdmin(container, { businessUnitId, outlets }) 
           const d = deltaHapus(it);
           const ok = await confirmDialog({
             title: `Buang hitungan ${nama}?`,
-            message:
+            messageHtml:
               `<p>Baris hitungannya ditandai dibuang dan <strong>tidak dihitung lagi</strong> di laporan sesi ini — tapi tidak dihapus, supaya tetap terbaca kalau ada rak yang belum dihitung.</p>` +
               `<p style="margin:6px 0">Stok <strong>${esc(nama)}</strong> bergerak <strong>${esc(
                 teksDelta(d)
@@ -395,7 +395,7 @@ export async function renderOpnameAdmin(container, { businessUnitId, outlets }) 
 
         const ok = await confirmDialog({
           title: `Revisi ${nama}?`,
-          message:
+          messageHtml:
             (it
               ? `<p>Hitungan <strong>${esc(nama)}</strong>: ${esc(angkaSederhana(it.counted_qty))} → <strong>${esc(
                   angkaSederhana(counted)

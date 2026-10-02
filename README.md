@@ -8203,3 +8203,34 @@ Dan `force` sengaja hanya dipakai tombol manual. Kalau cron bisa memaksa, dedupe
 Ketiganya diperbaiki dengan cara yang sama seperti sebelumnya: **mengikat ke tempat yang penting** (`sumber_rute: rute.sumber`), **menghitung** (harus 2 jalur), atau **menjaga kalimatnya**, bukan katanya.
 
 - [x] **Rekap reservasi harian bisa dijalankan & didiagnosa dari Admin Portal** — 23 sabotase
+
+## Dialog yang menampilkan tagnya sendiri
+
+Ditemukan dari satu screenshot: dialog "Sudah tercatat terkirim hari ini" memampangkan
+
+```
+<p>Sudah dikirim untuk 2026-10-02.</p><p style="margin:6px 0 0">Kirim ulang paksa? …
+```
+
+`confirmDialog` memasang `message` lewat **`textContent`**. Itu default yang benar — isinya sering memuat nama barang, nama orang, dan catatan yang diketik staff, dan tak satu pun boleh berubah jadi HTML.
+
+Masalahnya tidak ada pintu lain. Pemanggil yang perlu menebalkan satu angka menulis `<strong>` di sana, dan `textContent` dengan patuh menampilkannya sebagai teks. **Tidak ada galat di mana pun**: fungsinya mengerjakan persis apa yang diminta; yang salah adalah anggapan pemanggilnya, dan tidak ada apa pun yang memberitahunya.
+
+Penyapuan seluruh `js/` menemukan **14 tempat** dengan bentuk yang sama — cleaning, nota staff, menu, master produk, ESB, opname, notifikasi. Sebagian sudah berbulan-bulan, dan tak satu pun pernah dilaporkan sebagai bug: tag yang terpampang di dialog terbaca sebagai "aplikasinya memang begitu". Itu kelas kegagalan yang paling mahal di repo ini — bukan yang meledak, melainkan yang dibaca orang sebagai normal.
+
+### Dua pintu, dan yang berbahaya disebut namanya
+
+`message` tetap `textContent`. `messageHtml` yang baru dipasang lewat `innerHTML`, jadi pemanggilnya wajib meng-escape sendiri apa pun yang berasal dari pengguna. Keduanya tidak pernah digabung: separuh kalimat ter-escape dan separuhnya tidak jauh lebih sulit dilihat daripada salah satunya saja.
+
+Yang **tidak** dilakukan: melonggarkan `message` jadi `innerHTML` supaya keempat belas pemanggil lama ikut benar sekaligus. Itu memperbaiki tampilan dengan menukar satu dialog jelek jadi satu jalan masuk — nama barang yang memuat `<img onerror=…>` akan dieksekusi. `audit-dialog-html.cjs` menjaga arah itu secara khusus.
+
+### Audit yang menghitung sasarannya sendiri
+
+Dua penjaga kewarasan, keduanya karena audit ini mudah sekali jadi hijau-palsu:
+
+- kalau `js/` terbaca kurang dari 50 berkas, ia berteriak — pembaca direktori yang salah jalan akan melaporkan "bersih" untuk nol berkas;
+- kalau **nol** pemanggilan `confirmDialog({ message })` ketemu, ia juga berteriak — pembaca bloknya rusak, dan "tidak ada pelanggaran" di situ tidak berarti apa-apa.
+
+Blok argumennya dibaca dengan **menghitung kurung kurawal**, bukan regex sampai `}` pertama: badan `confirmDialog` sering memuat objek lain, dan regex akan memotong nilainya di tengah lalu melaporkan bersih untuk teks yang belum selesai dibaca. Dan `message:` dicocokkan dengan penjaga batas kata — tanpa itu, `messageHtml:` ikut tertangkap, dan setiap perbaikan justru terbaca sebagai pelanggaran.
+
+- [x] **`messageHtml` eksplisit + 14 pemanggil dipindahkan** — 8 sabotase

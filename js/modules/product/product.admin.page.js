@@ -281,7 +281,7 @@ async function unggahSku(content, businessUnitId, products, sesudah) {
     title: `Simpan ${hasil.ubah.length} kode SKU?`,
     // Sepuluh contoh saja: daftar 600 baris di dalam dialog tidak dibaca siapa
     // pun, dan tombol Simpan-nya terdorong keluar layar.
-    message:
+    messageHtml:
       `${escapeHtml(pesanPerubahanSku(hasil, tanpaId))}<br><br>` +
       hasil.ubah
         .slice(0, 10)
@@ -800,7 +800,7 @@ async function renderRecipesTab(content, businessUnitId) {
           // dan pertanyaan yang tidak dijawab akan membuat orang tidak menekan.
           const ok = await confirmDialog({
             title: 'Pindahkan resep',
-            message: `Resep <strong>${escapeHtml(produk.name)}</strong> dipindahkan dari <strong>${MODE_LABEL[dari]}</strong> ke <strong>${MODE_LABEL[ke]}</strong>.<br /><br />Bahan dan hasil/yield-nya ikut pindah apa adanya — tidak ada yang dihapus. Setelah ini varian ${MODE_LABEL[dari]} menjadi kosong.`,
+            messageHtml: `Resep <strong>${escapeHtml(produk.name)}</strong> dipindahkan dari <strong>${MODE_LABEL[dari]}</strong> ke <strong>${MODE_LABEL[ke]}</strong>.<br /><br />Bahan dan hasil/yield-nya ikut pindah apa adanya — tidak ada yang dihapus. Setelah ini varian ${MODE_LABEL[dari]} menjadi kosong.`,
             confirmText: 'Pindahkan'
           });
           if (!ok) return;
@@ -973,7 +973,7 @@ async function openImport(content, businessUnitId, kind, refresh) {
       }
       const lanjut = await confirmDialog({
         title: 'Periksa dulu perubahannya',
-        message:
+        messageHtml:
           `<p><strong>${rencana.perubahan.length}</strong> produk akan <strong>diganti</strong> nilainya` +
           (rencana.added ? `, dan <strong>${rencana.added}</strong> produk baru ditambahkan` : '') +
           `.</p>` +

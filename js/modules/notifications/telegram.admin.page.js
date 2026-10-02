@@ -410,7 +410,7 @@ function wireRekap(container) {
     sekaliJalan(async () => {
       const ok = await confirmDialog({
         title: 'Kirim rekap sekarang?',
-        message:
+        messageHtml:
           '<p>Rekap hari ini dikirim ke grup Telegram <strong>dan</strong> sebagai notifikasi push — sungguhan, bukan tes.</p>' +
           '<p style="margin:6px 0 0;font-size:0.85rem;color:var(--color-text-muted)">Kalau cron paginya ternyata memang jalan, ' +
           'tim akan menerima rekap yang sama dua kali hari ini.</p>',
@@ -429,7 +429,7 @@ function wireRekap(container) {
         if (jawaban?.skipped) {
           const paksa = await confirmDialog({
             title: 'Sudah tercatat terkirim hari ini',
-            message:
+            messageHtml:
               `<p>${esc(jawaban.reason ?? 'Sudah dikirim.')}</p>` +
               '<p style="margin:6px 0 0">Kirim ulang paksa? Pakai ini kalau penandanya ada tapi pesannya tidak pernah sampai.</p>',
             confirmText: 'Kirim ulang paksa',

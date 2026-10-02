@@ -864,7 +864,7 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       }
       const ok = await confirmDialog({
         title: `Cocokkan ${usul.length} nilai?`,
-        message:
+        messageHtml:
           (lewatKode
             ? `<strong>${lewatKode}</strong> dicocokkan lewat <strong>kode SKU</strong> — jembatan yang tidak putus saat namanya diganti. `
             : '') +

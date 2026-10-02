@@ -829,7 +829,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products, daf
         }
         const ok = await confirmDialog({
           title: `Bayar ${pilih.length} nota?`,
-          message:
+          messageHtml:
             (sumber === 'pusat'
               ? `Total <strong>${formatRupiah(p.total)}</strong> ditandai lunas atas nama Pusat. ` +
                 '<strong>Tidak ada baris yang masuk ke buku kas mana pun</strong>, jadi nominal ini tidak akan muncul di laporan kas — ' +
@@ -1053,7 +1053,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products, daf
 
           const ok = await confirmDialog({
             title: `Batalkan pembayaran nota ${b.dataset.code}?`,
-            message:
+            messageHtml:
               (lain.length
                 ? `Nota ini dibayar bersama <strong>${lain.length} nota lain</strong> (${lain.map((n) => esc(n.code)).join(', ')}) dalam satu pembayaran, jadi <strong>semuanya</strong> akan kembali jadi hutang.<br /><br />`
                 : '') +

@@ -107,9 +107,38 @@ function lapisDialog(nama, tutup) {
 /**
  * Modal konfirmasi. Return Promise<boolean> — true kalau user klik tombol utama.
  */
+/**
+ * Dialog konfirmasi.
+ *
+ * ============ `message` TEKS, `messageHtml` MARKUP ============
+ *
+ * `message` dipasang lewat `textContent`, dan itu default yang benar: isinya
+ * sering memuat nama barang, nama orang, atau catatan yang diketik staff, dan
+ * tidak satu pun dari itu boleh berubah jadi HTML.
+ *
+ * Tapi selama ini TIDAK ADA jalan lain. Pemanggil yang perlu menebalkan satu
+ * angka menulis `<strong>` di `message`, dan hasilnya tag mentahnya terpampang
+ * di layar:
+ *
+ *     <p>Sudah dikirim untuk 2026-10-02.</p><p style="margin:6px 0 0">Kirim
+ *     ulang paksa? Pakai ini kalau penandanya ada tapi pesannya tidak pernah
+ *     sampai.</p>
+ *
+ * Tidak ada galat di mana pun — `textContent` memang mengerjakan persis apa
+ * yang diminta. Yang salah adalah anggapan pemanggilnya, dan tidak ada apa pun
+ * yang memberitahunya. **14 tempat** di aplikasi ini sudah begitu, sebagian
+ * sejak lama, dan tak satu pun pernah dilaporkan sebagai bug — tagnya terbaca
+ * sebagai "aplikasinya memang begitu".
+ *
+ * Jadi sekarang ada dua pintu, dan yang berbahaya harus disebut namanya:
+ * `messageHtml` dipasang lewat `innerHTML`, jadi pemanggilnya WAJIB sudah
+ * meng-escape apa pun yang berasal dari pengguna. `audit-dialog-html.cjs`
+ * menolak tag HTML yang tertinggal di `message`.
+ */
 export function confirmDialog({
   title = 'Konfirmasi',
   message = '',
+  messageHtml = '',
   confirmText = 'Ya',
   cancelText = 'Batal',
   danger = false
@@ -126,7 +155,12 @@ export function confirmDialog({
         </div>
       </div>
     `;
-    overlay.querySelector('.modal-text').textContent = message;
+    const kotakTeks = overlay.querySelector('.modal-text');
+    // `messageHtml` menang kalau diisi. Keduanya tidak pernah digabung:
+    // menggabungkannya berarti separuh kalimat ter-escape dan separuhnya tidak,
+    // yang jauh lebih sulit dilihat daripada salah satunya saja.
+    if (messageHtml) kotakTeks.innerHTML = messageHtml;
+    else kotakTeks.textContent = message;
     document.body.appendChild(overlay);
     requestAnimationFrame(() => overlay.classList.add('show'));
 

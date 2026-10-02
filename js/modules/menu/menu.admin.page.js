@@ -435,7 +435,7 @@ export async function renderMenuAdminPage(container, { businessUnitId }) {
           const produk = namaProduk.get(id);
           const ok = await confirmDialog({
             title: 'Pindahkan resep',
-            message: `Resep <strong>${esc(produk.name)}</strong> dipindahkan dari <strong>${MODE_LABEL[dari]}</strong> ke <strong>${MODE_LABEL[ke]}</strong>.<br /><br />Bahan dan hasil/yield-nya ikut pindah apa adanya — tidak ada yang dihapus. Setelah ini varian ${MODE_LABEL[dari]} menjadi kosong.`,
+            messageHtml: `Resep <strong>${esc(produk.name)}</strong> dipindahkan dari <strong>${MODE_LABEL[dari]}</strong> ke <strong>${MODE_LABEL[ke]}</strong>.<br /><br />Bahan dan hasil/yield-nya ikut pindah apa adanya — tidak ada yang dihapus. Setelah ini varian ${MODE_LABEL[dari]} menjadi kosong.`,
             confirmText: 'Pindahkan'
           });
           if (!ok) return;

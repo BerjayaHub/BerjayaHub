@@ -487,7 +487,7 @@ export async function renderCleaningPage(container, { userId, businessUnitId, ou
         const sisaSetelahIni = [...sudah.values()].filter((r) => r.checked).length - 1;
         const ok = await confirmDialog({
           title: `Hapus catatan "${btn.dataset.label}"?`,
-          message:
+          messageHtml:
             'Foto buktinya ikut dihapus, dan item ini kembali jadi "belum dikerjakan" sehingga bisa diulang.' +
             (sisaSetelahIni <= 0
               ? ' <br /><br /><strong>Ini pekerjaan terakhir di sesi ini</strong>, jadi sesinya ikut terhapus dan tidak akan muncul lagi di rekap.'

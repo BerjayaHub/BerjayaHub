@@ -270,7 +270,7 @@ async function openItemDialog(content, businessUnitId, existing, outlets = [], p
     const tanggal = perkiraanBerikutnya({ hariIni: todayWIB(), terakhir: null, interval: intervalBaru, jumlah: 5 });
     const lanjut = await confirmDialog({
       title: `Muncul ${labelJadwal(intervalBaru)}`,
-      message:
+      messageHtml:
         `<p>Kalau <strong>${escapeHtml(values.label)}</strong> dikerjakan tepat waktu, ia akan muncul di Staff App pada:</p>` +
         `<ul style="margin:6px 0 0 16px;padding:0">${tanggal.map((t) => `<li>${tanggalPanjang(t)}</li>`).join('')}</ul>` +
         `<p style="margin-top:8px;font-size:0.85rem;color:var(--color-text-muted)">
