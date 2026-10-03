@@ -8234,3 +8234,57 @@ Dua penjaga kewarasan, keduanya karena audit ini mudah sekali jadi hijau-palsu:
 Blok argumennya dibaca dengan **menghitung kurung kurawal**, bukan regex sampai `}` pertama: badan `confirmDialog` sering memuat objek lain, dan regex akan memotong nilainya di tengah lalu melaporkan bersih untuk teks yang belum selesai dibaca. Dan `message:` dicocokkan dengan penjaga batas kata — tanpa itu, `messageHtml:` ikut tertangkap, dan setiap perbaikan justru terbaca sebagai pelanggaran.
 
 - [x] **`messageHtml` eksplisit + 14 pemanggil dipindahkan** — 8 sabotase
+
+## Cuti dan presensi yang tidak pernah saling melihat
+
+> *"apakah shift dan cuti sudah terkoneksi dengan presensi?"*
+
+Dua dari tiga sambungan sudah ada; yang ketiga hampir tidak.
+
+| | keadaan |
+|---|---|
+| shift ↔ presensi | **terhubung** — `late_status` dihitung saat clock in dari `shift_schedules` (`0034`), bisa dinilai ulang (`0074`), berjejak (`0106`), staff dikabari (`0107`) |
+| shift ↔ cuti | **terhubung** — sel jadwal menampilkan cuti dan menguncinya (`0113`); cuti dibaca saat menggambar, tidak disalin, jadi cuti yang dibatalkan hilang sendiri |
+| cuti ↔ presensi | **dua titik saja**, keduanya satu arah: reminder clock-in melewati yang sedang cuti, dan laporan rekap punya kolom "Cuti" |
+
+Sampai `0156`, tidak ada satu pun migration yang menghubungkan `leave_requests` dengan `attendance_records`. Akibatnya:
+
+**Staff yang cutinya disetujui lalu tetap masuk terhitung HADIR dan CUTI untuk hari yang sama.** Kolom Hadir dihitung dari `attendance_records`, kolom Cuti dari `leave_requests` — dua sumber yang tidak pernah saling melihat. Angkanya wajar dibaca, tidak melempar apa pun, dan baru ketahuan kalau ada yang menjumlahkan hari kerja seseorang dan hasilnya lebih banyak daripada jumlah hari di bulan itu.
+
+### Yang sengaja TIDAK dikerjakan
+
+Clock-in **tidak ditolak**. Ada kalanya orang yang sedang cuti memang dipanggil masuk, dan menolaknya memaksa dia absen lewat jalan lain — titip akun, atau minta admin mengoreksi belakangan. Dua-duanya menghasilkan catatan yang lebih tidak bisa dipercaya daripada presensi yang ditandai. Nada peringatannya pun bukan tuduhan, dan tesnya menjaga itu: kata "dilarang", "melanggar", "curang" tidak boleh muncul di sana.
+
+`late_status` juga tidak diberi nilai baru. Ia potret penilaian terhadap **jadwal**, dan menyelipkan `cuti` ke sana memaksa setiap pembacanya — laporan, rekap, lencana — diperiksa ulang satu per satu.
+
+### Penandanya diisi database, bukan layar
+
+Peringatan di Staff App menjaga **orangnya**, bukan **datanya**. Clock-in adalah `insert` langsung, dan ada beberapa jalan masuk yang tidak lewat layar itu: koreksi presensi oleh admin, PWA lama yang masih di cache HP, dan siapa pun yang memanggil PostgREST sendiri. Kalau penandanya dikirim layar, semua jalan itu menghasilkan `NULL` — yang artinya *"tidak sedang cuti"*, persis sama dengan baris yang memang tidak sedang cuti. Tandanya jadi tidak bisa dipercaya untuk hal yang justru menjadi alasannya ada.
+
+Di trigger `before insert`, satu-satunya cara menghindarinya adalah tidak membuat barisnya sama sekali.
+
+### `::date` di atas `timestamptz` adalah jebakan shift pagi
+
+`clock_in_at` adalah `timestamptz`, dan `::date` atasnya memakai zona server — UTC. Clock-in **06.30 WIB** berarti **23.30 UTC hari sebelumnya**, jadi cuti yang berlaku hari itu tidak ketemu.
+
+Yang membuatnya mahal: ia hanya meleset untuk clock-in sebelum pukul 07.00 WIB — yaitu shift pagi, yaitu shift yang paling sering bertabrakan dengan cuti. Dan kesalahannya senyap sempurna: barisnya tetap tersimpan, tandanya saja yang kosong.
+
+### Tes PGlite yang hampir tidak menguji apa pun
+
+Percobaan pertama `test-migrasi-0156.mjs` membiarkan zona waktu PGlite apa adanya. Seluruh §2 — bagian yang dibuat khusus untuk menjebak kesalahan zona — lolos tanpa menguji apa pun, karena zona bawaan PGlite kebetulan sudah dekat WIB. Supabase memakai `TimeZone = UTC`, jadi tesnya sekarang memaksa `set time zone 'UTC'` lebih dulu.
+
+Bentuknya sama dengan fixture impor aset: **tesnya hijau karena fixture-nya tidak menjebak**, bukan karena kodenya benar.
+
+### Tombol yang mati permanen karena satu `return`
+
+Penangan clock-in menyalakan kembali tombolnya **di dalam `catch`**. Itu benar selama satu-satunya jalan keluar lebih awal adalah `throw` — dan berhenti benar pada detik ada `return` di tengah, yaitu saat orang membatalkan peringatan cuti.
+
+Akibatnya tombol presensi mati sampai halamannya dimuat ulang, pada orang yang baru saja memilih "Batal" dan berhak mencoba lagi. Tidak ada galat; tombolnya cuma tidak menjawab. Sekarang `finally`, supaya jalan keluar berikutnya tidak perlu mengingatnya.
+
+### Peringatan sebelum unggah, bukan sesudah
+
+Pemeriksaan cutinya terjadi **sebelum** selfie-nya diunggah. Kalau sesudah, orang yang membatalkan meninggalkan berkas di Storage yang tidak ditunjuk baris presensi mana pun, tidak pernah terlihat siapa pun, dan tidak pernah terhapus.
+
+Auditnya mengikat perbandingan posisi itu ke **blok penangan clock in**, bukan ke seluruh berkas — `uploadAttendanceSelfie({` dipanggil juga oleh clock out, dan panggilan itu muncul lebih dulu. Membandingkan dengan kemunculan pertama berarti membandingkan dengan unggahan yang tidak ada hubungannya.
+
+- [x] **Presensi saat cuti ditandai database + peringatan di Staff App** (`0156`) — 23 sabotase

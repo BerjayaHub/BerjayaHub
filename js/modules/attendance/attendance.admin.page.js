@@ -788,7 +788,21 @@ function rowHtml(r, outlet, pushAktif, petaIstirahat = new Map()) {
              </div>`
           : ''
       }</td>
-      <td>${r.is_storing ? `<span class="badge badge-pending">${tipeOf(r)}</span>` : '<span class="badge badge-approved">Normal</span>'}</td>
+      <td>${r.is_storing ? `<span class="badge badge-pending">${tipeOf(r)}</span>` : '<span class="badge badge-approved">Normal</span>'}${
+        // ============ MASUK SAAT CUTI (0156) ============
+        //
+        // Tanpa lencana ini, tandanya ada di database dan tidak pernah terbaca
+        // siapa pun — dan hari itu tetap terhitung HADIR di kolom Hadir
+        // sekaligus CUTI di kolom Cuti, dua angka dari dua sumber yang tidak
+        // saling melihat.
+        //
+        // Ini bukan tuduhan: yang paling sering terjadi adalah orang yang
+        // memang dipanggil masuk. Yang perlu dikerjakan admin cuma memutuskan
+        // cutinya dipotong atau dikembalikan.
+        r.cuti_request_id
+          ? '<br /><span class="badge" style="background:#fff4e5;color:#8a4b00" title="Hari ini jatuh di dalam cuti yang sudah disetujui — periksa apakah jatah cutinya perlu dikembalikan">masuk saat cuti</span>'
+          : ''
+      }</td>
       <td style="font-size:0.8rem;max-width:180px">${r.is_storing ? (r.exit_reason ? escapeHtml(r.exit_reason) : '<span style="color:var(--color-text-muted)">tanpa keterangan</span>') : '-'}</td>
       <td style="font-size:0.8rem">${shiftCell(r)}</td>
       <td>${formatTime(r.clock_in_at)}${

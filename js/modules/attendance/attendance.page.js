@@ -18,8 +18,10 @@ import {
   getSetelanPresensi,
   listIstirahat,
   mulaiIstirahat,
-  selesaiIstirahat
+  selesaiIstirahat,
+  cutiSayaRentang
 } from './attendance.service.js';
+import { tanggalWIB, akhirRentangCuti, cutiPada, peringatanCuti, CATATAN_LANJUT } from './cuti-presensi.js';
 import { setelanEfektif, bolehMulaiIstirahat, totalMenitIstirahat, BATAS_ISTIRAHAT_JAM } from './istirahat.js';
 import { cariOutletArea, bolehAksiPresensi, berkoordinat, AKURASI_MAKS_TOLERANSI } from './area-outlet.js';
 import { getShiftSettings, getMyScheduleFor, evaluateLateness, todayWIB, LATE_LABEL, resolveAutoOff, holidayMapOf } from '../shift/shift.service.js';
@@ -663,6 +665,37 @@ export async function renderAttendancePage(container, ctx) {
 
       const isStoring = mode === 'outside';
       if (isStoring && !storing) throw new Error('Aktifkan mode Tugas Luar/Storing dulu sebelum clock in.');
+
+      // ============ SEDANG CUTI? (0156) ============
+      //
+      // DIPERIKSA SEBELUM FOTONYA DIUNGGAH.
+      //
+      // Urutan ini yang penting, bukan pemeriksaannya. Kalau peringatannya
+      // muncul SESUDAH unggah, orang yang membatalkan meninggalkan selfie
+      // yatim di Storage — berkas yang tidak ditunjuk baris presensi mana pun,
+      // tidak pernah terlihat siapa pun, dan tidak pernah terhapus.
+      //
+      // Gagalnya pemeriksaan ini TIDAK menghalangi presensi: yang hilang cuma
+      // peringatannya. Menolak clock-in karena satu RPC tambahan tidak terbaca
+      // berarti menukar satu ketidaknyamanan dengan satu orang yang tidak bisa
+      // absen sama sekali.
+      const hariIni = tanggalWIB();
+      let cutiAktif = null;
+      try {
+        cutiAktif = cutiPada(await cutiSayaRentang(hariIni, akhirRentangCuti(hariIni)), hariIni);
+      } catch {
+        cutiAktif = null;
+      }
+      if (cutiAktif) {
+        const p = peringatanCuti(cutiAktif);
+        const lanjut = await confirmDialog({
+          title: p.judul,
+          messageHtml: `<p>${p.pesan}</p><p style="margin:6px 0 0;font-size:0.9em;opacity:0.8">${CATATAN_LANJUT}</p>`,
+          confirmText: p.lanjut,
+          cancelText: 'Batal'
+        });
+        if (!lanjut) return;
+      }
       const recordOutletId = isStoring ? nbmBase.outlet_id : detected.id;
       const recordBuId = isStoring ? nbmBase.business_unit_id : detected.business_unit_id;
 
@@ -740,6 +773,20 @@ export async function renderAttendancePage(container, ctx) {
       await renderAttendancePage(container, ctx);
     } catch (error) {
       errorEl.textContent = error.message ?? 'Gagal clock in.';
+    } finally {
+      // ============ `finally`, BUKAN DI DALAM `catch` ============
+      //
+      // Sebelumnya tombolnya hanya dinyalakan kembali saat ada GALAT. Itu
+      // benar selama satu-satunya jalan keluar lebih awal adalah `throw` —
+      // dan berhenti benar pada detik ada `return` di tengah, mis. saat orang
+      // membatalkan peringatan "kamu sedang cuti".
+      //
+      // Akibatnya tombol presensi mati permanen sampai halamannya dimuat
+      // ulang, pada orang yang baru saja memilih "Batal" dan berhak mencoba
+      // lagi. Tidak ada galat di mana pun; tombolnya cuma tidak menjawab.
+      //
+      // Pada jalur sukses ini tidak berpengaruh: `renderAttendancePage`
+      // menggambar ulang seluruh panelnya, jadi tombol ini sudah dibuang.
       e.target.disabled = false;
     }
   });

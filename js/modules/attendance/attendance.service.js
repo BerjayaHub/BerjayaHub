@@ -390,6 +390,25 @@ export async function getMyNbmBase(fallback = {}) {
   return getMyBaseScope(fallback);
 }
 
+/**
+ * Cuti SAYA yang disetujui dalam sebuah rentang (0113).
+ *
+ * Dipakai Staff App untuk memperingatkan sebelum clock-in. Rentangnya diminta
+ * beberapa minggu ke depan — bukan sehari — supaya kalimatnya bisa menyebut
+ * cutinya berlaku sampai kapan. "Kamu sedang cuti" tanpa tanggal akhir
+ * menyisakan pertanyaan yang justru paling menentukan bagi orang yang sedang
+ * ragu di depan tombol.
+ *
+ * GAGALNYA TIDAK MENGHALANGI PRESENSI. Yang hilang kalau RPC ini gagal cuma
+ * peringatannya; menolak clock-in karena pemeriksaan tambahan tidak terbaca
+ * akan menukar satu ketidaknyamanan dengan satu orang yang tidak bisa absen.
+ */
+export async function cutiSayaRentang(dari, sampai) {
+  const { data, error } = await supabase.rpc('cuti_saya_rentang', { p_from: dari, p_to: sampai });
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function clockIn({
   userId,
   businessUnitId,
@@ -673,7 +692,12 @@ export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFro
   try {
     // `auto_closed_*` ada sejak 0138 — penanda bahwa jam pulangnya DITEBAK
     // sistem, bukan ditekan orang.
-    return await ambil(`${KOLOM_REKAP_PRESENSI}, auto_closed_at, auto_closed_reason`);
+    // `cuti_request_id` ikut di lapis yang sama (0156). Sengaja TIDAK di-embed
+    // ke `leave_requests` untuk mengambil nama jenis cutinya: embed itu
+    // bergantung pada RLS `leave_requests` milik si pembaca, dan kalau
+    // menolak, yang kembali adalah `null` — tidak bisa dibedakan dari "tidak
+    // sedang cuti". Lencananya cukup dari ada/tidaknya id.
+    return await ambil(`${KOLOM_REKAP_PRESENSI}, auto_closed_at, auto_closed_reason, cuti_request_id`);
   } catch (e) {
     // KOLOM BARU TIDAK BOLEH MENYANDERA SELURUH REKAP.
     //
@@ -681,7 +705,7 @@ export async function listAttendanceForAdmin({ businessUnitId, outletId, dateFro
     // Ini pernah terjadi sungguhan pada 0122: yang hilang bukan satu kolom,
     // melainkan seluruh daftarnya. Jeda antara push dan menjalankan migration
     // itu wajar dan akan terjadi lagi.
-    if (!/auto_closed/.test(String(e?.message ?? ''))) throw e;
+    if (!/auto_closed|cuti_request_id/.test(String(e?.message ?? ''))) throw e;
     return await ambil(KOLOM_REKAP_PRESENSI);
   }
 }
