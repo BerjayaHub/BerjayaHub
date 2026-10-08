@@ -170,7 +170,20 @@ if (hal) {
 
   // 5. Sisi outlet.
   if (!/class="recv-ket-input"/.test(kode)) salah('dispatch.page.js: kotak keterangan tidak ada di sisi outlet — CK yang lupa mengisi tidak bisa dilengkapi siapa pun.');
-  if (!/lengkapiKeteranganKiriman\(/.test(kode)) salah('dispatch.page.js: keterangan dari outlet tidak pernah dikirim ke server.');
+  // DIHITUNG, bukan dicari.
+  //
+  // Ada DUA jalur penerimaan di layar ini — "Simpan Sementara" (cicilan
+  // pengecekan, 0142) dan "Konfirmasi Terima" — dan masing-masing memanggilnya
+  // sendiri. Mencabut salah satunya menyisakan yang lain, jadi pencarian lepas
+  // tetap hijau sementara separuh keterangan yang diketik outlet tidak pernah
+  // sampai ke server.
+  const kirimKet = (kode.match(/lengkapiKeteranganKiriman\(/g) ?? []).length;
+  if (kirimKet < 2) {
+    salah(
+      `dispatch.page.js: keterangan dari outlet cuma dikirim di ${kirimKet} dari 2 jalur penerimaan ` +
+        '(Simpan Sementara & Konfirmasi Terima). Yang tidak mengirim membuang apa yang baru saja diketik orangnya.'
+    );
+  }
   // Kelasnya harus ADA *dan* benar-benar dihitung dari jumlah kirimnya.
   //
   // Mencari nama kelasnya saja tidak cukup: `nol ? ' class="kirim-nol"' : ''`
@@ -198,11 +211,33 @@ if (picker) {
 const pdf = baca('js/modules/dispatch/dispatch-pdf.js');
 if (pdf) {
   const kode = tanpaKomentar(pdf);
-  if (!/it\.keterangan/.test(kode) || !/it\.ordered/.test(kode)) {
+
+  // ============ PEMERIKSA YANG MENGIKUTI KODENYA, BUKAN EJAANNYA ============
+  //
+  // Versi pertama mencari `it.keterangan` & `it.ordered` HARUS di berkas ini.
+  // Lalu penyusun catatan barisnya dipindah ke `pesan-kiriman.js` supaya kertas
+  // dan teks WhatsApp memakai satu sumber — dan auditnya merah untuk perubahan
+  // yang justru memperkuat hal yang dijaganya.
+  //
+  // Yang dijaga bukan di mana barisnya diketik, melainkan apakah KERTASNYA
+  // memuat keterangan & jumlah diminta. Jadi penyusunnya diikuti ke mana pun ia
+  // pindah; yang tidak boleh adalah kertas yang berhenti memuatnya sama sekali.
+  const lewatModul = /catatanBaris\(/.test(kode);
+  const sumber = lewatModul ? baca('js/modules/dispatch/pesan-kiriman.js') : pdf;
+  const kodeSumber = sumber ? tanpaKomentar(sumber) : '';
+
+  if (!/\bketerangan\b/.test(kodeSumber) || !/\bordered\b/.test(kodeSumber)) {
     salah(
       'dispatch-pdf.js: surat jalan cetak tidak memuat keterangan & jumlah diminta. ' +
-        'Perselisihannya terjadi saat barang diserahkan, dan yang dipegang orang saat itu adalah kertasnya.'
+        'Perselisihannya terjadi saat barang diserahkan, dan yang dipegang orang saat itu adalah kertasnya.' +
+        (lewatModul ? ' (Disusun lewat `pesan-kiriman.js`, dan di sana pun tidak ketemu.)' : '')
     );
+  }
+  // Dan kertasnya memang harus MENGGAMBAR catatan itu, bukan cuma
+  // menyusunnya. Fungsi yang dipanggil lalu hasilnya dibuang akan lolos
+  // pemeriksaan di atas tanpa satu baris pun sampai ke kertas.
+  if (lewatModul && !/doc\.text\(catatan\.join\(/.test(kode)) {
+    salah('dispatch-pdf.js: catatan barisnya disusun tapi tidak pernah digambar ke kertasnya.');
   }
 }
 

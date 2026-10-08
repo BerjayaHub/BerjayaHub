@@ -190,11 +190,29 @@ if (murni) {
   if (!/namaBelum: belum/.test(kode)) {
     salah('cek-kiriman.js: nama bahan yang belum dicek tidak dibawa — "3 bahan belum dicek" membuat orangnya menyisir ulang seluruh tabel.');
   }
-  // Muatan selalu menyertakan kuncinya.
-  if (!/\{ item_id, dicek_qty: bacaCek\(v\) \}/.test(kode)) {
+  // ============ MUATAN HANYA BERISI BARIS YANG DISENTUH ============
+  //
+  // Dulu pemeriksaan ini menuntut kebalikannya: kunci `dicek_qty` SELALU ada.
+  // Itu benar untuk satu device, dan salah untuk dua. Outlet membuka surat
+  // jalan yang sama di dua HP — bar dan kitchen — dan device yang mengirim
+  // kunci untuk SELURUH baris mengirim `null` untuk baris milik device
+  // sebelah. Di server itu berarti "batalkan ceknya", dan hitungan orang lain
+  // terhapus tanpa satu pun galat.
+  if (!/if \(sekarang === sebelum\) continue;/.test(kode)) {
     salah(
-      'cek-kiriman.js `muatanCek`: kunci `dicek_qty` tidak selalu disertakan. Di server, kunci yang TIDAK ADA berarti ' +
-        '"tidak sedang saya sentuh" — muatan yang menghilangkannya membuat pembatalan cek mustahil.'
+      'cek-kiriman.js `muatanCek`: baris yang TIDAK BERUBAH ikut dikirim lagi. Device yang cuma mengisi separuh tabel ' +
+        'akan mengirim `null` untuk separuh lainnya — dan menghapus hitungan device sebelah, tanpa galat apa pun.'
+    );
+  }
+  // Tapi yang sengaja DIKOSONGKAN harus tetap terkirim sebagai null: itu
+  // satu-satunya cara membatalkan cek.
+  if (!/hasil\.push\(\{ item_id, dicek_qty: sekarang \}\);/.test(kode)) {
+    salah('cek-kiriman.js `muatanCek`: baris yang berubah tidak lagi membawa `dicek_qty` — pembatalan cek jadi mustahil.');
+  }
+  if (!/const sebelum = bacaCek\(semula\.get\(item_id\)\);/.test(kode)) {
+    salah(
+      'cek-kiriman.js `muatanCek`: pembandingnya bukan lagi nilai SAAT DIGAMBAR. Tanpa pembanding itu, "saya ' +
+        'mengosongkan baris ini" tidak bisa dibedakan dari "baris ini memang bukan bagian saya".'
     );
   }
 }
@@ -242,8 +260,62 @@ if (page) {
   if (!/querySelectorAll\('\.btn-save-cek'\)/.test(kode)) {
     salah('dispatch.page.js: tombol Simpan Sementara digambar tapi tidak pernah dipasangi penangan klik.');
   }
-  if (!/simpanCekKiriman\(btn\.dataset\.id, muatanCek\(isianKartu\(kartu\)\)\)/.test(kode)) {
-    salah('dispatch.page.js: Simpan Sementara tidak mengirim muatan dari modul murni.');
+  if (!/simpanCekKiriman\(btn\.dataset\.id, muatanCek\(isianKartu\(kartu\), isianAwalKartu\(kartu\)\)\)/.test(kode)) {
+    salah(
+      'dispatch.page.js: Simpan Sementara tidak lagi mengirim nilai AWAL sebagai pembanding. Tanpa itu `muatanCek` ' +
+        'tidak bisa tahu baris mana yang sungguh disentuh device ini, dan kembali menghapus hitungan device sebelah.'
+    );
+  }
+  // Nilai awalnya memang digambar ke barisnya.
+  if (!/data-awal="\$\{it\.dicek_qty == null \? '' : round\(it\.dicek_qty\)\}"/.test(kode)) {
+    salah('dispatch.page.js: `data-awal` tidak digambar di kotak Diterima — pembandingnya kosong, jadi setiap kotak terbaca sebagai "disentuh".');
+  }
+  if (!/for \(const el of kartu\.querySelectorAll\('\.recv-input'\)\) peta\.set\(el\.dataset\.item, el\.dataset\.awal \?\? ''\);/.test(kode)) {
+    salah('dispatch.page.js: `isianAwalKartu` tidak membaca `data-awal` — pembandingnya kosong untuk semua baris.');
+  }
+
+  // ============ TERIMA MENYEGARKAN DULU ============
+  //
+  // Penyegaran otomatis tiap 15 detik sengaja dilewati selama ada tabel yang
+  // sedang diisi, jadi di saat paling genting layarnya paling basi. Kalau
+  // "mana yang belum dicek" diputuskan dari tabel basi itu, dialognya
+  // menawarkan "tandai sesuai kiriman" untuk baris yang sudah dihitung device
+  // sebelah — dan pilihan itu menimpanya.
+  if (!/terbaru = await getDispatchItems\(btn\.dataset\.id\);/.test(kode)) {
+    salah(
+      'dispatch.page.js: Terima tidak mengambil hasil cek terbaru dulu. Baris yang sudah dihitung device sebelah ' +
+        'terlihat kosong di sini, lalu ditimpa oleh pilihan "sesuai kiriman" / "0".'
+    );
+  }
+  if (!/const r = ringkasCek\(terbaru, isian\);/.test(kode)) {
+    salah('dispatch.page.js: keputusan "belum dicek" tidak memakai data terbaru yang baru saja diambil.');
+  }
+  // Yang sedang diketik orangnya TIDAK boleh ditimpa oleh penyegaran itu.
+  if (!/if \(el\.value\.trim\(\) !== ''\) continue;\s*\n\s*const dari = terbaru\.find/.test(kode)) {
+    salah(
+      'dispatch.page.js: penyegaran sebelum Terima menimpa kotak yang SUDAH diisi di layar ini. Hitungan yang sedang ' +
+        'dipegang orangnya tidak boleh berubah di bawah tangannya.'
+    );
+  }
+
+  // ============ BUKTI TERIMA TIDAK MENGUNDUH PDF ============
+  if (!/title: 'BUKTI TERIMA',\s*\n\s*unduhPdf: false/.test(kode)) {
+    salah(
+      'dispatch.page.js: Bukti Terima mengunduh PDF lagi ke HP staff. Yang menekan Terima adalah orang yang baru ' +
+        'selesai menghitung barang; berkas itu tidak dibutuhkan siapa pun di situ.'
+    );
+  }
+  // Diikat ke dialog BUKTI TERIMA saja.
+  //
+  // Jalur KIRIM (sisi CK) memang masih mengunduh PDF-nya — kertasnya ikut
+  // berangkat bersama barang — jadi "PDF sudah terunduh" di sana benar.
+  // Melarang kalimat itu di seluruh berkas akan merah untuk kode yang betul.
+  const iBukti = kode.indexOf('title: `Bukti Terima');
+  const blokBukti = iBukti >= 0 ? kode.slice(iBukti, iBukti + 400) : '';
+  if (!blokBukti) {
+    salah('dispatch.page.js: dialog bagikan Bukti Terima tidak ketemu — pemeriksaan di bawah kehilangan sasarannya.');
+  } else if (/PDF sudah terunduh/.test(blokBukti)) {
+    salah('dispatch.page.js: dialog Bukti Terima masih berkata "PDF sudah terunduh" padahal tidak ada yang diunduh.');
   }
   if (!/Stok belum bergerak/.test(kode)) {
     salah('dispatch.page.js: Simpan Sementara tidak mengatakan bahwa stok belum bergerak — orangnya akan mengira barangnya sudah masuk pembukuan.');

@@ -51,6 +51,19 @@ const lepasTanda = () => {
 };
 
 const pulih = () => {
+  // ============ MODE PERIKSA POLA TIDAK MEMULIHKAN APA PUN ============
+  //
+  // Karena ia tidak pernah merusak apa pun. `fs.writeFileSync` dengan isi yang
+  // SAMA tetap sebuah penulisan: berkasnya dipotong lebih dulu, lalu diisi
+  // ulang. Proses lain yang kebetulan membacanya pada milidetik itu melihat
+  // berkas kosong atau separuh.
+  //
+  // Itu benar-benar terjadi: `audit-sabotase-terpasang.cjs` menjalankan 53
+  // harness sekaligus, ketiganya-puluh-tiga menulis ulang berkasnya saat
+  // keluar, dan `audit-import-ekspor.cjs` yang berjalan berbarengan melaporkan
+  // "mengimpor REPORTS tapi berkasnya tidak mengekspornya" — untuk berkas yang
+  // isinya tidak pernah berubah sedetik pun.
+  if (process.env.SABOTASE_PERIKSA_POLA) return lepasTanda();
   for (const [rel, isi] of asli) fs.writeFileSync(P(rel), isi);
   lepasTanda();
 };
@@ -79,6 +92,24 @@ const sabotase = (nama, rel, dari, ke, pemeriksa) => {
   if (rusak === isi) {
     gagal++;
     console.error(`❌ SABOTASE TIDAK TERPASANG: ${nama} — polanya tidak ketemu di ${rel}.`);
+    return;
+  }
+  // ============ MODE PERIKSA POLA ============
+  //
+  // Dipakai `tools/audit-sabotase-terpasang.cjs`: berhenti TEPAT sesudah pola
+  // `dari` dipastikan cocok, sebelum satu berkas pun disentuh.
+  //
+  // Alasannya satu kejadian nyata: `sabotase-0132.mjs` basi sejak `0142` —
+  // tiga polanya tidak cocok lagi dengan kodenya — dan tidak ada yang tahu
+  // berbulan-bulan, karena harness sabotase berat (tiap sabotase menjalankan
+  // pemeriksanya sendiri) sehingga tidak pernah ikut sweep rutin. Harness yang
+  // polanya tidak terpasang TIDAK menguji apa pun, dan ia melaporkannya hanya
+  // kalau ada yang menjalankannya.
+  //
+  // Mode ini tidak menjalankan pemeriksa sama sekali, jadi seluruh 50+ harness
+  // bisa disapu dalam hitungan detik.
+  if (process.env.SABOTASE_PERIKSA_POLA) {
+    console.log(`   \u2714 pola terpasang: ${nama}`);
     return;
   }
   tandai(rel);
@@ -165,14 +196,26 @@ sabotase(
   '    const dari = it?.dicek_qty;',
   TES
 );
-// Pemeriksanya TES, bukan AUDIT: sabotase ini menyaring baris null tanpa
-// mengubah bentuk objek yang dihasilkan, jadi pola teks di auditnya tetap
-// cocok. Yang bisa melihat bedanya cuma menjalankan fungsinya.
+// Pemeriksanya TES, bukan AUDIT: kedua sabotase di bawah tidak mengubah bentuk
+// objek yang dihasilkan, jadi pola teks di auditnya tetap cocok. Yang bisa
+// melihat bedanya cuma menjalankan fungsinya.
 sabotase(
-  'muatan berhenti menyertakan baris kosong — pembatalan cek jadi mustahil',
+  'muatan berhenti menyertakan baris yang sengaja dikosongkan — pembatalan cek jadi mustahil',
   MURNI,
-  '  return [...peta.entries()].map(([item_id, v]) => ({ item_id, dicek_qty: bacaCek(v) }));',
-  '  return [...peta.entries()].filter(([, v]) => bacaCek(v) !== null).map(([item_id, v]) => ({ item_id, dicek_qty: bacaCek(v) }));',
+  '    if (sekarang === sebelum) continue;\n    hasil.push({ item_id, dicek_qty: sekarang });',
+  '    if (sekarang === null) continue;\n    hasil.push({ item_id, dicek_qty: sekarang });',
+  TES
+);
+// ============ BUG DUA DEVICE, DIPASANG LAGI ============
+//
+// Ini bentuk aslinya: setiap kotak di layar ikut dikirim, termasuk yang tidak
+// pernah disentuh. Di server, kunci yang ADA dengan nilai null berarti
+// "batalkan ceknya" — jadi device bar menghapus hitungan device kitchen.
+sabotase(
+  'setiap kotak ikut dikirim lagi — device bar menghapus hitungan device kitchen',
+  MURNI,
+  '    if (sekarang === sebelum) continue;',
+  '    if (false) continue;',
   TES
 );
 
@@ -335,6 +378,51 @@ sabotase(
   SVC,
   '|dicek_qty|dicek_at|dicek_by',
   '',
+  AUDIT
+);
+
+console.log('\nSABOTASE DUA DEVICE (penerimaan):');
+
+sabotase(
+  'Simpan Sementara berhenti mengirim nilai awal — pembandingnya hilang, semua kotak terbaca "disentuh"',
+  PAGE,
+  'muatanCek(isianKartu(kartu), isianAwalKartu(kartu))',
+  'muatanCek(isianKartu(kartu))',
+  AUDIT
+);
+sabotase(
+  '`data-awal` tidak digambar — pembandingnya kosong untuk setiap baris',
+  PAGE,
+  "                               data-awal=\"${it.dicek_qty == null ? '' : round(it.dicek_qty)}\"\n",
+  '',
+  AUDIT
+);
+sabotase(
+  'Terima memutuskan "belum dicek" dari layar yang basi',
+  PAGE,
+  '          terbaru = await getDispatchItems(btn.dataset.id);',
+  '          terbaru = itemsPer.get(btn.dataset.id) ?? [];',
+  AUDIT
+);
+sabotase(
+  'penyegaran sebelum Terima menimpa kotak yang sedang diisi orangnya',
+  PAGE,
+  "            if (el.value.trim() !== '') continue;\n            const dari = terbaru.find",
+  '            const dari = terbaru.find',
+  AUDIT
+);
+sabotase(
+  'Bukti Terima mengunduh PDF lagi ke HP staff',
+  PAGE,
+  "            title: 'BUKTI TERIMA',\n            unduhPdf: false",
+  "            title: 'BUKTI TERIMA'",
+  AUDIT
+);
+sabotase(
+  'dialog bagikan kembali berkata "PDF sudah terunduh" padahal tidak ada yang diunduh',
+  PAGE,
+  "              'Teksnya sudah memuat jumlah diterima beserta keterangan tiap baris. ' +\n              'Kalau butuh PDF-nya, buka \"Riwayat & Dokumen\" lalu unduh dari sana.',",
+  "              'PDF sudah terunduh.',",
   AUDIT
 );
 

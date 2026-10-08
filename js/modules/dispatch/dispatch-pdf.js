@@ -1,5 +1,11 @@
 import { formatNum } from '../../core/format.js';
 import { loadJsPDF } from '../../core/pdf.js';
+import { catatanBaris } from './pesan-kiriman.js';
+
+// Teks WhatsApp-nya pindah ke `pesan-kiriman.js` — modul murni yang juga
+// dipakai PDF di bawah, supaya kertas dan pesan tidak pernah menyimpang.
+// Diekspor ulang dari sini supaya pemanggil lama tidak perlu diubah.
+export { suratJalanWaText } from './pesan-kiriman.js';
 
 const qty = (n) => (n == null ? '-' : formatNum(n));
 
@@ -56,9 +62,12 @@ export async function buildSuratJalanPDF(data) {
     // di situlah perselisihan "outlet tidak pesan" versus "CK tidak kirim"
     // terjadi. Kalau kertasnya tidak memuat jawabannya, layar yang memuatnya
     // tidak menolong siapa pun yang sedang berdiri di depan mobil.
-    const catatan = [];
-    if (it.ordered != null && Number(it.ordered) !== Number(it.sent)) catatan.push(`diminta ${qty(it.ordered)} ${it.unit ?? ''}`);
-    if (it.keterangan) catatan.push(String(it.keterangan).slice(0, 60));
+    //
+    // Disusun `pesan-kiriman.js`, SATU sumber dengan teks WhatsApp. Pemotongan
+    // 60 karakter tetap diminta dari sini: lebar A5 adalah batas kertas, bukan
+    // aturan bersama — memotong pesan WhatsApp sepanjang itu berarti membuang
+    // kalimat yang muat hanya karena dokumen lain tidak muat.
+    const catatan = catatanBaris(it, { potong: 60 });
     if (catatan.length) {
       doc.setFontSize(8);
       doc.setTextColor(110);
@@ -90,20 +99,7 @@ export async function buildSuratJalanPDF(data) {
   return filename;
 }
 
-/** Teks ringkas surat jalan untuk dikirim via WhatsApp (file PDF dilampirkan manual). */
-export function suratJalanWaText(data) {
-  const lines = [
-    `*${data.title || 'Surat Jalan'} ${data.code || ''}*`,
-    `Dari: ${data.fromName} → ${data.toName}`,
-    `Tanggal: ${data.dateStr}`,
-    '',
-    ...data.items.map((it) => `• ${it.name}: ${qty(it.sent)}${data.showReceived ? ` (diterima ${qty(it.received)})` : ''} ${it.unit ?? ''}`)
-  ];
-  if (data.notes) lines.push('', `Catatan: ${data.notes}`);
-  lines.push('', '(PDF surat jalan terlampir)');
-  return lines.join('\n');
-}
-
+/** Buka WhatsApp dengan teksnya sudah terisi. PDF-nya dilampirkan manual. */
 export function openWhatsApp(text) {
   window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
 }

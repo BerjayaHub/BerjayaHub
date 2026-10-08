@@ -108,16 +108,37 @@ export function gabungDuplikat(items) {
     let qty = 0;
     let harga = 0;
     let adaHargaKosong = false;
+    // ============ KETERANGAN: YANG PERTAMA TERISI YANG MENANG ============
+    //
+    // Spread `...it` di bawah sudah membawa keterangan baris PERTAMA — tapi
+    // kalau baris pertama kosong dan baris keduanya yang berisi, kalimatnya
+    // hilang tanpa tanda. Di surat jalan itu mahal: keterangan adalah
+    // satu-satunya tempat "stok CK habis" bisa ditulis, dan baris yang
+    // kehilangannya kembali jadi angka tanpa penjelasan.
+    //
+    // Tidak digabung jadi satu teks panjang: dua kalimat dari dua orang yang
+    // disambung tanpa dipisah lebih sering membingungkan daripada menolong,
+    // dan penggabungannya terjadi tepat di depan mata orangnya — ia bisa
+    // mengetik ulang kalau memang keduanya perlu.
+    let ket;
     for (const j of idx) {
       qty += angka(daftar[j]?.qty) ?? 0;
       const h = angka(daftar[j]?.line_total);
       if (h === null) adaHargaKosong = true;
       else harga += h;
+      if (ket === undefined || String(ket).trim() === '') {
+        const k = daftar[j]?.keterangan;
+        if (k !== undefined && String(k).trim() !== '') ket = k;
+      }
     }
 
     hasil.push({
       ...it,
       qty,
+      // `'keterangan' in it` — sama seperti `line_total` di bawah: baris yang
+      // memang tidak punya konsep keterangan (order, nota) tidak boleh
+      // tiba-tiba membawa kolom baru.
+      ...('keterangan' in (it ?? {}) ? { keterangan: ket ?? it.keterangan } : {}),
       // `undefined` (bukan `null`) supaya baris yang memang tidak punya konsep
       // harga — order, surat jalan — tidak tiba-tiba membawa kolom baru.
       line_total: 'line_total' in (it ?? {}) ? (adaHargaKosong ? null : harga) : it?.line_total

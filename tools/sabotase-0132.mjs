@@ -49,6 +49,19 @@ const lepasTanda = () => {
 };
 
 const pulih = () => {
+  // ============ MODE PERIKSA POLA TIDAK MEMULIHKAN APA PUN ============
+  //
+  // Karena ia tidak pernah merusak apa pun. `fs.writeFileSync` dengan isi yang
+  // SAMA tetap sebuah penulisan: berkasnya dipotong lebih dulu, lalu diisi
+  // ulang. Proses lain yang kebetulan membacanya pada milidetik itu melihat
+  // berkas kosong atau separuh.
+  //
+  // Itu benar-benar terjadi: `audit-sabotase-terpasang.cjs` menjalankan 53
+  // harness sekaligus, ketiganya-puluh-tiga menulis ulang berkasnya saat
+  // keluar, dan `audit-import-ekspor.cjs` yang berjalan berbarengan melaporkan
+  // "mengimpor REPORTS tapi berkasnya tidak mengekspornya" — untuk berkas yang
+  // isinya tidak pernah berubah sedetik pun.
+  if (process.env.SABOTASE_PERIKSA_POLA) return lepasTanda();
   for (const [rel, isi] of asli) fs.writeFileSync(P(rel), isi);
   lepasTanda();
 };
@@ -77,6 +90,24 @@ const sabotase = (nama, rel, dari, ke, pemeriksa) => {
   if (rusak === isi) {
     gagal++;
     console.error(`❌ SABOTASE TIDAK TERPASANG: ${nama} — polanya tidak ketemu di ${rel}.`);
+    return;
+  }
+  // ============ MODE PERIKSA POLA ============
+  //
+  // Dipakai `tools/audit-sabotase-terpasang.cjs`: berhenti TEPAT sesudah pola
+  // `dari` dipastikan cocok, sebelum satu berkas pun disentuh.
+  //
+  // Alasannya satu kejadian nyata: `sabotase-0132.mjs` basi sejak `0142` —
+  // tiga polanya tidak cocok lagi dengan kodenya — dan tidak ada yang tahu
+  // berbulan-bulan, karena harness sabotase berat (tiap sabotase menjalankan
+  // pemeriksanya sendiri) sehingga tidak pernah ikut sweep rutin. Harness yang
+  // polanya tidak terpasang TIDAK menguji apa pun, dan ia melaporkannya hanya
+  // kalau ada yang menjalankannya.
+  //
+  // Mode ini tidak menjalankan pemeriksa sama sekali, jadi seluruh 50+ harness
+  // bisa disapu dalam hitungan detik.
+  if (process.env.SABOTASE_PERIKSA_POLA) {
+    console.log(`   \u2714 pola terpasang: ${nama}`);
     return;
   }
   tandai(rel);
@@ -243,15 +274,20 @@ console.log('\n== Layanan, picker, kertas ==');
 sabotase(
   'getDispatchItems berhenti mengambil kolom barunya',
   SVC,
-  'keterangan, ordered_qty, products(name, base_unit)',
-  'products(name, base_unit)',
+  // Dipendekkan jadi `keterangan, ordered_qty,` saja: daftar kolomnya sudah
+  // bertambah sejak 0142 (`dicek_*`), dan pola panjang yang menyebut tetangganya
+  // akan basi lagi setiap kali ada kolom baru.
+  'keterangan, ordered_qty, dicek_qty',
+  'dicek_qty',
   AUDIT
 );
 
 sabotase(
   'tidak ada jalur cadangan kalau 0132 belum dijalankan — seluruh isi kiriman menghilang',
   SVC,
-  /    if \(!\/column \.\* does not exist\|keterangan\|ordered_qty\/i\.test\(error\.message \?\? ''\)\) throw error;[\s\S]*?    return ulang\.data \?\? \[\];/,
+  // Polanya diikat ke BARIS PENJAGANYA saja. Versi lama menyebut seluruh blok
+  // sampai `return ulang.data`, dan blok itu sudah berubah sejak 0142.
+  /    if \(!\/column \.\* does not exist\|keterangan\|ordered_qty[^/]*\/i\.test\(error\.message \?\? ''\)\) throw error;/,
   '    throw error;',
   AUDIT
 );
@@ -267,8 +303,10 @@ sabotase(
 sabotase(
   'surat jalan cetak berhenti memuat keterangan & jumlah diminta',
   PDF,
-  /    const catatan = \[\];[\s\S]*?      y \+= 12;\n    \}/,
-  '',
+  // Penyusun catatan barisnya pindah ke `pesan-kiriman.js` (0157) supaya kertas
+  // dan teks WhatsApp memakai satu sumber. Yang disabotase sekarang pemanggilannya.
+  '    const catatan = catatanBaris(it, { potong: 60 });',
+  '    const catatan = [];',
   AUDIT
 );
 

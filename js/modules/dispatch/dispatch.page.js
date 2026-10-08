@@ -1327,7 +1327,16 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       bolehNol: true,
       // Draft dari order bisa berisi tiga puluh baris.
       cariBaris: true,
-      initial: items.map((i) => ({ product_id: i.product_id, qty: i.sent_qty }))
+      // KETERANGAN PER BARIS ikut bisa diperiksa & dibetulkan di sini (0157).
+      //
+      // Sebelumnya kotaknya cuma ada di layar "Siapkan" dan di layar Terima,
+      // jadi selama tahap draft — tahap yang gunanya memeriksa sebelum barang
+      // berangkat — kalimat yang akan tercetak di surat jalan tidak terlihat
+      // sama sekali. Salah ketik di situ tidak bisa dibetulkan siapa pun:
+      // `lengkapi_keterangan_kiriman` di sisi outlet sengaja hanya mengisi
+      // yang masih kosong.
+      kolomKeterangan: true,
+      initial: items.map((i) => ({ product_id: i.product_id, qty: i.sent_qty, keterangan: i.keterangan }))
     });
 
     const ambilItem = () => picker.getItems();
@@ -1492,8 +1501,19 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                              Nilai yang ADA di sini hanya datang dari hasil cek
                              yang sudah tersimpan — hitungan orang, bukan
                              tebakan layar. -->
+                        <!-- data-awal = nilai SAAT BARIS INI DIGAMBAR.
+                             Dipakai memutuskan baris mana yang sungguh
+                             disentuh device ini — lihat muatanCek() di
+                             cek-kiriman.js. Tanpa pembanding itu, kotak kosong
+                             yang tidak pernah disentuh ikut terkirim sebagai
+                             "batalkan ceknya" dan menghapus hitungan device
+                             sebelah.
+                             (Tanpa backtick: komentar ini ada DI DALAM template
+                             literal, dan satu backtick di sini mengakhiri
+                             literalnya.) -->
                         <input type="number" class="recv-input isian-sempit" min="0" data-item="${it.id}"
                                data-kirim="${round(it.sent_qty)}" placeholder="belum dicek"
+                               data-awal="${it.dicek_qty == null ? '' : round(it.dicek_qty)}"
                                value="${it.dicek_qty == null ? '' : round(it.dicek_qty)}" />
                         <button type="button" class="btn-samakan" data-item="${it.id}" title="Isi sama dengan jumlah yang dikirim">= dikirim</button>
                         ${
@@ -1573,6 +1593,21 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
       return peta;
     }
 
+    /**
+     * Nilai tiap kotak SAAT BARISNYA DIGAMBAR — yaitu hasil cek yang sudah ada
+     * di server waktu layar ini dimuat.
+     *
+     * Pembanding inilah yang membedakan "saya mengosongkan baris ini" dari
+     * "baris ini memang bukan bagian saya". Tanpanya, device yang hanya
+     * mengisi separuh tabel akan mengirim `null` untuk separuh lainnya — dan
+     * menghapus hitungan device sebelah.
+     */
+    function isianAwalKartu(kartu) {
+      const peta = new Map();
+      for (const el of kartu.querySelectorAll('.recv-input')) peta.set(el.dataset.item, el.dataset.awal ?? '');
+      return peta;
+    }
+
     function gambarKemajuan(kartu) {
       const id = kartu.dataset.dispatch;
       const items = itemsPer.get(id) ?? [];
@@ -1644,7 +1679,8 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
             } catch {
               // Keterangan adalah catatan; hitungannya yang penting.
             }
-            const hasil = await simpanCekKiriman(btn.dataset.id, muatanCek(isianKartu(kartu)));
+            // HANYA baris yang disentuh device ini. Lihat `muatanCek`.
+            const hasil = await simpanCekKiriman(btn.dataset.id, muatanCek(isianKartu(kartu), isianAwalKartu(kartu)));
             toast(`Tersimpan sementara — ${hasil.dicek ?? 0} dari ${hasil.total ?? 0} bahan sudah dicek. Stok belum bergerak.`, 'success');
             await renderIncoming();
           } catch (error) {
@@ -1699,9 +1735,59 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
     );
 
     box.querySelectorAll('.btn-save-receive').forEach((btn) =>
-      btn.addEventListener('click', async () => {
+      btn.addEventListener(
+        'click',
+        // ============ DIKUNCI SEJAK KETUKAN PERTAMA ============
+        //
+        // Handler ini dulu baru mengunci tombolnya menjelang `receiveDispatch`,
+        // dan itu masih aman selama tidak ada `await` sebelum titik itu. Begitu
+        // pengambilan hasil cek terbaru ditambahkan di atas, jendelanya jadi
+        // nyata: dua ketukan cepat menghasilkan dua penerimaan untuk satu surat
+        // jalan — dan yang kedua menggerakkan stok untuk kedua kalinya.
+        //
+        // `audit-klik-ganda.cjs` yang menemukannya, pada perubahan yang baru
+        // saja saya tulis.
+        sekaliJalan(async () => {
         const card = btn.closest('[data-dispatch]');
         const isian = isianKartu(card);
+
+        // ============ HASIL CEK TERBARU DIAMBIL DULU ============
+        //
+        // Layar ini bisa saja digambar SEBELUM device sebelah menyimpan
+        // bagiannya. Kalau keputusan "mana yang belum dicek" diambil dari
+        // tabel di layar saja, baris yang sudah dihitung staff kitchen
+        // terlihat kosong di HP staff bar — lalu dialog di bawah menawarkan
+        // "tandai sesuai kiriman" atau "tandai 0", dan pilihan itu MENIMPA
+        // hitungan yang sudah ada di server.
+        //
+        // Penyegaran otomatis tiap 15 detik sengaja DILEWATI selama ada tabel
+        // yang sedang diisi (kalau tidak, angka yang sedang diketik hilang di
+        // tengah jalan), jadi justru di saat paling genting layarnya paling
+        // basi. Satu permintaan di sini menutupnya.
+        //
+        // Gagalnya TIDAK menghentikan penerimaan: yang hilang cuma
+        // kesempatan memperbarui, dan server tetap menolak kalau sungguh ada
+        // baris yang belum dicek.
+        let terbaru = itemsPer.get(btn.dataset.id) ?? [];
+        try {
+          terbaru = await getDispatchItems(btn.dataset.id);
+          itemsPer.set(btn.dataset.id, terbaru);
+          // Baris yang di layar ini MASIH KOSONG diisi dari hasil orang lain.
+          // Yang sudah diketik di sini tidak disentuh — hitungan yang sedang
+          // dipegang orangnya tidak boleh berubah di bawah tangannya.
+          for (const el of card.querySelectorAll('.recv-input')) {
+            if (el.value.trim() !== '') continue;
+            const dari = terbaru.find((t) => t.id === el.dataset.item);
+            if (dari?.dicek_qty == null) continue;
+            el.value = round(dari.dicek_qty);
+            el.dataset.awal = round(dari.dicek_qty);
+          }
+          isian.clear();
+          for (const [k, v] of isianKartu(card)) isian.set(k, v);
+          gambarKemajuan(card);
+        } catch {
+          /* jaringan — lanjut dengan apa yang ada di layar */
+        }
 
         // BARIS YANG BELUM DICEK TIDAK PERNAH DITEBAK.
         //
@@ -1710,7 +1796,7 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         // hitungan yang teliti. Sekarang yang kosong DITANYAKAN — dan dua
         // jawabannya sama-sama sah; yang tidak sah adalah memilihkannya tanpa
         // memberi tahu.
-        const r = ringkasCek(itemsPer.get(btn.dataset.id) ?? [], isian);
+        const r = ringkasCek(terbaru, isian);
         if (r.belum) {
           const daftar = r.namaBelum.slice(0, 8).join(', ') + (r.namaBelum.length > 8 ? `, +${r.namaBelum.length - 8} lagi` : '');
           const pilih = await formDialog({
@@ -1741,9 +1827,18 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           for (const [k, v] of isianKartu(card)) isian.set(k, v);
         }
 
-        const items = muatanCek(isian).map((i) => ({ item_id: i.item_id, received_qty: i.dicek_qty, dicek_qty: i.dicek_qty }));
+        // HANYA baris yang disentuh device ini — sama seperti Simpan Sementara.
+        //
+        // Baris milik device sebelah tidak ikut dikirim sama sekali, jadi
+        // nilainya di server tidak tersentuh. `receive_dispatch` yang
+        // memastikan tidak ada satu pun baris yang masih kosong, dan ia
+        // membacanya dari DATABASE — bukan dari muatan ini.
+        const items = muatanCek(isian, isianAwalKartu(card)).map((i) => ({
+          item_id: i.item_id,
+          received_qty: i.dicek_qty,
+          dicek_qty: i.dicek_qty
+        }));
         const ket = [...card.querySelectorAll('.recv-ket-input')].map((el) => ({ item_id: el.dataset.item, keterangan: el.value }));
-        btn.disabled = true;
         try {
           // KETERANGAN DULU, penerimaannya belakangan.
           //
@@ -1761,7 +1856,11 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
             toast(`Keterangan gagal disimpan (${e.message ?? e}) — penerimaannya tetap dilanjutkan.`, 'warning');
           }
           const hasil = await receiveDispatch(btn.dataset.id, items);
-          const { code, waText } = await emitSuratJalan(btn.dataset.id, { showReceived: true, title: 'BUKTI TERIMA' });
+          const { code, waText } = await emitSuratJalan(btn.dataset.id, {
+            showReceived: true,
+            title: 'BUKTI TERIMA',
+            unduhPdf: false
+          });
 
           // PENGIRIMNYA DISEBUT NAMANYA, bukan diasumsikan CK.
           //
@@ -1784,16 +1883,39 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           await loadStock();
           renderIncoming();
           showTab();
-          await shareDialog({ title: `Bukti Terima ${code ?? ''}`, helper: 'PDF sudah terunduh. Kirim info via WhatsApp (lampirkan file PDF-nya manual).', defaultMessage: waText });
+          await shareDialog({
+            title: `Bukti Terima ${code ?? ''}`,
+            helper:
+              'Teksnya sudah memuat jumlah diterima beserta keterangan tiap baris. ' +
+              'Kalau butuh PDF-nya, buka "Riwayat & Dokumen" lalu unduh dari sana.',
+            defaultMessage: waText
+          });
         } catch (error) {
           toast(error.message ?? 'Gagal konfirmasi.', 'error');
-          btn.disabled = false;
         }
-      })
+        }, { teks: 'Menyimpan…' })
+      )
     );
   }
 
-  async function emitSuratJalan(dispatchId, { showReceived, title }) {
+  /**
+   * @param {{showReceived: boolean, title: string, unduhPdf?: boolean}} o
+   *
+   * `unduhPdf` MATI untuk Bukti Terima.
+   *
+   *   "bila staff sudah tap simpan (terima) hilangkan otomatis download pdf
+   *    ke device mereka"
+   *
+   * Dan memang: yang menekan Terima adalah staff outlet yang baru selesai
+   * menghitung barang. Berkas PDF yang mendarat di HP-nya tidak dibutuhkan
+   * siapa pun di situ — yang perlu dikirim ke CK adalah angkanya, dan itu
+   * sudah ada di teks bagikannya. Yang tertinggal cuma folder Unduhan yang
+   * penuh berkas yang tidak pernah dibuka.
+   *
+   * Surat jalannya sendiri (sisi CK, saat MENGIRIM) tetap mengunduh: di sana
+   * kertasnya ikut berangkat bersama barang.
+   */
+  async function emitSuratJalan(dispatchId, { showReceived, title, unduhPdf = true }) {
     const { header, items } = await getDispatchForPdf(dispatchId);
     const data = {
       code: header.code,
@@ -1813,10 +1935,12 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
         keterangan: it.keterangan
       }))
     };
-    try {
-      await buildSuratJalanPDF(data);
-    } catch (error) {
-      toast(error.message ?? 'Gagal membuat PDF.', 'error');
+    if (unduhPdf) {
+      try {
+        await buildSuratJalanPDF(data);
+      } catch (error) {
+        toast(error.message ?? 'Gagal membuat PDF.', 'error');
+      }
     }
     return { code: header.code, waText: suratJalanWaText(data) };
   }

@@ -209,5 +209,70 @@ uji('nama kosong tidak menghasilkan kalimat menggantung', () => {
   assert.ok(p.length > 20, p);
 });
 
+console.log('\n== §5 Keterangan saat baris digabung (0157) ==');
+
+uji('INTI: keterangan baris pertama bertahan', () => {
+  const { items } = gabungDuplikat([
+    { product_id: 'A', qty: 100, keterangan: 'stok CK habis' },
+    { product_id: 'A', qty: 150, keterangan: '' }
+  ]);
+  assert.equal(items[0].keterangan, 'stok CK habis');
+});
+
+uji('INTI: baris pertama KOSONG tidak menelan keterangan baris kedua', () => {
+  // Spread `...it` saja akan memakai baris pertama apa adanya — dan kalimat
+  // satu-satunya yang menjelaskan baris ini hilang tanpa tanda.
+  const { items } = gabungDuplikat([
+    { product_id: 'A', qty: 100, keterangan: '' },
+    { product_id: 'A', qty: 150, keterangan: 'dikirim lewat ojol' }
+  ]);
+  assert.equal(items[0].keterangan, 'dikirim lewat ojol');
+});
+
+uji('keterangan berisi spasi saja dianggap kosong', () => {
+  const { items } = gabungDuplikat([
+    { product_id: 'A', qty: 1, keterangan: '   ' },
+    { product_id: 'A', qty: 2, keterangan: 'sisa kemarin' }
+  ]);
+  assert.equal(items[0].keterangan, 'sisa kemarin');
+});
+
+uji('kalau dua-duanya terisi, yang PERTAMA yang menang', () => {
+  const { items } = gabungDuplikat([
+    { product_id: 'A', qty: 1, keterangan: 'punya Budi' },
+    { product_id: 'A', qty: 2, keterangan: 'punya Ani' }
+  ]);
+  assert.equal(items[0].keterangan, 'punya Budi');
+});
+
+uji('INTI: dokumen tanpa konsep keterangan tidak tiba-tiba membawa kolomnya', () => {
+  // Order & nota memakai picker yang sama. Kolom baru yang muncul sendiri di
+  // sana akan terkirim ke RPC yang tidak mengenalnya.
+  const { items } = gabungDuplikat([
+    { product_id: 'A', qty: 100 },
+    { product_id: 'A', qty: 150 }
+  ]);
+  assert.ok(!('keterangan' in items[0]), JSON.stringify(items[0]));
+});
+
+uji('baris yang TIDAK kembar keterangannya tidak disentuh', () => {
+  const { items } = gabungDuplikat([
+    { product_id: 'A', qty: 1, keterangan: 'satu' },
+    { product_id: 'B', qty: 2, keterangan: 'dua' },
+    { product_id: 'A', qty: 3, keterangan: '' }
+  ]);
+  const b = items.find((i) => i.product_id === 'B');
+  assert.equal(b.keterangan, 'dua');
+});
+
+uji('seluruhnya kosong tetap menghasilkan kolomnya, bukan undefined yang hilang', () => {
+  const { items } = gabungDuplikat([
+    { product_id: 'A', qty: 1, keterangan: '' },
+    { product_id: 'A', qty: 2, keterangan: '' }
+  ]);
+  assert.ok('keterangan' in items[0]);
+  assert.equal(String(items[0].keterangan ?? '').trim(), '');
+});
+
 console.log(`\n${lulus} pemeriksaan lulus.`);
 if (process.exitCode) console.error('ADA YANG GAGAL.');

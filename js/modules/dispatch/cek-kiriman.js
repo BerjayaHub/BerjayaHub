@@ -121,14 +121,62 @@ export function pengecekTerakhir(items, fmtJam = (t) => String(t ?? '')) {
 }
 
 /**
- * Isi yang dikirim ke `simpan_cek_kiriman`.
+ * Isi yang dikirim ke `simpan_cek_kiriman` — HANYA baris yang DISENTUH.
  *
- * KUNCI `dicek_qty` SELALU DISERTAKAN, termasuk saat nilainya null. Di sisi
- * server, kunci yang TIDAK ADA berarti "baris ini tidak sedang saya sentuh"
- * sementara nilai null berarti "batalkan ceknya" — dan layar ini memang sedang
- * menyentuh semua baris yang ditampilkannya.
+ * ============ DUA DEVICE, SATU SURAT JALAN ============
+ *
+ *   "staff bar pakai device a, dia cek hitung dan input bahan bar yang datang,
+ *    begitu pula dengan staff kitchen dia memakai device b, lalu tap simpan
+ *    sementara keduanya … masih ada isu salah satu dari mereka input nya tidak
+ *    masuk"
+ *
+ * Versi sebelumnya menyertakan kunci `dicek_qty` untuk SETIAP kotak di layar,
+ * dan berkomentar bahwa itu benar karena "layar ini memang sedang menyentuh
+ * semua baris yang ditampilkannya". Anggapan itu runtuh begitu ada device
+ * kedua.
+ *
+ * Di sisi server (`simpan_cek_kiriman`, 0142) dua keadaan itu SENGAJA
+ * dibedakan:
+ *
+ *     kunci TIDAK ADA          -> "baris ini tidak sedang saya sentuh"
+ *     kunci ADA, nilainya null -> "batalkan ceknya"
+ *
+ * Penjaga itu ditulis persis untuk kasus ini — komentarnya di `0142` bahkan
+ * menyebutnya: *"layar yang mengirim sebagian baris akan MENGHAPUS hasil cek
+ * orang lain"*. Tapi layarnya tidak pernah mengirim sebagian: ia mengirim
+ * SEMUA baris, dan yang kosong dikirim sebagai null.
+ *
+ * Jadi staff bar yang menekan Simpan Sementara mengirim `null` untuk seluruh
+ * baris kitchen — dan menghapus hitungan yang baru saja disimpan staff
+ * kitchen. Tidak ada galat. Keduanya melihat "Tersimpan sementara", dan yang
+ * satu baru tahu hitungannya hilang saat menekan Terima.
+ *
+ * Yang membuatnya sulit ditemukan: urutannya menentukan siapa yang kalah, dan
+ * kalau keduanya kebetulan menyimpan sebelum yang lain mulai mengisi, tidak
+ * ada yang hilang sama sekali.
+ *
+ * @param {Map<string, any>} isian  nilai kotak SEKARANG, per item_id
+ * @param {Map<string, any>} [awal] nilai saat barisnya DIGAMBAR (dari server)
+ * @returns {Array<{item_id: string, dicek_qty?: number|null}>}
  */
-export function muatanCek(isian) {
+export function muatanCek(isian, awal = new Map()) {
   const peta = isian instanceof Map ? isian : new Map();
-  return [...peta.entries()].map(([item_id, v]) => ({ item_id, dicek_qty: bacaCek(v) }));
+  const semula = awal instanceof Map ? awal : new Map();
+
+  const hasil = [];
+  for (const [item_id, v] of peta.entries()) {
+    if (!item_id) continue;
+    const sekarang = bacaCek(v);
+    const sebelum = bacaCek(semula.get(item_id));
+    // TIDAK BERUBAH = TIDAK DISENTUH, dan barisnya tidak ikut dikirim sama
+    // sekali. Termasuk kotak kosong yang memang kosong sejak digambar — itu
+    // bukan pernyataan "batalkan", itu ketiadaan pernyataan.
+    //
+    // Baris yang DIKOSONGKAN dengan sengaja (tadinya berisi, sekarang kosong)
+    // tetap ikut, dengan `dicek_qty: null` — dan di server itulah yang berarti
+    // "batalkan ceknya".
+    if (sekarang === sebelum) continue;
+    hasil.push({ item_id, dicek_qty: sekarang });
+  }
+  return hasil;
 }

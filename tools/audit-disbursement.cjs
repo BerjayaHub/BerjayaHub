@@ -657,8 +657,20 @@ if (halAdm) {
   if (!/const bisaSupplier = r\.entry_type === 'out' && !k\.dicoret && !r\.esb_exported_at;/.test(kode)) {
     salah('cash.admin.page.js: centang ditawarkan pada baris yang pasti ditolak database — kas masuk, yang dicoret, atau yang sudah diekspor.');
   }
-  if (!/if \(n === ids\.length\)/.test(kode)) {
-    salah('cash.admin.page.js: hasil `ubahSupplierKas` tidak dibandingkan dengan yang dicentang — "0 terisi" dilaporkan sebagai berhasil.');
+  // DIHITUNG, bukan dicari.
+  //
+  // Ada DUA aksi massal di layar ini — isi supplier (0149) dan pindahkan ke
+  // kantong (0152) — dan keduanya membandingkan hasil RPC-nya dengan jumlah
+  // yang dicentang. Mencabut salah satunya menyisakan yang lain, jadi
+  // pencarian lepas tetap hijau sementara satu aksi melaporkan "berhasil"
+  // untuk nol baris yang berubah.
+  const dibandingkan = (kode.match(/if \(n === ids\.length\)/g) ?? []).length;
+  if (dibandingkan < 2) {
+    salah(
+      `cash.admin.page.js: hanya ${dibandingkan} dari 2 aksi massal yang membandingkan hasil RPC dengan yang ` +
+        'dicentang (isi supplier & pindah kantong). Yang tidak membandingkan melaporkan "berhasil" untuk nol baris ' +
+        'yang berubah — dan RPC-nya memang menolak sebagian baris diam-diam.'
+    );
   }
 }
 

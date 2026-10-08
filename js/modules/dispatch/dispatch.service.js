@@ -230,7 +230,24 @@ export async function buatDraftKiriman({ fromOutlet, toOutlet, items, notes, ord
 export async function ubahDraftKiriman({ dispatchId, items, notes }) {
   const { error } = await supabase.rpc('ubah_draft_kiriman', {
     p_dispatch: dispatchId,
-    p_items: items.map((i) => ({ product_id: i.product_id, qty: i.qty })),
+    p_items: items.map((i) => ({
+      product_id: i.product_id,
+      qty: i.qty,
+      // ============ KUNCINYA DIBAWA HANYA KALAU LAYARNYA PUNYA ============
+      //
+      // Sebelum ini baris di atas hanya mengirim `product_id` & `qty`, jadi
+      // keterangan yang diketik di layar draft tidak pernah sampai ke server
+      // sama sekali — RPC-nya sudah menerimanya sejak 0132, layar ini yang
+      // membuangnya.
+      //
+      // `JSON.stringify` membuang kunci bernilai `undefined`, dan di sini itu
+      // DISENGAJA: `ubah_draft_kiriman` (0157) membedakan "kunci tidak ada"
+      // (= pertahankan keterangan lama, demi PWA lama di HP staff) dari
+      // "kunci ada tapi kosong" (= orangnya sengaja menghapusnya). Mengirim
+      // string kosong dari layar yang tidak punya kotaknya akan menghapus
+      // keterangan orang lain tanpa ada yang tahu.
+      ...(i.keterangan === undefined ? {} : { keterangan: i.keterangan })
+    })),
     p_notes: notes || null
   });
   if (error) throw error;

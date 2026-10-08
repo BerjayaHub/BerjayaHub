@@ -148,21 +148,117 @@ cek('§4 waktu yang tidak terbaca dilewati', pengecekTerakhir([it('a', 'S', 1, 1
 cek('§4 tanpa argumen aman', pengecekTerakhir(), null);
 
 // =====================================================================
-// §5 MUATAN YANG DIKIRIM KE SERVER
+// §5 MUATAN YANG DIKIRIM KE SERVER — HANYA BARIS YANG DISENTUH
 //
-// Kunci `dicek_qty` HARUS selalu ada, termasuk saat nilainya null. Di server,
-// kunci yang TIDAK ADA berarti "baris ini tidak sedang saya sentuh" sementara
-// null berarti "batalkan ceknya" — dan layar memang sedang menyentuh semua
-// baris yang ditampilkannya.
+// ============ DUA DEVICE, SATU SURAT JALAN ============
+//
+//   "staff bar pakai device a … begitu pula dengan staff kitchen dia memakai
+//    device b, lalu tap simpan sementara keduanya … masih ada isu salah satu
+//    dari mereka input nya tidak masuk"
+//
+// Di server (`simpan_cek_kiriman`, 0142) dua keadaan ini SENGAJA dibedakan:
+//
+//     kunci TIDAK ADA          -> "baris ini tidak sedang saya sentuh"
+//     kunci ADA, nilainya null -> "batalkan ceknya"
+//
+// Versi lama `muatanCek` selalu menyertakan kuncinya untuk SETIAP kotak di
+// layar — jadi device yang cuma mengisi separuh tabel mengirim `null` untuk
+// separuh lainnya, dan menghapus hitungan device sebelah. Penjaga di server
+// ada; layarnya yang mematahkannya.
 // =====================================================================
 {
-  const m = muatanCek(new Map([['a', '400'], ['b', ''], ['c', '0']]));
-  cek('§5 satu baris per isian', m.length, 3);
-  benar('§5 kunci dicek_qty selalu ada', m.every((x) => Object.prototype.hasOwnProperty.call(x, 'dicek_qty')));
-  cek('§5 kosong jadi null, bukan 0', m.find((x) => x.item_id === 'b').dicek_qty, null);
-  cek('§5 nol tetap 0', m.find((x) => x.item_id === 'c').dicek_qty, 0);
+  // `awal` = nilai saat barisnya digambar (hasil cek yang sudah ada di server).
+  const awal = new Map([['a', ''], ['b', ''], ['c', '']]);
+  const m = muatanCek(new Map([['a', '400'], ['b', ''], ['c', '0']]), awal);
+
+  cek('§5 INTI: kotak kosong yang tidak disentuh TIDAK ikut dikirim', m.length, 2);
+  benar('§5 baris b tidak ada di muatannya', !m.some((x) => x.item_id === 'b'));
+  cek('§5 nol tetap 0 — itu jawaban, bukan ketiadaan', m.find((x) => x.item_id === 'c').dicek_qty, 0);
   cek('§5 angka apa adanya', m.find((x) => x.item_id === 'a').dicek_qty, 400);
 }
+
+{
+  // Baris yang SUDAH terisi dari server dan tidak disentuh juga tidak dikirim.
+  const m = muatanCek(new Map([['a', '400'], ['b', '12']]), new Map([['a', '400'], ['b', '12']]));
+  cek('§5 INTI: tidak ada yang berubah -> muatannya kosong', m.length, 0);
+}
+
+{
+  // Dikosongkan DENGAN SENGAJA tetap terkirim sebagai null — itulah satu-satunya
+  // cara membatalkan cek, dan ia harus tetap bisa dilakukan.
+  const m = muatanCek(new Map([['a', '']]), new Map([['a', '400']]));
+  cek('§5 INTI: baris yang sengaja dikosongkan tetap dikirim', m.length, 1);
+  benar('§5 kuncinya ada', Object.prototype.hasOwnProperty.call(m[0], 'dicek_qty'));
+  cek('§5 nilainya null = "batalkan ceknya"', m[0].dicek_qty, null);
+}
+
+{
+  // Angka yang DIUBAH (bukan diisi dari kosong) tetap terkirim.
+  const m = muatanCek(new Map([['a', '380']]), new Map([['a', '400']]));
+  cek('§5 angka yang dikoreksi tetap dikirim', m.length, 1);
+  cek('§5 nilainya yang baru', m[0].dicek_qty, 380);
+}
+
+{
+  // Tanpa `awal`: kotak kosong dianggap TIDAK disentuh, yang terisi dianggap
+  // disentuh. Itu bawaan yang aman untuk pemanggil yang belum menyediakannya.
+  const m = muatanCek(new Map([['a', '400'], ['b', '']]));
+  cek('§5 tanpa awal: hanya yang terisi yang dikirim', m.length, 1);
+  cek('§5 tanpa awal: yang terisi benar', m[0].item_id, 'a');
+}
+
+// ============ PERAGAAN DUA DEVICE ============
+//
+// Inilah kasus yang dilaporkan, dijalankan apa adanya.
+{
+  // Server: empat baris, belum ada yang dicek.
+  const server = new Map([['bar1', null], ['bar2', null], ['kit1', null], ['kit2', null]]);
+  const simpan = (muatan) => {
+    for (const row of muatan) {
+      if (!Object.prototype.hasOwnProperty.call(row, 'dicek_qty')) continue; // kunci tidak ada -> tidak disentuh
+      server.set(row.item_id, row.dicek_qty);
+    }
+  };
+  const render = () => new Map([...server.entries()].map(([k, v]) => [k, v == null ? '' : String(v)]));
+
+  // Device A (bar) & device B (kitchen) sama-sama membuka layar saat server
+  // masih kosong — itu yang membuat keduanya "tidak tahu" pekerjaan yang lain.
+  const awalA = render();
+  const awalB = render();
+
+  // A mengisi baris bar, B mengisi baris kitchen.
+  const layarA = new Map([...awalA.entries()]);
+  layarA.set('bar1', '10');
+  layarA.set('bar2', '0');
+  const layarB = new Map([...awalB.entries()]);
+  layarB.set('kit1', '5');
+  layarB.set('kit2', '7');
+
+  // B menekan Simpan Sementara duluan, lalu A.
+  simpan(muatanCek(layarB, awalB));
+  simpan(muatanCek(layarA, awalA));
+
+  cek('§5 INTI: hitungan kitchen (device B) selamat', server.get('kit1'), 5);
+  cek('§5 INTI: hitungan kitchen kedua selamat', server.get('kit2'), 7);
+  cek('§5 INTI: hitungan bar (device A) ikut tersimpan', server.get('bar1'), 10);
+  cek('§5 INTI: nol dari device A tetap nol, bukan hilang', server.get('bar2'), 0);
+
+  // Dan urutan sebaliknya harus memberi hasil yang sama. Bug lamanya justru
+  // bergantung pada urutan — itu sebabnya ia tidak selalu kelihatan.
+  const server2 = new Map([['bar1', null], ['kit1', null]]);
+  const simpan2 = (muatan) => {
+    for (const row of muatan) {
+      if (!Object.prototype.hasOwnProperty.call(row, 'dicek_qty')) continue;
+      server2.set(row.item_id, row.dicek_qty);
+    }
+  };
+  const awal2 = new Map([['bar1', ''], ['kit1', '']]);
+  simpan2(muatanCek(new Map([['bar1', '10'], ['kit1', '']]), awal2));
+  simpan2(muatanCek(new Map([['bar1', ''], ['kit1', '5']]), awal2));
+  cek('§5 INTI: urutan terbalik, hasilnya sama — bar', server2.get('bar1'), 10);
+  cek('§5 INTI: urutan terbalik, hasilnya sama — kitchen', server2.get('kit1'), 5);
+}
+
 cek('§5 bukan Map aman', muatanCek('x'), []);
 cek('§5 tanpa argumen aman', muatanCek(), []);
 

@@ -57,6 +57,25 @@ export function createItemPicker(
     // Di layar lain (nota, order) baris nol memang tidak punya arti, jadi
     // bawaannya tetap membuang.
     bolehNol = false,
+    // Kotak KETERANGAN per baris — opt-in, dan hanya untuk surat jalan.
+    //
+    // ============ KENAPA IA HARUS ADA DI LAYAR DRAFT ============
+    //
+    // `dispatch_items.keterangan` sudah ada sejak 0132 dan ikut tercetak di
+    // surat jalan, tapi kotaknya cuma muncul di layar "Siapkan" (saat draft
+    // DIBUAT) dan di layar Terima. Selama tahap draft — yaitu tahap yang
+    // gunanya memeriksa sebelum barang berangkat — keterangannya tidak terlihat
+    // sama sekali.
+    //
+    // Akibatnya salah ketik tidak bisa dibetulkan siapa pun: CK tidak punya
+    // kotaknya lagi, dan `lengkapi_keterangan_kiriman` di sisi outlet sengaja
+    // HANYA mengisi yang masih kosong — keterangan pengirim bukan milik
+    // penerima. Kalimat yang salah ikut tercetak dan terkunci di sana.
+    //
+    // Mati untuk pemakai lain picker ini: order dan nota tidak punya konsep
+    // keterangan per baris, dan kotak yang tidak pernah dibaca siapa pun cuma
+    // menambah lebar baris di layar HP.
+    kolomKeterangan = false,
     // Kotak pencarian nama bahan di atas barisnya.
     //
     // Untuk daftar panjang — draft surat jalan dari order berisi tiga puluh
@@ -125,7 +144,14 @@ export function createItemPicker(
       // Ikut disimpan walau `hargaSatuan` mati — nilainya cuma `undefined` di
       // situ, dan menyalinnya apa adanya jauh lebih aman daripada dua bentuk
       // snapshot yang berbeda tergantung opsi.
-      line_total: row.querySelector('.pf-harga')?.value
+      line_total: row.querySelector('.pf-harga')?.value,
+      // Ikut DI SETIAP snapshot, walau `kolomKeterangan` mati — nilainya cuma
+      // `undefined` di situ. Ini yang membuatnya selamat saat saringan kategori
+      // berubah: `snapshot()` → `renderRows()` adalah satu-satunya jalan isian
+      // baris bertahan, dan apa pun yang tidak ikut di sana lenyap tanpa tanda
+      // persis pada saat orang menyempitkan daftarnya untuk mengetik lebih
+      // cepat.
+      keterangan: row.querySelector('.pf-ket')?.value
     }));
   }
 
@@ -141,7 +167,8 @@ export function createItemPicker(
     return snapshot().map((e) => ({
       product_id: e.product_id,
       qty: e.qty,
-      ...(hargaSatuan ? { line_total: bacaRupiah(e.line_total) } : {})
+      ...(hargaSatuan ? { line_total: bacaRupiah(e.line_total) } : {}),
+      ...(kolomKeterangan ? { keterangan: e.keterangan } : {})
     }));
   }
 
@@ -295,6 +322,13 @@ export function createItemPicker(
               )}. Boleh dikosongkan kalau belum tahu." />`
             : ''
         }
+        ${
+          kolomKeterangan
+            ? `<input type="text" class="pf-ket" placeholder="keterangan" value="${esc(
+                entry.keterangan ?? ''
+              )}" title="Keterangan baris ini — ikut tercetak di surat jalan dan dibaca outlet penerima. Mis. 'stok CK habis', 'dikirim lewat ojol'." />`
+            : ''
+        }
         <button type="button" class="pf-remove" title="Hapus">✕</button>
       </div>`;
   }
@@ -370,7 +404,7 @@ export function createItemPicker(
   mountEl.querySelector('.pf-cari')?.addEventListener('input', terapkanSaringan);
 
   refreshSubOptions();
-  renderRows(initial.map((i) => ({ product_id: i.product_id, qty: i.qty, line_total: i.line_total })));
+  renderRows(initial.map((i) => ({ product_id: i.product_id, qty: i.qty, line_total: i.line_total, keterangan: i.keterangan })));
 
   return {
     getItems: () =>
@@ -384,7 +418,16 @@ export function createItemPicker(
           // 0, harga yang belum diisi tersimpan sebagai "gratis" — dan biaya
           // rata-rata bahan itu anjlok tanpa satu pun tanda bahwa ada yang
           // salah. Jebakan yang sama sudah beberapa kali menggigit di repo ini.
-          line_total: bacaRupiah(e.line_total)
+          line_total: bacaRupiah(e.line_total),
+          // Kuncinya ADA hanya kalau layarnya memang punya kotaknya.
+          //
+          // Perbedaan "tidak dikirim" versus "dikirim kosong" itu load-bearing
+          // di `ubah_draft_kiriman` (0157): yang pertama berarti "pertahankan
+          // keterangan lama" — itu yang melindungi PWA lama di HP staff — dan
+          // yang kedua berarti "orangnya sengaja mengosongkan". Mengirim string
+          // kosong dari layar yang tidak punya kotaknya akan menghapus
+          // keterangan yang sudah ada, diam-diam.
+          ...(kolomKeterangan ? { keterangan: String(e.keterangan ?? '').trim() } : {})
         }))
         // Produknya WAJIB; jumlahnya boleh nol hanya kalau layar memintanya.
         // `Number('')` adalah 0, jadi tanpa `bolehNol` baris yang belum diisi

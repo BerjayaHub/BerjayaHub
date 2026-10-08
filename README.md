@@ -8288,3 +8288,173 @@ Pemeriksaan cutinya terjadi **sebelum** selfie-nya diunggah. Kalau sesudah, oran
 Auditnya mengikat perbandingan posisi itu ke **blok penangan clock in**, bukan ke seluruh berkas — `uploadAttendanceSelfie({` dipanggil juga oleh clock out, dan panggilan itu muncul lebih dulu. Membandingkan dengan kemunculan pertama berarti membandingkan dengan unggahan yang tidak ada hubungannya.
 
 - [x] **Presensi saat cuti ditandai database + peringatan di Staff App** (`0156`) — 23 sabotase
+
+## Kolom yang ada di database tapi tidak pernah ada di layar yang membutuhkannya
+
+> *"cek dibagian pengiriman sisi staff app, apakah barang yang sedang disiapkan staff, yaitu yang sudah jadi draft, sudah ada keterangan catatan atau belum?"*
+
+Kolomnya ada sejak `0132`, dan ia ikut tercetak di surat jalan. Kotaknya yang tidak ada — tepat di layar yang gunanya memeriksa:
+
+| Layar | Keterangan per barang |
+|---|---|
+| Order dari Outlet → **Siapkan** (draft dibuat) | ada |
+| **Draft Surat Jalan → Lihat isi** | **tidak ada** — hanya "Catatan surat jalan" untuk satu dokumen |
+| Terima barang (sisi outlet) | ada, tapi `lengkapi_keterangan_kiriman` sengaja hanya mengisi yang **masih kosong** |
+
+Jadi keterangan diketik sekali saat menyiapkan order, lalu hilang dari pandangan selama tahap draft, dan muncul lagi hanya di kertas surat jalan dan di layar penerima. Salah ketik di situ tidak bisa dibetulkan **siapa pun**: CK tidak punya kotaknya lagi, dan outlet hanya boleh mengisi yang kosong — keterangan pengirim bukan milik penerima.
+
+Backend-nya sudah menerimanya sejak `0132`. Yang membuangnya adalah satu baris di layanan:
+
+```js
+p_items: items.map((i) => ({ product_id: i.product_id, qty: i.qty }))
+```
+
+### Penjaga yang benar saat ditulis, lalu berubah arti
+
+`0132` menyelamatkan keterangan yang **tidak dikirim ulang** klien:
+
+```sql
+coalesce(nullif(btrim(coalesce(it->>'keterangan', '')), ''), v_lama -> v_pid::text ->> 'k')
+```
+
+Alasannya sah dan masih berlaku — PWA lama di HP staff tidak mengenal kolom itu, dan tanpa penyelamatan ini satu kali "Simpan perubahan" dari HP tersebut menghapus semuanya.
+
+Tapi ekspresi itu tidak bisa membedakan dua hal yang artinya berlawanan:
+
+| yang dikirim | artinya |
+|---|---|
+| kunci `keterangan` **tidak ada** | "aku tidak tahu kolom ini" |
+| kunci **ada** tapi isinya kosong | "aku sengaja menghapusnya" |
+
+Keduanya jatuh ke cabang yang sama. Jadi begitu kotaknya dipasang, staff yang menghapus keterangan salah ketik akan melihatnya **muncul kembali** sesudah menyimpan — tanpa galat, dan percobaan kedua & ketiga menghasilkan hal yang sama. Bentuk kegagalan yang paling melelahkan: layarnya menerima perintah, melaporkan sukses, lalu membatalkannya diam-diam.
+
+`0157` memisahkannya dengan operator `?` (kunci ada atau tidak), yang menjawab pertanyaan berbeda dari "isinya kosong atau tidak". PWA lama tetap terlindungi; pengosongan yang disengaja sampai ke database.
+
+`ordered_qty` sengaja **tidak** ikut diubah: tidak ada layar yang mengirimkannya saat menyunting draft, jadi cabang "sengaja dikosongkan" untuk kolom itu tidak pernah terjadi — dan jalan yang tidak pernah dilewati tidak pernah ikut teruji.
+
+### `snapshot()` adalah satu-satunya jalan isian bertahan
+
+Di `item-picker.js`, mengganti saringan kategori menggambar ulang seluruh baris lewat `snapshot()` → `renderRows()`. Apa pun yang tidak ikut disalin di sana **lenyap tanpa tanda** — dan lenyapnya terjadi tepat saat orang menyempitkan daftar tiga puluh baris supaya bisa mengetik lebih cepat.
+
+Karena itu `keterangan` ikut di setiap snapshot, bahkan ketika `kolomKeterangan` mati (nilainya `undefined` di situ). Dua bentuk snapshot yang berbeda tergantung opsi adalah cara paling mudah kehilangan satu di antaranya.
+
+### Dua baris kembar yang digabung
+
+`gabungDuplikat` memakai spread `...it`, jadi keterangan baris **pertama** sudah ikut terbawa. Tapi kalau baris pertama kosong dan baris keduanya yang berisi, kalimatnya hilang — dan di surat jalan keterangan adalah satu-satunya tempat "stok CK habis" bisa ditulis. Sekarang yang pertama **terisi** yang menang, dan kolomnya tetap tidak muncul di dokumen yang tidak punya konsepnya (order, nota memakai picker yang sama).
+
+Tidak digabung jadi satu teks panjang: dua kalimat dari dua orang yang disambung tanpa dipisah lebih sering membingungkan daripada menolong, dan penggabungannya terjadi di depan mata orangnya — ia bisa mengetik ulang kalau keduanya perlu.
+
+### Pesan WhatsApp adalah dokumen yang dibaca DULU
+
+> *"di template whatsapp atau text pesan yang akan dikirimkan atau dibagikan juga tambahkan keterangan/catatan itu di text nya juga"*
+
+PDF menyusun catatan barisnya sendiri (`diminta 10 — stok CK habis`); teks WhatsApp hanya menulis nama dan jumlah. Dua dokumen untuk kiriman yang sama, dibaca orang yang sama, pada hari yang sama — dan yang satu memuat jawaban yang tidak ada di yang lain.
+
+Yang membuatnya salah arah: pesan WhatsApp **dibaca lebih dulu**, biasanya sebelum mobilnya sampai. Kertasnya baru dibaca saat barang diserahkan. Jadi keterangan "barang ini tidak ikut karena stok CK habis" hilang justru dari dokumen yang paling cepat menolong — persis informasi yang membuat outlet tidak perlu menunggu lalu bertanya.
+
+Penyusun catatan barisnya sekarang **satu** (`pesan-kiriman.js`), dipakai kertas maupun pesan. Yang sengaja **tidak** disatukan adalah pemotongan 60 karakter: lebar A5 adalah batas kertas, dan memotong pesan WhatsApp sepanjang itu berarti membuang kalimat yang muat hanya karena dokumen lain tidak muat. Jadi `potong` adalah pilihan pemanggil.
+
+Dua hal yang ikut diperbaiki saat disatukan:
+
+- **Catatannya di baris sendiri, menjorok.** WhatsApp membungkus baris panjang sendiri, dan `• Gula: 0 kg — diminta 5 kg — stok CK habis` yang terbungkus jadi dua baris tidak bisa dibedakan dari dua barang.
+- **Barang yang tidak dikirim diringkas di bawah.** Di daftar tiga puluh baris, `0` di tengah tenggelam — dan justru baris itu yang perlu ditindaklanjuti hari itu juga. Ringkasannya tidak menggantikan barisnya; ia membuat barisnya ditemukan.
+
+- [x] **Keterangan per barang bisa diperiksa & dibetulkan di layar draft, dan ikut di teks WhatsApp** (`0157`) — 25 sabotase
+
+## Harness sabotase yang diam-diam berhenti menyabotase apa pun
+
+Ditemukan saat memeriksa `sabotase-0132.mjs` sesudah teks WhatsApp dipindah: **tiga dari polanya sudah tidak cocok sejak `0142`**. `getDispatchItems` menambah kolom `dicek_*`, blok jalur cadangannya berubah bentuk — dan pola yang menyebut seluruh baris jadi tidak mengenai apa pun.
+
+Tiga sabotase itu tidak menguji apa pun selama berbulan-bulan. Dan harness-nya **sudah melaporkannya dengan rapi** (`❌ SABOTASE TIDAK TERPASANG`) — laporannya saja yang tidak pernah dibaca, karena harness sabotase mahal: tiap satu sabotase menjalankan pemeriksanya sebagai proses baru, dan yang memakai PGlite butuh puluhan detik per sabotase. Ia tidak pernah ikut sweep rutin.
+
+Jadi bentuk kegagalannya bukan "tidak ada yang mengecek", melainkan **"pengeceknya ada, jalannya mahal, jadi tidak pernah dijalankan"**.
+
+### Mode periksa-pola
+
+Tiap harness sekarang mengenali `SABOTASE_PERIKSA_POLA=1`: ia berhenti **tepat sesudah pola `dari` dipastikan cocok**, sebelum satu berkas pun disentuh dan tanpa menjalankan satu pemeriksa pun. `audit-sabotase-terpasang.cjs` menyapu seluruh 53 harness dengan itu — **1.379 pola, hitungan detik**.
+
+Yang **tidak** dijawabnya: apakah pemeriksanya sungguh menggigit. Untuk itu harness-nya tetap harus dijalankan penuh. Audit ini menjawab pertanyaan yang lebih kecil tapi jauh lebih sering salah: apakah sabotasenya masih mengenai sesuatu.
+
+Sapuan pertamanya langsung menemukan **sembilan** pola basi lagi di empat harness lain — `0122`, `0138`, `0149`, `0152` — semuanya karena pekerjaan sesudahnya menggeser kode yang mereka tunjuk:
+
+| Harness | Yang menggesernya |
+|---|---|
+| `0122` | `0131` menambah `status, alasan_batal, dibatalkan_at` ke daftar kolom nota |
+| `0138` | gerbang geofence berganti nama jadi `pastikanDiAreaPresensi` dan pindah ke `area-outlet.js` |
+| `0149` | `0152` menyelipkan `semuaPerId` di antara tiga baris yang dulu berdampingan |
+| `0152` | `0153` mengganti `accounts` jadi `bisaDibebani` dan labelnya jadi "Sumber dana" |
+
+### Dan dua audit yang hijau karena sasarannya ada di tempat lain
+
+Memperbaiki polanya memunculkan dua sabotase yang **lolos** — bentuk yang sudah berulang kali muncul di repo ini:
+
+- `lengkapiKeteranganKiriman(` dipanggil di **dua** jalur penerimaan (Simpan Sementara & Konfirmasi Terima). Mencabut satu menyisakan yang lain.
+- `if (n === ids.length)` ada di **dua** aksi massal Mutasi Kas (isi supplier & pindah kantong). Sama persis.
+
+Keduanya sekarang **dihitung**, bukan dicari.
+
+- [x] **Mode periksa-pola + `audit-sabotase-terpasang`** — 53 harness, 1.379 pola, 9 pola basi diperbaiki
+
+## Dua HP, satu surat jalan, dan hitungan yang hilang
+
+> *"staff bar pakai device a, dia cek hitung dan input bahan bar yang datang, begitu pula dengan staff kitchen dia memakai device b, lalu tap simpan sementara keduanya … masih ada isu salah satu dari mereka input nya tidak masuk"*
+
+Penjaganya sudah ada di database sejak `0142`, dan komentarnya bahkan menyebut kasus ini dengan tepat:
+
+```sql
+-- `it->>'dicek_qty'` menghasilkan NULL baik saat nilainya JSON null MAUPUN
+-- saat kuncinya tidak ada sama sekali. Dua hal itu berbeda: yang pertama
+-- berarti "batalkan ceknya", yang kedua berarti "baris ini tidak sedang
+-- saya sentuh". Tanpa `? 'dicek_qty'`, layar yang mengirim sebagian baris
+-- akan MENGHAPUS hasil cek orang lain.
+if not (it ? 'dicek_qty') then continue; end if;
+```
+
+Tapi layarnya **tidak pernah mengirim sebagian**. `muatanCek` menyertakan kunci `dicek_qty` untuk **setiap kotak di tabel**, dan berkomentar bahwa itu benar karena *"layar ini memang sedang menyentuh semua baris yang ditampilkannya"*.
+
+Anggapan itu runtuh pada device kedua. Staff bar menekan Simpan Sementara → mengirim `null` untuk seluruh baris kitchen → **menghapus hitungan yang baru saja disimpan staff kitchen**. Tidak ada galat. Keduanya melihat "Tersimpan sementara", dan yang satu baru tahu pekerjaannya hilang saat menekan Terima.
+
+Penjaga di server berdiri dengan benar; **kliennya yang mematahkannya** dengan selalu menyediakan kunci yang dimaksudkan opsional.
+
+### Kenapa ia tidak selalu kelihatan
+
+Urutan menentukan siapa yang kalah, dan kalau keduanya kebetulan menyimpan sebelum yang lain mulai mengisi, tidak ada yang hilang sama sekali. Laporan "kadang hilang, kadang tidak" untuk alur yang persis sama adalah tanda khas bug yang bergantung urutan.
+
+### Pembandingnya: nilai saat baris DIGAMBAR
+
+Tiap kotak sekarang membawa `data-awal` — hasil cek yang sudah ada di server waktu layar dimuat. `muatanCek` mengirim sebuah baris **hanya kalau nilainya berubah** terhadap itu:
+
+| di layar | yang dikirim | artinya di server |
+|---|---|---|
+| kosong, sejak digambar kosong | **tidak dikirim** | baris ini bukan bagian saya |
+| diisi angka | `dicek_qty: 10` | hitungan saya |
+| tadinya berisi, sekarang dikosongkan | `dicek_qty: null` | batalkan ceknya |
+| berisi, tidak disentuh | **tidak dikirim** | — |
+
+Pembatalan cek yang disengaja tetap bisa dilakukan; yang hilang cuma pernyataan yang tidak pernah dibuat siapa pun.
+
+### Layar yang paling basi tepat di saat paling genting
+
+Cacat kedua ada di tombol **Terima**. Penyegaran otomatis tiap 15 detik sengaja **dilewati selama ada tabel yang sedang diisi** — kalau tidak, angka yang sedang diketik hilang di tengah jalan. Benar, tapi akibatnya layar paling basi justru pada detik orangnya menekan Terima.
+
+Dialog *"n bahan belum dicek"* lalu menawarkan "tandai sesuai kiriman" atau "tandai 0" untuk baris yang **sudah dihitung device sebelah** — dan pilihan itu menimpanya.
+
+Sekarang hasil cek terbaru diambil **tepat sebelum** keputusan itu, dan hanya kotak yang masih kosong di layar ini yang diisi dari sana. Yang sudah diketik orangnya tidak disentuh: hitungan yang sedang dipegang tidak boleh berubah di bawah tangannya.
+
+### Bukti Terima tidak lagi mengunduh PDF
+
+Yang menekan Terima adalah staff outlet yang baru selesai menghitung barang. Berkas PDF yang mendarat di HP-nya tidak dibutuhkan siapa pun di situ — yang perlu dikirim ke CK adalah angkanya, dan itu sudah ada di teks bagikannya (lengkap dengan keterangan tiap baris sejak `pesan-kiriman.js`). Yang tertinggal cuma folder Unduhan yang penuh berkas yang tidak pernah dibuka.
+
+Surat jalan sisi CK — saat **mengirim** — tetap mengunduh: di sana kertasnya ikut berangkat bersama barang. Auditnya mengikat larangan itu ke dialog Bukti Terima saja, bukan ke seluruh berkas.
+
+### Dua hal yang ditemukan pemeriksanya sendiri
+
+**`audit-klik-ganda.cjs`** langsung merah pada perubahan di atas. Penangan tombol Terima dulu baru mengunci tombolnya menjelang `receiveDispatch` — aman selama tidak ada `await` sebelum titik itu. Pengambilan hasil cek terbaru yang baru saja ditambahkan membuat jendelanya nyata: dua ketukan cepat menghasilkan **dua penerimaan** untuk satu surat jalan, dan yang kedua menggerakkan stok untuk kedua kalinya. Sekarang dibungkus `sekaliJalan` — terkunci sejak ketukan pertama.
+
+**`audit-import-ekspor.cjs`** mulai merah secara acak: *"mengimpor `REPORTS` … tapi berkas itu tidak mengekspornya"* untuk berkas yang isinya tidak pernah berubah sedetik pun. Dan ia hanya merah saat dijalankan **berbarengan** dengan audit lain.
+
+Penyebabnya audit yang baru saja ditulis di bagian sebelumnya. Dalam mode periksa-pola, harness-nya berhenti sebelum merusak apa pun — tapi `pulih()` tetap berjalan saat keluar, dan `fs.writeFileSync` dengan isi yang **sama** tetap sebuah penulisan: berkasnya dipotong lebih dulu, lalu diisi ulang. Lima puluh tiga harness menulis ulang berkasnya sekaligus, dan proses lain yang membaca pada milidetik itu melihat berkas kosong atau separuh.
+
+Jadi `pulih()` sekarang tidak memulihkan apa-apa dalam mode itu — karena memang tidak ada yang dirusak. Alat verifikasi yang punya efek samping adalah alat yang kebenarannya ikut diragukan.
+
+- [x] **Dua device tidak lagi saling menghapus + Bukti Terima tanpa unduh PDF** — 9 sabotase baru

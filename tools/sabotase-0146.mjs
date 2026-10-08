@@ -49,6 +49,19 @@ const lepasTanda = () => {
 };
 
 const pulih = () => {
+  // ============ MODE PERIKSA POLA TIDAK MEMULIHKAN APA PUN ============
+  //
+  // Karena ia tidak pernah merusak apa pun. `fs.writeFileSync` dengan isi yang
+  // SAMA tetap sebuah penulisan: berkasnya dipotong lebih dulu, lalu diisi
+  // ulang. Proses lain yang kebetulan membacanya pada milidetik itu melihat
+  // berkas kosong atau separuh.
+  //
+  // Itu benar-benar terjadi: `audit-sabotase-terpasang.cjs` menjalankan 53
+  // harness sekaligus, ketiganya-puluh-tiga menulis ulang berkasnya saat
+  // keluar, dan `audit-import-ekspor.cjs` yang berjalan berbarengan melaporkan
+  // "mengimpor REPORTS tapi berkasnya tidak mengekspornya" — untuk berkas yang
+  // isinya tidak pernah berubah sedetik pun.
+  if (process.env.SABOTASE_PERIKSA_POLA) return lepasTanda();
   for (const [rel, isi] of asli) fs.writeFileSync(P(rel), isi);
   lepasTanda();
 };
@@ -85,6 +98,24 @@ const sabotase = (nama, rel, dari, ke, pemeriksa) => {
   if (typeof dari === 'string' && isi.split(dari).length > 2) {
     gagal++;
     console.error(`❌ POLANYA MUNCUL >1 KALI: ${nama} di ${rel} — sabotasenya cuma mengenai yang pertama.`);
+    return;
+  }
+  // ============ MODE PERIKSA POLA ============
+  //
+  // Dipakai `tools/audit-sabotase-terpasang.cjs`: berhenti TEPAT sesudah pola
+  // `dari` dipastikan cocok, sebelum satu berkas pun disentuh.
+  //
+  // Alasannya satu kejadian nyata: `sabotase-0132.mjs` basi sejak `0142` —
+  // tiga polanya tidak cocok lagi dengan kodenya — dan tidak ada yang tahu
+  // berbulan-bulan, karena harness sabotase berat (tiap sabotase menjalankan
+  // pemeriksanya sendiri) sehingga tidak pernah ikut sweep rutin. Harness yang
+  // polanya tidak terpasang TIDAK menguji apa pun, dan ia melaporkannya hanya
+  // kalau ada yang menjalankannya.
+  //
+  // Mode ini tidak menjalankan pemeriksa sama sekali, jadi seluruh 50+ harness
+  // bisa disapu dalam hitungan detik.
+  if (process.env.SABOTASE_PERIKSA_POLA) {
+    console.log(`   \u2714 pola terpasang: ${nama}`);
     return;
   }
   tandai(rel);
