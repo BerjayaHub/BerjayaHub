@@ -15,6 +15,54 @@ import { isoFrom, isoTo } from '../../core/dates.js';
 // sama — lalu pencariannya berhenti bekerja tanpa satu pun galat.
 import { kodeKas } from '../cash/kode-kas.js';
 
+// ---- MASTER SUPPLIER (0158) ----
+//
+// Tabelnya sendiri, BUKAN `esb_master`. Lihat alasan panjangnya di migration
+// 0158: `esb_master` adalah salinan daftar resmi ESB, dan menambahkan ketikan
+// staff ke sana membuat status "sudah sama dengan ESB" tidak bisa dipercaya.
+
+/**
+ * Daftar supplier yang bisa DIPILIH — dipakai dropdown nota & form kas.
+ *
+ * Bawaannya hanya yang aktif: supplier yang sudah dinonaktifkan admin tidak
+ * boleh muncul lagi sebagai pilihan, tapi tetap harus terlihat di layar Master
+ * Supplier (`{ semua: true }`) supaya bisa diaktifkan kembali.
+ */
+export async function listSuppliers(businessUnitId, { semua = false } = {}) {
+  return ambilSemua((dari, sampai) => {
+    let q = supabase
+      .from('suppliers')
+      .select('id, nama, esb_kode, esb_nama, terverifikasi, aktif, catatan, dibuat_at', { count: 'exact' })
+      .eq('business_unit_id', businessUnitId)
+      .order('nama');
+    if (!semua) q = q.eq('aktif', true);
+    return q.range(dari, sampai);
+  });
+}
+
+/** ADMIN BU. Betulkan nama / kode ESB / status verifikasi satu supplier. */
+export async function ubahSupplier(id, { nama, esbKode, esbNama, terverifikasi, aktif } = {}) {
+  const { error } = await supabase.rpc('ubah_supplier', {
+    p_id: id,
+    p_nama: nama,
+    p_esb_kode: esbKode ?? null,
+    p_esb_nama: esbNama ?? null,
+    // `null` berarti "jangan ubah" di sisi RPC — berbeda dari `false`.
+    // Mengirim `false` untuk kolom yang tidak sedang disentuh akan
+    // membatalkan verifikasi orang lain diam-diam.
+    p_terverifikasi: terverifikasi === undefined ? null : terverifikasi,
+    p_aktif: aktif === undefined ? null : aktif
+  });
+  if (error) throw new Error(error.message ?? String(error));
+}
+
+/** ADMIN BU. Pindahkan seluruh nota dari satu supplier ke supplier lain. */
+export async function gabungSupplier(dariId, keId) {
+  const { data, error } = await supabase.rpc('gabung_supplier', { p_dari: dariId, p_ke: keId });
+  if (error) throw new Error(error.message ?? String(error));
+  return Number(data ?? 0);
+}
+
 // ---- Daftar induk ESB ----
 
 export async function listEsbMaster(businessUnitId, jenis = null) {

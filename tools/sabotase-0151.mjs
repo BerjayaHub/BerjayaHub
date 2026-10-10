@@ -380,8 +380,9 @@ sabotase(
 sabotase(
   'dialog admin kembali memuat daftar supplier lewat kolom yang selalu NULL',
   CADM,
-  "listEsbMaster(buKasEntri(r), 'supplier').catch(() => [])",
-  "listEsbMaster(r.business_unit_id, 'supplier').catch(() => [])",
+  // Sumbernya pindah ke `listSuppliers` (0158); sumbu BU-nya yang dijaga.
+  'listSuppliers(buKasEntri(r)).catch(() => [])',
+  'listSuppliers(r.business_unit_id).catch(() => [])',
   AUDIT
 );
 sabotase(

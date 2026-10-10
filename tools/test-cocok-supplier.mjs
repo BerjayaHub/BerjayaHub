@@ -239,9 +239,21 @@ assert.deepEqual(supplierPerluDibereskan(null, master), []);
 assert.deepEqual(supplierPerluDibereskan([], master), []);
 ok('masukan kosong tidak melempar');
 
-assert.match(PESAN_DI_LUAR_DAFTAR, /tetap tersimpan/);
-assert.match(PESAN_DI_LUAR_DAFTAR, /admin BU/);
-ok('pesan ke staff menyebut notanya tetap tersimpan, dan siapa yang melanjutkan');
+// ============ KALIMATNYA BERUBAH SEJAK 0158 ============
+//
+// Dulu nama di luar daftar berarti "admin perlu menambahkannya di ESB lalu
+// mengimpor ulang" — karena satu-satunya daftar supplier memang salinan ESB.
+//
+// Sejak ada tabel `suppliers`, nama yang diketik staff LANGSUNG jadi baris
+// master dan muncul untuk semua orang. Yang tersisa buat admin cuma kode
+// ESB-nya. Kalimat lama akan menyuruh orang mengerjakan hal yang sudah tidak
+// perlu, sekaligus menyembunyikan satu-satunya hal yang masih perlu.
+assert.match(PESAN_DI_LUAR_DAFTAR, /Master Supplier/);
+assert.match(PESAN_DI_LUAR_DAFTAR, /kode ESB/i);
+// Nadanya tetap tidak menyalahkan: staff yang mengetik supplier baru sedang
+// mencatat pembelian yang sungguh terjadi.
+for (const kata of [/salah/i, /tidak boleh/i, /gagal/i]) assert.doesNotMatch(PESAN_DI_LUAR_DAFTAR, kata);
+ok('INTI: pesan ke staff menyebut namanya MASUK master, dan apa yang tersisa buat admin');
 
 
 

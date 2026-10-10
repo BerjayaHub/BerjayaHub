@@ -15,6 +15,7 @@
 
 import { toast, infoDialog, formDialog, confirmDialog, renderSearchSelect, wireSearchSelect } from '../../core/ui.js';
 import { petaSupplier, cocokkanSupplier, PESAN_DI_LUAR_DAFTAR } from './cocok-supplier.js';
+import { opsiSupplier } from './master-supplier.js';
 import { formatNum } from '../../core/format.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { todayWIB } from '../../core/dates.js';
@@ -90,7 +91,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products, daf
             daftarSupplier.length
               ? renderSearchSelect({
                   name: 'nota-supplier',
-                  options: daftarSupplier.map((s) => ({ value: s.nama, label: s.nama, hint: s.kode ? `kode ESB ${s.kode}` : '' })),
+                  options: opsiSupplier(daftarSupplier),
                   placeholder: 'pilih atau ketik nama supplier…',
                   allowCreate: true
                 })
@@ -166,7 +167,7 @@ export function renderNotaStaff(wadah, { businessUnitId, outletId, products, daf
   const kotakSupplier = wadah.querySelector('.search-select[data-name="nota-supplier"]');
   if (kotakSupplier) {
     const ketEl = wadah.querySelector('#nota-supplier-ket');
-    const opsiSup = daftarSupplier.map((s) => ({ value: s.nama, label: s.nama, hint: s.kode ? `kode ESB ${s.kode}` : '' }));
+    const opsiSup = opsiSupplier(daftarSupplier);
     const tandai = () => {
       const hasil = cocokkanSupplier(bacaSupplier(), petaSup);
       // Nama di luar daftar TIDAK menghalangi penyimpanan — ia cuma diberi

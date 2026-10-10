@@ -51,6 +51,8 @@
 
 import { normalNama } from '../inventory/cocok-supplier.js';
 
+import { hintSupplier } from '../inventory/master-supplier.js';
+
 const teks = (v) => (v === null || v === undefined ? '' : String(v).trim());
 
 export const PESAN_WAJIB = 'Pilih dulu supplier / penerima pembayarannya.';
@@ -104,7 +106,10 @@ export function supplierKasWajib(daftarInduk) {
 export function opsiSupplierKas(daftarInduk, nilaiSekarang = '') {
   const induk = Array.isArray(daftarInduk) ? daftarInduk : [];
   const opsi = induk
-    .map((m) => ({ value: teks(m?.nama), label: teks(m?.nama), hint: teks(m?.kode) ? `kode ESB ${teks(m.kode)}` : '' }))
+    // Keterangannya lewat `hintSupplier` — SATU fungsi untuk nota & kas.
+    // Dua layar yang menampilkan daftar yang sama dengan keterangan berbeda
+    // membuat orang mengira daftarnya juga berbeda.
+    .map((m) => ({ value: teks(m?.nama), label: teks(m?.nama), hint: hintSupplier(m) }))
     .filter((o) => o.value)
     .sort((a, b) => a.label.localeCompare(b.label, 'id'));
 

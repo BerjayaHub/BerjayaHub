@@ -534,8 +534,9 @@ sabotase(
 sabotase(
   'daftar supplier yang gagal dimuat mematikan SELURUH layar Kas',
   CPAGE,
-  "      listEsbMaster(businessUnitId, 'supplier').catch(() => [])",
-  "      listEsbMaster(businessUnitId, 'supplier')",
+  // Daftarnya pindah ke `listSuppliers` (0158); `.catch()`-nya yang dijaga.
+  '      listSuppliers(businessUnitId).catch(() => []),',
+  '      listSuppliers(businessUnitId),',
   AUDIT
 );
 

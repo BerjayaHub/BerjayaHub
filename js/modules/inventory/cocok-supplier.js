@@ -123,8 +123,8 @@ export function supplierSiap(hasil) {
  * Yang perlu dikerjakan ada di pihak admin.
  */
 export const PESAN_DI_LUAR_DAFTAR =
-  'Nama ini belum ada di daftar supplier ESB. Notanya tetap tersimpan — admin BU perlu menambahkannya di ESB ' +
-  'lalu mengimpor ulang daftarnya sebelum nota ini bisa diekspor.';
+  'Supplier baru — namanya akan ditambahkan ke Master Supplier begitu nota ini disimpan, dan muncul di daftar ' +
+  'untuk semua orang. Kode ESB-nya diisi admin belakangan sebelum notanya bisa diekspor.';
 
 /**
  * Ringkasan untuk layar pemetaan: ejaan mana yang masih perlu dibereskan.

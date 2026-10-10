@@ -2,7 +2,7 @@ import { toast, formDialog, confirmDialog, fuzzyMatch } from '../../core/ui.js';
 import { bandingHarga, perluDitinjau } from './biaya-rata.js';
 import { formatNum, formatRupiah } from '../../core/format.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
-import { listEsbMaster } from './esb.service.js';
+import { listEsbMaster, listSuppliers } from './esb.service.js';
 import { getBiayaRataOutlet, getOutletStockMap, recordMovement, getAllowStaffOpname } from './inventory.service.js';
 // `recordMenuWaste` SENGAJA TIDAK DIIMPOR LAGI. Sejak 0135 fungsinya di server
 // hanya berisi penolakan yang menjelaskan, dan satu-satunya jalan masuk adalah
@@ -34,7 +34,10 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       // dijalankan, atau RLS-nya menutup — berarti daftar kosong, dan kolom
       // Supplier tetap kotak teks bebas seperti sebelumnya. Layar Bahan tidak
       // boleh mati hanya karena satu daftar tambahan tidak terbaca.
-      listEsbMaster(businessUnitId, 'supplier').catch(() => []),
+      // MASTER SUPPLIER (0158), bukan `esb_master`. Supplier yang diketik
+      // staff di nota lahir di sini, jadi daftar ini yang memuatnya —
+      // `esb_master` tetap murni salinan daftar resmi ESB.
+      listSuppliers(businessUnitId).catch(() => []),
       // Daftar Purpose ESB (0147). Alasan `catch` yang sama dengan supplier di
       // atas, dan di sini taruhannya lebih besar: barang yang sudah rusak tidak
       // menunggu daftar induk terbaca. Gagal dimuat berarti kolomnya tidak

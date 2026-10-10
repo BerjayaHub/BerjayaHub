@@ -27,7 +27,7 @@ import {
 import { keadaanKoreksi, jejakKoreksi, totalKas } from './koreksi-kas.js';
 import { loadingHtml, tombolSibuk, sekaliJalan } from '../../core/loading.js';
 import { notaTerkaitEntriKas } from '../inventory/nota.service.js';
-import { listEsbMaster } from '../inventory/esb.service.js';
+import { listSuppliers } from '../inventory/esb.service.js';
 import { bukaDialogNota } from '../inventory/nota-dialog.js';
 import { pecahKeterangan, petaNotaPerEntri } from './keterangan-nota.js';
 import { supplierKasWajib, opsiSupplierKas, periksaSupplierKas } from './supplier-kas.js';
@@ -69,7 +69,10 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       // diekspor sebagai Disbursement (0149). Gagal dibacanya berarti kolomnya
       // tidak muncul dan entrinya tersimpan tanpa supplier; layar Kas tidak
       // boleh mati karena satu daftar tambahan tidak terbaca.
-      listEsbMaster(businessUnitId, 'supplier').catch(() => []),
+      // MASTER SUPPLIER (0158), bukan `esb_master`. Supplier yang diketik
+      // staff di nota lahir di sini, jadi daftar ini yang memuatnya —
+      // `esb_master` tetap murni salinan daftar resmi ESB.
+      listSuppliers(businessUnitId).catch(() => []),
       // KANTONG YANG BOLEH KUBEBANI — bukan cuma kantongku.
       //
       // Izinnya sudah ada sejak 0126: kantong BER-OUTLET boleh dibebani siapa

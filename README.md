@@ -8458,3 +8458,51 @@ Penyebabnya audit yang baru saja ditulis di bagian sebelumnya. Dalam mode periks
 Jadi `pulih()` sekarang tidak memulihkan apa-apa dalam mode itu — karena memang tidak ada yang dirusak. Alat verifikasi yang punya efek samping adalah alat yang kebenarannya ikut diragukan.
 
 - [x] **Dua device tidak lagi saling menghapus + Bukti Terima tanpa unduh PDF** — 9 sabotase baru
+
+## Supplier yang diketik staff, lalu hilang
+
+> *"ada case dimana staff menambahkan supplier baru di staff app saat input nota terima dari supplier, tetapi saat akan input lagi, supplier baru tersebut tidak muncul lagi di dropdown supplier"*
+
+Bukan hilang: ia **tidak pernah jadi apa pun yang bisa dipilih lagi**.
+
+Dropdown Supplier diisi dari `esb_master` jenis `supplier` — salinan daftar yang diimpor dari berkas ESB. Nama yang diketik staff disimpan sebagai teks bebas di `goods_receipts.supplier`, dan berakhir di situ. Satu-satunya tempat ia muncul kembali adalah layar Pemetaan ESB di Admin Portal, sebagai baris berstatus "belum terdaftar".
+
+### Dua daftar yang tidak boleh dicampur
+
+Menambahkan ketikan staff ke `esb_master` akan membuatnya berbohong: status *"sudah sama dengan ESB"* jadi tidak bisa dibedakan dari *"diketik staff tadi pagi"* — padahal membedakan keduanya adalah seluruh guna layar itu.
+
+Maka master supplier jadi tabelnya sendiri (`suppliers`). `esb_master` tetap murni hasil impor; `suppliers` yang dipakai dropdown nota **dan** form kas keluar, dan ia menyimpan kode ESB-nya sendiri — diisi admin belakangan.
+
+### Nota menunjuk ID, bukan teks
+
+> *"setelah di edit supplier baru ini otomatis juga akan menyesuaikan di staff app nya"*
+
+Supaya itu berlaku untuk **semua yang sudah tercatat** — nota lama, daftar hutang, laporan, ekspor ESB — bukan cuma dropdown ke depan.
+
+Kolom teks `goods_receipts.supplier` dipertahankan, tapi **artinya berubah**: ia tidak lagi ditulis siapa pun, melainkan salinan yang dijaga database dari `suppliers.nama`. Itu membuat sepuluh lebih pembaca lama tetap bekerja apa adanya, dan ikut berubah sendiri saat namanya dibetulkan.
+
+Ini salinan, dan salinan selalu bisa menyimpang. Yang membuatnya aman cuma satu hal: **ia hanya pernah ditulis oleh trigger**, tidak pernah oleh layar mana pun — dan trigger-nya menimpa apa pun yang dikirim klien, jadi PWA lama yang masih mengirim teks tidak bisa membuatnya berbeda dari induknya. Tesnya mencoba itu secara eksplisit (`§8 Teks basi dari klien`).
+
+### Penautannya di database, lagi
+
+Layar nota yang baru mengirim `supplier_id`. Tapi ada jalan masuk lain: PWA lama di cache HP, RPC `simpan_nota`/`ubah_nota`/`koreksi_nota` yang menerima `p_supplier text`, dan panggilan PostgREST langsung. Kalau penautannya diserahkan layar, semua jalan itu menghasilkan nota tanpa `supplier_id` — dan supplier barunya tetap tidak pernah muncul di dropdown, **yaitu keluhan aslinya, persis**.
+
+### Gabung bukan fitur tambahan
+
+Begitu supplier bisa lahir dari ketikan, "Toko Berkah", "Tk Berkah", dan "Toko Berkah Jaya" akan muncul dengan sendirinya dalam hitungan minggu — bukan karena ada yang ceroboh, tapi karena tiga orang mengetik nama yang sama dengan cara berbeda. Daftar master tanpa cara menemukan kembarannya akan berubah jadi daftar yang tidak ada gunanya dibaca, dan pada saat itu orang kembali ke Excel.
+
+Deteksinya sengaja **tidak** mengukur kemiripan huruf — itu menghasilkan terlalu banyak tebakan. Yang dipakai: satu nama jadi **awalan** nama lain, putus di **batas kata**, dan panjang minimal 4 huruf. Tanpa batas kata, "PT Sari" dan "PT Sarinah" disarankan digabung — dan menggabungkannya memindahkan nota ke supplier yang salah. Tanpa batas panjang, "CV" jadi awalan hampir semua nama dan seluruh daftar saling ditandai.
+
+### Dua hal yang ditemukan tesnya sendiri
+
+**Migration-nya tidak idempoten.** `create policy` tidak punya `if not exists`, jadi menjalankan berkasnya dua kali berhenti di tengah dengan *"policy already exists"* — dan yang menjalankannya tidak tahu bagian mana yang sudah terpasang. Ditemukan §9 (dijalankan ulang), yang memang ada untuk itu.
+
+**Dua sabotase lolos, keduanya bentuk yang sama.** Klausa `on conflict` yang dicari auditnya ada juga di dua `insert` backfill; dan `listSuppliers(bu, { semua: true })` dipanggil dua kali (muat awal & muat ulang sesudah edit). Keduanya sekarang **diikat ke bloknya** atau **dihitung**.
+
+### Yang sengaja tidak disentuh
+
+Jalur ekspor ESB tidak diubah sama sekali — pemetaan tetap di `esb_map`, dan layar "4. Daftar supplier" tetap menjawab pertanyaannya sendiri: ejaan mana yang belum cocok dengan ESB. Master Supplier menjawab pertanyaan yang berbeda: apa yang bisa dipilih staff. Menyatukannya terdengar rapi, tapi menghasilkan satu layar yang menjawab dua pertanyaan dan tidak menjawab keduanya.
+
+`cash_entries.supplier` juga masih teks. Entri kas memilih dari daftar yang sama, jadi namanya tetap sah — tapi kalau admin membetulkan sebuah nama, entri kas lama **tidak** ikut berubah seperti nota. Itu asimetri yang masih terbuka.
+
+- [x] **Master supplier: ketikan staff jadi baris master, admin membetulkannya, semua ikut** (`0158`) — 16 sabotase

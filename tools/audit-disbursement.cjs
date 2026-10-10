@@ -612,7 +612,9 @@ if (hal) {
   if ((kode.match(/supplier: values\.supplier/g) ?? []).length < 2) {
     salah('cash.page.js: nilainya tidak dikirim dari kedua tempat — kotaknya digambar, isinya tidak sampai ke database.');
   }
-  if (!/listEsbMaster\(businessUnitId, 'supplier'\)\.catch\(\(\) => \[\]\)/.test(kode)) {
+  // Sumbernya pindah ke tabel `suppliers` (0158). Yang dijaga tetap sama:
+  // kegagalan memuat daftar tambahan tidak boleh mematikan layar Kas.
+  if (!/listSuppliers\(businessUnitId\)\.catch\(\(\) => \[\]\)/.test(kode)) {
     salah(
       'cash.page.js: daftar supplier tidak dimuat, atau kegagalannya tidak ditangkap. Layar Kas tidak boleh mati ' +
         'karena satu daftar tambahan tidak terbaca.'
@@ -637,7 +639,9 @@ if (halAdm) {
   // kedua membuat aksi massalnya selalu berhenti di "Daftar supplier ESB belum
   // diimpor" — kalimat yang menyuruh mengimpor daftar yang sudah ada.
   for (const [nama, pola] of [
-    ['dialog koreksi', /listEsbMaster\(buKasEntri\(r\), 'supplier'\)/],
+    // Sumbernya pindah ke `listSuppliers` (0158); yang dijaga tetap SUMBU
+    // BU-nya — `buKasEntri`, bukan kolom yang selalu NULL.
+    ['dialog koreksi', /listSuppliers\(buKasEntri\(r\)\)/],
     ['aksi massal "Isi Supplier"', /const bu = buKasEntri\(semuaPerId\.get\(ids\[0\]\)\);/]
   ]) {
     if (!pola.test(kode)) {

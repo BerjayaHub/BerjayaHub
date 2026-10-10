@@ -20,7 +20,7 @@ import {
   coretKas
 } from './cash.service.js';
 import { listMyOutletsAllBu } from '../../core/my-outlets.js';
-import { listEsbMaster } from '../inventory/esb.service.js';
+import { listSuppliers } from '../inventory/esb.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { notaTerkaitEntriKas } from '../inventory/nota.service.js';
@@ -304,7 +304,7 @@ async function loadMutasi(content) {
       // ia selalu berhenti di "Daftar supplier ESB belum diimpor", kalimat
       // yang menyuruh mengimpor daftar yang sebenarnya sudah ada.
       const bu = buKasEntri(semuaPerId.get(ids[0]));
-      const daftar = await listEsbMaster(bu, 'supplier').catch(() => []);
+      const daftar = await listSuppliers(bu).catch(() => []);
       if (!daftar.length) {
         return toast('Daftar supplier ESB belum diimpor — impor dulu di Ekspor ESB langkah 3.', 'warning');
       }
@@ -477,7 +477,7 @@ async function ubahEntriAdmin(r, content) {
       //
       // Gagal dibacanya berarti kolomnya tidak muncul dan nilainya dikirim apa
       // adanya; dialognya tidak boleh mati karena satu daftar tambahan.
-      listEsbMaster(buKasEntri(r), 'supplier').catch(() => [])
+      listSuppliers(buKasEntri(r)).catch(() => [])
     ]);
   }
   const opsiOutlet = outlets.map((o) => ({

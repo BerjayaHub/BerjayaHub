@@ -16,7 +16,7 @@
  * berkas ditolak — dan penolakannya terjadi di ESB, jauh dari sini.
  */
 
-import { toast, confirmDialog } from '../../core/ui.js';
+import { toast, confirmDialog, formDialog } from '../../core/ui.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { loadXLSX } from '../../core/xlsx.js';
@@ -37,6 +37,15 @@ import { KOLOM_DISBURSEMENT, barisEsbDisbursement, ringkasDisbursement } from '.
 import { pasangFormatTanggal } from './tanggal-excel.js';
 import { petaSupplier, petaEjaanSupplier, normalNama } from './cocok-supplier.js';
 import { susunDaftarSupplier, ringkasStatus, pesanRingkas, LABEL_STATUS, STATUS_MENGHAMBAT } from './daftar-supplier.js';
+import {
+  susunMasterSupplier,
+  ringkasMaster,
+  pesanMaster,
+  calonKembar,
+  LABEL_STATUS as LABEL_MS,
+  STATUS as MS,
+  STATUS_PERLU_DIKERJAKAN
+} from './master-supplier.js';
 import { satuanPerluDipetakan } from './konversi-satuan.js';
 import {
   alasanSah,
@@ -48,6 +57,9 @@ import {
 } from './batal-tanda-esb.js';
 import {
   listEsbMaster,
+  listSuppliers,
+  ubahSupplier,
+  gabungSupplier,
   gantiEsbMaster,
   listEsbMap,
   simpanEsbMap,
@@ -235,8 +247,11 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
   let produk = [];
   let supplierTerpakai = [];
   let outletKantong = [];
+  // Master supplier (0158). `semua: true` — yang nonaktif pun harus terlihat
+  // di sini, kalau tidak ia tidak akan pernah bisa diaktifkan kembali.
+  let masterSupplier = [];
   try {
-    [master, peta, produk, supplierTerpakai, outletKantong] = await Promise.all([
+    [master, peta, produk, supplierTerpakai, outletKantong, masterSupplier] = await Promise.all([
       listEsbMaster(businessUnitId).catch(() => []),
       listEsbMap(businessUnitId).catch(() => []),
       listProducts(businessUnitId).catch(() => []),
@@ -248,7 +263,10 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       // (0151). Gagal dibacanya berarti kelompok COA cuma berisi cara bayar +
       // outlet BU ini; layar ESB tidak boleh mati karena satu daftar tambahan
       // tidak terbaca.
-      outletKantongKasEsb(businessUnitId).catch(() => [])
+      outletKantongKasEsb(businessUnitId).catch(() => []),
+      // Gagal berarti 0158 belum dijalankan. Bagian Master Supplier tampil
+      // kosong dengan keterangannya; sisa layar ESB tetap berdiri.
+      listSuppliers(businessUnitId, { semua: true }).catch(() => [])
     ]);
   } catch (e) {
     container.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
@@ -425,6 +443,18 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
          bermasalah — jadi tidak ada satu tempat pun yang bisa menjawab
          "supplier apa saja yang sudah terdaftar di sini?". Yang tersisa
          membuka berkas ESB di Excel, dan itu bukan jawaban. -->
+    <!-- MASTER SUPPLIER (0158) — daftar yang DIPAKAI dropdown.
+         Sengaja terpisah dari "4. Daftar supplier" di bawahnya, yang
+         menjawab pertanyaan lain: ejaan mana yang belum cocok dengan ESB.
+         Menyatukan keduanya terdengar rapi, tapi menghasilkan satu layar
+         yang menjawab dua pertanyaan dan tidak menjawab keduanya. -->
+    <details class="inline-card" style="max-width:820px;margin-top:12px" id="ms-box">
+      <summary style="cursor:pointer;font-size:0.95rem;font-weight:600">
+        Master Supplier <span id="ms-lencana" style="font-weight:400"></span>
+      </summary>
+      <div id="ms-isi" style="margin-top:8px"></div>
+    </details>
+
     <details class="inline-card" style="max-width:820px;margin-top:12px" id="esb-supplier-box">
       <summary style="cursor:pointer;font-size:0.95rem;font-weight:600">
         4. Daftar supplier <span id="esb-supplier-lencana" style="font-weight:400"></span>
@@ -626,6 +656,195 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
     })
   );
 
+
+  // ---------------------------------------------------------------
+  // 1b. MASTER SUPPLIER (0158) — daftar yang dipakai dropdown Staff App.
+  //
+  // Bisa diedit di sini, dan hasilnya langsung terbaca Staff App karena
+  // keduanya membaca tabel yang SAMA. Tidak ada yang disalin, jadi tidak ada
+  // yang perlu disinkronkan — dan tidak mungkin ada dua daftar yang berbeda.
+  // ---------------------------------------------------------------
+  async function muatMaster() {
+    masterSupplier = await listSuppliers(businessUnitId, { semua: true }).catch(() => []);
+    gambarMasterSupplier();
+  }
+
+  function gambarMasterSupplier() {
+    const daftar = susunMasterSupplier(masterSupplier, supplierTerpakai);
+    const ringkas = ringkasMaster(daftar);
+    const kembar = calonKembar(daftar);
+    const perNama = new Map(daftar.map((b) => [b.id, b.nama]));
+
+    const perlu = STATUS_PERLU_DIKERJAKAN.reduce((t, k) => t + (ringkas[k] ?? 0), 0);
+    container.querySelector('#ms-lencana').innerHTML = !ringkas.total
+      ? '<span style="color:var(--color-text-muted);font-size:0.8rem">kosong</span>'
+      : perlu
+        ? `<span class="nota-telat">${perlu} perlu dikerjakan</span> <span style="color:var(--color-text-muted);font-size:0.8rem">· ${ringkas.total} supplier</span>`
+        : `<span class="nota-lunas">semua beres</span> <span style="color:var(--color-text-muted);font-size:0.8rem">· ${ringkas.total} supplier</span>`;
+    // Dibuka sendiri kalau ada pekerjaan. Daftar tertutup yang menyimpan
+    // pekerjaan sama saja dengan tidak ada.
+    if (perlu) container.querySelector('#ms-box').open = true;
+
+    const box = container.querySelector('#ms-isi');
+    box.innerHTML = `
+      <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">${esc(pesanMaster(ringkas))}</p>
+      <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 8px">
+        Daftar inilah yang muncul di dropdown Supplier pada nota & kas keluar. Nama yang diketik staff masuk ke sini
+        sendiri, bertanda <strong>Baru dari staff</strong> — tetap langsung bisa dipakai semua orang.
+      </p>
+      ${
+        daftar.length
+          ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 8px">
+               <input type="search" id="ms-cari" placeholder="Cari nama supplier…" autocomplete="off" style="flex:1 1 200px;min-width:170px" />
+               <select id="ms-saring" style="flex:0 1 200px">
+                 <option value="">Semua status</option>
+                 ${Object.entries(LABEL_MS).map(([k, v]) => `<option value="${esc(k)}">${esc(v)} (${ringkas[k] ?? 0})</option>`).join('')}
+               </select>
+               <span id="ms-info" style="font-size:0.78rem;color:var(--color-text-muted)"></span>
+             </div>
+             <div class="table-scroll"><table class="data-table kartu-sempit">
+               <thead><tr><th>Supplier</th><th>Kode ESB</th><th>Status</th><th>Nota</th><th>Aksi</th></tr></thead>
+               <tbody id="ms-baris">${daftar
+                 .map((b) => {
+                   const warna = b.status === MS.BARU ? 'nota-telat' : b.status === MS.SIAP ? 'nota-lunas' : '';
+                   const mirip = kembar.get(b.id) ?? [];
+                   return (
+                     `<tr data-status="${esc(b.status)}" data-nama="${esc(b.nama)} ${esc(b.esbNama)} ${esc(b.esbKode)}">` +
+                     `<td data-label="Supplier"><strong>${esc(b.nama)}</strong>${
+                       // Ejaan ESB disebut HANYA kalau berbeda. Menampilkannya
+                       // selalu membuat kolom yang sama persis terbaca dua kali.
+                       b.esbNama ? `<br><span style="font-size:0.76rem;color:var(--color-text-muted)">di ESB: ${esc(b.esbNama)}</span>` : ''
+                     }${
+                       mirip.length
+                         ? `<br><span class="nota-telat" style="font-size:0.74rem">mirip: ${esc(
+                             mirip.map((id) => perNama.get(id) ?? '?').join(', ')
+                           )}</span>`
+                         : ''
+                     }</td>` +
+                     `<td data-label="Kode ESB" style="font-size:0.8rem">${esc(b.esbKode) || '<span style="color:var(--color-text-muted)">–</span>'}</td>` +
+                     `<td data-label="Status"><span class="${warna}">${esc(LABEL_MS[b.status])}</span></td>` +
+                     `<td data-label="Nota" style="font-size:0.8rem">${
+                       b.jumlah ? `${b.jumlah}${b.belumEkspor ? ` · <span class="nota-telat">${b.belumEkspor} belum diekspor</span>` : ''}` : '<span style="color:var(--color-text-muted)">–</span>'
+                     }</td>` +
+                     `<td data-label="Aksi"><button class="ms-edit" data-id="${esc(b.id)}">Edit</button>${
+                       mirip.length ? `<button class="ms-gabung" data-id="${esc(b.id)}">Gabungkan</button>` : ''
+                     }</td></tr>`
+                   );
+                 })
+                 .join('')}</tbody>
+             </table></div>`
+          : '<p style="color:var(--color-text-muted);font-size:0.88rem">Belum ada supplier. Daftarnya terisi sendiri begitu staff mencatat nota — atau impor daftar ESB di langkah 3.</p>'
+      }`;
+
+    const kotak = box.querySelector('#ms-cari');
+    if (kotak) {
+      const saring = box.querySelector('#ms-saring');
+      const baris = [...box.querySelectorAll('#ms-baris tr')];
+      const info = box.querySelector('#ms-info');
+      // Dua saringan pada SATU daftar, dihitung bersama — alasannya sama
+      // dengan daftar supplier ESB di bawah.
+      const jalankan = () => {
+        const kata = kotak.value.trim().toLowerCase();
+        const status = saring.value;
+        let tampil = 0;
+        for (const tr of baris) {
+          const cocok = (!status || tr.dataset.status === status) && (!kata || (tr.dataset.nama ?? '').toLowerCase().includes(kata));
+          tr.hidden = !cocok;
+          if (cocok) tampil += 1;
+        }
+        info.textContent = tampil === baris.length ? '' : `${tampil} dari ${baris.length} supplier`;
+      };
+      kotak.addEventListener('input', jalankan);
+      saring.addEventListener('change', jalankan);
+    }
+
+    box.querySelectorAll('.ms-edit').forEach((btn) =>
+      btn.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const b = daftar.find((x) => x.id === btn.dataset.id);
+          if (!b) return;
+          const v = await formDialog({
+            title: `Edit ${b.nama}`,
+            description:
+              'Perubahan di sini langsung terbaca Staff App — dropdown-nya membaca tabel yang sama. ' +
+              'Nama yang dibetulkan juga ikut mengubah nota LAMA yang memakai supplier ini.',
+            fields: [
+              { name: 'nama', label: 'Nama supplier', type: 'text', value: b.nama, required: true },
+              {
+                name: 'esb_kode',
+                label: 'Kode ESB',
+                type: 'text',
+                value: b.esbKode,
+                help: 'Dicocokkan dengan Master Supplier di ESB. Kosong = notanya akan tertahan saat diekspor.'
+              },
+              {
+                name: 'esb_nama',
+                label: 'Nama di ESB (kalau ejaannya berbeda)',
+                type: 'text',
+                value: b.esbNama,
+                help: 'Kosongkan kalau ejaannya sama dengan nama di atas — kosong berarti SAMA, bukan belum diisi.'
+              },
+              { name: 'terverifikasi', label: 'Sudah diperiksa admin', type: 'checkbox', value: b.terverifikasi },
+              { name: 'aktif', label: 'Aktif (muncul di dropdown)', type: 'checkbox', value: b.aktif }
+            ],
+            submitText: 'Simpan'
+          });
+          if (!v) return;
+          try {
+            await ubahSupplier(b.id, {
+              nama: v.nama,
+              esbKode: v.esb_kode,
+              esbNama: v.esb_nama,
+              terverifikasi: v.terverifikasi,
+              aktif: v.aktif
+            });
+            toast('Master supplier diperbarui — Staff App ikut sejak sekarang.', 'success');
+            await muatMaster();
+          } catch (e) {
+            toast(e.message ?? 'Gagal menyimpan.', 'error');
+          }
+        })
+      )
+    );
+
+    box.querySelectorAll('.ms-gabung').forEach((btn) =>
+      btn.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const b = daftar.find((x) => x.id === btn.dataset.id);
+          const mirip = kembar.get(btn.dataset.id) ?? [];
+          if (!b || !mirip.length) return;
+          const v = await formDialog({
+            title: `Gabungkan ${b.nama}`,
+            description:
+              `Seluruh nota "${b.nama}" dipindahkan ke supplier yang dipilih, lalu "${b.nama}" dihapus dari daftar. ` +
+              'Nota lamanya ikut menyebut nama tujuannya — jejaknya tidak hilang, cuma menunjuk induk yang benar.',
+            fields: [
+              {
+                name: 'ke',
+                label: 'Digabungkan ke',
+                type: 'select',
+                required: true,
+                options: mirip.map((id) => ({ value: id, label: perNama.get(id) ?? '?' }))
+              }
+            ],
+            submitText: 'Gabungkan',
+            danger: true
+          });
+          if (!v) return;
+          try {
+            const n = await gabungSupplier(b.id, v.ke);
+            toast(`${n} nota dipindahkan ke ${perNama.get(v.ke) ?? 'supplier tujuan'}.`, 'success');
+            await muatMaster();
+          } catch (e) {
+            toast(e.message ?? 'Gagal menggabungkan.', 'error');
+          }
+        })
+      )
+    );
+  }
+
   // ---------------------------------------------------------------
   // 1c. Daftar master supplier
   // ---------------------------------------------------------------
@@ -721,6 +940,7 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
     saring.addEventListener('change', jalankan);
     jalankan();
   }
+  gambarMasterSupplier();
   gambarDaftarSupplier();
 
   // ---------------------------------------------------------------

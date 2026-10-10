@@ -1,24 +1,27 @@
 /**
- * AUDIT: supplier punya daftar pasti, dan daftarnya datang dari ESB.
+ * AUDIT: master supplier (0158).
  *
  * ============ CARA FITUR INI RUSAK TANPA TERLIHAT RUSAK ============
  *
- *   ejaan yang DIKETIK ikut terkirim  -> "toko beras ridho" berangkat ke ESB
- *                                        apa adanya. Bagi ESB itu bukan nama
- *                                        yang sama, dan berkasnya ditolak di
- *                                        layar yang berbeda
- *   supplier tak dikenal lolos        -> persis keadaan sebelum ini: nama apa
- *                                        pun berangkat, ditolak jauh belakangan
- *   daftar kosong menahan SEMUANYA    -> BU yang belum sempat mengimpor daftar
- *                                        mendadak kehilangan seluruh notanya,
- *                                        karena aturan baru yang dinyalakan
- *   staff dipaksa memilih dari daftar -> pembelian mendadak jam 9 malam tidak
- *                                        bisa dicatat sama sekali
- *   dua aturan normalisasi            -> "AB  Sentul" cocok di satu jalur dan
- *                                        tidak di jalur lain, dan tidak ada
- *                                        layar yang bisa menunjukkan bedanya
- *   nama nota ditulis ulang           -> jejak apa yang DULU diketik hilang,
- *                                        dan tidak bisa dikembalikan
+ *   dropdown kembali ke esb_master -> keluhan aslinya kembali persis: supplier
+ *                                     yang diketik staff hilang pada nota
+ *                                     berikutnya
+ *   penautan diserahkan layar      -> PWA lama & RPC `simpan_nota` lama
+ *                                     menghasilkan nota tanpa supplier_id, dan
+ *                                     masternya tetap tidak pernah terisi
+ *   indeks unik ternormalkan hilang-> "Toko Berkah" dan "toko  berkah" jadi dua
+ *                                     baris; daftar beranak tiap kali ada yang
+ *                                     menekan spasi dua kali
+ *   teks nota tidak ditimpa induk  -> salinan menyimpang dari sumbernya, dan
+ *                                     nama yang sudah dibetulkan tetap salah di
+ *                                     ekspor & laporan
+ *   rename tidak disebar           -> "edit sekali, semua ikut" cuma berlaku
+ *                                     untuk dropdown; nota lama tetap lama
+ *   gabung dihapus                 -> daftar master beranak sendiri dan dalam
+ *                                     hitungan minggu tidak ada gunanya dibaca
+ *   `on conflict` dibuang          -> dua HP menyimpan nota bersupplier baru
+ *                                     yang sama pada detik yang sama, dan yang
+ *                                     kedua GAGAL menyimpan notanya
  */
 const fs = require('fs');
 const path = require('path');
@@ -39,7 +42,6 @@ const baca = (rel) => {
   }
   return fs.readFileSync(p, 'utf8');
 };
-
 const bersih = (isi, rel, penanda) => {
   const kode = tanpaKomentar(isi);
   const pesan = periksaKewarasan(isi, kode, penanda);
@@ -47,360 +49,206 @@ const bersih = (isi, rel, penanda) => {
   return kode;
 };
 
-const JENIS_LAMA = ['branch', 'location', 'unit', 'item', 'payment_method', 'coa'];
-
-// ---------------------------------------------------------------
-// 1. Migration 0144.
-// ---------------------------------------------------------------
-const mig = baca('supabase/migrations/0144_master_supplier_esb.sql');
-if (mig) {
-  for (const t of ['esb_master', 'esb_map']) {
-    const i = mig.indexOf(`alter table ${t}\n  add constraint`);
-    const blok = i < 0 ? '' : mig.slice(i, mig.indexOf(';', i));
-    if (!blok) {
-      salah(`0144: constraint jenis ${t} tidak dibuat ulang.`);
-      continue;
-    }
-    if (!/'supplier'/.test(blok)) salah(`0144: ${t} tidak menerima jenis 'supplier'.`);
-    // Memperlebar `check` berarti MENGETIK ULANG seluruh daftarnya — dan itu
-    // cara paling mudah menghapus satu jenis tanpa sadar. Keenamnya disebut.
-    for (const j of JENIS_LAMA) {
-      if (!new RegExp(`'${j}'`).test(blok)) {
-        salah(`0144: jenis '${j}' HILANG dari check ${t}. Memperlebar check berarti menulis ulang daftarnya, dan satu yang tertinggal menutup seluruh pemetaan jenis itu.`);
+/** Buang komentar `--` SQL, kecuali yang di dalam string literal. */
+const tanpaSqlKomentar = (sql) =>
+  sql
+    .split('\n')
+    .map((baris) => {
+      let petik = 0;
+      for (let i = 0; i < baris.length; i++) {
+        if (baris[i] === "'") petik++;
+        else if (baris[i] === '-' && baris[i + 1] === '-' && petik % 2 === 0) return baris.slice(0, i);
       }
-    }
+      return baris;
+    })
+    .join('\n');
+
+// ---------------------------------------------------------------
+// 1. MIGRATION 0158.
+// ---------------------------------------------------------------
+const mig = baca('supabase/migrations/0158_master_supplier.sql');
+if (mig) {
+  const kode = tanpaSqlKomentar(mig);
+  if (!/create table if not exists suppliers/.test(kode)) {
+    salah('audit-master-supplier: penyaring komentar SQL ikut memakan kodenya — pemeriksaan di bawah tidak bisa dipercaya.');
   }
-  // Nama constraint lamanya DICARI di katalog, bukan ditebak — DI KEDUA blok.
-  //
-  // Versi pertama audit ini cuma menanyakan "apakah polanya ada", dan sabotase
-  // yang merusak blok PERTAMA lolos: blok kedua masih memuat kalimat yang sama,
-  // jadi polanya tetap ketemu. `String.replace` mengganti kemunculan pertama
-  // saja, dan pemeriksaan "ada atau tidak" buta terhadap itu. Jebakan yang sama
-  // sudah beberapa kali menggigit di proyek ini — sekarang jumlahnya dihitung.
-  const nCari = (mig.match(/select conname into v_nama from pg_constraint/g) ?? []).length;
-  if (nCari < 2) {
-    salah(
-      `0144: nama constraint lama dicari di katalog hanya di ${nCari} dari 2 blok. Yang lain menebaknya — dan ` +
-        '`drop constraint` dengan nama yang salah menggagalkan migration di tengah jalan, sesudah sebagian sudah berubah.'
-    );
-  }
-  // STAFF HARUS BISA MEMBACA. Ini yang membuat fiturnya berguna bagi orang
-  // yang dituju — dan kegagalannya paling diam dari semuanya: RLS yang menolak
-  // SELECT tidak melempar galat, ia mengembalikan nol baris, lalu layar nota
-  // menyimpulkan "daftarnya belum diimpor" dan kembali ke kotak teks bebas.
-  // Admin yang mengujinya sendiri melihat dropdown yang berfungsi.
-  if (!/create policy esb_master_baca_anggota on esb_master\s+for select to authenticated\s+using \(has_bu_scope\(auth\.uid\(\), business_unit_id\)\)/.test(mig)) {
-    salah(
-      '0144: staff tidak diberi izin MEMBACA `esb_master`. Kebijakan 0127 adalah `for all` dengan syarat is_bu_admin — ' +
-        'ia menutup SELECT juga, jadi dropdown supplier akan selalu kosong di layar staff, tanpa satu pun error.'
-    );
-  }
-  // ...tapi hanya SELECT. Daftar induk tetap keputusan administratif.
-  if (/create policy esb_master_baca_anggota[\s\S]{0,120}for all/.test(mig)) {
-    salah('0144: izin baca untuk anggota BU ternyata `for all` — staff jadi bisa mengubah daftar induknya sendiri.');
-  }
-  if (/create policy [a-z_]+ on esb_map\s+for select/.test(mig)) {
-    salah('0144: `esb_map` ikut dibuka untuk dibaca. Isinya tidak pernah dipakai layar staff, dan membuka yang tidak perlu adalah kebiasaan yang mahal.');
+  if (/KENAPA IA HILANG/.test(kode)) {
+    salah('audit-master-supplier: komentar SQL tidak tersaring — pemeriksaan di bawah bisa hijau karena kalimat penjelasnya.');
   }
 
-  if (!/create or replace function nama_supplier_terpakai\(p_bu uuid\)/.test(mig)) {
-    salah('0144: `nama_supplier_terpakai` tidak ada — layar pemetaan tidak punya cara tahu ejaan lama apa yang masih beredar.');
+  // ============ SATU BARIS PER NAMA ============
+  if (!/create unique index if not exists suppliers_nama_uk\s*\n\s*on suppliers\(business_unit_id, normal_nama_supplier\(nama\)\);/.test(kode)) {
+    salah(
+      '0158: indeks unik ternormalkan hilang. Tanpa itu "Toko Berkah" dan "toko  berkah" jadi dua baris — dan karena ' +
+        'supplier sekarang lahir dari ketikan, daftarnya beranak tiap kali ada yang menekan spasi dua kali.'
+    );
   }
-  const iFn = mig.indexOf('function nama_supplier_terpakai');
-  const fn = iFn < 0 ? '' : mig.slice(iFn, mig.indexOf('$$;', iFn));
-  if (!/g\.status = 'aktif'/.test(fn)) {
-    salah('0144 `nama_supplier_terpakai`: nota yang dibatalkan ikut terhitung — ejaannya tidak akan pernah diekspor siapa pun, jadi ia cuma menambah baris yang tidak perlu dibereskan.');
+  if (!/^create or replace function normal_nama_supplier/m.test(kode) || !/immutable/.test(kode)) {
+    salah('0158: `normal_nama_supplier` hilang atau bukan `immutable` — indeks uniknya tidak bisa dibuat sama sekali.');
   }
-  if (!/btrim\(g\.supplier\)/.test(fn)) {
-    salah('0144 `nama_supplier_terpakai`: spasi tepi tidak dirapikan — "Pasar" dan "Pasar " muncul sebagai dua baris yang terlihat identik.');
+
+  // ============ PENAUTAN DI DATABASE ============
+  if (!/before insert or update on goods_receipts/.test(kode)) {
+    salah(
+      '0158: penautan supplier bukan lagi trigger. PWA lama di HP staff dan RPC `simpan_nota` lama hanya mengirim ' +
+        'teks — kalau penautannya diserahkan layar, nota dari sana tidak pernah punya supplier_id, dan masternya ' +
+        'tetap tidak terisi. Itu keluhan aslinya, persis.'
+    );
   }
-  if (!/filter \(where g\.esb_exported_at is null\)/.test(fn)) {
-    salah('0144 `nama_supplier_terpakai`: yang belum diekspor tidak dihitung terpisah — ejaan yang menahan 40 nota dan yang menahan nol terlihat sama mendesaknya.');
+  if (!/new\.supplier_id := cari_atau_buat_supplier\(new\.business_unit_id, new\.supplier\)/.test(kode)) {
+    salah('0158: trigger-nya tidak lagi membuat baris master dari teks yang diketik.');
+  }
+  // Teks notanya DITIMPA dari induknya — itu yang membuat salinannya tidak
+  // bisa menyimpang, bahkan dari klien yang mengirim keduanya sekaligus.
+  if (!/if v_nama is not null then new\.supplier := v_nama; end if;/.test(kode)) {
+    salah(
+      '0158: kolom teks `goods_receipts.supplier` tidak lagi ditimpa dari induknya. Ia salinan — dan salinan yang ' +
+        'boleh ditulis klien akan menyimpang dari sumbernya, lalu nama yang sudah dibetulkan tetap salah di ekspor.'
+    );
+  }
+  if (!/update goods_receipts set supplier = new\.nama where supplier_id = new\.id;/.test(kode)) {
+    salah(
+      '0158: rename supplier tidak lagi disebar ke notanya. "Edit sekali, semua ikut" jadi cuma berlaku untuk ' +
+        'dropdown — nota lama, laporan, dan ekspor tetap menyebut nama yang salah.'
+    );
+  }
+
+  // ============ DUA HP MENYIMPAN BERSAMAAN ============
+  // Diikat ke BLOK `cari_atau_buat_supplier`, bukan dicari lepas: dua `insert`
+  // backfill di bawah memakai klausa `on conflict` yang sama persis, jadi
+  // mencabutnya dari fungsi ini tetap menyisakan dua kemunculan yang membuat
+  // pencarian lepas hijau.
+  const iCari = kode.indexOf('create or replace function cari_atau_buat_supplier');
+  const blokCari = iCari >= 0 ? kode.slice(iCari, kode.indexOf('$$;', iCari)) : '';
+  if (!blokCari) {
+    salah('0158: `cari_atau_buat_supplier` hilang — tidak ada lagi satu pintu yang membuat baris master.');
+  } else if (!/on conflict \(business_unit_id, normal_nama_supplier\(nama\)\) do nothing/.test(blokCari)) {
+    salah(
+      '0158 `cari_atau_buat_supplier`: tabrakan nama tidak lagi ditelan. Dua staff yang menyimpan nota bersupplier ' +
+        'baru yang sama pada detik yang sama membuat yang kedua GAGAL — dan notanya ikut gagal, padahal barangnya ' +
+        'sudah ada di gudang.'
+    );
+  }
+
+  // ============ ADMIN ============
+  for (const [f, pesan] of [
+    ['ubah_supplier', 'betulkan nama / kode ESB'],
+    ['gabung_supplier', 'gabungkan supplier kembar']
+  ]) {
+    if (!new RegExp(`create or replace function ${f}`).test(kode)) salah(`0158: fungsi \`${f}\` (${pesan}) hilang.`);
+    if (!new RegExp(`grant execute on function ${f}`).test(kode)) salah(`0158: \`${f}\` tidak di-grant ke authenticated.`);
+  }
+  if (!/is_bu_admin\(auth\.uid\(\), v_bu\)/.test(kode)) {
+    salah('0158: `ubah_supplier` tidak lagi menuntut Admin BU — siapa pun bisa mengubah nama yang dipakai seluruh nota.');
+  }
+  if (!/update goods_receipts set supplier_id = p_ke where supplier_id = p_dari;/.test(kode)) {
+    salah('0158 `gabung_supplier`: notanya tidak dipindahkan — penggabungan yang meninggalkan notanya menghapus datanya.');
+  }
+  // Galat bentrok menyebut jalan keluarnya.
+  if (!/pakai Gabungkan/i.test(mig)) {
+    salah('0158: galat bentrok nama tidak menyebut Gabungkan — orangnya dikirim mencari sendiri fitur yang ada di layar yang sama.');
+  }
+  // RLS: staff boleh BACA (dropdown), hanya admin yang boleh menulis langsung.
+  if (!/create policy suppliers_select on suppliers\s*\n\s*for select using \(has_bu_scope/.test(kode)) {
+    salah('0158: staff tidak bisa membaca `suppliers` — dropdown-nya kosong untuk semua orang kecuali admin.');
+  }
+  if (!/drop policy if exists suppliers_select on suppliers;/.test(kode)) {
+    salah('0158: policy-nya tidak di-`drop ... if exists` dulu — menjalankan berkas ini dua kali berhenti di tengah.');
   }
 }
 
 // ---------------------------------------------------------------
-// 2. Modul murninya.
+// 2. MODUL MURNI.
 // ---------------------------------------------------------------
-const murni = baca('js/modules/inventory/cocok-supplier.js');
-if (murni) {
-  const kode = bersih(murni, 'cocok-supplier.js', ['export function cocokkanSupplier']);
+const modul = baca('js/modules/inventory/master-supplier.js');
+if (modul) {
+  const kode = bersih(modul, 'master-supplier.js', ['export function susunMasterSupplier', 'export function calonKembar']);
+  const impor = (kode.match(/^import .*$/gm) ?? []).filter((b) => !/cocok-supplier\.js/.test(b));
+  if (impor.length) salah(`master-supplier.js: ada impor di luar cocok-supplier.js (${impor.join(' | ')}) — harus bisa diuji tanpa browser.`);
 
-  for (const f of ['normalNama', 'petaSupplier', 'petaEjaanSupplier', 'cocokkanSupplier', 'supplierSiap', 'supplierPerluDibereskan']) {
-    if (!new RegExp(`export function ${f}\\(`).test(kode)) salah(`cocok-supplier.js: \`${f}\` tidak diekspor.`);
-  }
-
-  // Normalisasinya DANGKAL: titik & bentuk badan hukum tidak boleh dibuang.
-  if (!/\.trim\(\)\.replace\(\/\\s\+\/g, ' '\)\.toLowerCase\(\)/.test(kode)) {
-    salah('cocok-supplier.js: aturan normalisasinya berubah.');
-  }
-  if (/replace\(\/\[\^a-z0-9\]/.test(kode)) {
+  // Nonaktif diperiksa DULU.
+  if (!/if \(s\?\.aktif === false\) return STATUS\.NONAKTIF;/.test(kode)) {
     salah(
-      'cocok-supplier.js: normalisasinya membuang tanda baca. "PT KIMIA YASA" dan "CV KIMIA YASA" akan dianggap sama — ' +
-        'dua badan hukum berbeda, dan pembeliannya masuk ke akun yang salah tanpa satu pun tanda di layar.'
+      'master-supplier.js `statusSupplier`: nonaktif tidak lagi diperiksa lebih dulu. Supplier yang sudah dibatalkan ' +
+        'akan muncul sebagai pekerjaan ("kode ESB kosong") yang tidak akan pernah dikerjakan siapa pun.'
     );
   }
-  // Yang dikembalikan nama DARI DAFTAR, bukan yang diketik.
-  if (!/return \{ keadaan: 'daftar', nama: diDaftar\.nama/.test(kode)) {
-    salah('cocok-supplier.js: yang dikembalikan bukan nama kanonik dari daftarnya — ejaan yang diketik akan terkirim ke ESB apa adanya.');
-  }
-  if (!/const masihAda = master\?\.get\?\.\(normalNama\(dipetakan\)\)/.test(kode)) {
+  // Kembar: batas kata & panjang minimum.
+  if (!/if \(panjang\[pendek\.length\] !== ' '\) continue;/.test(kode)) {
     salah(
-      'cocok-supplier.js: pemetaan yang menunjuk nama yang sudah lenyap dari daftar induk dianggap sah. ESB bisa ' +
-        'menonaktifkan supplier, dan pemetaannya akan terus mengirim nama hantu tanpa ada yang tahu sebabnya.'
+      'master-supplier.js `calonKembar`: pemisahnya bukan lagi batas kata. "PT Sari" dan "PT Sarinah" akan ditandai ' +
+        'kembar — dan menggabungkannya memindahkan nota ke supplier yang salah.'
     );
   }
-  if (!/if \(!peta\.has\(k\)\) peta\.set\(k/.test(kode)) {
-    salah('cocok-supplier.js: nama kembar beda huruf besar-kecil membuat yang TERAKHIR menang — ejaan kanoniknya jadi tergantung urutan datangnya dari database.');
+  if (!/if \(pendek\.length < 4\) continue;/.test(kode)) {
+    salah('master-supplier.js `calonKembar`: batas panjang minimum hilang — "CV" jadi awalan hampir semua nama dan seluruh daftar saling ditandai.');
   }
 }
 
 // ---------------------------------------------------------------
-// 3. Ekspor Purchase.
+// 3. DROPDOWN TIDAK BOLEH KEMBALI KE `esb_master`.
 // ---------------------------------------------------------------
-const pur = baca('js/modules/inventory/esb-purchase.js');
-if (pur) {
-  const kode = bersih(pur, 'esb-purchase.js', ['export function barisEsbPurchase']);
-
-  if (!/JENIS_PETA = \[[^\]]*'supplier'/.test(kode)) {
-    salah('esb-purchase.js: supplier bukan jenis pemetaan — ejaan lama tidak punya tempat untuk dibereskan.');
-  }
-  for (const j of JENIS_LAMA) {
-    if (!new RegExp(`JENIS_PETA = \\[[^\\]]*'${j}'`).test(kode)) salah(`esb-purchase.js: jenis '${j}' hilang dari JENIS_PETA.`);
-  }
-  if (!/cocokkanSupplier\(n\.supplier, masterSupplier, peta\.supplier\)/.test(kode)) {
-    salah('esb-purchase.js: nama supplier tidak dicocokkan dengan daftar induk.');
-  }
-  // Sel Supplier diisi dari hasil pencocokan, BUKAN dari yang diketik.
-  if (!/^\s*supplier \?\? '',$/m.test(kode)) {
-    salah('esb-purchase.js: sel Supplier tidak diisi dari hasil pencocokan.');
-  }
-  if (/teks\(n\.supplier\),/.test(kode)) {
-    salah('esb-purchase.js: `teks(n.supplier)` kembali ke baris data — ejaan yang diketik berangkat ke ESB apa adanya.');
-  }
-  // HARGA: ESB menolak lebih dari 4 desimal, dan `unit_cost` adalah hasil bagi
-  // yang hampir selalu berulang (Rp12.000 / 62 pcs = 193.5483870967742).
-  // Yang menipu: Excel MENAMPILKAN 193.5484 — empat desimal, terlihat sah.
-  // Angkanya pindah ke `desimal-esb.js` (lihat catatan di sana): satu aturan
-  // yang tinggal di tiga kepala akan tertinggal di kepala keempat.
-  if (!/export const DESIMAL_HARGA_MAKS = DESIMAL_ESB_MAKS;/.test(kode)) {
-    salah('esb-purchase.js: batas desimal harga ESB hilang, atau ditulis sendiri alih-alih diturunkan dari desimal-esb.js.');
-  }
-  // Yang dijaga: harganya MELEWATI `bulatkanHarga` sebelum jadi sel Price.
-  //
-  // Sumber angkanya sengaja tidak dikunci di sini. Versi pertama mengunci
-  // `bulatkanHarga(angka(it.unit_cost))` apa adanya, lalu ekspor berpindah ke
-  // satuan beli dan sumbernya jadi `konv.harga` — audit ini merah tanpa ada
-  // yang rusak. Pertanyaan "sumbernya benar atau tidak" dijaga
-  // tools/audit-konversi-satuan.cjs, yang memang tentang itu.
-  if (!/const perSatuan = bulatkanHarga\(/.test(kode)) {
+for (const rel of [
+  'js/modules/inventory/inventory.page.js',
+  'js/modules/cash/cash.page.js',
+  'js/modules/cash/cash.admin.page.js'
+]) {
+  const isi = baca(rel);
+  if (!isi) continue;
+  const kode = tanpaKomentar(isi);
+  if (/listEsbMaster\([^)]*'supplier'\)/.test(kode)) {
     salah(
-      'esb-purchase.js: harga per satuan tidak dibulatkan. Harga yang berangkat selalu hasil bagi dan hampir selalu ' +
-        'berulang — ESB menolaknya dengan "price cannot have more than 4 decimal places", dan berkasnya terlihat ' +
-        'benar di Excel karena Excel cuma menampilkan empat desimal pertama.'
+      `${rel}: dropdown supplier kembali membaca \`esb_master\`. Itu salinan daftar ESB — supplier yang diketik staff ` +
+        'tidak ada di sana, dan keluhan aslinya kembali persis: namanya hilang pada nota berikutnya.'
     );
   }
-  // Harga yang BELUM DIISI harus tetap null, bukan 0. "Belum tahu harganya"
-  // dan "gratis" adalah dua hal yang berbeda, dan yang kedua masuk ke biaya
-  // rata-rata bahan.
-  if (!/if \(v === null \|\| v === undefined \|\| v === ''\) return null;/.test(kode)) {
-    salah('esb-purchase.js: `bulatkanHarga` tidak menyaring nilai kosong — "" dan null akan jadi harga 0.');
+  if (!/listSuppliers\(/.test(kode)) {
+    salah(`${rel}: tidak memanggil \`listSuppliers\` — daftar suppliernya tidak diisi dari mana pun.`);
   }
+}
 
-  if (!/const kepalaBermasalah = tanggal === null \|\| !supplier \|\|/.test(kode)) {
-    salah('esb-purchase.js: nota bersupplier tak dikenal tidak lagi tertahan — nama apa pun kembali berangkat ke ESB.');
+const svc = baca('js/modules/inventory/esb.service.js');
+if (svc) {
+  const kode = bersih(svc, 'esb.service.js', ['export async function listSuppliers']);
+  for (const f of ['listSuppliers', 'ubahSupplier', 'gabungSupplier']) {
+    if (!new RegExp(`export async function ${f}`).test(kode)) salah(`esb.service.js: \`${f}\` hilang.`);
   }
-  // Daftar kosong MELEWATI pemeriksaan. Ini bukan kelonggaran, ini yang
-  // menjaga BU lain tidak mendadak kehilangan seluruh notanya.
-  if (!/const adaMasterSupplier = masterSupplier\?\.size > 0;/.test(kode)) {
-    salah(
-      'esb-purchase.js: daftar induk yang masih kosong tidak lagi melewati pemeriksaan. BU yang belum sempat mengimpor ' +
-        'daftar supplier akan kehilangan SELURUH notanya begitu aturan ini menyala.'
-    );
+  // Bawaannya hanya yang aktif.
+  if (!/if \(!semua\) q = q\.eq\('aktif', true\);/.test(kode)) {
+    salah('esb.service.js `listSuppliers`: supplier nonaktif ikut muncul di dropdown — menonaktifkan jadi tidak berarti apa-apa.');
   }
-  // Satu aturan normalisasi untuk semua jenis.
-  if (!/const k = normalNama\(b\?\.kunci\);/.test(kode) || !/const k = normalNama\(nilai\);/.test(kode)) {
+  // `null` berarti "jangan ubah", BUKAN `false`.
+  if (!/p_terverifikasi: terverifikasi === undefined \? null : terverifikasi/.test(kode)) {
     salah(
-      'esb-purchase.js: kunci pemetaan tidak lagi dinormalkan dengan aturan yang sama seperti supplier. Dua aturan untuk ' +
-        'satu pekerjaan pasti menyimpang, dan "AB  Sentul" akan cocok di satu jalur saja.'
+      'esb.service.js `ubahSupplier`: `terverifikasi` yang tidak disentuh dikirim sebagai `false`, bukan `null`. ' +
+        'Itu membatalkan verifikasi orang lain diam-diam setiap kali ada yang menyimpan kolom lain.'
     );
   }
 }
 
-// ---------------------------------------------------------------
-// 4. Impor daftarnya.
-// ---------------------------------------------------------------
 const adm = baca('js/modules/inventory/esb.admin.js');
 if (adm) {
-  const kode = bersih(adm, 'esb.admin.js', ['async function bacaMasterEsb']);
-
-  if (!/supplier: \['Supplier Name'\]/.test(kode)) {
-    salah('esb.admin.js: `bacaMasterEsb` tidak mengenal Master Supplier.');
-  }
-  if (!/supplier: 'Supplier Code'/.test(kode)) {
-    salah('esb.admin.js: kode supplier tidak ikut terbaca.');
-  }
-  if (!/<option value="supplier">Master Supplier<\/option>/.test(kode)) {
-    salah('esb.admin.js: "Master Supplier" tidak ada di dropdown impor — daftarnya tidak bisa dimasukkan dari layar mana pun.');
-  }
-  // DIHITUNG, bukan sekadar "ada". Dua dokumen memakai daftar induk supplier:
-  // Simple Purchase (dari nota) dan Disbursement (dari kas keluar, 0149).
-  //
-  // Mencari satu kemunculan membuat audit ini tetap hijau saat daftarnya
-  // dicabut dari salah satunya: yang ketemu adalah pemanggilan milik dokumen
-  // yang lain. Sabotase yang membuktikannya memang pernah lolos di sini —
-  // bentuk kegagalan yang sudah berulang kali muncul di repo ini.
-  const nMaster = (kode.match(/masterSupplier: petaSupplier\(master\)/g) ?? []).length;
-  if (nMaster < 2) {
+  const kode = bersih(adm, 'esb.admin.js', ['gambarMasterSupplier']);
+  // DIHITUNG, bukan dicari. Dipanggil dua kali — saat layar dimuat, dan saat
+  // dimuat ulang sesudah Edit/Gabung. Mencabut salah satunya menyisakan yang
+  // lain, dan daftarnya diam-diam kehilangan baris nonaktif sesudah tiap edit.
+  const muatSemua = (kode.match(/listSuppliers\(businessUnitId, \{ semua: true \}\)/g) ?? []).length;
+  if (muatSemua < 2) {
     salah(
-      `esb.admin.js: daftar induk supplier cuma diberikan ke ${nMaster} dari 2 dokumen (Simple Purchase & ` +
-        'Disbursement) — pemeriksaan suppliernya tidak akan pernah menyala di yang satunya.'
+      `esb.admin.js: hanya ${muatSemua} dari 2 pemuatan Master Supplier yang membawa yang nonaktif (muat awal & muat ` +
+        'ulang sesudah edit). Yang tidak membawanya membuat supplier yang dinonaktifkan lenyap dari layar — dan tidak ' +
+        'akan pernah bisa diaktifkan kembali.'
     );
   }
-  if (!/supplier: 'Supplier'/.test(kode)) {
-    salah('esb.admin.js: jenis "supplier" tidak punya label — ia muncul mentah di tabel yang tertahan.');
-  }
-  // Yang muncul di kelompok Supplier HANYA ejaan di luar daftar.
-  if (!/!m\.has\(normalNama\(nama\)\)/.test(kode)) {
-    salah(
-      'esb.admin.js: kelompok pemetaan Supplier memuat SELURUH nama yang pernah dipakai. Tiga puluh baris yang sudah ' +
-        'benar akan tampil sebagai "belum dipetakan", dan yang beberapa benar-benar bermasalah tenggelam di antaranya.'
-    );
+  for (const [pola, apa] of [
+    [/ubahSupplier\(b\.id/, 'aksi Edit'],
+    [/gabungSupplier\(b\.id, v\.ke\)/, 'aksi Gabungkan']
+  ]) {
+    if (!pola.test(kode)) salah(`esb.admin.js: ${apa} hilang dari layar Master Supplier.`);
   }
 }
 
-// ---------------------------------------------------------------
-// 5. Layar nota — dan yang TIDAK boleh terjadi di sana.
-// ---------------------------------------------------------------
-const nota = baca('js/modules/inventory/nota-staff.js');
-if (nota) {
-  const kode = bersih(nota, 'nota-staff.js', ['const bacaSupplier']);
-
-  // DIHITUNG, bukan "ada atau tidak".
-  //
-  // Sejak dialog Edit ikut memakai search-select, ada DUA `allowCreate: true`
-  // di berkas ini. Pemeriksaan "ada" tetap hijau ketika salah satunya dimatikan
-  // — dan yang dimatikan bisa saja jalur yang dipakai staff tiap hari.
-  const bolehKetik = (kode.match(/allowCreate: true/g) ?? []).length;
-  if (bolehKetik < 2) {
-    salah(
-      `nota-staff.js: hanya ${bolehKetik} dari 2 kolom Supplier yang membolehkan nama baru diketik. Memaksa memilih ` +
-        'dari daftar membuat pembelian mendadak dari supplier baru TIDAK BISA DICATAT sama sekali sampai admin ' +
-        'menambahkannya di ESB — dan yang memegang nota kertas di depan supplier tidak bisa menunggu itu.'
-    );
-  }
-  // Satu cara membaca, apa pun bentuk kotaknya.
-  if (!/const bacaSupplier = \(\) =>/.test(kode) || !/input\[name="nota-supplier"\]/.test(kode)) {
-    salah(
-      'nota-staff.js: nama supplier tidak dibaca lewat satu jalur. Bentuk search-select tidak punya id `#nota-supplier`; ' +
-        'membacanya langsung membuat Simpan Nota mati total tanpa pesan yang menyebut supplier sama sekali.'
-    );
-  }
-  if (/querySelector\('#nota-supplier'\)\.value/.test(kode)) {
-    salah('nota-staff.js: masih ada pembacaan `#nota-supplier` langsung tanpa penjaga — akan melempar saat kotaknya berbentuk search-select.');
-  }
-  // Daftar kosong -> kotak teks biasa. Fitur yang belum disiapkan tidak boleh
-  // mematikan layar yang selama ini jalan.
-  if (!/daftarSupplier\.length\s*\n?\s*\?/.test(kode)) {
-    salah('nota-staff.js: kolom Supplier tidak lagi punya jalur cadangan saat daftarnya kosong.');
-  }
-
-  // KEDUA JALUR, bukan satu.
-  //
-  // Celah yang sempat tertinggal: dropdown dipasang di form TAMBAH saja, dan
-  // dialog EDIT tetap kotak teks bebas. Nama yang sudah benar saat dibuat bisa
-  // berubah jadi ejaan lain saat diperbaiki — lalu notanya tertahan di ekspor,
-  // dan sebabnya justru perbaikan yang dimaksudkan menolong.
-  //
-  // Dihitung, bukan sekadar "ada": satu pemakaian bisa berarti salah satunya
-  // saja, dan itu persis keadaan yang keliru.
-  const pakaiDaftar = (kode.match(/daftarSupplier\.map\(/g) ?? []).length;
-  if (pakaiDaftar < 2) {
-    salah(
-      `nota-staff.js: hanya ${pakaiDaftar} tempat yang memakai \`daftarSupplier\`. Form tambah DAN dialog Edit harus ` +
-        'sama-sama memakainya — kalau tidak, nama yang benar bisa berubah jadi ejaan lain lewat pintu yang tidak dijaga.'
-    );
-  }
-  if (!/type: 'searchselect'/.test(kode)) {
-    salah('nota-staff.js: dialog Edit tidak memakai `searchselect` untuk supplier — kolomnya kembali teks bebas.');
-  }
-  // Dan Edit pun boleh mengetik nama baru: memaksa memilih dari daftar membuat
-  // nota yang suppliernya belum terdaftar tidak bisa diperbaiki sama sekali.
-  const iEdit = kode.indexOf("type: 'searchselect'");
-  if (iEdit >= 0 && !/allowCreate: true/.test(kode.slice(iEdit, iEdit + 400))) {
-    salah('nota-staff.js: dialog Edit memaksa memilih dari daftar — nota bersupplier yang belum terdaftar jadi tidak bisa diperbaiki.');
-  }
-}
-
-// ---------------------------------------------------------------
-// 6. Daftar master supplier di Admin Portal.
-// ---------------------------------------------------------------
-const daftar = baca('js/modules/inventory/daftar-supplier.js');
-if (daftar) {
-  const kode = bersih(daftar, 'daftar-supplier.js', ['export function susunDaftarSupplier']);
-
-  for (const f of ['susunDaftarSupplier', 'ringkasStatus', 'pesanRingkas']) {
-    if (!new RegExp(`export function ${f}\\(`).test(kode)) salah(`daftar-supplier.js: \`${f}\` tidak diekspor.`);
-  }
-  // Nama ESB tujuan sebuah ejaan TIDAK boleh muncul lagi sebagai "belum
-  // dipakai" — satu supplier tampil dua kali dengan status berlawanan.
-  if (!/if \(hasil\.nama\) sudahDisebut\.add\(normalNama\(hasil\.nama\)\)/.test(kode)) {
-    salah(
-      'daftar-supplier.js: nama ESB tujuan sebuah ejaan tidak ditandai sudah-disebut. Satu supplier akan muncul dua ' +
-        'kali — sekali sebagai "dipetakan", sekali sebagai "belum dipakai".'
-    );
-  }
-  if (!/teks\(m\?\.jenis\) !== 'supplier'/.test(kode)) {
-    salah('daftar-supplier.js: baris berjenis lain ikut masuk — nama produk akan terbaca sebagai supplier yang sah.');
-  }
-  if (!/urutan\[a\.status\] - urutan\[b\.status\]/.test(kode)) {
-    salah('daftar-supplier.js: daftarnya tidak lagi mendahulukan yang menghambat — satu nama bermasalah bisa ada di baris ke-30.');
-  }
-}
-
-const adm2 = baca('js/modules/inventory/esb.admin.js');
-if (adm2) {
-  const kode = bersih(adm2, 'esb.admin.js', ['susunDaftarSupplier(']);
-
-  if (!/susunDaftarSupplier\(master, supplierTerpakai, petaEjaanSupplier\(peta\)\)/.test(kode)) {
-    salah('esb.admin.js: daftar supplier tidak disusun lewat modul murninya.');
-  }
-  if (!/id="esb-supplier-isi"/.test(kode) || !/id="esb-supplier-lencana"/.test(kode)) {
-    salah('esb.admin.js: bagian "Daftar supplier" tidak ada di layar — tidak ada tempat menjawab "supplier apa saja yang sudah terdaftar".');
-  }
-  // Kotaknya membuka sendiri kalau ada yang menghambat: daftar tertutup yang
-  // menyimpan pekerjaan mendesak sama saja dengan tidak ada.
-  if (!/esb-supplier-box'\)\.open = true/.test(kode)) {
-    salah('esb.admin.js: daftar supplier tidak membuka sendiri saat ada nama yang menahan ekspor.');
-  }
-  // SATU penyaring untuk dua kotak. Menyambungkan `saringTabel` dua kali
-  // membuat yang kedua menimpa keputusan yang pertama.
-  if (/saringTabel\(\s*box\.querySelector\('#esb-supplier-cari'\)/.test(kode)) {
-    salah(
-      'esb.admin.js: kotak cari & saringan status disambungkan lewat `saringTabel` terpisah. Keduanya menulis `hidden` ' +
-        'pada baris yang sama, jadi yang belakangan menimpa keputusan yang pertama — baris muncul lagi padahal ' +
-        'statusnya tidak cocok, dan tidak ada yang terlihat salah.'
-    );
-  }
-}
-
-// ---------------------------------------------------------------
-// 6. Teks nota TIDAK ditulis ulang. Ini janji yang dipegang ke pengguna.
-// ---------------------------------------------------------------
-for (const rel of ['supabase/migrations/0144_master_supplier_esb.sql']) {
-  const isi = baca(rel);
-  if (isi && /update goods_receipts[\s\S]{0,200}set[\s\S]{0,80}supplier\s*=/.test(isi)) {
-    salah(
-      `${rel}: ada UPDATE yang menimpa goods_receipts.supplier. Teks itu catatan apa yang DULU diketik orang — ` +
-        'menimpanya menghapus jejak yang tidak bisa dikembalikan, dan pemetaan ada justru supaya itu tidak perlu.'
-    );
-  }
-}
-
-if (gagal === 0) {
-  console.log(
-    'Master Supplier: daftarnya dari ESB, nama kanonik yang berangkat, nota bersupplier tak dikenal tertahan, ' +
-      'daftar kosong tidak menahan apa pun, dan teks nota lama tidak ditulis ulang. ✅'
-  );
-}
+console.log('');
+if (gagal === 0) console.log('Audit master supplier bersih. ✅');
+else console.error(`${gagal} masalah ditemukan.`);
 process.exit(gagal === 0 ? 0 : 1);
