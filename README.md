@@ -8575,3 +8575,57 @@ Satu-satunya aksi yang ditawarkan kekembaran nama adalah **Gabungkan**. Menggabu
 `cash_entries.supplier` tetap teks bebas (lihat `0158`). Entri kas memilih dari daftar yang sama, jadi namanya sah — tapi kalau admin membetulkan sebuah nama, **entri kas lama tidak ikut berubah** seperti nota. Itu belum diperbaiki.
 
 - [x] **Pembayaran yang tidak punya supplier: "Dibayarkan ke" + penerima internal** (`0159`) — 21 sabotase
+
+## Tugas luar bisa dijadwalkan (`0160`)
+
+> *"selain shift dan libur saya ingin ada pengaturan tugas luar di shift, jadi bisa atur tugas luar di modul shift"*
+
+### Setengah fiturnya sudah ada — dan sudah berperilaku seperti yang diminta
+
+Sebelum menulis apa pun, sisi presensinya disisir dulu. Ternyata Tugas Luar sudah berfungsi utuh sejak `0006`/`0064`: `attendance_records.is_storing`, `exit_method` (`'storing'`/`'otp'`), tabel `exit_task_otp_codes`, RPC `redeem_exit_otp`, setelan `business_units.exit_task_mode`, bahkan `nbm_settings.storing_bonus_amount` supaya uang hadirnya ikut.
+
+Dan aturan yang diminta — *"tidak perlu minta OTP kalau masih clock in di outlet dan BU yang terdaftar; OTP hanya saat geofencing mendeteksi dia di luar outlet mana pun"* — **sudah berlaku hari ini**, karena `list_attendance_outlets()` adalah `security definer` **tanpa saringan scope**: ia memulangkan seluruh outlet aktif di seluruh BU. Prompt Tugas Luar + OTP baru muncul kalau GPS tidak menemukan satu pun area outlet.
+
+Jadi `0160` tidak menyentuh satu pun dari itu. Yang belum ada cuma **merencanakannya**.
+
+### Keadaan ketiga — yang `0113` pernah menolak
+
+`0113` menolak menambah keadaan ketiga ke `shift_schedules` untuk cuti, dengan tiga alasan. Dua di antaranya tidak berlaku untuk tugas luar, dan itu seluruh bedanya:
+
+| Alasan `0113` | Untuk cuti | Untuk tugas luar |
+| --- | --- | --- |
+| constraint cuma mengenal dua keadaan | berlaku | berlaku — itu pekerjaan `0160` |
+| menyalin = menduplikasi kebenaran, bisa jadi "cuti hantu" | berlaku | **tidak** — tugas luar tidak punya sumber kebenaran di tabel lain |
+| jadwal aslinya hilang saat disetujui | berlaku | **tidak** — tidak ada alur pengajuan sama sekali |
+
+Tugas luar tidak diajukan, tidak disetujui, dan tidak bisa dibatalkan dari tempat lain. Sel jadwal itulah satu-satunya tempat ia pernah ada — jadi tidak ada yang perlu disinkronkan, dan tidak ada yang bisa jadi hantu.
+
+Constraintnya **diganti**, bukan dilonggarkan: tiga cabang disebut satu-satu. Sel "tanpa shift dan tanpa keterangan" tetap mustahil ada, dan shift yang membawa jenis tugas luar juga ditolak.
+
+### Pesan yang ditinggalkan `0109`, tiga tahun lebih awal
+
+Keadaan ketiga di kolom lama adalah cara paling mudah membuat belasan pembaca salah baca tanpa bersuara. Seluruhnya disisir — dan hampir semuanya aman **bukan karena kebetulan**. `jadwal_belum_clock_in` (`0105`/`0107`/`0109`) memakai `is_off = false AND shift_id is not null`, dan komentar di `0109` menuliskan alasan pasangan itu dipertahankan:
+
+> *"Dipertahankan berdua karena keduanya menyatakan maksud yang berbeda: 'bukan hari libur' dan 'punya shift'. Kalau suatu saat constraint-nya dilonggarkan, yang tersisa di sini tetap menahan."*
+
+Hari ini constraintnya dilonggarkan, dan yang tersisa itu memang menahan. Tutup otomatis (`0138`) selamat karena alasan serupa — `join outlet_shifts on os.id = ss.shift_id` adalah inner join, jadi baris tugas luar gugur sendiri.
+
+Sejak sekarang pasangan itu **bukan lagi redundansi**: `shift_id is not null` satu-satunya yang mengecualikan tugas luar. `audit-tugas-luar.cjs` menjaganya di ketiga berkas.
+
+Yang tidak selamat cuma satu: `hitung_ulang_status_shift` (`0074`) mencatat hari tugas luar sebagai `no_schedule`. Itu tidak mencap orangnya terlambat — penjaga "tanpa jam mulai" di sana bekerja — tapi tetap keterangan yang salah, dan di rekap ia terbaca sebagai **kelalaian menyusun jadwal**: admin lalu mencari jadwal hilang yang sebenarnya tidak hilang. Sekarang ada status `'tugas_luar'` tersendiri.
+
+### Jadwal hanya memberi keterangan, bukan melewati gerbang
+
+Kalau hari ini dijadwalkan tugas luar, kotak *"Keterangan tugas luar"* terisi sendiri dari sel jadwalnya — masih bisa diubah. Itu **satu-satunya** yang diberikan jadwal. Geofence tetap berlaku, dan OTP tetap diminta sesuai `exit_task_mode`.
+
+Alasannya: sel jadwal bisa ditetapkan berhari-hari di muka oleh orang yang tidak sedang melihat di mana staffnya berada. Membiarkannya melewati gerbang menukar satu kenyamanan dengan satu lubang. `audit-tugas-luar.cjs` menolak kode apa pun yang menyambungkan `is_tugas_luar` ke jalur OTP/geofence.
+
+### Dua sabotase yang lolos — dan apa yang sebenarnya salah
+
+**Sebuah komentar yang mengklaim penjaga lebih kuat dari kenyataannya.** Saya menulis bahwa urutan cabang di `nilaiSel` menentukan (tugas luar harus diperiksa sebelum `is_off`). Sabotasenya membalik urutan itu dan **lolos** — karena baris tugas luar ber-`is_off` false, dijamin constraint, jadi membalik urutannya tidak mengubah satu pun hasil. Komentarnya dibetulkan dan sabotasenya diganti dengan kegagalan yang nyata: cabangnya hilang sama sekali. *Komentar yang melebih-lebihkan sebuah penjaga membuat orang berikutnya mempercayai penjaga yang tidak ada.*
+
+**PGlite berjalan sebagai superuser, jadi ia tidak bisa menguji `security definer`.** Sabotase yang mencabut `security definer` dari penjaga silang-BU lolos di tes PGlite — RLS tidak berlaku di sana sama sekali, jadi tesnya hijau untuk fungsi yang akan gagal di Supabase. Sabotasenya dipindah ke audit, yang memang memeriksa teksnya.
+
+**Dan satu audit yang MERAH karena alasan yang salah.** Pemeriksa `setSchedule` memotong badan fungsinya di `\n}` pertama — yang ternyata penutup parameter terdestrukturisasinya, bukan penutup fungsinya. Ia melaporkan tiga kolom "tidak dikirim" untuk kode yang mengirimkannya dengan benar. Itu sama berbahayanya dengan hijau yang salah: ia mengajari orang mengabaikan auditnya.
+
+- [x] **Tugas luar bisa dijadwalkan: keadaan ketiga di sel jadwal** (`0160`) — 29 sabotase

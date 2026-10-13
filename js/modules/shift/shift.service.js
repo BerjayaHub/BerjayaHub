@@ -1,19 +1,30 @@
 import { supabase } from '../../config/supabase-client.js';
 import { pesanTolakan } from '../../core/my-outlets.js';
 
+// ============ SETIAP STATUS WAJIB ADA DI KEDUA PETA ============
+//
+// Pembacanya memakai `LATE_LABEL[r.late_status] ?? r.late_status`, jadi status
+// yang belum terdaftar TIDAK menghasilkan galat — ia menampilkan kunci
+// databasenya apa adanya ("tugas_luar") kepada admin, dan `LATE_BADGE`-nya
+// kosong sehingga lencananya digambar tanpa warna. Dua gejala sepele yang
+// tidak akan pernah dilaporkan siapa pun sebagai bug.
 export const LATE_LABEL = {
   ontime: 'Tepat waktu',
   tolerance: 'Toleransi',
   late: 'Terlambat',
   no_schedule: 'Tanpa jadwal',
-  off_day: 'Hari libur'
+  off_day: 'Hari libur',
+  // 0160. Status TERSENDIRI, bukan `off_day`: orangnya bekerja, cuma tidak di
+  // outlet — dan bukan `no_schedule`, karena ia justru dijadwalkan.
+  tugas_luar: 'Tugas luar'
 };
 export const LATE_BADGE = {
   ontime: 'badge-approved',
   tolerance: 'badge-pending',
   late: 'badge-rejected',
   no_schedule: 'badge-cancelled',
-  off_day: 'badge-cancelled'
+  off_day: 'badge-cancelled',
+  tugas_luar: 'badge-pending'
 };
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -171,7 +182,10 @@ export async function setOutletShiftEnabled(outletId, enabled) {
 export async function listSchedules({ outletId, from, to }) {
   const { data, error } = await supabase
     .from('shift_schedules')
-    .select('id, user_id, work_date, shift_id, is_off, outlet_shifts(name, start_time, end_time)')
+    .select(
+      'id, user_id, work_date, shift_id, is_off, is_tugas_luar, tugas_luar_type_id, tugas_luar_outlet_id, ' +
+        'outlet_shifts(name, start_time, end_time)'
+    )
     .eq('outlet_id', outletId)
     .gte('work_date', from)
     .lte('work_date', to);
@@ -209,7 +223,120 @@ export async function listCutiSaya({ from, to }) {
   return data ?? [];
 }
 
-export async function setSchedule({ businessUnitId, outletId, userId, workDate, shiftId, isOff }) {
+// ---- Jenis tugas luar (0160) ----
+
+/**
+ * Daftar jenis tugas luar satu BU.
+ *
+ * Bawaannya HANYA yang aktif — itu yang boleh dipilih di sel jadwal baru.
+ * Layar kelola memanggilnya dengan `{ semua: true }`, karena jenis yang sudah
+ * dinonaktifkan tetap harus terlihat di sana supaya bisa diaktifkan kembali.
+ * Pola yang sama dengan `listSuppliers` (0158).
+ */
+export async function listTugasLuarTypes(businessUnitId, { semua = false } = {}) {
+  let q = supabase
+    .from('tugas_luar_types')
+    .select('id, nama, catatan, urutan, aktif')
+    .eq('business_unit_id', businessUnitId)
+    .order('urutan')
+    .order('nama');
+  if (!semua) q = q.eq('aktif', true);
+  const { data, error } = await q;
+  if (error) throw new Error(pesanTolakan(error, 'memuat jenis tugas luar'));
+  return data ?? [];
+}
+
+/** ADMIN BU. Tambah satu jenis tugas luar. */
+export async function tambahTugasLuarType(businessUnitId, { nama, catatan, urutan } = {}) {
+  const { data, error } = await supabase
+    .from('tugas_luar_types')
+    .insert({
+      business_unit_id: businessUnitId,
+      nama: String(nama ?? '').trim(),
+      catatan: String(catatan ?? '').trim() || null,
+      urutan: Number(urutan) || 0
+    })
+    .select('id');
+  // Indeks uniknya ternormalkan, jadi "Antar Barang" dan "antar  barang"
+  // bertabrakan. Pesan Postgres untuk itu menyebut nama indeks, yang tidak
+  // berarti apa-apa bagi admin — jadi diterjemahkan di sini.
+  if (error) {
+    if (/duplicate|unique/i.test(error.message ?? '')) {
+      throw new Error('Jenis dengan nama itu sudah ada di BU ini.');
+    }
+    throw new Error(pesanTolakan(error, 'menambah jenis tugas luar'));
+  }
+  return data?.[0]?.id ?? null;
+}
+
+/**
+ * ADMIN BU. Ubah satu jenis tugas luar.
+ *
+ * `undefined` berarti "jangan ubah", dan itu DIBEDAKAN dari `null`/`false`.
+ * Mengirim `aktif: false` untuk kolom yang tidak sedang disentuh akan
+ * menonaktifkan jenis yang masih dipakai jadwal — dan ia lalu lenyap dari
+ * dropdown tanpa ada yang memutuskan begitu.
+ */
+export async function ubahTugasLuarType(id, { nama, catatan, urutan, aktif } = {}) {
+  const tambalan = {};
+  if (nama !== undefined) tambalan.nama = String(nama).trim();
+  if (catatan !== undefined) tambalan.catatan = String(catatan ?? '').trim() || null;
+  if (urutan !== undefined) tambalan.urutan = Number(urutan) || 0;
+  if (aktif !== undefined) tambalan.aktif = !!aktif;
+  if (!Object.keys(tambalan).length) return;
+
+  const { data, error } = await supabase.from('tugas_luar_types').update(tambalan).eq('id', id).select('id');
+  if (error) {
+    if (/duplicate|unique/i.test(error.message ?? '')) {
+      throw new Error('Jenis dengan nama itu sudah ada di BU ini.');
+    }
+    throw new Error(pesanTolakan(error, 'mengubah jenis tugas luar'));
+  }
+  // UPDATE yang ditolak RLS berhasil dengan NOL baris, tanpa error sama sekali
+  // — jebakan yang sama dengan `setSchedule` di bawah.
+  if (!data?.length) throw new Error(pesanTolakan(new Error('row-level security'), 'mengubah jenis tugas luar'));
+}
+
+/** Rekap hari tugas luar per staff per jenis (0160). */
+export async function rekapTugasLuar({ businessUnitId, from, to, outletId = null }) {
+  const { data, error } = await supabase.rpc('rekap_tugas_luar', {
+    p_bu: businessUnitId,
+    p_from: from,
+    p_to: to,
+    p_outlet: outletId
+  });
+  if (error) throw new Error(pesanTolakan(error, 'memuat rekap tugas luar'));
+  return data ?? [];
+}
+
+/**
+ * Simpan satu sel jadwal.
+ *
+ * ============ KETIGA KOLOM SELALU DIKIRIM (0160) ============
+ *
+ * `isTugasLuar`, `tugasLuarTypeId`, dan `tugasLuarOutletId` ikut dikirim pada
+ * SETIAP penyimpanan, termasuk saat yang dipilih shift biasa atau libur.
+ *
+ * Ini `upsert`, jadi kolom yang TIDAK disebut pada baris yang sudah ada akan
+ * tetap memakai nilai lamanya. Tanpa pengiriman eksplisit, mengubah sel dari
+ * Tugas Luar menjadi Libur akan meninggalkan `tugas_luar_type_id` terisi — dan
+ * constraint `shift_libur_atau_tugas_luar` menolaknya dengan pesan tentang
+ * constraint, bukan tentang apa yang sedang dilakukan orangnya. Yang lebih
+ * buruk: kalau constraintnya suatu saat dilonggarkan, barisnya tersimpan
+ * sebagai libur yang membawa jenis tugas luar, dan rekapnya memuat hari yang
+ * tidak pernah ada.
+ */
+export async function setSchedule({
+  businessUnitId,
+  outletId,
+  userId,
+  workDate,
+  shiftId,
+  isOff,
+  isTugasLuar = false,
+  tugasLuarTypeId = null,
+  tugasLuarOutletId = null
+}) {
   const {
     data: { user }
   } = await supabase.auth.getUser();
@@ -219,8 +346,11 @@ export async function setSchedule({ businessUnitId, outletId, userId, workDate, 
       outlet_id: outletId,
       user_id: userId,
       work_date: workDate,
-      shift_id: isOff ? null : shiftId,
+      shift_id: isOff || isTugasLuar ? null : shiftId,
       is_off: !!isOff,
+      is_tugas_luar: !!isTugasLuar,
+      tugas_luar_type_id: isTugasLuar ? tugasLuarTypeId : null,
+      tugas_luar_outlet_id: isTugasLuar ? tugasLuarOutletId : null,
       updated_by: user?.id ?? null,
       updated_at: new Date().toISOString()
     },
@@ -278,7 +408,10 @@ export async function listMySchedule(from, to) {
   if (!user) return [];
   const { data, error } = await supabase
     .from('shift_schedules')
-    .select('work_date, is_off, outlet_id, outlets!outlet_id(name), outlet_shifts(name, start_time, end_time)')
+    .select(
+      'work_date, is_off, is_tugas_luar, tugas_luar_type_id, tugas_luar_outlet_id, outlet_id, ' +
+        'outlets!outlet_id(name), outlet_shifts(name, start_time, end_time)'
+    )
     .eq('user_id', user.id)
     .gte('work_date', from)
     .lte('work_date', to)
@@ -313,7 +446,7 @@ export async function getMyScheduleFor(dateStr, outletId = null) {
   // lebih besar daripada memakai baris yang kurang tepat.
   const { data, error } = await supabase
     .from('shift_schedules')
-    .select('is_off, shift_id, outlet_id, outlet_shifts(id, name, start_time, end_time)')
+    .select('is_off, is_tugas_luar, tugas_luar_type_id, tugas_luar_outlet_id, shift_id, outlet_id, outlet_shifts(id, name, start_time, end_time)')
     .eq('user_id', user.id)
     .eq('work_date', dateStr)
     // `updated_at` — shift_schedules TIDAK punya kolom `created_at`. Memakai

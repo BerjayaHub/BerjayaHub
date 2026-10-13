@@ -520,8 +520,12 @@ sabotase(
 sabotase(
   'kotak Supplier hilang dari dialog koreksi — kolomnya tidak pernah bisa dibetulkan',
   CPAGE,
-  "                      name: 'supplier',\n                      label: 'Dibayar ke (supplier)',",
-  "                      name: 'supplier_nonaktif',\n                      label: 'Dibayar ke (supplier)',",
+  // Diperbarui di 0159: labelnya sekarang konstanta `LABEL_PENERIMA`
+  // ("Dibayarkan ke"), bukan teks "Dibayar ke (supplier)" yang ditulis
+  // langsung. Pola lamanya tidak cocok lagi — dan harness yang polanya tidak
+  // terpasang TIDAK menguji apa pun, ia cuma terlihat menguji.
+  "                      name: 'supplier',\n                      label: LABEL_PENERIMA,",
+  "                      name: 'supplier_nonaktif',\n                      label: LABEL_PENERIMA,",
   AUDIT
 );
 sabotase(

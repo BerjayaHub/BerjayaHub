@@ -9,8 +9,10 @@ import {
   shiftCrossesMidnight,
   resolveAutoOff,
   holidayMapOf,
-  kelompokkanPerDivisi
+  kelompokkanPerDivisi,
+  listTugasLuarTypes
 } from './shift.service.js';
+import { labelTugasLuar } from './tugas-luar.js';
 import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
 import { getMyBaseScope } from '../../core/base-scope.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
@@ -106,9 +108,9 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
   async function draw() {
     grid.innerHTML = loadingHtml('Memuat…', { baris: 5 });
     const wk = weekRange(state.anchor);
-    let staff, shifts, schedules, policy, holidays, cuti;
+    let staff, shifts, schedules, policy, holidays, cuti, jenisTL;
     try {
-      [staff, shifts, schedules, policy, holidays, cuti] = await Promise.all([
+      [staff, shifts, schedules, policy, holidays, cuti, jenisTL] = await Promise.all([
         listOutletStaff(state.outletId),
         listOutletShifts(state.outletId),
         listSchedules({ outletId: state.outletId, from: wk.from, to: wk.to }),
@@ -119,7 +121,13 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
         // Yang hilang kalau ini gagal cuma penandaan cuti; jadwal shiftnya
         // sendiri tetap harus terbaca. Menaruhnya tanpa `.catch()` akan
         // membuat satu RPC yang belum ter-deploy mematikan seluruh layar.
-        listCutiDisetujui({ outletId: state.outletId, from: wk.from, to: wk.to }).catch(() => [])
+        listCutiDisetujui({ outletId: state.outletId, from: wk.from, to: wk.to }).catch(() => []),
+        // `{ semua: true }`: sel jadwal bisa menunjuk jenis yang sudah
+        // dinonaktifkan admin, dan chipnya harus tetap menyebut namanya.
+        // Tanpa ini, hari tugas luar yang jenisnya baru dinonaktifkan muncul
+        // sebagai "Tugas Luar" tanpa keterangan — di HP staff, yang tidak
+        // punya cara lain mengetahui tugas apa.
+        listTugasLuarTypes(businessUnitId, { semua: true }).catch(() => [])
       ]);
     } catch (error) {
       grid.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
@@ -130,6 +138,8 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
     const map = new Map();
     for (const s of schedules) map.set(`${s.user_id}|${s.work_date}`, s);
     const cutiMap = petaCuti(cuti);
+    const jenisPerId = new Map((jenisTL ?? []).map((j) => [j.id, j]));
+    const outletPerId = new Map(outlets.map((o) => [o.id, o]));
     // SEMUA staff outlet ini ditampilkan, bukan hanya yang sudah dijadwalkan —
     // justru baris kosonglah yang berguna: dari situ terlihat siapa yang belum
     // dapat jadwal minggu ini.
@@ -217,6 +227,18 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
                             <div style="font-size:0.66rem;color:var(--color-text-muted)">${esc(auto.reason)}</div></td>`;
                         if (!cur) return `<td style="text-align:center;color:var(--color-text-muted)">–</td>`;
                         if (cur.is_off) return `<td style="text-align:center"><span class="shift-chip shift-off">Libur</span></td>`;
+                        // ============ TUGAS LUAR SEBELUM CABANG SHIFT (0160) ============
+                        //
+                        // Baris tugas luar ber-is_off false dan ber-shift_id
+                        // null. Tanpa cabang ini ia jatuh ke cabang shift di
+                        // bawah, `sh` undefined, dan selnya digambar sebagai
+                        // chip bertuliskan "Shift" dengan jam kosong — tidak
+                        // ada galat, cuma sel yang mengatakan hal yang salah
+                        // di HP orang yang sedang memeriksa jadwalnya sendiri.
+                        if (cur.is_tugas_luar) {
+                          return `<td style="text-align:center"><span class="shift-chip shift-cuti">Tugas Luar</span>
+                            <div style="font-size:0.66rem;color:var(--color-text-muted)">${esc(labelTugasLuar(cur, jenisPerId, outletPerId))}</div></td>`;
+                        }
                         const sh = cur.outlet_shifts;
                         return `<td style="text-align:center"><span class="shift-chip">${esc(sh?.name ?? 'Shift')}</span>
                           <div style="font-size:0.68rem;color:var(--color-text-muted)">${sh ? `${sh.start_time.slice(0, 5)}–${sh.end_time.slice(0, 5)}` : ''}</div></td>`;

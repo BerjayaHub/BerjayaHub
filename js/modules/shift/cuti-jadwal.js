@@ -105,6 +105,14 @@ export function selJadwal({ cuti, jadwal }) {
     };
   }
   if (!jadwal) return { mode: 'kosong', terkunci: false };
+  // ============ TUGAS LUAR DIPERIKSA SEBELUM `is_off` (0160) ============
+  //
+  // Baris tugas luar ber-`is_off` false dan ber-`shift_id` null. Kalau
+  // urutannya dibalik — atau cabang ini tidak ada — ia jatuh ke `'shift'`
+  // dengan `shift.outlet_shifts` null, dan selnya digambar sebagai shift
+  // tanpa nama: kotak kosong yang tidak mengatakan apa pun, di tempat yang
+  // justru sedang dipakai orang menyusun jadwal.
+  if (jadwal.is_tugas_luar) return { mode: 'tugas-luar', jadwal, terkunci: false };
   if (jadwal.is_off) return { mode: 'off', terkunci: false };
   return { mode: 'shift', shift: jadwal, terkunci: false };
 }
@@ -121,6 +129,11 @@ export function ringkasBaris(sel) {
     cuti: daftar.filter((s) => s.mode === 'cuti').length,
     off: daftar.filter((s) => s.mode === 'off').length,
     shift: daftar.filter((s) => s.mode === 'shift').length,
+    // Dihitung TERSENDIRI, tidak dilebur ke `shift` maupun `off` (0160).
+    // Meleburnya ke `shift` membuat "minggu ini dia 5 shift" terbaca penuh
+    // padahal 3 di antaranya tidak ada orangnya di outlet; meleburnya ke `off`
+    // membuat orang yang justru sedang bekerja terhitung libur.
+    tugasLuar: daftar.filter((s) => s.mode === 'tugas-luar').length,
     kosong: daftar.filter((s) => s.mode === 'kosong').length
   };
 }

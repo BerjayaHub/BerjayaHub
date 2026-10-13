@@ -603,7 +603,15 @@ async function buildAttendanceDiscipline({ businessUnitId, outletId, from, to })
     else if (r.late_status === 'late') {
       b.telat++;
       b.menit += Number(r.late_minutes) || 0;
-    } else b.tanpaJadwal++; // no_schedule / off_day / outlet tanpa modul Shift
+    } else b.tanpaJadwal++;
+    // Sisanya: `no_schedule`, `off_day`, `tugas_luar` (0160), dan outlet yang
+    // belum memakai modul Shift.
+    //
+    // `tugas_luar` SENGAJA masuk ke sini, dan bukan karena terlewat: ketiga
+    // kolom di atas menjawab "disiplin jam masuk", dan hari tanpa jam masuk
+    // tidak bisa dinilai disiplinnya. Jumlah hari tugas luarnya sendiri sudah
+    // punya kolomnya — `b.storing`, dibaca dari sesi presensinya yang
+    // sebenarnya, bukan dari jadwalnya.
   }
 
   // SIAPA YANG DITAMPILKAN.

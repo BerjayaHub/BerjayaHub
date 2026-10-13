@@ -18,9 +18,13 @@ import {
   shiftCrossesMidnight,
   resolveAutoOff,
   holidayMapOf,
-  kelompokkanPerDivisi
+  kelompokkanPerDivisi,
+  listTugasLuarTypes,
+  tambahTugasLuarType,
+  ubahTugasLuarType
 } from './shift.service.js';
 import { petaCuti, cutiPada } from './cuti-jadwal.js';
+import { nilaiSel, bacaNilaiSel, opsiSel, labelTugasLuar, periksaSelTugasLuar, jenisAktif } from './tugas-luar.js';
 import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
 import { listMyOutlets, listOutletsSayaKelola, PESAN_TANPA_OUTLET_KELOLA } from '../../core/my-outlets.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
@@ -28,6 +32,11 @@ import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 const TABS = [
   { key: 'schedule', label: 'Jadwal' },
   { key: 'hours', label: 'Jam Shift' },
+  // 0160. Tab tersendiri, bukan dialog di dalam tab Jadwal: daftar jenis
+  // adalah data MASTER yang diatur sekali lalu jarang disentuh, sementara tab
+  // Jadwal dipakai tiap minggu. Menumpuknya di satu tempat membuat yang sering
+  // dipakai harus melewati yang jarang dipakai.
+  { key: 'tugas-luar', label: 'Jenis Tugas Luar' },
   { key: 'settings', label: 'Pengaturan' }
 ];
 
@@ -71,6 +80,7 @@ export async function renderShiftAdminPage(container, { businessUnitId }) {
     container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));
     if (key === 'schedule') await renderScheduleTab(content, businessUnitId, outlets);
     if (key === 'hours') await renderHoursTab(content, businessUnitId, outlets);
+    if (key === 'tugas-luar') await renderTugasLuarTab(content, businessUnitId);
     if (key === 'settings') await renderSettingsTab(content, businessUnitId, outlets);
   }
   container.querySelectorAll('.tab-btn').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
@@ -127,9 +137,9 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
   async function draw() {
     grid.innerHTML = loadingHtml('Memuat jadwal…', { baris: 5 });
     const wk = weekRange(state.anchor);
-    let staff, shifts, schedules, policy, holidays, cuti;
+    let staff, shifts, schedules, policy, holidays, cuti, jenisTL;
     try {
-      [staff, shifts, schedules, policy, holidays, cuti] = await Promise.all([
+      [staff, shifts, schedules, policy, holidays, cuti, jenisTL] = await Promise.all([
         // BUKAN listBuStaff(): policy `membership_scopes_select_admin` memakai
         // is_bu_admin(), yang TIDAK mencakup outlet_admin. Admin outlet karena
         // itu hanya bisa membaca baris scope-nya SENDIRI, dan tabel jadwalnya
@@ -151,7 +161,12 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
         listHolidays({ businessUnitId, outletId: state.outletId }).catch(() => []),
         // `.catch()` supaya RPC yang belum ter-deploy tidak mematikan seluruh
         // layar penyusunan jadwal. Yang hilang cuma penguncian selnya.
-        listCutiDisetujui({ outletId: state.outletId, from: wk.from, to: wk.to }).catch(() => [])
+        listCutiDisetujui({ outletId: state.outletId, from: wk.from, to: wk.to }).catch(() => []),
+        // `.catch()` dengan alasan yang SAMA dengan cuti di atasnya: 0160 yang
+        // belum ter-deploy tidak boleh mematikan layar penyusunan jadwal. Yang
+        // hilang cuma pilihan Tugas Luar di dropdown — shift & libur tetap
+        // bisa diatur seperti sebelum fitur ini ada.
+        listTugasLuarTypes(businessUnitId).catch(() => [])
       ]);
     } catch (error) {
       grid.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
@@ -187,10 +202,19 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
     }
     const belumDiatur = tanpaDivisi.filter((s) => !adaJadwal.has(s.user_id));
 
+    const jenisTLAktif = jenisAktif(jenisTL);
+    const jenisPerId = new Map((jenisTL ?? []).map((j) => [j.id, j]));
+    const outletPerId = new Map(outlets.map((o) => [o.id, o]));
+
+    // Daftar opsinya DISUSUN MODUL MURNI (`tugas-luar.js`), bukan dirangkai di
+    // sini. Penyandian nilainya (`'off'`, `'tl:<uuid>'`, shift_id) harus sama
+    // persis dengan yang dipakai `bacaNilaiSel` saat menyimpan — dan dua
+    // tempat yang merangkai sandi yang sama akan menyimpang tanpa bersuara:
+    // selnya tersimpan sebagai keadaan yang BERBEDA dari yang dipilih.
     const opts = (sel) =>
-      `<option value=""${!sel ? ' selected' : ''}>–</option>` +
-      `<option value="off"${sel === 'off' ? ' selected' : ''}>Libur</option>` +
-      activeShifts.map((s) => `<option value="${s.id}"${sel === s.id ? ' selected' : ''}>${esc(s.name)}</option>`).join('');
+      opsiSel(activeShifts, jenisTL, sel)
+        .map((o) => `<option value="${esc(o.value)}"${sel === o.value ? ' selected' : ''}>${esc(o.label)}</option>`)
+        .join('');
 
     grid.innerHTML = `
       <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
@@ -235,7 +259,12 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
                     ${wk.days
                       .map((d) => {
                         const cur = map.get(`${st.user_id}|${d}`);
-                        const sel = cur ? (cur.is_off ? 'off' : cur.shift_id) : '';
+                        // `nilaiSel` memeriksa `is_tugas_luar` DULU. Baris
+                        // tugas luar ber-is_off false & shift_id null, jadi
+                        // perhitungan lama memulangkan '' — selnya digambar
+                        // kosong, dan adminnya mengira tugas luarnya gagal
+                        // tersimpan lalu menimpanya.
+                        const sel = nilaiSel(cur);
                         const auto = autoOff.get(d);
 
                         // SEL DIKUNCI SAAT CUTINYA SUDAH DISETUJUI.
@@ -263,7 +292,15 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
                         // Libur otomatis hanya jadi *default tampilan*; admin
                         // tetap bisa menimpanya (mis. lembur di hari libur).
                         const hint = !cur && auto?.off ? `<div style="font-size:0.66rem;color:var(--color-text-muted)">Libur · ${esc(auto.reason)}</div>` : '';
-                        return `<td style="text-align:center"><select class="sc-cell${sel === 'off' ? ' is-off' : sel ? ' is-set' : ''}" data-user="${st.user_id}" data-date="${d}">${opts(sel)}</select>${hint}</td>`;
+                        // Keterangan tugas luar digambar DI BAWAH dropdown,
+                        // bukan di dalam labelnya: outlet tujuan bukan bagian
+                        // dari pilihan (ia diisi lewat dialog sesudahnya), jadi
+                        // menaruhnya di label akan membuat nilai yang dipilih
+                        // dan nilai yang tampil tidak sama.
+                        const ketTL = cur?.is_tugas_luar
+                          ? `<div style="font-size:0.66rem;color:var(--color-text-muted)">${esc(labelTugasLuar(cur, jenisPerId, outletPerId))}</div>`
+                          : '';
+                        return `<td style="text-align:center"><select class="sc-cell${sel === 'off' ? ' is-off' : sel ? ' is-set' : ''}" data-user="${st.user_id}" data-date="${d}">${opts(sel)}</select>${hint}${ketTL}</td>`;
                       })
                       .join('')}
                   </tr>`
@@ -300,24 +337,208 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
     grid.querySelectorAll('.sc-cell').forEach((sel) =>
       sel.addEventListener('change', async () => {
         const { user, date } = sel.dataset;
+        const niat = bacaNilaiSel(sel.value);
         try {
-          if (!sel.value) await clearSchedule(state.outletId, user, date);
-          else
+          if (niat.mode === 'kosong') {
+            await clearSchedule(state.outletId, user, date);
+          } else {
+            const salah = periksaSelTugasLuar(niat, jenisTL);
+            if (salah) {
+              toast(salah, 'warning');
+              draw();
+              return;
+            }
+
+            // OUTLET TUJUAN DITANYAKAN, BUKAN DITEBAK.
+            //
+            // Dialognya bisa dibatalkan, dan membatalkannya berarti
+            // "tanpa outlet tujuan" — bukan "batalkan jadwalnya". Tugas luar
+            // tanpa tujuan adalah sel yang sah (mis. "Belanja ke pasar"), jadi
+            // membatalkan dialog lalu TIDAK menyimpan apa pun akan membuat
+            // ketukan admin hilang tanpa penjelasan.
+            let tujuan = null;
+            if (niat.isTugasLuar) {
+              const v = await formDialog({
+                title: 'Tugas luar ke mana?',
+                description:
+                  'Kalau tugasnya ke outlet lain, sebutkan outletnya — jadi terlihat juga dari sisi outlet yang menerima. ' +
+                  'Kosongkan kalau tujuannya bukan outlet (mis. belanja ke pasar).',
+                fields: [
+                  {
+                    name: 'outlet',
+                    label: 'Outlet tujuan (boleh dikosongkan)',
+                    type: 'select',
+                    value: '',
+                    options: [{ value: '', label: '— bukan outlet —' }].concat(
+                      outlets.map((o) => ({ value: o.id, label: o.name }))
+                    )
+                  }
+                ],
+                submitText: 'Simpan'
+              });
+              tujuan = v?.outlet || null;
+            }
+
             await setSchedule({
               businessUnitId,
               outletId: state.outletId,
               userId: user,
               workDate: date,
-              shiftId: sel.value === 'off' ? null : sel.value,
-              isOff: sel.value === 'off'
+              shiftId: niat.shiftId,
+              isOff: niat.isOff,
+              isTugasLuar: niat.isTugasLuar,
+              tugasLuarTypeId: niat.tugasLuarTypeId,
+              tugasLuarOutletId: tujuan
             });
-          sel.classList.toggle('is-off', sel.value === 'off');
-          sel.classList.toggle('is-set', !!sel.value && sel.value !== 'off');
+          }
+          // Digambar ulang, bukan ditambal kelasnya: sel tugas luar punya
+          // keterangan di bawahnya yang hanya bisa dibaca dari database (nama
+          // jenis & outlet tujuan), dan menambal kelas CSS saja akan
+          // meninggalkan keterangan yang tidak cocok dengan pilihannya sampai
+          // ada yang memuat ulang halaman.
+          draw();
         } catch (error) {
           toast(error.message ?? 'Gagal menyimpan jadwal.', 'error');
           draw();
         }
       })
+    );
+  }
+
+  await draw();
+}
+
+// ---- Tab: Jenis Tugas Luar (0160) ----
+
+/**
+ * Daftar jenis tugas luar satu BU — per BU, bukan per outlet.
+ *
+ * "Antar Barang" berarti hal yang sama di seluruh outlet, dan membuatnya
+ * per-outlet akan menghasilkan lima ejaan untuk satu kegiatan — lalu rekapnya
+ * tidak bisa dijumlahkan, yang justru seluruh guna daftar ini.
+ */
+async function renderTugasLuarTab(content, businessUnitId) {
+  content.innerHTML = loadingHtml('Memuat jenis tugas luar…');
+
+  async function draw() {
+    let daftar;
+    try {
+      // `{ semua: true }` — jenis yang sudah dinonaktifkan HARUS terlihat di
+      // sini, kalau tidak ia tidak akan pernah bisa diaktifkan kembali. Pola
+      // yang sama dengan layar Master Supplier (0158).
+      daftar = await listTugasLuarTypes(businessUnitId, { semua: true });
+    } catch (error) {
+      content.innerHTML = `<p class="error-text">${esc(error.message ?? error)}</p>`;
+      return;
+    }
+
+    const aktif = daftar.filter((j) => j.aktif !== false).length;
+    content.innerHTML = `
+      <div class="inline-card" style="max-width:760px">
+        <div class="page-header" style="margin-bottom:6px">
+          <h3 style="margin:0;font-size:0.95rem">Jenis Tugas Luar</h3>
+          <button id="tl-tambah">+ Tambah jenis</button>
+        </div>
+        <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
+          Daftar inilah yang muncul saat kamu memilih <strong>Tugas Luar</strong> di sel jadwal.
+          Tugas luar menggantikan shift hari itu — staffnya tetap bekerja, cuma tidak di outlet.
+        </p>
+        <p style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 10px">
+          Presensinya tidak berubah: staff tetap bisa clock in di outlet mana pun yang terdaftar tanpa kode OTP.
+          Kode OTP dari admin hanya diminta kalau GPS-nya tidak menemukan satu pun area outlet
+          &mdash; dan itu pun hanya kalau BU ini disetel mode OTP di <strong>Pengaturan NBM</strong>.
+        </p>
+        ${
+          daftar.length
+            ? `<div class="table-scroll"><table class="data-table kartu-sempit">
+                 <thead><tr><th>Jenis</th><th>Catatan</th><th>Urutan</th><th>Status</th><th>Aksi</th></tr></thead>
+                 <tbody>${daftar
+                   .map(
+                     (j) => `<tr>
+                       <td data-label="Jenis"><strong>${esc(j.nama)}</strong></td>
+                       <td data-label="Catatan" style="font-size:0.8rem">${
+                         esc(j.catatan ?? '') || '<span style="color:var(--color-text-muted)">–</span>'
+                       }</td>
+                       <td data-label="Urutan" style="font-size:0.8rem">${Number(j.urutan) || 0}</td>
+                       <td data-label="Status">${
+                         j.aktif === false
+                           ? '<span class="badge badge-cancelled">Nonaktif</span>'
+                           : '<span class="nota-lunas">Aktif</span>'
+                       }</td>
+                       <td data-label="Aksi"><button class="tl-edit" data-id="${esc(j.id)}">Edit</button></td>
+                     </tr>`
+                   )
+                   .join('')}</tbody>
+               </table></div>
+               <p style="font-size:0.76rem;color:var(--color-text-muted);margin-top:8px">
+                 ${aktif} dari ${daftar.length} jenis aktif. Jenis yang sudah dipakai jadwal <strong>tidak bisa dihapus</strong> &mdash;
+                 hari kerja yang sudah ditetapkan akan ikut hilang. Nonaktifkan saja: ia berhenti muncul di dropdown,
+                 dan jadwal lamanya tetap utuh.
+               </p>`
+            : `<p style="color:var(--color-text-muted);font-size:0.88rem">
+                 Belum ada jenis tugas luar di BU ini, jadi pilihan Tugas Luar tidak muncul di sel jadwal.
+                 Tambah satu di atas &mdash; mis. &ldquo;Antar Barang&rdquo;.
+               </p>`
+        }
+      </div>`;
+
+    content.querySelector('#tl-tambah')?.addEventListener(
+      'click',
+      sekaliJalan(async () => {
+        const v = await formDialog({
+          title: 'Tambah jenis tugas luar',
+          fields: [
+            { name: 'nama', label: 'Nama jenis', type: 'text', required: true, placeholder: 'mis. Antar Barang' },
+            { name: 'catatan', label: 'Catatan (opsional)', type: 'text' },
+            { name: 'urutan', label: 'Urutan tampil', type: 'number', value: (daftar.length + 1) * 1 }
+          ],
+          submitText: 'Tambah'
+        });
+        if (!v) return;
+        try {
+          await tambahTugasLuarType(businessUnitId, v);
+          toast(`"${v.nama}" siap dipakai di sel jadwal.`, 'success');
+          await draw();
+        } catch (e) {
+          toast(e.message ?? 'Gagal menambah jenis.', 'error');
+        }
+      })
+    );
+
+    content.querySelectorAll('.tl-edit').forEach((btn) =>
+      btn.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const j = daftar.find((x) => x.id === btn.dataset.id);
+          if (!j) return;
+          const v = await formDialog({
+            title: `Edit ${j.nama}`,
+            description:
+              'Nama yang dibetulkan langsung ikut di seluruh jadwal yang memakainya — sel jadwal menunjuk ID, bukan teks.',
+            fields: [
+              { name: 'nama', label: 'Nama jenis', type: 'text', value: j.nama, required: true },
+              { name: 'catatan', label: 'Catatan (opsional)', type: 'text', value: j.catatan ?? '' },
+              { name: 'urutan', label: 'Urutan tampil', type: 'number', value: Number(j.urutan) || 0 },
+              {
+                name: 'aktif',
+                label: 'Aktif (muncul di sel jadwal)',
+                type: 'checkbox',
+                value: j.aktif !== false,
+                help: 'Dinonaktifkan: berhenti muncul sebagai pilihan baru, tapi jadwal yang sudah memakainya tetap utuh.'
+              }
+            ],
+            submitText: 'Simpan'
+          });
+          if (!v) return;
+          try {
+            await ubahTugasLuarType(j.id, v);
+            toast('Jenis tugas luar diperbarui.', 'success');
+            await draw();
+          } catch (e) {
+            toast(e.message ?? 'Gagal menyimpan.', 'error');
+          }
+        })
+      )
     );
   }
 

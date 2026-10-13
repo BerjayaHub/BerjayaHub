@@ -24,7 +24,17 @@ import {
 import { tanggalWIB, akhirRentangCuti, cutiPada, peringatanCuti, CATATAN_LANJUT } from './cuti-presensi.js';
 import { setelanEfektif, bolehMulaiIstirahat, totalMenitIstirahat, BATAS_ISTIRAHAT_JAM } from './istirahat.js';
 import { cariOutletArea, bolehAksiPresensi, berkoordinat, AKURASI_MAKS_TOLERANSI } from './area-outlet.js';
-import { getShiftSettings, getMyScheduleFor, evaluateLateness, todayWIB, LATE_LABEL, resolveAutoOff, holidayMapOf } from '../shift/shift.service.js';
+import {
+  getShiftSettings,
+  getMyScheduleFor,
+  evaluateLateness,
+  todayWIB,
+  LATE_LABEL,
+  resolveAutoOff,
+  holidayMapOf,
+  listTugasLuarTypes
+} from '../shift/shift.service.js';
+import { labelTugasLuar, keteranganClockIn, STATUS_PRESENSI_TUGAS_LUAR } from '../shift/tugas-luar.js';
 import { getHolidayPolicy, listHolidays } from './nbm.service.js';
 import { openCameraCapture, formatWatermarkText } from './camera-capture.js';
 import { openFaceRegistration } from './face-registration.js';
@@ -127,7 +137,20 @@ export async function renderAttendancePage(container, ctx) {
         getShiftSettings(nbmBase.business_unit_id).catch(() => ({ late_tolerance_minutes: 10 }))
       ])
     : [null, { late_tolerance_minutes: 10 }];
-  const myShift = mySchedule && !mySchedule.is_off ? mySchedule.outlet_shifts : null;
+  // `is_tugas_luar` ikut mengecualikan (0160). Baris tugas luar ber-is_off
+  // false, jadi tanpa ini `myShift` menjadi `mySchedule.outlet_shifts` yang
+  // nilainya `null` — kebetulan benar hari ini, tapi karena alasan yang salah:
+  // ia benar hanya selama embednya kosong. Disebutkan terus terang supaya
+  // cabang di bawahnya bisa bersandar padanya.
+  const myShift = mySchedule && !mySchedule.is_off && !mySchedule.is_tugas_luar ? mySchedule.outlet_shifts : null;
+
+  // Jenis & outlet untuk menamai hari tugas luar. Gagal dibaca berarti chipnya
+  // tetap muncul tanpa nama jenisnya — presensinya TIDAK ikut gagal.
+  const jenisTL = mySchedule?.is_tugas_luar
+    ? await listTugasLuarTypes(nbmBase.business_unit_id, { semua: true }).catch(() => [])
+    : [];
+  const jenisTLPerId = new Map(jenisTL.map((j) => [j.id, j]));
+  const outletTLPerId = new Map((allOutlets ?? []).map((o) => [o.id, o]));
 
   // Kebijakan hari libur BU basis (0038) — berlaku untuk semua BU, termasuk
   // yang tidak memakai modul Shift.
@@ -436,6 +459,15 @@ export async function renderAttendancePage(container, ctx) {
     ? `<div class="shift-note">🎉 Hari ini <strong>${esc(autoOff.holidayName)}</strong> — BU kamu tetap beroperasi, dan presensimu dihitung dengan tarif hari libur.</div>`
     : !shiftOutletActive
     ? ''
+    : mySchedule?.is_tugas_luar
+    ? // Diperiksa SEBELUM `is_off` dan sebelum `myShift` (0160). Tanpa ini,
+      // hari tugas luar jatuh ke kalimat terakhir — "Kamu belum dijadwalkan
+      // hari ini" — padahal adminnya justru sudah menjadwalkannya, dan staffnya
+      // lalu mengira jadwalnya belum dibuat.
+      `<div class="shift-note">🚩 Hari ini kamu <strong>tugas luar</strong>: ${esc(
+        labelTugasLuar(mySchedule, jenisTLPerId, outletTLPerId)
+      )}.
+         <span style="color:var(--color-text-muted)">· Clock in tetap seperti biasa kalau kamu berada di area outlet mana pun yang terdaftar.</span></div>`
     : mySchedule?.is_off
     ? `<div class="shift-note shift-note-off">🌴 Hari ini kamu <strong>dijadwalkan libur</strong>. Presensi tetap bisa dicatat bila memang masuk.</div>`
     : myShift
@@ -506,12 +538,23 @@ export async function renderAttendancePage(container, ctx) {
   }
 
   async function openStoringDialog() {
+    // ============ TERISI DARI JADWALNYA, MASIH BISA DIUBAH (0160) ============
+    //
+    // Kalau admin sudah menjadwalkan tugas luar hari ini, keterangannya diisi
+    // dari sel jadwal itu. Yang diberikan jadwal HANYA kalimat ini — gerbangnya
+    // tidak disentuh sama sekali: geofence tetap berlaku, dan OTP tetap diminta
+    // sesuai `exit_task_mode` BU.
+    //
+    // Membuat jadwal melewati gerbangnya akan menukar satu kenyamanan dengan
+    // satu lubang: sel jadwal bisa ditetapkan berhari-hari di muka oleh orang
+    // yang tidak sedang melihat di mana staffnya berada.
     const fields = [
       {
         name: 'reason',
         label: 'Keterangan tugas luar (wajib)',
         type: 'text',
         required: true,
+        value: keteranganClockIn(mySchedule, jenisTLPerId, outletTLPerId),
         placeholder: 'mis. antar pesanan ke customer di Serpong'
       }
     ];
@@ -707,7 +750,12 @@ export async function renderAttendancePage(container, ctx) {
         // walau BU-nya tidak memakai modul Shift sama sekali.
         lateInfo = { status: 'off_day', minutes: null };
       } else if (shiftOutletActive) {
-        if (mySchedule?.is_off) lateInfo = { status: 'off_day', minutes: null };
+        // Urutannya sama dengan `hitung_ulang_status_shift` di 0160: tugas
+        // luar DULU. Kalau ia jatuh ke `no_schedule`, rekap admin menampilkan
+        // hari itu sebagai kelalaian menyusun jadwal — dan admin mencari
+        // jadwal hilang yang sebenarnya tidak hilang.
+        if (mySchedule?.is_tugas_luar) lateInfo = { status: STATUS_PRESENSI_TUGAS_LUAR, minutes: null };
+        else if (mySchedule?.is_off) lateInfo = { status: 'off_day', minutes: null };
         else if (myShift) lateInfo = evaluateLateness(new Date(), myShift, shiftSettings.late_tolerance_minutes);
         else lateInfo = { status: 'no_schedule', minutes: null };
       }
