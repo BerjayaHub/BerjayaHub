@@ -7,6 +7,7 @@
  *   §4 Label & keterangan clock in.
  *   §5 `selJadwal` mengenal mode keempat, dan ringkasannya menghitungnya.
  *   §6 Masukan aneh tidak melempar.
+ *   §7 Warna sel: dikunci ke ID, stabil selamanya.
  */
 import assert from 'node:assert/strict';
 import {
@@ -21,8 +22,17 @@ import {
   keteranganClockIn,
   jenisAktif,
   periksaSelTugasLuar,
+  kelompokOpsi,
   STATUS_PRESENSI_TUGAS_LUAR
 } from '../js/modules/shift/tugas-luar.js';
+import {
+  kelasWarnaShift,
+  kelasWarnaSel,
+  JUMLAH_WARNA_SHIFT,
+  KELAS_CUTI,
+  KELAS_LIBUR,
+  KELAS_TUGAS_LUAR
+} from '../js/modules/shift/warna-shift.js';
 import { selJadwal, ringkasBaris } from '../js/modules/shift/cuti-jadwal.js';
 
 let n = 0;
@@ -117,8 +127,42 @@ const opsi = opsiSel(SHIFTS, JENIS);
 assert.deepEqual(opsi.map((o) => o.value), ['', ID_SHIFT, NILAI_OFF, `${PREFIKS_TL}${JENIS[0].id}`, `${PREFIKS_TL}${JENIS[1].id}`]);
 ok('urutannya: kosong, shift, libur, lalu tugas luar per jenis');
 
-assert.match(opsi[3].label, /Tugas Luar · Antar Barang/);
-ok('labelnya menyebut jenisnya, bukan cuma "Tugas Luar"');
+// ============ LABELNYA PENDEK, ARTINYA DI GRUPNYA ============
+//
+//   "tidak perlu ada keterangan 'Tugas Luar · Dinas Luar' dll, cukup jenis
+//    tugas luarnya saja"
+//
+// Labelnya dipendekkan, tapi awalannya tidak sekadar dibuang: nama jenis
+// ditentukan admin sendiri, jadi tidak ada yang mencegah lahirnya jenis
+// bernama "Siang Keliling" yang berdiri sebaris dengan shift "SIANG" tanpa apa
+// pun yang membedakannya. `grup` yang memikul artinya.
+assert.equal(opsi[3].label, 'Antar Barang');
+assert.doesNotMatch(opsi[3].label, /Tugas Luar/);
+assert.equal(opsi[3].grup, 'Tugas Luar');
+ok('INTI: label opsi tugas luar cuma nama jenisnya; grupnya yang memberi arti');
+
+assert.equal(opsi[1].grup, 'Shift');
+// "–" dan "Libur" bukan anggota kategori apa pun, dan tidak dipaksa masuk
+// salah satunya.
+assert.equal(opsi[0].grup, '');
+assert.equal(opsi[2].grup, '');
+ok('shift bergrup "Shift"; "–" dan "Libur" berdiri sendiri');
+
+const grup = kelompokOpsi(opsi);
+assert.deepEqual(grup.map((g) => g.grup), ['', 'Shift', '', 'Tugas Luar']);
+assert.equal(grup[3].opsi.length, 2);
+ok('`kelompokOpsi` menyusun `<optgroup>` tanpa menyentuh DOM');
+
+// Urutan grup mengikuti kemunculan pertama, bukan abjad — daftar yang
+// urutannya berubah saat admin mengganti nama jenis tidak bisa dihafal.
+const acak = kelompokOpsi([
+  { value: 'b', label: 'B', grup: 'Zeta' },
+  { value: 'a', label: 'A', grup: 'Alfa' },
+  { value: 'c', label: 'C', grup: 'Zeta' }
+]);
+assert.deepEqual(acak.map((g) => g.grup), ['Zeta', 'Alfa']);
+assert.equal(acak[0].opsi.length, 2);
+ok('grup yang sama digabung, urutannya mengikuti kemunculan pertama');
 
 // Jenis nonaktif tidak ditawarkan sebagai pilihan BARU…
 const adaNonaktif = [...JENIS, { id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', nama: 'Lama', aktif: false }];
@@ -216,5 +260,56 @@ assert.doesNotThrow(() => keteranganClockIn(undefined, undefined, undefined));
 // Baris tanpa `id` dibuang, bukan jadi pilihan yang nilainya `'tl:undefined'`.
 assert.equal(opsiSel([], [{ nama: 'tanpa id' }]).length, 2);
 ok('masukan cacat tidak melempar, dan tidak menghasilkan pilihan rusak');
+
+console.log('\n§7 Warna sel');
+
+// ============ WARNA DIKUNCI KE ID, BUKAN KE URUTAN ============
+//
+// Ini pemeriksaan terpenting di bagian ini. Jadwal dibaca dengan MATA lewat
+// warna — jadi warna yang berpindah arti lebih buruk daripada tidak berwarna
+// sama sekali: orang membaca jadwal yang sama dengan keyakinan penuh dan
+// kesimpulan yang salah.
+const w = kelasWarnaShift(ID_SHIFT);
+assert.match(w, /^shift-w[1-5]$/);
+assert.equal(kelasWarnaShift(ID_SHIFT), w);
+ok('warna satu shift selalu sama untuk id yang sama');
+
+// Menambah shift baru TIDAK menggeser warna shift yang sudah ada — itu yang
+// tidak bisa dijamin kalau warnanya mengikuti urutan di daftar.
+const sebelum = [ID_SHIFT, 'f1', 'f2'].map(kelasWarnaShift);
+const sesudah = ['shift-baru-di-urutan-pertama', ID_SHIFT, 'f1', 'f2'].map(kelasWarnaShift).slice(1);
+assert.deepEqual(sesudah, sebelum);
+ok('INTI: menambah shift baru tidak menggeser warna shift yang sudah dikenal');
+
+// Id kosong tidak dipaksa jadi warna pertama: sel tanpa shift tidak boleh
+// terlihat seperti shift yang sah.
+assert.equal(kelasWarnaShift(''), '');
+assert.equal(kelasWarnaShift(null), '');
+assert.equal(kelasWarnaShift(undefined), '');
+ok('id kosong tidak menghasilkan warna shift');
+
+// Hasilnya selalu di dalam palet — `%` atas angka negatif akan memulangkan
+// kelas yang tidak ada di CSS, dan selnya kehilangan warna tanpa galat.
+const dipakai = new Set();
+for (let i = 0; i < 400; i++) {
+  const k = kelasWarnaShift(`shift-${i}-${i * 7919}`);
+  assert.match(k, /^shift-w[1-5]$/, k);
+  dipakai.add(k);
+}
+assert.equal(dipakai.size, JUMLAH_WARNA_SHIFT);
+ok(`400 id acak jatuh ke ${JUMLAH_WARNA_SHIFT} kelas yang ada, dan kelimanya terpakai`);
+
+// ============ TUGAS LUAR TIDAK BOLEH SEWARNA CUTI ============
+assert.equal(kelasWarnaSel(selTL), KELAS_TUGAS_LUAR);
+assert.notEqual(KELAS_TUGAS_LUAR, KELAS_CUTI);
+assert.notEqual(KELAS_TUGAS_LUAR, KELAS_LIBUR);
+ok('INTI: tugas luar punya kelas sendiri, bukan kelas cuti maupun libur');
+
+assert.equal(kelasWarnaSel({ is_off: true }), KELAS_LIBUR);
+assert.equal(kelasWarnaSel({ shift_id: ID_SHIFT }), w);
+assert.equal(kelasWarnaSel(null), '');
+// Cuti menang atas apa pun — urutannya sama dengan `selJadwal`.
+assert.equal(kelasWarnaSel(selTL, { cuti: true }), KELAS_CUTI);
+ok('keempat keadaan dapat kelasnya masing-masing, dan cuti menang');
 
 console.log(`\n${n} pemeriksaan tugas luar lolos. ✅`);

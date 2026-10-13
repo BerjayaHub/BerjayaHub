@@ -133,6 +133,21 @@ export function bacaNilaiSel(nilai) {
 /**
  * Pilihan `<select>` untuk satu sel.
  *
+ * ============ LABELNYA PENDEK, ARTINYA DIJAGA `grup` ============
+ *
+ *   "tidak perlu ada keterangan 'Tugas Luar · Dinas Luar' dll, cukup jenis
+ *    tugas luarnya saja seperti 'Dinas Luar'"
+ *
+ * Benar, dan labelnya dipendekkan. Tapi membuang awalannya begitu saja akan
+ * membuat "Dinas Luar" berdiri sebaris dengan "PAGI" dan "SIANG" tanpa apa pun
+ * yang membedakannya — dan nama jenis tugas luar ditentukan admin sendiri,
+ * jadi tidak ada yang mencegah lahirnya jenis bernama "Siang Keliling" yang
+ * terbaca seperti nama shift.
+ *
+ * Maka tiap opsi membawa `grup`, dan layar menggambarnya sebagai `<optgroup>`:
+ * labelnya tetap sependek yang diminta, judul grupnya yang memberi arti, dan
+ * judul grup tidak ikut terbaca sebagai pilihan.
+ *
  * Jenis tugas luar yang NONAKTIF tetap ditawarkan kalau ia nilai yang sedang
  * terpasang — alasan yang sama dengan supplier di luar daftar
  * (`supplier-kas.js`): tanpa itu, membuka sel yang sudah berisi jenis yang
@@ -142,18 +157,19 @@ export function bacaNilaiSel(nilai) {
  * @param {Array} shifts         `outlet_shifts` yang aktif
  * @param {Array} jenisTugasLuar baris `tugas_luar_types`
  * @param {string} [nilaiSekarang]
+ * @returns {Array<{value: string, label: string, grup: string}>}
  */
 export function opsiSel(shifts, jenisTugasLuar, nilaiSekarang = '') {
   const sekarang = teks(nilaiSekarang);
-  const opsi = [{ value: '', label: '–' }];
+  const opsi = [{ value: '', label: '–', grup: '' }];
 
   for (const s of Array.isArray(shifts) ? shifts : []) {
     const id = teks(s?.id);
     if (!id) continue;
-    opsi.push({ value: id, label: teks(s?.name) || 'Shift' });
+    opsi.push({ value: id, label: teks(s?.name) || 'Shift', grup: 'Shift' });
   }
 
-  opsi.push({ value: NILAI_OFF, label: 'Libur' });
+  opsi.push({ value: NILAI_OFF, label: 'Libur', grup: '' });
 
   const terpasang = sekarang.startsWith(PREFIKS_TL) ? sekarang.slice(PREFIKS_TL.length) : '';
   for (const j of Array.isArray(jenisTugasLuar) ? jenisTugasLuar : []) {
@@ -162,10 +178,41 @@ export function opsiSel(shifts, jenisTugasLuar, nilaiSekarang = '') {
     if (j?.aktif === false && id !== terpasang) continue;
     opsi.push({
       value: `${PREFIKS_TL}${id}`,
-      label: `Tugas Luar · ${labelJenis(j)}${j?.aktif === false ? ' (nonaktif)' : ''}`
+      // Tanpa awalan "Tugas Luar · " — grupnya yang mengatakan itu.
+      label: `${labelJenis(j)}${j?.aktif === false ? ' (nonaktif)' : ''}`,
+      grup: 'Tugas Luar'
     });
   }
   return opsi;
+}
+
+/**
+ * Susun opsi jadi daftar `<optgroup>` siap-render, tanpa menyentuh DOM.
+ *
+ * Opsi tanpa `grup` tetap berdiri sendiri di luar grup mana pun — itu "–" dan
+ * "Libur", yang bukan anggota kategori apa pun dan tidak boleh dipaksa masuk
+ * salah satunya.
+ *
+ * Urutan grupnya mengikuti urutan kemunculan pertama, bukan abjad: daftar yang
+ * urutannya berubah ketika admin mengganti nama sebuah jenis adalah daftar
+ * yang posisi pilihannya tidak bisa dihafal.
+ */
+export function kelompokOpsi(opsi) {
+  const hasil = [];
+  const indeks = new Map();
+  for (const o of Array.isArray(opsi) ? opsi : []) {
+    const grup = teks(o?.grup);
+    if (!grup) {
+      hasil.push({ grup: '', opsi: [o] });
+      continue;
+    }
+    if (!indeks.has(grup)) {
+      indeks.set(grup, hasil.length);
+      hasil.push({ grup, opsi: [] });
+    }
+    hasil[indeks.get(grup)].opsi.push(o);
+  }
+  return hasil;
 }
 
 /**

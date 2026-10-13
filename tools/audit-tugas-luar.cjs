@@ -415,6 +415,99 @@ if (m138) {
   }
 }
 
+// ---------------------------------------------------------------
+// 6. WARNA: JS DAN CSS TIDAK BOLEH MENYIMPANG.
+// ---------------------------------------------------------------
+//
+// ============ KEGAGALANNYA SUNYI DI KEDUA ARAH ============
+//
+// Kelas `shift-w6` yang dihasilkan JS tapi tidak ada di CSS menghasilkan sel
+// TANPA warna sama sekali — bukan galat, bukan warna salah, cuma sel polos di
+// antara sel-sel berwarna. Dan kelas yang ada di CSS tapi tidak pernah
+// dihasilkan JS adalah warna yang tidak akan pernah muncul, yang membuat orang
+// berikutnya mengira paletnya lebih luas dari kenyataannya.
+//
+// Jadi keduanya DIHITUNG, bukan sekadar dicari ada.
+const warna = baca('js/modules/shift/warna-shift.js');
+const css = baca('css/styles.css');
+if (warna && css) {
+  const kode = bersih(warna, 'warna-shift.js', ['JUMLAH_WARNA_SHIFT']);
+  const m = kode.match(/export const JUMLAH_WARNA_SHIFT = (\d+);/);
+  if (!m) {
+    salah('warna-shift.js: `JUMLAH_WARNA_SHIFT` hilang — tidak ada lagi angka yang bisa dibandingkan dengan CSS.');
+  } else {
+    const jumlah = Number(m[1]);
+    for (const [awalan, apa] of [
+      ['.shift-chip.shift-w', 'chip Staff App'],
+      ['select.sc-cell.shift-w', 'sel Admin Portal']
+    ]) {
+      const ada = new Set();
+      for (let i = 1; i <= 20; i++) if (css.includes(`${awalan}${i} `) || css.includes(`${awalan}${i} {`)) ada.add(i);
+      if (ada.size !== jumlah) {
+        salah(
+          `css/styles.css: ${apa} punya ${ada.size} kelas warna, sedangkan JS menghasilkan ${jumlah}. Kelas yang ` +
+            'dihasilkan JS tapi tidak ada di CSS membuat selnya TANPA warna — bukan galat, cuma sel polos di antara ' +
+            'sel berwarna, yang tidak akan pernah dilaporkan siapa pun sebagai bug.'
+        );
+      }
+    }
+  }
+
+  // Warna dihitung dari ID, bukan dari urutan. Ini yang menjaga arti warnanya
+  // tidak berpindah saat ada shift baru ditambahkan.
+  if (!/angkaStabil\(id\) % JUMLAH_WARNA_SHIFT/.test(kode)) {
+    salah(
+      'warna-shift.js: warna shift tidak lagi dihitung dari id-nya. Kalau ia mengikuti urutan di daftar, menambah ' +
+        'satu shift baru akan MENGGESER warna semua shift lain — dan orang yang sudah hafal "biru itu Pagi" membaca ' +
+        'jadwal yang sama dengan arti berbeda, tanpa apa pun di layar yang memberitahunya.'
+    );
+  }
+  if (!/return h >>> 0;/.test(kode)) {
+    salah(
+      'warna-shift.js: hasil hash tidak lagi dibuat tak-bertanda. `%` atas angka negatif memulangkan angka negatif, ' +
+        'dan `shift-w0`/`shift-w-2` tidak ada di CSS — selnya kehilangan warnanya, tanpa galat.'
+    );
+  }
+
+  // Tugas luar WAJIB punya kelas sendiri, dan tidak boleh memakai kelas cuti.
+  if (!/\.shift-chip\.shift-tugas-luar \{/.test(css)) {
+    salah('css/styles.css: `.shift-chip.shift-tugas-luar` hilang — chip tugas luar digambar dengan warna primer bawaan, sama seperti shift.');
+  }
+  if (!/select\.sc-cell\.shift-tugas-luar \{/.test(css)) {
+    salah('css/styles.css: sel admin tugas luar tidak punya warnanya sendiri.');
+  }
+}
+
+const sp2 = baca('js/modules/shift/shift.page.js');
+if (sp2) {
+  const kode = bersih(sp2, 'shift.page.js', ['shift-chip']);
+  if (/shift-chip shift-cuti">Tugas Luar/.test(kode)) {
+    salah(
+      'shift.page.js: chip tugas luar kembali memakai kelas CUTI. Keduanya berarti "orangnya tidak di outlet", tapi ' +
+        'akibatnya berlawanan: cuti = timnya kurang orang, tugas luar = orangnya sedang bekerja di tempat lain. ' +
+        'Admin yang salah membacanya mencari pengganti yang tidak perlu, atau tidak mencari yang perlu.'
+    );
+  }
+  if (!/kelasWarnaShift\(cur\.shift_id\)/.test(kode)) {
+    salah('shift.page.js: chip shift tidak lagi berwarna per shift — seluruh shift kembali seragam.');
+  }
+}
+
+const adm2 = baca('js/modules/shift/shift.admin.page.js');
+if (adm2) {
+  const kode = bersih(adm2, 'shift.admin.page.js', ['optgroup']);
+  if (!/<optgroup label="/.test(kode)) {
+    salah(
+      'shift.admin.page.js: `<optgroup>` hilang dari sel jadwal. Labelnya dipendekkan jadi nama jenis saja, jadi ' +
+        'tanpa judul grup "Dinas Luar" berdiri sebaris dengan "PAGI"/"SIANG" tanpa apa pun yang membedakannya — ' +
+        'dan nama jenis ditentukan admin sendiri, jadi "Siang Keliling" bisa saja lahir.'
+    );
+  }
+  if (!/kelasWarnaSel\(cur\)/.test(kode)) {
+    salah('shift.admin.page.js: sel jadwal admin tidak lagi berwarna — skema warnanya cuma berlaku di Staff App.');
+  }
+}
+
 console.log('');
 if (gagal === 0) console.log('Audit tugas luar bersih. ✅');
 else console.error(`${gagal} masalah ditemukan.`);

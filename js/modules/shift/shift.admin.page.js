@@ -24,7 +24,8 @@ import {
   ubahTugasLuarType
 } from './shift.service.js';
 import { petaCuti, cutiPada } from './cuti-jadwal.js';
-import { nilaiSel, bacaNilaiSel, opsiSel, labelTugasLuar, periksaSelTugasLuar, jenisAktif } from './tugas-luar.js';
+import { nilaiSel, bacaNilaiSel, opsiSel, kelompokOpsi, labelTugasLuar, periksaSelTugasLuar, jenisAktif } from './tugas-luar.js';
+import { kelasWarnaSel } from './warna-shift.js';
 import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
 import { listMyOutlets, listOutletsSayaKelola, PESAN_TANPA_OUTLET_KELOLA } from '../../core/my-outlets.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
@@ -211,9 +212,19 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
     // persis dengan yang dipakai `bacaNilaiSel` saat menyimpan — dan dua
     // tempat yang merangkai sandi yang sama akan menyimpang tanpa bersuara:
     // selnya tersimpan sebagai keadaan yang BERBEDA dari yang dipilih.
+    // `<optgroup>`, bukan awalan di tiap label. Labelnya tinggal "Dinas Luar"
+    // seperti yang diminta, dan judul grupnya yang mengatakan ia tugas luar —
+    // judul grup tidak bisa dipilih, jadi ia tidak pernah tersimpan sebagai
+    // nilai.
+    const satuOpsi = (o, sel) =>
+      `<option value="${esc(o.value)}"${sel === o.value ? ' selected' : ''}>${esc(o.label)}</option>`;
     const opts = (sel) =>
-      opsiSel(activeShifts, jenisTL, sel)
-        .map((o) => `<option value="${esc(o.value)}"${sel === o.value ? ' selected' : ''}>${esc(o.label)}</option>`)
+      kelompokOpsi(opsiSel(activeShifts, jenisTL, sel))
+        .map((g) =>
+          g.grup
+            ? `<optgroup label="${esc(g.grup)}">${g.opsi.map((o) => satuOpsi(o, sel)).join('')}</optgroup>`
+            : g.opsi.map((o) => satuOpsi(o, sel)).join('')
+        )
         .join('');
 
     grid.innerHTML = `
@@ -297,10 +308,19 @@ async function renderScheduleTab(content, businessUnitId, outlets) {
                         // dari pilihan (ia diisi lewat dialog sesudahnya), jadi
                         // menaruhnya di label akan membuat nilai yang dipilih
                         // dan nilai yang tampil tidak sama.
-                        const ketTL = cur?.is_tugas_luar
-                          ? `<div style="font-size:0.66rem;color:var(--color-text-muted)">${esc(labelTugasLuar(cur, jenisPerId, outletPerId))}</div>`
-                          : '';
-                        return `<td style="text-align:center"><select class="sc-cell${sel === 'off' ? ' is-off' : sel ? ' is-set' : ''}" data-user="${st.user_id}" data-date="${d}">${opts(sel)}</select>${hint}${ketTL}</td>`;
+                        // Keterangan di bawah sel HANYA kalau ada yang belum
+                        // terbaca dari selnya sendiri — yaitu outlet tujuan.
+                        // Nama jenisnya sudah jadi isi dropdownnya, dan
+                        // mengulanginya di bawah membuat tiap sel setinggi dua
+                        // baris tanpa menambah satu pun keterangan baru.
+                        const tujuanTL =
+                          cur?.is_tugas_luar && cur.tugas_luar_outlet_id
+                            ? `<div style="font-size:0.64rem;color:var(--color-text-muted)">→ ${esc(
+                                outletPerId.get(cur.tugas_luar_outlet_id)?.name ?? 'outlet lain'
+                              )}</div>`
+                            : '';
+                        const warna = kelasWarnaSel(cur);
+                        return `<td style="text-align:center"><select class="sc-cell${sel === 'off' ? ' is-off' : sel ? ' is-set' : ''}${warna ? ' ' + warna : ''}" data-user="${st.user_id}" data-date="${d}">${opts(sel)}</select>${hint}${tujuanTL}</td>`;
                       })
                       .join('')}
                   </tr>`

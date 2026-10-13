@@ -953,27 +953,130 @@ button.primary:active { transform: translateY(1px); }
   font-weight: 600;
 }
 
+/* TUGAS LUAR — HIJAU, dan sengaja jauh dari kuning Cuti.
+
+   Keduanya sama-sama berarti "orangnya tidak ada di outlet hari ini", jadi
+   godaannya adalah memberi mereka rona yang berdekatan. Itu justru kebalikan
+   dari yang dibutuhkan: akibatnya berlawanan. Cuti berarti timnya kekurangan
+   orang; tugas luar berarti orangnya sedang bekerja — untuk perusahaan yang
+   sama, cuma di tempat lain. Admin yang salah membaca keduanya akan mencari
+   pengganti yang tidak perlu, atau tidak mencari pengganti yang perlu. */
+.shift-chip.shift-tugas-luar {
+  background: #dcfce7;
+  color: #15803d;
+  border-color: #86efac;
+  font-weight: 600;
+}
+
+/* ============ LIMA WARNA SHIFT ============
+
+   Dipilih dari rona yang BELUM punya arti lain di layar ini: abu-abu sudah
+   Libur, kuning sudah Cuti, hijau sudah Tugas Luar. Yang tersisa sian, biru,
+   ungu, fuchsia, merah muda.
+
+   Merah sengaja TIDAK dipakai walau ronanya tersedia — di seluruh aplikasi ini
+   merah berarti "ada yang salah", dan shift bernama apa pun bukan kesalahan.
+
+   Jumlahnya harus sama dengan `JUMLAH_WARNA_SHIFT` di `warna-shift.js`. Kelas
+   yang dihasilkan JS tapi tidak ada di sini menghasilkan sel TANPA warna sama
+   sekali — tanpa galat, tanpa satu pun tanda. `audit-warna-shift.cjs`
+   menghitung keduanya. */
+.shift-chip.shift-w1 { background: #cffafe; color: #155e75; border-color: #67e8f9; }
+.shift-chip.shift-w2 { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+.shift-chip.shift-w3 { background: #ede9fe; color: #5b21b6; border-color: #c4b5fd; }
+.shift-chip.shift-w4 { background: #fae8ff; color: #86198f; border-color: #f0abfc; }
+.shift-chip.shift-w5 { background: #fce7f3; color: #9d174d; border-color: #f9a8d4; }
+
+/* ============ SEL JADWAL ADMIN — DIKECILKAN ============
+
+   `min-width` turun dari 104px, padding & font ikut mengecil, dan nama shift
+   tidak lagi dibungkus. Grid jadwal adalah MATRIKS tujuh kolom: yang dibaca
+   bukan satu sel melainkan hubungan antar kolom — siapa libur di hari yang
+   sama, siapa masuk pagi berturut-turut. Sel selebar 104px mendorong hari
+   Minggu keluar layar, dan perbandingan yang justru jadi guna layar ini harus
+   dikerjakan sambil menggeser-geser. */
 select.sc-cell {
-  min-width: 104px;
-  padding: 6px 8px;
-  border-radius: 8px;
+  /* ============ PANAH BAWAAN DIGANTI CARET SENDIRI ============
+
+     Panah `<select>` bawaan memakan 18–22px yang tidak bisa diatur, dan pada
+     sel selebar 108px itu memotong namanya: "PAGI" jadi "PA", "Dinas Luar"
+     jadi "Dina". Mengecilkan kotak sampai isinya tidak terbaca bukan
+     mengecilkan — itu memindahkan pekerjaan membaca jadwal ke tangan orang
+     yang harus membuka tiap sel satu per satu untuk tahu isinya.
+
+     Ditemukan dengan MELIHAT hasilnya, bukan dengan menghitung px-nya.
+
+     `appearance: none` membebaskan ruang itu, dan caretnya digambar sebagai
+     background-image SVG inline — bukan berkas terpisah, supaya tidak ada satu
+     permintaan jaringan tambahan untuk sebuah segitiga 8px. */
+  appearance: none;
+  -webkit-appearance: none;
+  min-width: 0;
+  width: 100%;
+  max-width: 108px;
+  padding: 4px 16px 4px 7px;
+  border-radius: 7px;
   border: 1px dashed var(--color-border);
-  background: transparent;
-  font-size: 0.82rem;
+  background-color: transparent;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0h8L4 5z' fill='%23888'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 5px center;
+  font-size: 0.74rem;
   font-family: inherit;
   color: var(--color-text);
+  text-overflow: ellipsis;
 }
 select.sc-cell.is-set {
   border-style: solid;
   border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
-  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+  background-color: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
   font-weight: 600;
 }
 select.sc-cell.is-off {
   border-style: solid;
   border-color: var(--color-border);
-  background: var(--color-bg);
+  background-color: var(--color-bg);
   color: var(--color-text-muted);
+}
+
+/* Warna sel admin mengikuti chip Staff App — SATU skema, dua layar. Ditulis
+   sesudah `.is-set` supaya menang atas latar primer bawaannya. */
+select.sc-cell.shift-tugas-luar {
+  border-style: solid;
+  /* `background-color`, BUKAN `background` — shorthand-nya akan menghapus
+     caret SVG di atas, dan selnya kehilangan panahnya tanpa galat. */
+  background-color: #dcfce7;
+  color: #15803d;
+  border-color: #86efac;
+  font-weight: 600;
+}
+select.sc-cell.shift-w1 { border-style: solid; background-color: #cffafe; color: #155e75; border-color: #67e8f9; }
+select.sc-cell.shift-w2 { border-style: solid; background-color: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+select.sc-cell.shift-w3 { border-style: solid; background-color: #ede9fe; color: #5b21b6; border-color: #c4b5fd; }
+select.sc-cell.shift-w4 { border-style: solid; background-color: #fae8ff; color: #86198f; border-color: #f0abfc; }
+select.sc-cell.shift-w5 { border-style: solid; background-color: #fce7f3; color: #9d174d; border-color: #f9a8d4; }
+
+/* ============ DI HP: TETAP TERBACA, GRIDNYA YANG DIGESER ============
+
+   Percobaan pertama di sini melepas lebarnya (`max-width: none`) supaya selnya
+   mengisi kolom apa adanya. Hasilnya dilihat, dan salah: pada 360px, tujuh
+   kolom membuat tiap sel tinggal muat SATU HURUF — "PAGI" jadi "P", "SIANG"
+   jadi "S", dan dua shift berbeda terbaca sama persis.
+
+   Jadwal yang tidak bisa dibaca tanpa membuka tiap selnya bukan jadwal. Maka
+   di layar sempit selnya diberi lebar MINIMUM, dan gridnya yang menggeser —
+   `.table-scroll` di sekelilingnya memang sudah untuk itu.
+
+   Menggeser untuk melihat hari Sabtu jauh lebih murah daripada menebak isi sel
+   dari satu huruf. Dan warnanya tetap terbaca utuh tanpa digeser, yang
+   justru membuat pola mingguannya tetap terlihat sekilas. */
+@media (max-width: 640px) {
+  select.sc-cell {
+    min-width: 88px;
+    max-width: none;
+    width: auto;
+    font-size: 0.72rem;
+  }
 }
 
 .shift-note {

@@ -8628,4 +8628,24 @@ Alasannya: sel jadwal bisa ditetapkan berhari-hari di muka oleh orang yang tidak
 
 **Dan satu audit yang MERAH karena alasan yang salah.** Pemeriksa `setSchedule` memotong badan fungsinya di `\n}` pertama — yang ternyata penutup parameter terdestrukturisasinya, bukan penutup fungsinya. Ia melaporkan tiga kolom "tidak dikirim" untuk kode yang mengirimkannya dengan benar. Itu sama berbahayanya dengan hijau yang salah: ia mengajari orang mengabaikan auditnya.
 
-- [x] **Tugas luar bisa dijadwalkan: keadaan ketiga di sel jadwal** (`0160`) — 29 sabotase
+### Warna & lebar sel — dan apa yang hanya terlihat dengan MELIHAT
+
+> *"agar kotak shift nya tidak terlalu panjang … cukup jenis tugas luarnya saja … tugas luar diberi warna hijau agar tidak sama dengan warna cuti, lalu tiap shift juga warna nya berbeda"*
+
+**Warnanya dikunci ke `shift.id`, bukan ke urutan di daftar.** Godaan pertamanya adalah mewarnai menurut urutan: yang pertama biru, kedua ungu. Itu ditolak — menambah satu shift baru bernama "DINI HARI" yang jatuh di urutan pertama akan **menggeser warna semua shift lain**, dan orang yang sudah hafal *"biru itu Pagi"* membaca jadwal yang sama dengan arti berbeda, tanpa apa pun di layar yang memberitahunya.
+
+Paletnya berhenti di **lima**, dan itu bukan kemalasan: abu-abu sudah Libur, kuning sudah Cuti, hijau sudah Tugas Luar, dan merah berarti "ada yang salah" di seluruh aplikasi ini. Yang tersisa sian, biru, ungu, fuchsia, merah muda. Warna keenam berarti mengambil rona yang terlalu dekat dengan salah satunya — dan dua warna yang *nyaris* sama lebih buruk daripada dua yang jelas sama: yang pertama membuat orang mengira ia melihat perbedaan.
+
+Tugas luar hijau, jauh dari kuning Cuti — keduanya berarti "orangnya tidak di outlet", tapi **akibatnya berlawanan**: cuti = timnya kurang orang, tugas luar = orangnya sedang bekerja di tempat lain. Admin yang salah membacanya mencari pengganti yang tidak perlu, atau tidak mencari yang perlu.
+
+**Labelnya dipendekkan, artinya dipikul `<optgroup>`.** "Tugas Luar · Dinas Luar" jadi "Dinas Luar". Tapi membuang awalannya begitu saja membuat "Dinas Luar" berdiri sebaris dengan "PAGI" tanpa pembeda — dan nama jenis ditentukan admin sendiri, jadi tidak ada yang mencegah lahirnya "Siang Keliling". Judul grup yang memberi arti, dan ia tidak bisa dipilih.
+
+**Dua hal yang hanya ketahuan dari screenshot.** Mock-nya dirender dan dilihat, bukan dihitung px-nya:
+
+1. Sel 108px memotong namanya — "PAGI" jadi "PA", "Dinas Luar" jadi "Dina" — karena panah `<select>` bawaan memakan 18–22px yang tidak bisa diatur. Diganti caret SVG inline dengan `appearance: none`. *Mengecilkan kotak sampai isinya tidak terbaca bukan mengecilkan; itu memindahkan pekerjaan membaca jadwal ke tangan orang yang harus membuka tiap sel satu per satu.*
+
+2. Aturan `@media` versi pertama melepas lebarnya di layar sempit, dan pada 360px tujuh kolom membuat tiap sel tinggal muat **satu huruf** — dua shift berbeda terbaca sama persis. Sekarang selnya diberi lebar minimum dan **gridnya yang menggeser**. Menggeser untuk melihat Sabtu jauh lebih murah daripada menebak isi sel dari satu huruf, dan warnanya tetap terbaca utuh tanpa digeser.
+
+Satu jebakan CSS yang ikut dijaga: kelas warnanya memakai `background-color`, bukan shorthand `background` — shorthand-nya akan **menghapus caret SVG** dan selnya kehilangan panahnya tanpa galat.
+
+- [x] **Tugas luar bisa dijadwalkan: keadaan ketiga di sel jadwal** (`0160`) — 40 sabotase

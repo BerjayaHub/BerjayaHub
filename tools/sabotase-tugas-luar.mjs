@@ -31,9 +31,11 @@ const ADM = 'js/modules/shift/shift.admin.page.js';
 const SP = 'js/modules/shift/shift.page.js';
 const AP = 'js/modules/attendance/attendance.page.js';
 const M109 = 'supabase/migrations/0109_lencana_draft_semua_outlet.sql';
+const WARNA = 'js/modules/shift/warna-shift.js';
+const CSS = 'css/styles.css';
 
 const asli = new Map();
-for (const rel of [MIG, MURNI, CUTI, SVC, ADM, SP, AP, M109]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
+for (const rel of [MIG, MURNI, CUTI, SVC, ADM, SP, AP, M109, WARNA, CSS]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
 
 const PENANDA = path.join(AKAR, 'tools/.sabotase-aktif');
 const tandai = (rel) => fs.writeFileSync(PENANDA, `${path.basename(process.argv[1])} merusak ${rel}\n`);
@@ -399,6 +401,95 @@ sabotase(
   MURNI,
   "  if (!jadwal?.is_tugas_luar) return '';",
   '  void 0;',
+  TES
+);
+
+// ---------------------------------------------------------------
+console.log('\nSABOTASE WARNA:');
+// ---------------------------------------------------------------
+//
+// Warna adalah satu-satunya bagian fitur ini yang dibaca TANPA MEMBACA —
+// sekilas, dari seberang meja. Kegagalannya pun begitu: tidak ada galat, tidak
+// ada teks yang salah, cuma arti yang berpindah atau hilang.
+
+sabotase(
+  'warna shift mengikuti URUTAN daftar — menambah satu shift menggeser arti semua warna',
+  WARNA,
+  '  return `shift-w${(angkaStabil(id) % JUMLAH_WARNA_SHIFT) + 1}`;',
+  '  return `shift-w${(String(id).length % JUMLAH_WARNA_SHIFT) + 1}`;',
+  AUDIT
+);
+sabotase(
+  'hash tidak dibuat tak-bertanda — `%` negatif menghasilkan kelas yang tak ada di CSS',
+  WARNA,
+  '  return h >>> 0;',
+  '  return h;',
+  AUDIT
+);
+sabotase(
+  'satu warna shift hilang dari CSS — selnya polos di antara sel berwarna, tanpa galat',
+  CSS,
+  '.shift-chip.shift-w5 { background: #fce7f3; color: #9d174d; border-color: #f9a8d4; }',
+  '',
+  AUDIT
+);
+sabotase(
+  'warna sel admin hilang dari CSS — skema warnanya cuma berlaku di Staff App',
+  CSS,
+  'select.sc-cell.shift-w5 { border-style: solid; background-color: #fce7f3; color: #9d174d; border-color: #f9a8d4; }',
+  '',
+  AUDIT
+);
+sabotase(
+  'chip tugas luar kehilangan warnanya sendiri — digambar seperti shift biasa',
+  CSS,
+  '.shift-chip.shift-tugas-luar {',
+  '.shift-chip.shift-tugas-luar-nonaktif {',
+  AUDIT
+);
+sabotase(
+  'chip tugas luar kembali memakai kelas CUTI — dua keadaan berakibat berlawanan terlihat sama',
+  SP,
+  '<span class="shift-chip shift-tugas-luar">Tugas Luar</span>',
+  '<span class="shift-chip shift-cuti">Tugas Luar</span>',
+  AUDIT
+);
+sabotase(
+  'chip shift kembali seragam — tidak ada lagi beda warna antar shift',
+  SP,
+  '<span class="shift-chip ${esc(kelasWarnaShift(cur.shift_id))}">',
+  '<span class="shift-chip">',
+  AUDIT
+);
+sabotase(
+  'sel admin kehilangan warnanya',
+  ADM,
+  '                        const warna = kelasWarnaSel(cur);',
+  "                        const warna = '';",
+  AUDIT
+);
+sabotase(
+  '`<optgroup>` hilang — "Dinas Luar" berdiri sebaris dengan "PAGI" tanpa pembeda',
+  ADM,
+  // Polanya sengaja PENDEK dan tanpa kutip tunggal: baris aslinya memuat
+  // `join('')`, dan kutipnya akan mengakhiri string pola ini di tengah jalan.
+  // Galatnya muncul sebagai SyntaxError di harness, bukan di kode yang dijaga.
+  '? `<optgroup label=',
+  '? `<optgroup-dinonaktifkan label=',
+  AUDIT
+);
+sabotase(
+  'label opsi tugas luar kembali membawa awalan panjangnya',
+  MURNI,
+  "      label: `${labelJenis(j)}${j?.aktif === false ? ' (nonaktif)' : ''}`,",
+  "      label: `Tugas Luar · ${labelJenis(j)}${j?.aktif === false ? ' (nonaktif)' : ''}`,",
+  TES
+);
+sabotase(
+  '`kelompokOpsi` melebur grup yang berbeda jadi satu',
+  MURNI,
+  '    if (!indeks.has(grup)) {',
+  '    if (false) {',
   TES
 );
 

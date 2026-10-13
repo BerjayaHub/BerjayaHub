@@ -13,6 +13,7 @@ import {
   listTugasLuarTypes
 } from './shift.service.js';
 import { labelTugasLuar } from './tugas-luar.js';
+import { kelasWarnaShift } from './warna-shift.js';
 import { getHolidayPolicy, listHolidays } from '../attendance/nbm.service.js';
 import { getMyBaseScope } from '../../core/base-scope.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
@@ -236,11 +237,17 @@ export async function renderShiftPage(container, { userId, businessUnitId, outle
                         // ada galat, cuma sel yang mengatakan hal yang salah
                         // di HP orang yang sedang memeriksa jadwalnya sendiri.
                         if (cur.is_tugas_luar) {
-                          return `<td style="text-align:center"><span class="shift-chip shift-cuti">Tugas Luar</span>
+                          // HIJAU, bukan kuning Cuti. Keduanya berarti
+                          // "orangnya tidak di outlet", tapi akibatnya
+                          // berlawanan: cuti = timnya kurang orang, tugas luar
+                          // = orangnya sedang bekerja di tempat lain.
+                          return `<td style="text-align:center"><span class="shift-chip shift-tugas-luar">Tugas Luar</span>
                             <div style="font-size:0.66rem;color:var(--color-text-muted)">${esc(labelTugasLuar(cur, jenisPerId, outletPerId))}</div></td>`;
                         }
                         const sh = cur.outlet_shifts;
-                        return `<td style="text-align:center"><span class="shift-chip">${esc(sh?.name ?? 'Shift')}</span>
+                        // Warna per shift dikunci ke `shift_id`, bukan ke
+                        // urutannya di daftar — lihat `warna-shift.js`.
+                        return `<td style="text-align:center"><span class="shift-chip ${esc(kelasWarnaShift(cur.shift_id))}">${esc(sh?.name ?? 'Shift')}</span>
                           <div style="font-size:0.68rem;color:var(--color-text-muted)">${sh ? `${sh.start_time.slice(0, 5)}–${sh.end_time.slice(0, 5)}` : ''}</div></td>`;
                       })
                       .join('')}
