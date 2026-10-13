@@ -50,6 +50,31 @@ export const LABEL_STATUS = {
 export const STATUS_PERLU_DIKERJAKAN = [STATUS.BARU, STATUS.TANPA_KODE];
 
 /**
+ * JENIS PENERIMA (0159) — bukan status, dan sengaja kolom yang berbeda.
+ *
+ * `status` menjawab "apa yang masih perlu dikerjakan admin pada baris ini".
+ * `jenis` menjawab "baris ini boleh muncul di layar mana". Keduanya berubah
+ * karena sebab yang berbeda: "Kas Operasional" yang sudah berkode ESB tetap
+ * selamanya internal.
+ *
+ * Menyatukannya jadi satu daftar status — mis. menambah status `'internal'` —
+ * terdengar lebih ringkas, tapi lalu penerima internal tidak bisa lagi
+ * ditandai "kode ESB-nya kosong", dan pekerjaan itu hilang dari daftar tanpa
+ * ada yang memutuskan begitu.
+ */
+export const JENIS = { SUPPLIER: 'supplier', INTERNAL: 'internal' };
+
+export const LABEL_JENIS = {
+  [JENIS.SUPPLIER]: 'Supplier',
+  [JENIS.INTERNAL]: 'Internal'
+};
+
+/** Bawaannya `'supplier'`: baris lama (sebelum 0159) tidak punya kolomnya. */
+export function jenisSupplier(s) {
+  return s?.jenis === JENIS.INTERNAL ? JENIS.INTERNAL : JENIS.SUPPLIER;
+}
+
+/**
  * Status satu baris supplier.
  *
  * Urutannya penting: `nonaktif` diperiksa DULU. Supplier yang sudah
@@ -89,6 +114,7 @@ export function susunMasterSupplier(suppliers, terpakai = []) {
       return {
         id: s.id,
         nama,
+        jenis: jenisSupplier(s),
         esbKode: teks(s.esb_kode).trim(),
         // Kosong berarti "ejaan di ESB sama dengan nama ini" — bukan "belum
         // diisi". Dua arti itu dibedakan di 0158, dan layar tidak boleh
@@ -150,6 +176,17 @@ export function calonKembar(baris) {
       const a = normalNama(daftar[i].nama);
       const b = normalNama(daftar[j].nama);
       if (!a || !b || a === b) continue;
+      // JENIS BERBEDA TIDAK PERNAH KEMBAR (0159).
+      //
+      // Satu-satunya aksi yang ditawarkan kekembaran adalah "Gabungkan", dan
+      // menggabungkan "Kas Operasional" ke sebuah supplier memindahkan
+      // SELURUH nota dan membubarkan penerima internalnya — lalu uang hadir
+      // staff kehilangan tempat dibukukan, di seluruh BU, dengan satu
+      // ketukan yang terlihat merapikan daftar.
+      //
+      // Dihalangi di sini, bukan di tombolnya: yang salah adalah anggapan
+      // bahwa keduanya nama yang sama, bukan tombolnya.
+      if (jenisSupplier(daftar[i]) !== jenisSupplier(daftar[j])) continue;
       // Batas 4 huruf: tanpa itu "cv" jadi awalan hampir setiap nama, dan
       // seluruh daftar saling ditandai kembar.
       const pendek = a.length <= b.length ? a : b;
@@ -183,6 +220,10 @@ export function hintSupplier(s) {
   // `esb_kode` (tabel `suppliers`, 0158) ATAU `kode` (baris `esb_master`
   // lama). Keduanya diterima supaya pemanggil yang belum beralih tidak
   // kehilangan keterangannya diam-diam.
+  // Penerima internal lebih dulu (0159). Tanpa keterangan ini "Kas
+  // Operasional" terbaca sebagai supplier bernama aneh, dan orang mencari
+  // alamat atau nomor telepon yang tidak akan pernah ada.
+  if (s?.jenis === 'internal') return 'penerima internal — bukan supplier';
   const kode = teks(s?.esb_kode ?? s?.kode).trim();
   if (kode) return `kode ESB ${kode}`;
   if (s?.terverifikasi === false) return 'baru — belum diperiksa admin';
@@ -192,7 +233,7 @@ export function hintSupplier(s) {
 /** Opsi siap-pakai untuk search-select. */
 export function opsiSupplier(daftar) {
   return (Array.isArray(daftar) ? daftar : [])
-    .map((s) => ({ value: teks(s?.nama).trim(), label: teks(s?.nama).trim(), hint: hintSupplier(s) }))
+    .map((s) => ({ value: teks(s?.nama).trim(), label: teks(s?.nama).trim(), hint: hintSupplier(s), jenis: jenisSupplier(s) }))
     .filter((o) => o.value)
     .sort((a, b) => a.label.localeCompare(b.label, 'id'));
 }

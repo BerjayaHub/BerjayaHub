@@ -129,7 +129,10 @@ console.log('SABOTASE "SUPPLIER BARUNYA HILANG LAGI":');
 sabotase(
   'dropdown nota kembali membaca daftar ESB — keluhan aslinya kembali persis',
   INV,
-  '      listSuppliers(businessUnitId).catch(() => []),',
+  // Diperbarui di 0159: pemanggilannya sekarang menyaring `jenis`. Pola lama
+  // ('…(businessUnitId).catch…') tidak cocok lagi, dan harness yang polanya
+  // tidak terpasang TIDAK menguji apa pun — ia cuma terlihat menguji.
+  "      listSuppliers(businessUnitId, { jenis: 'supplier' }).catch(() => []),",
   "      listEsbMaster(businessUnitId, 'supplier').catch(() => []),",
   AUDIT
 );
@@ -242,6 +245,25 @@ sabotase(
   '    masterSupplier = await listSuppliers(businessUnitId).catch(() => []);',
   AUDIT
 );
+// ============ EJAAN MANA YANG MENANG ============
+//
+// Ditemukan karena tes ini GAGAL 1 dari 3 kali, di §5, pada pemeriksaan yang
+// tidak ada hubungannya dengan ejaan. Backfill-nya menyerahkan peleburan ke
+// `on conflict do nothing`, jadi nama master yang lalu DISTEMPELKAN ke seluruh
+// nota dan ikut ke ekspor ESB dipilih oleh urutan yang tidak dijanjikan
+// siapa pun.
+sabotase(
+  'pilihan ejaan diserahkan `on conflict` lagi — nama masternya kembali jadi undian',
+  MIG,
+  '   order by bu,\n            normal_nama_supplier(nama),\n            dipakai desc,',
+  '   order by bu,\n            normal_nama_supplier(nama),\n            dipakai asc,',
+  PG
+);
+// Catatan: pernah ada sabotase ketiga di sini, untuk aturan "huruf kapital
+// terbanyak". Ia LOLOS — dan yang salah adalah aturannya, bukan tesnya:
+// mencabutnya tidak mengubah satu pun jawaban, karena urutan huruf sudah
+// mendahulukan ejaan berkapital. Aturannya dibuang dari migrationnya.
+
 sabotase(
   'nonaktif tidak lagi menang atas "kode kosong" — daftar pekerjaan berisi yang sudah dibatalkan',
   MURNI,

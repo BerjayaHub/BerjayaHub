@@ -29,7 +29,7 @@ import { pecahKeterangan, petaNotaPerEntri } from './keterangan-nota.js';
 import { keadaanKoreksi, totalKas } from './koreksi-kas.js';
 import { LABEL_PENGELUARAN, saringPengeluaran, ringkasPengeluaran } from './jenis-pengeluaran.js';
 import { kodeKas, cocokKodeKas } from './kode-kas.js';
-import { buKasEntri, supplierKasWajib, opsiSupplierKas, periksaSupplierKas } from './supplier-kas.js';
+import { buKasEntri, supplierKasWajib, opsiSupplierKas, periksaSupplierKas, LABEL_PENERIMA } from './supplier-kas.js';
 import { opsiKantong, namaKantong, tanpaKantong, NAMA_TANPA_KANTONG } from './kantong-wajib.js';
 
 const DIRECTIONS = [
@@ -317,7 +317,7 @@ async function loadMutasi(content) {
         fields: [
           {
             name: 'supplier',
-            label: 'Dibayar ke (supplier)',
+            label: LABEL_PENERIMA,
             type: 'searchselect',
             required: true,
             // Tanpa `allowCreate`: aksi ini ADA untuk membuka ekspor, dan nama
@@ -506,7 +506,7 @@ async function ubahEntriAdmin(r, content) {
         ? [
             {
               name: 'supplier',
-              label: 'Dibayar ke (supplier)',
+              label: LABEL_PENERIMA,
               type: 'searchselect',
               required: true,
               // `allowCreate` DIMATIKAN: nama yang diketik sendiri ditolak ESB

@@ -8506,3 +8506,72 @@ Jalur ekspor ESB tidak diubah sama sekali — pemetaan tetap di `esb_map`, dan l
 `cash_entries.supplier` juga masih teks. Entri kas memilih dari daftar yang sama, jadi namanya tetap sah — tapi kalau admin membetulkan sebuah nama, entri kas lama **tidak** ikut berubah seperti nota. Itu asimetri yang masih terbuka.
 
 - [x] **Master supplier: ketikan staff jadi baris master, admin membetulkannya, semua ikut** (`0158`) — 16 sabotase
+
+## Pembayaran yang tidak punya supplier (`0159`)
+
+> *"untuk pembayaran uang hadir staff di cash ledger yang memakai kas/kantong outlet baiknya bagaimana? karena ada pewajiban memasukkan supplier di kas keluar di cash ledger"*
+
+### Yang gagal adalah sebuah kata
+
+Kewajiban memilih supplier pada kas keluar (`0144`/`0151`) benar, dan tetap berlaku: tanpanya, barisnya tertahan saat diekspor ke ESB dengan alasan yang muncul berminggu-minggu kemudian. Yang salah adalah bahwa **sebagian pembayaran memang tidak punya supplier** — uang hadir staff, iuran, ganti uang pribadi.
+
+Kasir yang membayar uang hadir staff membaca **"Supplier"**, tidak menemukan satu nama pun yang berarti *"staff saya"*, dan berhenti. Formnya terbuka lengkap. Kolomnya ada. Daftarnya terbaca. Tidak ada galat di mana pun — form itu hanya tidak bisa diselesaikan, dan uang yang sudah keluar dari kantong tidak tercatat.
+
+Jadi yang diperbaiki adalah **namanya dan daftarnya**, bukan kewajibannya:
+
+- labelnya jadi **"Dibayarkan ke"** di keempat form kas (tambah, ubah-sendiri, ubah-admin, isi-massal), dari satu konstanta;
+- `suppliers` dapat kolom `jenis`: `'supplier'` (pihak luar yang menagih) dan `'internal'` (penerima yang bukan penjual apa pun);
+- tiap BU dapat satu baris `'internal'` bawaan, **"Kas Operasional"**, tempat pembayaran semacam itu dibukukan.
+
+Melonggarkan kewajibannya akan mengembalikan kolom teks bebas, dan dengan itu seluruh keluhan yang `0144` lahir untuk memperbaiki.
+
+### Dua daftar, satu tabel — dan saringannya menghadap arah berlawanan
+
+Kas keluar perlu **keduanya**; itu inti keluhannya. Nota terima barang hanya boleh `'supplier'`: membiarkan "Kas Operasional" muncul di dropdown nota berarti cepat atau lambat ada nota bahan yang tercatat datang dari kantong kasir sendiri — baris yang tidak bisa dicocokkan dengan tagihan siapa pun, ditemukan berbulan-bulan kemudian oleh orang yang merekonsiliasi pembelian.
+
+Saringannya ada di `listSuppliers(bu, { jenis })`, bukan di komponen dropdown: *"layar ini tidak boleh melihat internal"* adalah sifat **permintaan datanya**, bukan sifat cara menggambarnya.
+
+Dua kerusakan yang paling mungkin terjadi pada fitur ini adalah pasangan yang simetris, dan **keduanya terlihat seperti kerapian** — membuat dua pemanggilan `listSuppliers` jadi seragam:
+
+| Yang dirapikan | Akibatnya |
+| --- | --- |
+| kas **mulai** menyaring `jenis` | keluhan aslinya kembali utuh, tanpa galat |
+| nota **berhenti** menyaring | nota bahan dari kantong kasir sendiri, ketahuan berbulan-bulan kemudian |
+
+Keduanya disabotase secara eksplisit di `tools/sabotase-penerima-kas.mjs`.
+
+### Pencarian yang tidak boleh ikut disaring
+
+`cari_atau_buat_supplier` — trigger yang melahirkan supplier dari teks nota — selalu membuat baris berjenis `'supplier'`. Tapi saat **mencari**, ia sengaja **tidak** menyaring jenis: indeks uniknya pada `(bu, nama)` saja, jadi pencarian yang tersaring tidak akan menemukan baris internal, `insert`-nya ditolak indeks, dan `supplier_id`-nya pulang NULL — diam-diam.
+
+### Satu lagi yang jatuh dari sini: nama master dipilih dengan undian
+
+Saat memverifikasi `0159`, `test-migrasi-0158.mjs` gagal **1 dari 3 kali** — di `§5`, pada pemeriksaan yang tidak ada hubungannya dengan ejaan.
+
+Sebabnya di backfill `0158`: nota yang menyebut "Toko Berkah" dan "toko  berkah" melebur jadi satu baris master, dan **ejaan mana yang jadi nama barisnya** diserahkan ke `on conflict do nothing` — yaitu ke urutan yang tidak dijanjikan siapa pun. Nama itu lalu distempelkan ke seluruh nota, masuk laporan, dan ikut ke ekspor ESB. Tidak ada galat; cuma sebagian nama supplier terlihat seperti kesalahan ketik, di tempat yang paling dilihat orang luar.
+
+Sekarang dipilih sengaja: **suara terbanyak** (ejaan yang dipakai paling banyak nota), lalu urutan huruf — yang mendahulukan ejaan berkapital.
+
+Aturan ketiga sempat ada di antara keduanya, *"yang huruf kapitalnya paling banyak"*. Sabotasenya **lolos**, dan yang salah adalah aturannya: mencabutnya tidak mengubah satu pun jawaban, karena urutan huruf sudah mendahulukan huruf besar. Aturan yang tidak bisa dibuat gagal bukan aturan — ia hiasan yang harus dibaca orang berikutnya. Dibuang.
+
+Dan `§10` yang menguji ini sempat menguji **jalur yang salah sambil terlihat benar**: ia memasukkan nota ke database yang sudah ber-`0158`, jadi barisnya lahir dari trigger, bukan dari backfill. Backfill hanya pernah mengurus data yang mendahuluinya — jadi tiap kasusnya sekarang dapat PGlite-nya sendiri, dengan notanya ditulis sebelum migrationnya terpasang.
+
+*Tes yang kadang-kadang merah menemukan sesuatu. Yang dilonggarkan supaya hijau membuangnya.*
+
+### Tiga hal yang ditemukan harness-nya sendiri
+
+**BU yang lahir sesudah migration tidak punya penerima internal.** `insert` seed hanya mengurus BU yang ada saat migration dijalankan. BU berikutnya akan lahir tanpa "Kas Operasional", dan tidak ada yang tahu sampai ada staff di sana yang tertahan oleh form — yaitu keluhan ini, persis, berbulan-bulan kemudian, di tempat yang tidak dicurigai siapa pun. Diperbaiki dengan trigger `after insert on business_units`. Ditemukan §4 `test-migrasi-0159.mjs`, yang versi pertamanya justru **menegaskan keadaan salah itu sebagai "memang begitu"**.
+
+**Auditnya hijau karena sasarannya ada di fungsi lain.** Pemeriksaan `if (jenis) q = q.eq('jenis', jenis);` dicari se-berkas — dan pola yang sama ada di `listEsbMaster` di berkas yang sama. Mencabut saringan `listSuppliers` tidak membuat auditnya merah. Sekarang diikat ke **blok** `listSuppliers`. Mode kegagalan yang sama sudah muncul berkali-kali di repo ini; ia tidak pernah tertangkap dengan membaca audit itu ulang, selalu oleh sabotase.
+
+**Satu sabotase lolos karena kodenya lebih tahan dari yang saya kira.** Menyaring pencarian *pertama* saja di `cari_atau_buat_supplier` tidak merusak apa pun: `insert`-nya ditelan `on conflict do nothing`, lalu pencarian **cadangan** yang tidak tersaring menemukan barisnya. Sabotasenya diperbaiki untuk menyaring keduanya — dan di situ `supplier_id`-nya benar-benar NULL.
+
+### Menggabungkan dua jenis tidak pernah ditawarkan
+
+Satu-satunya aksi yang ditawarkan kekembaran nama adalah **Gabungkan**. Menggabungkan "Kas Operasional" ke sebuah supplier memindahkan seluruh notanya lalu **membubarkan tempat uang hadir staff dibukukan**, di seluruh BU, dengan satu ketukan yang terlihat sedang merapikan daftar. Jadi `calonKembar` menolak pasangan berjenis beda — dihalangi di tempat anggapannya lahir, bukan di tombolnya. Dua internal yang memang kembar tetap bisa digabungkan.
+
+### Asimetri yang masih terbuka
+
+`cash_entries.supplier` tetap teks bebas (lihat `0158`). Entri kas memilih dari daftar yang sama, jadi namanya sah — tapi kalau admin membetulkan sebuah nama, **entri kas lama tidak ikut berubah** seperti nota. Itu belum diperbaiki.
+
+- [x] **Pembayaran yang tidak punya supplier: "Dibayarkan ke" + penerima internal** (`0159`) — 21 sabotase

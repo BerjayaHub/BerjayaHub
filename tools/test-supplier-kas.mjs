@@ -9,6 +9,7 @@
  *   §3 Nilai lama di luar daftar tetap ditawarkan, dan tetap boleh disimpan.
  *   §4 Nama BARU di luar daftar ditolak.
  *   §5 Masukan aneh tidak melempar.
+ *   §6 Labelnya "Dibayarkan ke" (0159), dan penerima internal ikut ditawarkan.
  */
 import assert from 'node:assert/strict';
 import {
@@ -18,7 +19,8 @@ import {
   periksaSupplierKas,
   PESAN_WAJIB,
   PESAN_DI_LUAR_DAFTAR,
-  HINT_DI_LUAR_DAFTAR
+  HINT_DI_LUAR_DAFTAR,
+  LABEL_PENERIMA
 } from '../js/modules/cash/supplier-kas.js';
 
 let n = 0;
@@ -144,5 +146,50 @@ assert.equal(opsiSupplierKas(DAFTAR)[0].value, 'AICE');
 assert.equal(opsiSupplierKas(DAFTAR)[0].hint, 'kode ESB CK19');
 assert.equal(opsiSupplierKas(DAFTAR)[1].hint, '');
 ok('kode ESB jadi keterangan, tidak menempel ke nilainya');
+
+console.log('\n§6 Dibayarkan ke (0159)');
+
+// ============ LABELNYA YANG SALAH, BUKAN KEWAJIBANNYA ============
+//
+//   "untuk pembayaran uang hadir staff ... karena ada pewajiban memasukkan
+//    supplier di kas keluar"
+//
+// Kasir yang membayar uang hadir staff membaca "Supplier", tidak menemukan
+// yang cocok, dan berhenti. Tidak ada galat — formnya hanya tidak bisa
+// diselesaikan, dan uang yang sudah keluar tidak tercatat.
+assert.equal(LABEL_PENERIMA, 'Dibayarkan ke');
+assert.doesNotMatch(LABEL_PENERIMA, /supplier/i);
+ok('INTI: labelnya tidak lagi menyebut "supplier"');
+
+// Pesan penolakannya harus MENYEBUTKAN jalan keluarnya. Kalimat yang cuma
+// mengatakan "tidak ada di daftar" meninggalkan kasir di tempat yang sama.
+assert.match(PESAN_DI_LUAR_DAFTAR, /internal/i);
+assert.match(PESAN_DI_LUAR_DAFTAR, /Kas Operasional/);
+assert.doesNotMatch(PESAN_WAJIB, /supplier/i);
+ok('pesan penolakannya menyebut penerima internal sebagai jalan keluarnya');
+
+// ============ INTERNAL IKUT DITAWARKAN DI KAS, TANPA SYARAT ============
+//
+// Saringannya di `listSuppliers` (nota minta `jenis: 'supplier'`), jadi daftar
+// yang MASUK ke sini sudah berisi keduanya. Berkas ini tidak boleh menyaring
+// lagi — kalau ia menyaring, uang hadir staff kembali tidak punya penerima dan
+// keluhan aslinya kembali utuh.
+const DENGAN_INTERNAL = [
+  { nama: 'AICE', esb_kode: 'CK19' },
+  { nama: 'Kas Operasional', jenis: 'internal', esb_kode: 'KAS-1' }
+];
+assert.deepEqual(
+  opsiSupplierKas(DENGAN_INTERNAL).map((o) => o.value),
+  ['AICE', 'Kas Operasional']
+);
+ok('INTI: penerima internal muncul di dropdown kas keluar');
+
+assert.equal(periksaSupplierKas('Kas Operasional', DENGAN_INTERNAL), null);
+ok('memilih penerima internal LOLOS pemeriksaan — bukan ditolak sebagai "di luar daftar"');
+
+// Keterangannya membedakannya, supaya kasir tidak mencari alamat atau nomor
+// telepon yang tidak akan pernah ada.
+assert.match(opsiSupplierKas(DENGAN_INTERNAL)[1].hint, /bukan supplier/i);
+ok('keterangannya mengatakan ia bukan penjual');
 
 console.log(`\n${n} pemeriksaan supplier kas lolos. ✅`);

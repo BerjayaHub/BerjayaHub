@@ -30,7 +30,7 @@ import { notaTerkaitEntriKas } from '../inventory/nota.service.js';
 import { listSuppliers } from '../inventory/esb.service.js';
 import { bukaDialogNota } from '../inventory/nota-dialog.js';
 import { pecahKeterangan, petaNotaPerEntri } from './keterangan-nota.js';
-import { supplierKasWajib, opsiSupplierKas, periksaSupplierKas } from './supplier-kas.js';
+import { supplierKasWajib, opsiSupplierKas, periksaSupplierKas, LABEL_PENERIMA } from './supplier-kas.js';
 import { kantongWajib, opsiKantong, periksaKantong, sumberDana, NAMA_TANPA_KANTONG } from './kantong-wajib.js';
 
 /**
@@ -233,7 +233,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
                 ? [
                     {
                       name: 'supplier',
-                      label: 'Dibayar ke (supplier)',
+                      label: LABEL_PENERIMA,
                       type: 'searchselect',
                       required: true,
                       value: e.supplier ?? '',
@@ -638,7 +638,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
           ? [
               {
                 name: 'supplier',
-                label: 'Dibayar ke (supplier)',
+                label: LABEL_PENERIMA,
                 type: 'searchselect',
                 required: true,
                 options: opsiSupplier,

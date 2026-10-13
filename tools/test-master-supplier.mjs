@@ -7,6 +7,7 @@
  *   §4 Calon kembar — dan yang BUKAN kembar.
  *   §5 Keterangan dropdown.
  *   §6 Kalimat ringkasnya.
+ *   §7 Jenis penerima (0159) — internal vs supplier.
  */
 import assert from 'node:assert/strict';
 import {
@@ -19,7 +20,10 @@ import {
   calonKembar,
   hintSupplier,
   opsiSupplier,
-  pesanMaster
+  pesanMaster,
+  JENIS,
+  LABEL_JENIS,
+  jenisSupplier
 } from '../js/modules/inventory/master-supplier.js';
 
 let n = 0;
@@ -154,5 +158,73 @@ ok('keadaan beres tidak memunculkan pekerjaan karangan');
 
 assert.match(pesanMaster(ringkasMaster([])), /terisi sendiri/);
 ok('daftar kosong menjelaskan cara mengisinya');
+
+console.log('\n§7 Jenis penerima (0159)');
+
+// ============ BARIS LAMA TIDAK PUNYA KOLOMNYA ============
+//
+// Tabel `suppliers` lahir di 0158, `jenis` menyusul di 0159. Baris yang sudah
+// ada sebelum itu dibaca tanpa kolom ini — dan "tanpa kolom" harus berarti
+// `'supplier'`, bukan `undefined` yang lalu lolos dari setiap perbandingan dan
+// menghilangkan barisnya dari KEDUA saringan jenis sekaligus.
+assert.equal(jenisSupplier({ nama: 'Toko Lama' }), JENIS.SUPPLIER);
+assert.equal(jenisSupplier({ nama: 'X', jenis: null }), JENIS.SUPPLIER);
+assert.equal(jenisSupplier({ nama: 'Kas Operasional', jenis: 'internal' }), JENIS.INTERNAL);
+// Nilai asing tidak menjadi jenis ketiga yang tak terlihat di layar mana pun.
+assert.equal(jenisSupplier({ nama: 'X', jenis: 'entah' }), JENIS.SUPPLIER);
+ok('INTI: baris tanpa `jenis` terbaca `supplier`, bukan `undefined`');
+
+assert.equal(LABEL_JENIS[JENIS.SUPPLIER], 'Supplier');
+assert.equal(LABEL_JENIS[JENIS.INTERNAL], 'Internal');
+ok('kedua jenis punya label — tidak ada kolom kosong di tabel admin');
+
+const campur = susunMasterSupplier([
+  { id: 'i1', nama: 'Kas Operasional', jenis: 'internal', terverifikasi: true, aktif: true },
+  { id: 's1', nama: 'Toko Berkah', terverifikasi: true, esb_kode: 'S-1', aktif: true }
+]);
+assert.equal(campur.find((b) => b.id === 'i1').jenis, JENIS.INTERNAL);
+assert.equal(campur.find((b) => b.id === 's1').jenis, JENIS.SUPPLIER);
+ok('`jenis` dibawa ke baris siap-tampil — tanpa ini kolomnya tidak bisa digambar');
+
+// `jenis` BUKAN status. "Kas Operasional" yang belum berkode ESB tetap
+// dilaporkan sebagai pekerjaan: menjadikan internal sebuah status akan
+// menghilangkan pekerjaan itu dari daftar tanpa ada yang memutuskan begitu.
+const internalTanpaKode = susunMasterSupplier([
+  { id: 'i2', nama: 'Kas Operasional', jenis: 'internal', terverifikasi: true, esb_kode: '', aktif: true }
+]);
+assert.equal(internalTanpaKode[0].status, STATUS.TANPA_KODE);
+ok('internal tetap bisa berstatus "kode ESB kosong" — jenis bukan status');
+
+assert.match(hintSupplier({ jenis: 'internal', terverifikasi: true }), /bukan supplier/i);
+// Keterangan internal menang atas kode ESB: yang perlu diketahui orang yang
+// sedang memilih adalah bahwa ini bukan penjual, bukan nomor kodenya.
+assert.match(hintSupplier({ jenis: 'internal', esb_kode: 'S-9' }), /bukan supplier/i);
+ok('keterangan internal mengalahkan kode ESB di dropdown');
+
+// ============ INTERNAL TIDAK PERNAH KEMBAR DENGAN SUPPLIER ============
+//
+// Satu-satunya aksi yang ditawarkan kekembaran adalah "Gabungkan", dan
+// menggabungkan penerima internal ke sebuah supplier memindahkan seluruh nota
+// lalu MEMBUBARKAN tempat uang hadir staff dibukukan — dengan satu ketukan
+// yang terlihat sedang merapikan daftar.
+const beda = susunMasterSupplier([
+  { id: 'a', nama: 'Kas Operasional', jenis: 'internal', terverifikasi: true, aktif: true },
+  { id: 'b', nama: 'Kas Operasional Pusat', terverifikasi: true, aktif: true }
+]);
+assert.equal(calonKembar(beda).size, 0);
+ok('INTI: jenis berbeda tidak ditawari Gabungkan, sedekat apa pun namanya');
+
+// Tapi dua internal yang memang kembar TETAP ditawarkan — kalau tidak, BU yang
+// punya "Kas Operasional" dan "Kas Operasional Outlet" tidak punya jalan
+// merapikannya sama sekali.
+const duaInternal = susunMasterSupplier([
+  { id: 'a', nama: 'Kas Operasional', jenis: 'internal', terverifikasi: true, aktif: true },
+  { id: 'b', nama: 'Kas Operasional Outlet', jenis: 'internal', terverifikasi: true, aktif: true }
+]);
+assert.equal(calonKembar(duaInternal).size, 2);
+ok('dua internal yang kembar tetap bisa digabungkan');
+
+assert.equal(opsiSupplier([{ nama: 'Kas Operasional', jenis: 'internal' }])[0].jenis, JENIS.INTERNAL);
+ok('opsi dropdown membawa `jenis` — pemanggil bisa menyaring tanpa memuat ulang');
 
 console.log(`\n${n} pemeriksaan master supplier lolos. ✅`);

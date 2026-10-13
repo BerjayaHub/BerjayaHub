@@ -37,7 +37,11 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
       // MASTER SUPPLIER (0158), bukan `esb_master`. Supplier yang diketik
       // staff di nota lahir di sini, jadi daftar ini yang memuatnya —
       // `esb_master` tetap murni salinan daftar resmi ESB.
-      listSuppliers(businessUnitId).catch(() => []),
+      // `jenis: 'supplier'` — penerima internal ("Kas Operasional", 0159)
+      // TIDAK boleh muncul di dropdown nota. Nota bahan yang tercatat datang
+      // dari kantong kasir sendiri tidak bisa dicocokkan dengan tagihan siapa
+      // pun, dan baru ketahuan saat seseorang merekonsiliasi pembelian.
+      listSuppliers(businessUnitId, { jenis: 'supplier' }).catch(() => []),
       // Daftar Purpose ESB (0147). Alasan `catch` yang sama dengan supplier di
       // atas, dan di sini taruhannya lebih besar: barang yang sudah rusak tidak
       // menunggu daftar induk terbaca. Gagal dimuat berarti kolomnya tidak

@@ -27,21 +27,43 @@ import { kodeKas } from '../cash/kode-kas.js';
  * Bawaannya hanya yang aktif: supplier yang sudah dinonaktifkan admin tidak
  * boleh muncul lagi sebagai pilihan, tapi tetap harus terlihat di layar Master
  * Supplier (`{ semua: true }`) supaya bisa diaktifkan kembali.
+ *
+ * ============ `jenis`: KENAPA NOTA & KAS TIDAK SEDAFTAR ============
+ *
+ * Sejak 0159 tabel ini memuat dua macam baris. `'supplier'` adalah pihak luar
+ * yang menagih; `'internal'` adalah penerima yang bukan penjual apa pun —
+ * "Kas Operasional", tempat uang hadir staff dibukukan.
+ *
+ * Kas keluar perlu KEDUANYA: itu inti keluhan yang melahirkan 0159, uang hadir
+ * staff tidak punya supplier dan form menolak menyimpannya.
+ *
+ * Nota terima barang hanya boleh yang `'supplier'`. Membiarkan "Kas
+ * Operasional" muncul di dropdown nota berarti cepat atau lambat ada nota
+ * bahan yang tercatat datang dari kantong kasir sendiri — dan itu baris yang
+ * tidak bisa dicocokkan dengan tagihan siapa pun, ditemukan berbulan-bulan
+ * kemudian oleh orang yang merekonsiliasi pembelian.
+ *
+ * Saringannya DI SINI, bukan di komponen dropdown: `opsiSupplier` dipakai
+ * beberapa layar, dan aturan "layar ini tidak boleh melihat internal" adalah
+ * sifat permintaan datanya, bukan sifat cara menggambarnya.
+ *
+ * @param {{semua?: boolean, jenis?: 'supplier'|'internal'}} [opsi]
  */
-export async function listSuppliers(businessUnitId, { semua = false } = {}) {
+export async function listSuppliers(businessUnitId, { semua = false, jenis = null } = {}) {
   return ambilSemua((dari, sampai) => {
     let q = supabase
       .from('suppliers')
-      .select('id, nama, esb_kode, esb_nama, terverifikasi, aktif, catatan, dibuat_at', { count: 'exact' })
+      .select('id, nama, jenis, esb_kode, esb_nama, terverifikasi, aktif, catatan, dibuat_at', { count: 'exact' })
       .eq('business_unit_id', businessUnitId)
       .order('nama');
     if (!semua) q = q.eq('aktif', true);
+    if (jenis) q = q.eq('jenis', jenis);
     return q.range(dari, sampai);
   });
 }
 
 /** ADMIN BU. Betulkan nama / kode ESB / status verifikasi satu supplier. */
-export async function ubahSupplier(id, { nama, esbKode, esbNama, terverifikasi, aktif } = {}) {
+export async function ubahSupplier(id, { nama, esbKode, esbNama, terverifikasi, aktif, jenis } = {}) {
   const { error } = await supabase.rpc('ubah_supplier', {
     p_id: id,
     p_nama: nama,
@@ -51,9 +73,36 @@ export async function ubahSupplier(id, { nama, esbKode, esbNama, terverifikasi, 
     // Mengirim `false` untuk kolom yang tidak sedang disentuh akan
     // membatalkan verifikasi orang lain diam-diam.
     p_terverifikasi: terverifikasi === undefined ? null : terverifikasi,
-    p_aktif: aktif === undefined ? null : aktif
+    p_aktif: aktif === undefined ? null : aktif,
+    // `null` = jangan ubah, sama seperti dua kolom di atas. Mengirim
+    // `'supplier'` untuk baris yang tidak sedang disentuh akan mengubah
+    // "Kas Operasional" jadi supplier biasa diam-diam, dan ia lalu muncul di
+    // dropdown nota.
+    p_jenis: jenis ?? null
   });
   if (error) throw new Error(error.message ?? String(error));
+}
+
+/**
+ * ADMIN BU. Tambah penerima baru dengan tangan.
+ *
+ * Supplier lahir sendiri dari ketikan staff di nota, jadi tombol ini ADA
+ * terutama untuk penerima internal (0159) — "Kas Operasional" untuk BU yang
+ * dibuat sebelum 0159 jalan, atau kantong kedua yang namanya sendiri. Tidak
+ * ada jalan lain membuatnya: internal tidak pernah lahir dari nota, karena
+ * memang tidak boleh.
+ *
+ * Langsung `terverifikasi` — yang menambahkannya adalah admin, dan menandainya
+ * "baru dari staff" akan menyuruh admin memeriksa pekerjaannya sendiri.
+ */
+export async function tambahSupplier(businessUnitId, nama, jenis = 'supplier') {
+  const { data, error } = await supabase.rpc('tambah_supplier', {
+    p_bu: businessUnitId,
+    p_nama: nama,
+    p_jenis: jenis
+  });
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? null;
 }
 
 /** ADMIN BU. Pindahkan seluruh nota dari satu supplier ke supplier lain. */

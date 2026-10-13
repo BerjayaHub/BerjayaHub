@@ -54,7 +54,11 @@ const galat = async (fn) => {
   }
 };
 
-await db.exec(`
+// Skema dasarnya jadi KONSTANTA, bukan langsung dieksekusi: §10 membutuhkan
+// PGlite kedua dengan skema yang sama persis. Menyalinnya ke sana berarti dua
+// skema yang cepat atau lambat menyimpang, dan menyimpangnya berbentuk "tesnya
+// hijau di satu bagian dan merah di bagian lain untuk sebab yang sama".
+const BOOTSTRAP = `
   create schema if not exists auth;
   create or replace function auth.uid() returns uuid language sql stable as $$
     select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid;
@@ -84,7 +88,8 @@ await db.exec(`
   create or replace function is_bu_admin(p_uid uuid, p_bu uuid) returns boolean language sql stable as $$
     select exists (select 1 from membership_scopes where user_id = p_uid and business_unit_id = p_bu and role in ('bu_admin','super_admin'));
   $$;
-`);
+`;
+await db.exec(BOOTSTRAP);
 
 // ============ DATA SEBELUM MIGRATION ============
 //
@@ -137,6 +142,17 @@ cek('1. jenis selain supplier TIDAK ikut', await sup('Beras'), undefined);
 
 // 'Toko Berkah' & 'toko  berkah' adalah SATU baris.
 cek('1. INTI: dua ejaan beda spasi/huruf jadi satu baris', Number((await satu(`select count(*) n from suppliers where normal_nama_supplier(nama)='toko berkah'`)).n), 1);
+// ============ DAN EJAAN MANA YANG MENANG DISEBUTKAN ============
+//
+// Versi pertama pemeriksaan ini berhenti di "jadi satu baris" dan tidak pernah
+// menanyakan baris itu bernama apa. Backfill-nya waktu itu menyerahkan
+// peleburan ke `on conflict do nothing`, jadi yang menang adalah ejaan yang
+// duluan sampai — urutan yang tidak dijanjikan siapa pun.
+//
+// Akibatnya tes ini GAGAL 1 dari 3 kali, dan gagalnya di §5 — pemeriksaan yang
+// sama sekali tidak dibuat untuk ini. Tes yang kadang-kadang merah menemukan
+// sesuatu; yang dilonggarkan supaya hijau membuangnya.
+cek('1. INTI: ejaan yang menang bukan undian — "Toko Berkah", bukan "toko  berkah"', berkah.nama, 'Toko Berkah');
 cek('1. nota pertama tertaut', (await notaSup('NT-1')).supplier_id, berkah.id);
 cek('1. nota berejaan lain tertaut ke baris yang SAMA', (await notaSup('NT-2')).supplier_id, berkah.id);
 cek('1. nota tanpa supplier tetap kosong', (await notaSup('NT-4')).supplier_id, null);
@@ -260,6 +276,62 @@ cek(
   Number((await satu(`select count(*) n from pg_indexes where indexname='suppliers_nama_uk'`)).n),
   1
 );
+
+// =====================================================================
+// §10 EJAAN MANA YANG MENANG — DAN KENAPA INI PERLU PGLITE KEDUA
+// =====================================================================
+//
+// Backfill 0158 HANYA pernah mengurus data yang sudah ada SEBELUM ia
+// dijalankan. Sesudah itu, nota baru melahirkan baris masternya lewat trigger
+// `tautkan_supplier_nota` — dan `cari_atau_buat_supplier` sudah merapikan
+// spasinya sendiri, jadi ejaan ganda tidak pernah sampai ke backfill lagi.
+//
+// Versi pertama §10 ini memasukkan nota ke `db` yang sudah ber-0158, lalu
+// menjalankan ulang migrationnya — dan menguji TRIGGER-nya, bukan backfill-nya,
+// sambil terlihat seperti menguji backfill. Ia merah karena alasan yang salah,
+// dan kalau saya "membetulkan" harapannya supaya hijau, pemeriksaan ini akan
+// selamanya mengawasi jalur yang tidak sedang diperiksa.
+//
+// Jadi tiap kasus dapat PGlite-nya sendiri, dengan notanya ditulis SEBELUM
+// migrationnya terpasang — satu-satunya keadaan di mana backfill-nya punya
+// pekerjaan.
+const pilihEjaan = async (ejaanNota) => {
+  const d = new PGlite();
+  await d.exec(BOOTSTRAP);
+  const bu = (await d.query(`insert into business_units (name) values ('X') returning id`)).rows[0].id;
+  for (const [i, nama] of ejaanNota.entries()) {
+    await d.query(`insert into goods_receipts (business_unit_id, code, supplier) values ($1,$2,$3)`, [bu, `X-${i}`, nama]);
+  }
+  await d.exec(sql.replace(/notify pgrst[^;]*;/g, ''));
+  const baris = (
+    await d.query(`select nama from suppliers where business_unit_id=$1 and normal_nama_supplier(nama)='toko sinar'`, [bu])
+  ).rows;
+  await d.close();
+  return { jumlah: baris.length, nama: baris[0]?.nama };
+};
+
+console.log('\n§10 Ejaan mana yang menang');
+
+const seri = await pilihEjaan(['toko sinar', 'Toko Sinar']);
+cek('10. dua ejaan tetap satu baris', seri.jumlah, 1);
+// Suara 1–1 -> diputus urutan huruf, yang mendahulukan huruf besar. Nama yang
+// benar ditulis seperti nama, bukan seperti ketikan cepat.
+cek('10. INTI: seri suara diputus urutan huruf — yang berkapital menang', seri.nama, 'Toko Sinar');
+
+// Sekarang ejaan jelek diberi suara terbanyak: 3 nota lawan 1.
+const terbanyak = await pilihEjaan(['toko sinar', 'toko sinar', 'toko sinar', 'Toko Sinar']);
+cek('10. INTI: suara terbanyak menang atas ejaan yang lebih cantik', terbanyak.nama, 'toko sinar');
+
+// ============ DAN JAWABANNYA SAMA SETIAP KALI ============
+//
+// Ini yang sebenarnya diperbaiki. Versi lama backfill-nya menyerahkan peleburan
+// ke `on conflict do nothing`, jadi jawabannya tergantung urutan yang tidak
+// dijanjikan siapa pun — dan tes ini gagal 1 dari 3 kali, di §5, pada
+// pemeriksaan yang tidak ada hubungannya.
+const berulang = [];
+for (let i = 0; i < 4; i++) berulang.push((await pilihEjaan(['toko sinar', 'Toko Sinar', 'TOKO  sinar'])).nama);
+cek('10. INTI: empat kali dijalankan, jawabannya satu', new Set(berulang).size, 1);
+cek('10. dan jawabannya tidak berubah antar-jalan', berulang[0], berulang[3]);
 
 console.log('');
 if (gagal === 0) console.log(`${n} pemeriksaan 0158 lolos. ✅`);

@@ -188,11 +188,21 @@ grant execute on function cari_atau_buat_supplier(uuid, text) to authenticated;
 -- ---------------------------------------------------------
 
 -- (a) Daftar resmi ESB -> terverifikasi, lengkap dengan kodenya.
+-- `distinct on` di sini karena alasan yang SAMA dengan (b) di bawahnya: dua
+-- baris `esb_master` yang ternormalkan sama akan melebur, dan tanpa urutan yang
+-- disebutkan, kode ESB mana yang terbawa pun acak. Kode yang ADA menang atas
+-- yang kosong — baris tanpa kode tidak boleh mengalahkan baris yang membawanya,
+-- karena kode itulah satu-satunya hal yang membuat notanya bisa diekspor.
 insert into suppliers (business_unit_id, nama, esb_kode, terverifikasi)
-select m.business_unit_id, btrim(m.nama), nullif(btrim(coalesce(m.kode, '')), ''), true
+select distinct on (m.business_unit_id, normal_nama_supplier(m.nama))
+       m.business_unit_id, btrim(m.nama), nullif(btrim(coalesce(m.kode, '')), ''), true
   from esb_master m
  where m.jenis = 'supplier'
    and coalesce(btrim(m.nama), '') <> ''
+ order by m.business_unit_id,
+          normal_nama_supplier(m.nama),
+          nullif(btrim(coalesce(m.kode, '')), '') nulls last,
+          btrim(m.nama)
 on conflict (business_unit_id, normal_nama_supplier(nama)) do nothing;
 
 -- (b) Ejaan yang BENAR-BENAR dipakai nota -> belum terverifikasi.
@@ -200,11 +210,59 @@ on conflict (business_unit_id, normal_nama_supplier(nama)) do nothing;
 -- Termasuk yang sudah dijembatani `esb_map`: penjembatanannya tetap berlaku
 -- untuk ekspor, dan di daftar ini ia tetap perlu terlihat sebagai supplier
 -- yang pernah dipakai.
+--
+-- ============ EJAAN MANA YANG MENANG TIDAK BOLEH ACAK ============
+--
+-- Versi pertama baris ini `group by business_unit_id, btrim(supplier)` — satu
+-- baris per EJAAN — lalu menyerahkan peleburannya ke `on conflict do nothing`.
+-- Artinya ejaan yang DULUAN sampai yang jadi nama masternya, dan urutan itu
+-- tidak dijanjikan siapa pun.
+--
+-- Akibatnya: nota yang menyebut "Toko Berkah" dan "toko  berkah" melebur jadi
+-- satu baris yang bisa bernama salah satunya, tergantung mood perencana kueri.
+-- Nama itu lalu DISTEMPELKAN ke seluruh nota (trigger `tautkan_supplier_nota`),
+-- masuk ke laporan, dan ikut ke ekspor ESB. Tidak ada galat di mana pun — cuma
+-- daftar supplier yang sebagian namanya terlihat seperti kesalahan ketik, di
+-- tempat yang paling terlihat orang luar.
+--
+-- Ditemukan karena `test-migrasi-0158.mjs` GAGAL 1 dari 3 kali pada
+-- pemeriksaan yang sama sekali tidak dibuat untuk ini (§5, teks nota sesudah
+-- gabung). Tes yang kadang-kadang merah adalah tes yang menemukan sesuatu,
+-- bukan tes yang perlu dilonggarkan.
+--
+-- Sekarang dipilih dengan sengaja, dan urutan pemilihnya ada alasannya:
+--
+--   1. ejaan yang dipakai PALING BANYAK nota — suara terbanyak staff;
+--   2. lalu urutan huruf ejaannya sendiri, yang dengan collation Postgres
+--      mendahulukan huruf besar: "Toko Berkah" mengalahkan "toko  berkah".
+--
+-- Sempat ada aturan ketiga di antara keduanya — "yang huruf kapitalnya paling
+-- banyak". Ia DIBUANG karena sabotasenya membuktikan ia tidak mengerjakan apa
+-- pun: mencabutnya tidak mengubah satu pun jawaban, sebab urutan huruf sudah
+-- mendahulukan ejaan berkapital. Dan di kasus langka tempat keduanya berbeda
+-- ("toko BERKAH" vs "Toko berkah"), yang sederhana justru memberi jawaban yang
+-- lebih baik. Aturan yang tidak bisa dibuat gagal bukan aturan — ia hiasan
+-- yang harus dibaca orang berikutnya.
+--
+-- Admin tetap bisa membetulkannya di layar Master Supplier, dan perubahannya
+-- menyebar ke seluruh nota. Yang diperbaiki di sini adalah titik awalnya.
+with ejaan as (
+  select g.business_unit_id as bu,
+         btrim(g.supplier) as nama,
+         count(*) as dipakai
+    from goods_receipts g
+   where coalesce(btrim(g.supplier), '') <> ''
+   group by g.business_unit_id, btrim(g.supplier)
+), terpilih as (
+  select distinct on (bu, normal_nama_supplier(nama)) bu, nama
+    from ejaan
+   order by bu,
+            normal_nama_supplier(nama),
+            dipakai desc,
+            nama
+)
 insert into suppliers (business_unit_id, nama)
-select g.business_unit_id, btrim(g.supplier)
-  from goods_receipts g
- where coalesce(btrim(g.supplier), '') <> ''
- group by g.business_unit_id, btrim(g.supplier)
+select bu, nama from terpilih
 on conflict (business_unit_id, normal_nama_supplier(nama)) do nothing;
 
 -- ---------------------------------------------------------

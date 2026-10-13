@@ -55,9 +55,33 @@ import { hintSupplier } from '../inventory/master-supplier.js';
 
 const teks = (v) => (v === null || v === undefined ? '' : String(v).trim());
 
-export const PESAN_WAJIB = 'Pilih dulu supplier / penerima pembayarannya.';
+/**
+ * ============ LABELNYA: "DIBAYARKAN KE", BUKAN "SUPPLIER" ============
+ *
+ *   "untuk pembayaran uang hadir staff di cash ledger yang memakai kas/kantong
+ *    outlet baiknya bagaimana? karena ada pewajiban memasukkan supplier di kas
+ *    keluar"
+ *
+ * Kolomnya memang selalu berarti "siapa yang menerima uang ini" — ESB
+ * menyebutnya `Payment To`. Yang salah bukan kewajibannya, tapi NAMANYA: kasir
+ * yang membayar uang hadir staff membaca "Supplier", tidak menemukan satu pun
+ * yang cocok, dan berhenti di sana. Tidak ada galat; formnya hanya tidak bisa
+ * diselesaikan, dan uang yang sudah keluar dari kantong tidak tercatat.
+ *
+ * Jadi labelnya diganti dan daftarnya diperluas (0159: `suppliers.jenis`),
+ * bukan kewajibannya dilonggarkan. Melonggarkannya akan mengembalikan kolom
+ * teks bebas yang membuat ekspor ESB menahan barisnya belakangan — persis yang
+ * diperbaiki 0144.
+ *
+ * Satu tempat untuk keempat formnya, karena alasan yang sama dengan sisa
+ * berkas ini: label berbeda di form berbeda membuat orang mengira daftarnya
+ * juga berbeda.
+ */
+export const LABEL_PENERIMA = 'Dibayarkan ke';
+export const PESAN_WAJIB = 'Pilih dulu penerima pembayarannya.';
 export const PESAN_DI_LUAR_DAFTAR =
-  'Nama itu tidak ada di daftar supplier ESB. Pilih dari daftar — nama yang diketik sendiri ditolak ESB saat diimpor.';
+  'Nama itu tidak ada di daftar penerima. Pilih dari daftar — nama yang diketik sendiri ditolak ESB saat diimpor. ' +
+  'Pembayaran yang bukan ke supplier (mis. uang hadir staff) pilih penerima internal seperti "Kas Operasional".';
 /** Keterangan pada pilihan warisan, supaya terlihat kenapa ia berbeda. */
 export const HINT_DI_LUAR_DAFTAR = 'di luar daftar ESB — akan tertahan saat diekspor';
 
