@@ -226,16 +226,25 @@ if (svc) {
   }
 }
 
-const adm = baca('js/modules/inventory/esb.admin.js');
+// ============ SASARANNYA PINDAH DI 0161 ============
+//
+// Layar Master Supplier dulu hidup di dalam `esb.admin.js`. Ia pindah ke
+// tabnya sendiri, dan audit ini MERAH saat itu terjadi — persis seperti yang
+// seharusnya. Yang salah bukan pemindahannya, melainkan penunjuknya; jadi
+// penunjuknya yang diperbarui, bukan pemeriksaannya yang dilonggarkan.
+//
+// Audit yang dilonggarkan supaya hijau setelah sebuah pemindahan berhenti
+// menjaga apa pun, dan tidak ada yang akan tahu sampai fiturnya rusak.
+const adm = baca('js/modules/inventory/supplier.admin.js');
 if (adm) {
-  const kode = bersih(adm, 'esb.admin.js', ['gambarMasterSupplier']);
+  const kode = bersih(adm, 'supplier.admin.js', ['gambarMasterSupplier']);
   // DIHITUNG, bukan dicari. Dipanggil dua kali — saat layar dimuat, dan saat
   // dimuat ulang sesudah Edit/Gabung. Mencabut salah satunya menyisakan yang
   // lain, dan daftarnya diam-diam kehilangan baris nonaktif sesudah tiap edit.
   const muatSemua = (kode.match(/listSuppliers\(businessUnitId, \{ semua: true \}\)/g) ?? []).length;
   if (muatSemua < 2) {
     salah(
-      `esb.admin.js: hanya ${muatSemua} dari 2 pemuatan Master Supplier yang membawa yang nonaktif (muat awal & muat ` +
+      `supplier.admin.js: hanya ${muatSemua} dari 2 pemuatan Master Supplier yang membawa yang nonaktif (muat awal & muat ` +
         'ulang sesudah edit). Yang tidak membawanya membuat supplier yang dinonaktifkan lenyap dari layar — dan tidak ' +
         'akan pernah bisa diaktifkan kembali.'
     );
@@ -244,7 +253,7 @@ if (adm) {
     [/ubahSupplier\(b\.id/, 'aksi Edit'],
     [/gabungSupplier\(b\.id, v\.ke\)/, 'aksi Gabungkan']
   ]) {
-    if (!pola.test(kode)) salah(`esb.admin.js: ${apa} hilang dari layar Master Supplier.`);
+    if (!pola.test(kode)) salah(`supplier.admin.js: ${apa} hilang dari layar Master Supplier.`);
   }
 }
 

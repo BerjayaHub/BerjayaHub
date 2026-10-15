@@ -105,6 +105,24 @@ export async function tambahSupplier(businessUnitId, nama, jenis = 'supplier') {
   return data ?? null;
 }
 
+/**
+ * ADMIN BU. Hapus satu supplier — hanya yang belum dipakai (0161).
+ *
+ * Penjaganya di database, bukan di sini: `hapus_supplier` menolak kalau masih
+ * ditunjuk nota ATAU disebut entri kas, dan kalimat penolakannya sudah
+ * menyebut jumlahnya beserta jalan keluarnya. Layar cukup meneruskannya apa
+ * adanya.
+ *
+ * Menyalin pemeriksaannya ke sini akan menghasilkan dua aturan yang cepat atau
+ * lambat menyimpang — dan menyimpangnya berbentuk tombol Hapus yang muncul
+ * untuk supplier yang ternyata ditolak, atau lebih buruk: tidak muncul untuk
+ * yang sebenarnya boleh.
+ */
+export async function hapusSupplier(id) {
+  const { error } = await supabase.rpc('hapus_supplier', { p_id: id });
+  if (error) throw new Error(error.message ?? String(error));
+}
+
 /** ADMIN BU. Pindahkan seluruh nota dari satu supplier ke supplier lain. */
 export async function gabungSupplier(dariId, keId) {
   const { data, error } = await supabase.rpc('gabung_supplier', { p_dari: dariId, p_ke: keId });

@@ -8649,3 +8649,59 @@ Tugas luar hijau, jauh dari kuning Cuti — keduanya berarti "orangnya tidak di 
 Satu jebakan CSS yang ikut dijaga: kelas warnanya memakai `background-color`, bukan shorthand `background` — shorthand-nya akan **menghapus caret SVG** dan selnya kehilangan panahnya tanpa galat.
 
 - [x] **Tugas luar bisa dijadwalkan: keadaan ketiga di sel jadwal** (`0160`) — 40 sabotase
+
+## Master Supplier punya tabnya sendiri, dan bisa dihapus (`0161`)
+
+> *"di admin portal di master supplier saat ini jadi satu dengan tab ekspor esb, saya ingin dibedakan tab nya dan supplier yang sudah ditambahkan bisa dihapus"*
+>
+> *"di ekspor esb saya ingin semua kode yang terdaftar di berjaya hub … dicocokan dengan import dari esb, jika belum cocok berikan peringatan"*
+
+### Dua layar, dua pertanyaan, dua saat yang berbeda
+
+Master Supplier lahir di dalam Ekspor ESB (`0158`) karena di situlah daftar supplier pertama kali dibicarakan. Tapi keduanya menjawab hal yang berbeda, dan itu sudah tertulis sejak awal:
+
+| | pertanyaannya | kapan dikerjakan |
+| --- | --- | --- |
+| Ekspor ESB | ejaan mana yang belum cocok dengan daftar ESB? | menjelang tutup bulan |
+| Master Supplier | supplier apa saja yang terdaftar, mana yang belum diperiksa? | kapan saja — paling sering saat ada nama baru dari nota kemarin |
+
+Mengubur yang kedua di dalam yang pertama berarti pekerjaan harian harus melewati layar tutup bulan: lima langkah, satu `<details>` yang tertutup. **Pekerjaan yang terlalu jauh dijangkau adalah pekerjaan yang tidak dikerjakan.** Itu sebabnya ia pindah — bukan karena tab barunya lebih rapi.
+
+Yang tertinggal di layar ESB sengaja cuma penunjuk arah, bukan salinan kecil daftarnya. Satu temuan sampingan: `esb.admin.js` masih memuat `listSuppliers(..., { semua: true })` yang tidak dibaca siapa pun lagi — satu permintaan jaringan tiap kali layar dibuka untuk data yang langsung dibuang. Muatan yatim seperti itu tidak pernah terlihat sebagai bug; ia cuma membuat layar terasa lebih lambat tanpa sebab yang jelas.
+
+### Hapus menolak, dan menolaknya dengan kalimat yang bisa dikerjakan
+
+Ada **dua jalur kerusakan yang bentuknya berbeda**, dan keduanya sunyi:
+
+- `goods_receipts.supplier_id` FK-nya **`on delete set null`**. Menghapus supplier yang dipakai 42 nota tidak menghasilkan galat apa pun — 42 nota diam-diam kehilangan induknya, dan ekspor ESB menahannya berminggu-minggu kemudian dengan alasan yang terlihat datang entah dari mana.
+- `cash_entries.supplier` adalah **teks, bukan FK**. Database tidak tahu hubungannya sama sekali. Menghapus "Kas Operasional" tidak menyentuh satu pun baris kas — tapi form kas lalu menolak nilai yang sudah tersimpan di entri lama, dan membetulkan satu huruf di keterangannya jadi mustahil. Dicocokkan lewat `normal_nama_supplier`, karena entri lama ditulis sebelum daftarnya ada dan ejaannya berbeda tipis.
+
+Kalimat penolakannya menyebut **jumlahnya dan jalan keluarnya** — Gabungkan untuk nama kembar, nonaktifkan untuk yang memang sudah tidak dipakai. Pesan yang cuma berbunyi *"tidak bisa dihapus"* meninggalkan orangnya di tempat yang sama persis.
+
+Dan penjaganya tidak boleh bisa dilewati: policy `for all` dari `0158` **memuat `delete`**, jadi selama ia hidup, satu `DELETE /suppliers?id=eq.…` melewati seluruh pemeriksaan di atas tanpa menyentuhnya. Policy itu dipecah jadi insert + update, dan **`delete` tidak diberi policy sama sekali**. Satu-satunya jalan menghapus adalah lewat `hapus_supplier`.
+
+Di layar, tombol Hapus **disembunyikan** untuk supplier yang dipakai, bukan ditampilkan lalu ditolak. Tombol yang selalu ada tapi hampir selalu menolak mengajari orang bahwa penolakan itu normal — dan pada ketukan yang benar-benar penting, pesannya tidak dibaca lagi.
+
+### Banner kesiapan: dihitung sekali, dipakai dua kali
+
+Lencana *"8 belum dipetakan"* per kelompok sudah ada sejak `0141`. Yang belum ada adalah jumlah seluruhnya, **di tempat yang terbaca sebelum orangnya menekan Unduh** — ia tidak membuka tujuh `<details>` satu per satu untuk memastikan semuanya hijau.
+
+Angka banner **datang dari perhitungan yang sama** dengan lencana tiap kelompok. Kalau banner menghitung sendiri, keduanya cepat atau lambat menyimpang — dan menyimpangnya berbentuk banner *"semua sudah cocok"* di atas kelompok yang lencananya merah. Dari dua angka yang bertentangan di satu layar, orang berhenti mempercayai keduanya.
+
+Dua sebab sengaja **tidak dilebur**, karena pekerjaannya berbeda: *daftar induknya belum diimpor* (langkah 3) versus *padanannya belum dipilih* (langkah 5). Melebur keduanya jadi "12 belum cocok" menyuruh orang memilih padanan dari daftar yang kosong — kalimat yang terlihat benar dan tidak bisa ditindaklanjuti.
+
+Unduhan **tidak dihalangi**, dan bannernya mengatakan itu terus terang. Peringatan yang tidak menyebutkan akibatnya dibaca sebagai larangan — lalu orang yang sebenarnya boleh meneruskan berhenti, dan orang yang terbiasa mengabaikannya tidak membacanya lagi.
+
+### Empat audit yang merah saat layarnya pindah — dan itu benar
+
+`audit-master-supplier`, `audit-penerima-kas`, dan dua harness sabotasenya semua menunjuk `esb.admin.js`. Begitu layarnya pindah, keempatnya merah. **Yang salah penunjuknya, bukan pemeriksaannya** — jadi penunjuknya yang diperbarui. Audit yang dilonggarkan supaya hijau sesudah sebuah pemindahan berhenti menjaga apa pun, dan tidak ada yang akan tahu sampai fiturnya rusak.
+
+### Tiga sabotase yang lolos
+
+**Audit hijau karena sasarannya ada di baris definisi fungsinya.** Pemeriksa `gambarKesiapan(hitungan)` mencarinya se-berkas — dan teks yang sama ada di `function gambarKesiapan(hitungan) {`. Mencabut pemanggilannya tidak membuat auditnya merah. Mode kegagalan yang sama persis muncul di `audit-penerima-kas` dua hari sebelumnya; ia tidak pernah tertangkap dengan membaca audit itu ulang, selalu oleh sabotase.
+
+**Sabotase yang merusak sintaks tidak menguji apa pun.** Versi pertama membypass `confirmDialog` dengan `true || (…`, meninggalkan kurung tak seimbang. Berkasnya tidak bisa di-parse, dan audit teksnya tetap hijau. Diganti dengan kegagalan yang nyata: dialognya tetap muncul, **jawabannya yang diabaikan** — menekan Batal tetap menghapus.
+
+**Satu penjaga yang saya klaim lebih kuat dari kenyataannya**, lagi. `coalesce(btrim(supplier),'') <> ''` saya sebut sebagai yang mencegah "tidak ada satu supplier pun bisa dihapus". Sabotasenya membuktikan itu tidak benar — `normal_nama_supplier(null)` tidak pernah cocok dengan nama mana pun. Barisnya dipertahankan (murah, dan kegagalannya mahal), klaimnya diturunkan, dan sabotasenya dihapus: *sabotase yang tidak mewakili kegagalan nyata cuma melatih orang mengabaikan laporan harness-nya.*
+
+- [x] **Master Supplier bertab sendiri, bisa dihapus + banner kesiapan ESB** (`0161`) — 24 sabotase

@@ -25,10 +25,12 @@ const SVC = 'js/modules/inventory/esb.service.js';
 const INV = 'js/modules/inventory/inventory.page.js';
 const ADM = 'js/modules/inventory/esb.admin.js';
 const KAS = 'js/modules/cash/cash.page.js';
+// Layar Master Supplier pindah ke berkasnya sendiri di 0161.
+const SUP = 'js/modules/inventory/supplier.admin.js';
 
 
 const asli = new Map();
-for (const rel of [MIG, MURNI, SVC, INV, ADM, KAS]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
+for (const rel of [MIG, MURNI, SVC, INV, ADM, KAS, SUP]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
 
 const PENANDA = path.join(AKAR, 'tools/.sabotase-aktif');
 const tandai = (rel) => fs.writeFileSync(PENANDA, `${path.basename(process.argv[1])} merusak ${rel}\n`);
@@ -238,11 +240,12 @@ sabotase(
 );
 sabotase(
   'layar Master Supplier tidak memuat yang nonaktif — tidak ada jalan mengaktifkannya lagi',
-  ADM,
-  // Dipanggil DUA kali (muat awal & muat ulang sesudah edit), jadi polanya
-  // diikat ke yang di dalam `muatMaster`.
-  '    masterSupplier = await listSuppliers(businessUnitId, { semua: true }).catch(() => []);',
-  '    masterSupplier = await listSuppliers(businessUnitId).catch(() => []);',
+  SUP,
+  // Diikat ke pemuatan di dalam `muatMaster` — yang dipanggil ulang sesudah
+  // Edit/Gabung/Hapus. Sejak 0161 ia memuat dua daftar sekaligus, jadi polanya
+  // menyebut barisnya utuh.
+  '    listSuppliers(businessUnitId, { semua: true }).catch(() => []),',
+  '    listSuppliers(businessUnitId).catch(() => []),',
   AUDIT
 );
 // ============ EJAAN MANA YANG MENANG ============

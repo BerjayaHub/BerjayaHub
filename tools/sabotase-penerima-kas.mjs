@@ -30,10 +30,12 @@ const SK = 'js/modules/cash/supplier-kas.js';
 const SVC = 'js/modules/inventory/esb.service.js';
 const INV = 'js/modules/inventory/inventory.page.js';
 const ADM = 'js/modules/inventory/esb.admin.js';
+// Layar Master Supplier pindah ke berkasnya sendiri di 0161.
+const SUP = 'js/modules/inventory/supplier.admin.js';
 const KAS = 'js/modules/cash/cash.page.js';
 
 const asli = new Map();
-for (const rel of [MIG, MURNI, SK, SVC, INV, ADM, KAS]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
+for (const rel of [MIG, MURNI, SK, SVC, INV, ADM, KAS, SUP]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
 
 const PENANDA = path.join(AKAR, 'tools/.sabotase-aktif');
 const tandai = (rel) => fs.writeFileSync(PENANDA, `${path.basename(process.argv[1])} merusak ${rel}\n`);
@@ -265,23 +267,23 @@ console.log('\nSABOTASE LAYAR ADMIN:');
 
 sabotase(
   'tombol "+ Tambah penerima" tidak menyimpan apa pun — internal tidak pernah lahir dari nota',
-  ADM,
-  '          await tambahSupplier(businessUnitId, v.nama, v.jenis);',
-  '          await Promise.resolve();',
+  SUP,
+  '        await tambahSupplier(businessUnitId, v.nama, v.jenis);',
+  '        await Promise.resolve();',
   AUDIT
 );
 sabotase(
   'dialog Edit berhenti mengirim `jenis` — salah jenis tidak bisa dibetulkan dari mana pun',
-  ADM,
-  '              jenis: v.jenis\n            });',
-  '            });',
+  SUP,
+  '            jenis: v.jenis\n          });',
+  '          });',
   AUDIT
 );
 sabotase(
   'saringan Jenis hilang — satu penerima internal tak bisa ditemukan di daftar empat puluh baris',
-  ADM,
-  '               <select id="ms-saring-jenis" style="flex:0 1 150px">',
-  '               <select id="ms-saring-lain" style="flex:0 1 150px">',
+  SUP,
+  '             <select id="ms-saring-jenis" style="flex:0 1 150px">',
+  '             <select id="ms-saring-lain" style="flex:0 1 150px">',
   AUDIT
 );
 

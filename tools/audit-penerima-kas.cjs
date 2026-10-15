@@ -301,21 +301,24 @@ if (ms) {
 // ---------------------------------------------------------------
 // 4. LAYAR ADMIN.
 // ---------------------------------------------------------------
-const adm = baca('js/modules/inventory/esb.admin.js');
+// Sasarannya pindah di 0161: layar Master Supplier keluar dari `esb.admin.js`
+// ke tabnya sendiri. Audit ini MERAH saat itu terjadi, dan penunjuknya yang
+// diperbarui — bukan pemeriksaannya yang dilonggarkan.
+const adm = baca('js/modules/inventory/supplier.admin.js');
 if (adm) {
-  const kode = bersih(adm, 'esb.admin.js', ['ms-tambah']);
+  const kode = bersih(adm, 'supplier.admin.js', ['ms-tambah']);
   if (!/tambahSupplier\(businessUnitId, v\.nama, v\.jenis\)/.test(kode)) {
     salah(
-      'esb.admin.js: tombol "+ Tambah penerima" tidak lagi memanggil `tambahSupplier`. Penerima internal tidak ' +
+      'supplier.admin.js: tombol "+ Tambah penerima" tidak lagi memanggil `tambahSupplier`. Penerima internal tidak ' +
         'pernah lahir dari nota — kalau tombol ini hilang, BU yang dibuat sebelum 0159 tidak punya jalan apa pun ' +
         'membuatnya.'
     );
   }
   if (!/jenis: v\.jenis/.test(kode)) {
-    salah('esb.admin.js: dialog Edit tidak lagi mengirim `jenis` — supplier yang salah jenis tidak bisa dibetulkan dari layar mana pun.');
+    salah('supplier.admin.js: dialog Edit tidak lagi mengirim `jenis` — supplier yang salah jenis tidak bisa dibetulkan dari layar mana pun.');
   }
   if (!/id="ms-saring-jenis"/.test(kode)) {
-    salah('esb.admin.js: saringan Jenis hilang dari Master Supplier — pada daftar empat puluh baris, satu penerima internal tidak bisa ditemukan lagi.');
+    salah('supplier.admin.js: saringan Jenis hilang dari Master Supplier — pada daftar empat puluh baris, satu penerima internal tidak bisa ditemukan lagi.');
   }
   if (!/data-label="Jenis"/.test(kode)) {
     salah('esb.admin.js: kolom Jenis hilang dari tabelnya — tidak ada cara melihat baris mana yang tidak akan muncul di nota.');

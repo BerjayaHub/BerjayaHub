@@ -13,6 +13,7 @@ import { renderOpnameAdmin } from './opname.admin.js';
 import { renderNotaAdmin } from './nota.admin.js';
 import { renderMenipisAdmin } from './menipis.admin.js';
 import { renderEsbAdmin } from './esb.admin.js';
+import { renderSupplierAdmin } from './supplier.admin.js';
 import { renderWasteAdmin } from './waste.admin.js';
 
 const TABS = [
@@ -22,6 +23,10 @@ const TABS = [
   { key: 'waste', label: 'Waste / Spoil' },
   { key: 'opname', label: 'Opname' },
   { key: 'menipis', label: 'Bahan Menipis' },
+  // Tabnya sendiri sejak 0161 — dulu terkubur di dalam Ekspor ESB. Ditaruh
+  // SEBELUM Ekspor ESB karena urutan pekerjaannya memang begitu: nama supplier
+  // dirapikan lebih dulu, baru ejaannya dicocokkan ke ESB.
+  { key: 'supplier', label: 'Master Supplier' },
   { key: 'esb', label: 'Ekspor ESB' }
 ];
 
@@ -50,6 +55,7 @@ export async function renderInventoryAdminPage(container, { businessUnitId }) {
     if (key === 'waste') await renderWasteAdmin(content, { businessUnitId, outlets });
     if (key === 'opname') await renderOpnameAdmin(content, { businessUnitId, outlets });
     if (key === 'menipis') await renderMenipisAdmin(content, { businessUnitId, outlets });
+    if (key === 'supplier') await renderSupplierAdmin(content, { businessUnitId });
     if (key === 'esb') await renderEsbAdmin(content, { businessUnitId, outlets });
   }
   container.querySelectorAll('.tab-btn').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
