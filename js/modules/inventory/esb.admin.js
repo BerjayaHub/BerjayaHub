@@ -18,6 +18,7 @@
 
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
+import { semuaDenganBatas, denganBatas } from '../../core/batas-waktu.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { loadXLSX } from '../../core/xlsx.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
@@ -229,7 +230,10 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
   // Tanpa penjaga ini, admin outlet melihat editor pemetaan yang lengkap, lalu
   // tiap perubahan ditolak RLS dengan "new row violates row-level security
   // policy" — pesan yang tidak bisa ditindaklanjuti siapa pun.
-  if (!(await sayaAdminBu(businessUnitId).catch(() => false))) {
+  // Penjaga wewenang pun diberi batas waktu. Ia `await` pertama di layar ini,
+  // jadi kalau IA yang menggantung, kerangka "Memuat…" tidak pernah berganti —
+  // dan sebabnya tidak akan pernah terbaca siapa pun.
+  if (!(await denganBatas(sayaAdminBu(businessUnitId), { apa: 'Pemeriksaan wewenang' }).catch(() => false))) {
     container.innerHTML =
       '<p style="color:var(--color-text-muted)">Ekspor ESB diatur di tingkat Business Unit, jadi hanya Admin BU atau Super Admin yang bisa membukanya.</p>';
     return;
@@ -243,19 +247,34 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
   // Master supplier (0158). `semua: true` — yang nonaktif pun harus terlihat
   // di sini, kalau tidak ia tidak akan pernah bisa diaktifkan kembali.
   try {
-    [master, peta, produk, supplierTerpakai, outletKantong] = await Promise.all([
-      listEsbMaster(businessUnitId).catch(() => []),
-      listEsbMap(businessUnitId).catch(() => []),
-      listProducts(businessUnitId).catch(() => []),
+    // ============ BERBATAS WAKTU, DAN MENYEBUT BAGIAN YANG MACET ============
+    //
+    // Sebelumnya ini `Promise.all` polos. Tiap bagiannya ber-`.catch()`, jadi
+    // kegagalan yang MELEMPAR sudah ditangani sejak dulu — tapi permintaan yang
+    // tidak pernah selesai tidak melempar apa-apa, dan `await`-nya menggantung
+    // selamanya di belakang kerangka "Memuat…".
+    //
+    // Itu yang terjadi: layar ini memuat lima menit tanpa satu pun pesan. Yang
+    // paling mahal bukan macetnya, melainkan bahwa layarnya terlihat seperti
+    // sedang bekerja — jadi orangnya menunggu, bukan melapor.
+    //
+    // `.catch(() => [])` DIPERTAHANKAN di tiap bagian, jadi daftar yang gagal
+    // tetap jadi daftar kosong seperti sebelumnya. Yang berubah cuma: yang
+    // MACET sekarang melempar, dan `catch` di bawah menangkapnya dengan nama
+    // bagiannya.
+    [master, peta, produk, supplierTerpakai, outletKantong] = await semuaDenganBatas([
+      { apa: 'Daftar induk ESB', janji: listEsbMaster(businessUnitId).catch(() => []) },
+      { apa: 'Pemetaan ESB', janji: listEsbMap(businessUnitId).catch(() => []) },
+      { apa: 'Daftar produk', janji: listProducts(businessUnitId).catch(() => []) },
       // Gagal berarti 0144 belum dijalankan. Layarnya tetap berdiri dengan
       // kelompok Supplier kosong — bukan halaman galat yang mengunci seluruh
       // ekspor ESB hanya karena satu daftar tidak bisa dibaca.
-      namaSupplierTerpakai(businessUnitId).catch(() => []),
+      { apa: 'Supplier yang dipakai nota', janji: namaSupplierTerpakai(businessUnitId).catch(() => []) },
       // Outlet pemilik kantong kas — kunci pemetaan COA untuk Disbursement
       // (0151). Gagal dibacanya berarti kelompok COA cuma berisi cara bayar +
       // outlet BU ini; layar ESB tidak boleh mati karena satu daftar tambahan
       // tidak terbaca.
-      outletKantongKasEsb(businessUnitId).catch(() => [])
+      { apa: 'Outlet pemilik kantong kas', janji: outletKantongKasEsb(businessUnitId).catch(() => []) }
       // Pemuatan `listSuppliers(..., { semua: true })` DIBUANG dari sini (0161).
       // Layar Master Supplier pindah ke tabnya sendiri, jadi hasilnya tidak
       // dibaca siapa pun lagi di berkas ini — ia cuma satu permintaan jaringan
@@ -264,7 +283,16 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
       // ia cuma membuat layar terasa lebih lambat tanpa sebab yang jelas.
     ]);
   } catch (e) {
-    container.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
+    container.innerHTML = `
+      <p class="error-text">${esc(e.message ?? e)}</p>
+      <p style="font-size:0.82rem;color:var(--color-text-muted);max-width:620px">
+        Layar ini berhenti menunggu dengan sengaja. Sebelumnya ia akan terus menampilkan
+        &ldquo;Memuat&hellip;&rdquo; tanpa batas — yang terlihat seperti sedang bekerja, padahal tidak.
+      </p>
+      <p><button id="esb-coba-lagi">Coba lagi</button></p>`;
+    container.querySelector('#esb-coba-lagi')?.addEventListener('click', () => {
+      renderEsbAdmin(container, { businessUnitId, outlets });
+    });
     return;
   }
 
@@ -344,7 +372,7 @@ export async function renderEsbAdmin(container, { businessUnitId, outlets }) {
 
          Di atas tombol Unduh, bukan di dekat kelompok pemetaannya: yang perlu
          tahu adalah orang yang datang ke layar ini untuk MENGUNDUH, dan ia
-         tidak membuka tujuh `<details>` satu per satu lebih dulu. Ditaruh di
+         tidak membuka tujuh kelompok satu per satu lebih dulu. Ditaruh di
          bawah, ia cuma terbaca oleh orang yang memang sudah sedang memetakan
          — yaitu orang yang sudah tahu. -->
     <div id="esb-kesiapan"></div>

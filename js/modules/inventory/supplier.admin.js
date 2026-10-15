@@ -30,6 +30,7 @@
  */
 import { toast, formDialog, confirmDialog } from '../../core/ui.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
+import { semuaDenganBatas } from '../../core/batas-waktu.js';
 import {
   listSuppliers,
   ubahSupplier,
@@ -76,11 +77,15 @@ export async function renderSupplierAdmin(container, { businessUnitId }) {
   let masterSupplier = [];
   let supplierTerpakai = [];
   try {
-    [masterSupplier, supplierTerpakai] = await Promise.all([
-      listSuppliers(businessUnitId, { semua: true }),
+    // Berbatas waktu, dengan alasan yang sama dengan layar Ekspor ESB:
+    // permintaan yang MENGGANTUNG tidak melempar apa-apa, jadi tanpa ini
+    // kerangka "Memuat…" bertahan selamanya dan terlihat seperti sedang
+    // bekerja. Lihat `core/batas-waktu.js`.
+    [masterSupplier, supplierTerpakai] = await semuaDenganBatas([
+      { apa: 'Daftar supplier', janji: listSuppliers(businessUnitId, { semua: true }) },
       // Berapa nota memakai tiap ejaan. Gagal = daftar kosong, bukan layar
       // mati: angkanya keterangan tambahan, bukan syarat daftarnya terbaca.
-      namaSupplierTerpakai(businessUnitId).catch(() => [])
+      { apa: 'Jumlah nota per supplier', janji: namaSupplierTerpakai(businessUnitId).catch(() => []) }
     ]);
   } catch (error) {
     container.innerHTML = `<p class="error-text">Gagal memuat: ${esc(error.message ?? error)}</p>`;

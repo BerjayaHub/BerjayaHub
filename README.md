@@ -8705,3 +8705,45 @@ Unduhan **tidak dihalangi**, dan bannernya mengatakan itu terus terang. Peringat
 **Satu penjaga yang saya klaim lebih kuat dari kenyataannya**, lagi. `coalesce(btrim(supplier),'') <> ''` saya sebut sebagai yang mencegah "tidak ada satu supplier pun bisa dihapus". Sabotasenya membuktikan itu tidak benar — `normal_nama_supplier(null)` tidak pernah cocok dengan nama mana pun. Barisnya dipertahankan (murah, dan kegagalannya mahal), klaimnya diturunkan, dan sabotasenya dihapus: *sabotase yang tidak mewakili kegagalan nyata cuma melatih orang mengabaikan laporan harness-nya.*
 
 - [x] **Master Supplier bertab sendiri, bisa dihapus + banner kesiapan ESB** (`0161`) — 24 sabotase
+
+## Gagal yang terlihat seperti sedang bekerja
+
+> *"modul ekspor esb hanya memuat, saya tunggu sekitar 5 menit tidak ada perubahan, apa ada yang salah"*
+
+Layar Ekspor ESB menampilkan kerangka **"Memuat…"** selamanya. Bukan pesan galat, bukan layar kosong — kerangka yang terlihat seperti sedang bekerja.
+
+Penyebab langsungnya belum ditemukan dan harus dikatakan terus terang: seluruh teori statis sudah habis (berkasnya ter-commit, service worker tidak menyimpan cache apa pun, tidak ada identifier yang hilang, strukturnya utuh, auditnya hijau). Yang tersisa adalah **permintaan jaringan yang tidak pernah selesai**.
+
+Tapi di situ ada bug tersendiri, dan itu yang diperbaiki: **layarnya tidak punya cara memberitahu bahwa ia macet.**
+
+Keenam pemuatannya sudah ber-`.catch()` sejak dulu, jadi kegagalan yang **melempar** selalu tertangani. Permintaan yang **menggantung** tidak melempar apa-apa — `try/catch` tidak menangkap apa pun, dan `await`-nya menunggu di belakang kerangka itu selamanya.
+
+Repo ini sudah berkali-kali menulis tentang *"gagal yang terlihat seperti berhasil"*. Ini kebalikannya dan sama mahalnya: **gagal yang terlihat seperti sedang bekerja** — karena orang yang melihatnya menunggu, bukan melapor. Lima menit adalah ukuran kesabaran, bukan ukuran masalahnya.
+
+`core/batas-waktu.js` memberi batas 25 detik per bagian, dan yang dilaporkan adalah **bagian mana yang macet** — bukan "Data tidak selesai dimuat". Enam permintaan dimuat bersamaan; tahu bahwa yang macet "Supplier yang dipakai nota" dan bukan "Daftar induk ESB" adalah bedanya antara satu menit dan satu sore. Ada tombol **Coba lagi**, dan batas waktunya tidak pernah menelan galat sungguhan — pesan "relation does not exist" jauh lebih berguna daripada "tidak selesai dalam 25 detik".
+
+Harus jujur tentang batasnya: **ini tidak membuat permintaan yang menggantung jadi berhasil.** Ia mengubah kerangka abadi menjadi kalimat yang bisa ditindaklanjuti. Tanpa itu, satu-satunya orang yang bisa mendiagnosanya adalah yang tahu cara membuka DevTools — dan di aplikasi yang dipakai kasir dan admin outlet, orang itu tidak ada di tempat.
+
+Dipasang di Ekspor ESB dan Master Supplier saja, bukan di 55 layar lain yang berpola sama. Menyebarkannya ke semuanya tanpa diminta adalah perubahan besar demi dugaan.
+
+### Sebabnya: satu backtick di dalam komentar HTML
+
+Konsol browser menjawabnya dalam satu baris:
+
+```
+ReferenceError: details is not defined
+  at renderEsbAdmin (esb.admin.js:346)
+```
+
+Komentar HTML yang saya tulis di dalam template literal berbunyi *"ia tidak membuka tujuh `<details>` satu per satu"*. **Backtick pertama menutup template literalnya.** `<details>` lalu dibaca sebagai ekspresi JavaScript, dan backtick kedua membuka template baru.
+
+Galatnya dilempar **sebelum** `container.innerHTML` diganti — jadi kerangka "Memuat…" bertahan di layar, dan tidak ada apa pun yang memberi tahu bahwa ada yang meledak.
+
+**`audit-syntax` lulus**, dan itu bukan kelalaiannya: backticknya *berpasangan*, jadi berkasnya memang sah sebagai ES module. Yang hancur bukan sintaksnya melainkan artinya, dan itu baru meledak saat barisnya dijalankan.
+
+**Ini sudah ketiga kalinya.** Pertama di `dispatch.page.js`, juga di komentar HTML, juga "diperbaiki" dengan menulis ulang komentarnya dan mencatat sebabnya di sana. Catatan di komentar bukan penjaga — dan tanpa penjaga, ia terulang. Sekarang ada `audit-backtick-komentar.cjs`: pemindai karakter yang melacak apakah ia sedang di dalam template literal, lalu menolak komentar HTML yang memuat backtick. Dibuktikan dengan memasang kembali bugnya — audit baru merah, `audit-syntax` tetap hijau.
+
+Catatan kecil yang pantas ditinggalkan: versi pertama audit itu menulis contoh pembuka-penutup komentar blok apa adanya di dalam komentarnya sendiri, dan urutan itu menutup komentarnya di tengah jalan — **berkas tentang jebakan sintaks komentar, dirusak jebakan sintaks komentar.**
+
+- [x] **Batas waktu pemuatan: kerangka abadi jadi pesan yang bisa dikerjakan** — 10 pemeriksaan
+- [x] **Audit backtick liar di komentar HTML** — jebakan yang sama tidak bisa terulang keempat kalinya
