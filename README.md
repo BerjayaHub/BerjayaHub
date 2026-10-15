@@ -8747,3 +8747,45 @@ Catatan kecil yang pantas ditinggalkan: versi pertama audit itu menulis contoh p
 
 - [x] **Batas waktu pemuatan: kerangka abadi jadi pesan yang bisa dikerjakan** — 10 pemeriksaan
 - [x] **Audit backtick liar di komentar HTML** — jebakan yang sama tidak bisa terulang keempat kalinya
+
+## Nota sudah dibatalkan, suppliernya tetap tidak bisa dihapus (`0162`)
+
+> *"nota dengan supplier sudah saya batalkan dari staff app, tetapi supplier yang dimaksud masih belum bisa dihapus, apa karena nota terima dari supplier yang sudah dihapus masih belum terhapus?"*
+
+Tebakannya tepat arahnya. `batalkan_nota` **tidak menghapus** notanya — ia menandai `status = 'dibatalkan'`. Barisnya tetap ada dan tetap menunjuk suppliernya.
+
+### Dua definisi "dipakai" di satu fitur
+
+Yang membuatnya membingungkan bukan penolakannya, melainkan bahwa **layarnya berkata sebaliknya**:
+
+| | aturannya | hasilnya |
+| --- | --- | --- |
+| `nama_supplier_terpakai` (`0144`) → kolom "Nota" di layar | `where status = 'aktif'` | **0 nota** → tombol Hapus muncul |
+| `hapus_supplier` (`0161`) | seluruh baris, tanpa melihat status | **1 nota** → ditolak |
+
+Tombol muncul, ditekan, ditolak. Dua aturan untuk satu pertanyaan, di satu fitur, ditulis berselang dua hari — dan yang terjepit di antaranya adalah orang yang sudah melakukan persis apa yang disuruh.
+
+Sisi kas punya bentuk yang sama: `dicoret_at` (`0141`) adalah pembatalan entri kas, seluruh pembaca kas menyaringnya, dan `0161` tidak. Gejalanya belum dilaporkan siapa pun; sebabnya sama persis, jadi diperbaiki sekalian. Memperbaiki separuh dari satu kesalahan meninggalkan separuhnya untuk ditemukan orang lain bulan depan, sebagai keluhan yang terlihat baru.
+
+### Dan satu rantai yang jauh lebih halus, ditemukan tesnya
+
+Sesudah penyaringannya dibetulkan, tesnya masih merah — tapi bukan karena penghapusannya gagal. **Penghapusannya berhasil, lalu suppliernya hidup kembali dalam transaksi yang sama:**
+
+1. `delete from suppliers`
+2. FK `goods_receipts.supplier_id … on delete set null` melakukan **UPDATE** pada notanya
+3. UPDATE itu memicu trigger `BEFORE UPDATE` `tautkan_supplier_nota`
+4. Trigger melihat `supplier_id is null` dengan teks nama masih terisi, lalu memanggil `cari_atau_buat_supplier` — yang **membuatnya ulang** dengan id baru
+
+Tidak ada galat di satu langkah pun. Dari layar: tombol Hapus yang ditekan berkali-kali tanpa hasil.
+
+Butuh instrumentasi untuk melihatnya — assertion `select … where id = …` hijau (baris itu memang hilang), yang merah justru pencarian lewat **nama**. Kalau tesnya hanya mencari lewat id, ia akan hijau untuk fitur yang sama sekali tidak bekerja.
+
+Perbaikannya sekaligus membetulkan artinya: trigger hanya membuat baris master untuk nota `status = 'aktif'`. Itu bukan tambalan — **dokumen yang dibatalkan bukan alasan sebuah supplier ada di daftar master.**
+
+### Lima sabotase yang berhenti menguji apa pun
+
+`0162` melakukan `create or replace` atas seluruh `hapus_supplier`. Lima sabotase yang menyasar versi `0161` karenanya mengenai **kode mati** — definisi terakhir yang berlaku, dan semuanya lolos.
+
+Bentuk kegagalan yang sudah dikenal di repo ini (harness yang diam-diam berhenti menjaga), tapi lewat jalur baru: bukan polanya yang basi, melainkan **sasarannya yang sudah digantikan migration berikutnya**. Kelimanya diarahkan ke `0162`.
+
+- [x] **Dokumen yang dibatalkan tidak lagi menahan penghapusan supplier** (`0162`) — 28 sabotase

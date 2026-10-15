@@ -8,6 +8,7 @@
  *   §5 Wewenang: bukan Admin BU ditolak.
  *   §6 `delete` LANGSUNG tidak bisa melewati penjaganya.
  *   §7 Dijalankan ulang.
+ *   §8 Dokumen yang DIBATALKAN tidak menahan (0162).
  */
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'node:fs';
@@ -67,7 +68,14 @@ await db.exec(`
   );
   create table cash_entries (
     id uuid primary key default gen_random_uuid(),
-    business_unit_id uuid, entry_type text, supplier text
+    business_unit_id uuid, entry_type text, supplier text,
+    -- Bentuk pembatalan sisi kas (0141). Seluruh pembaca kas menyaring
+    -- dicoret_at is null; 0161 tidak, dan 0162 yang membetulkannya.
+    --
+    -- Ditulis TANPA backtick: ini di dalam template literal JS, dan satu
+    -- backtick di sini mengakhirinya. Persis jebakan yang baru saja memakan
+    -- layar Ekspor ESB.
+    dicoret_at timestamptz
   );
 
   create or replace function has_bu_scope(p_uid uuid, p_bu uuid) returns boolean language sql stable as $$
@@ -96,7 +104,11 @@ const pasang = async (rel) => {
 await pasang('0158_master_supplier.sql');
 await pasang('0159_penerima_bukan_supplier.sql');
 const SQL161 = await pasang('0161_hapus_supplier.sql');
-console.log('  0158 + 0159 + 0161 terpasang.');
+// 0162 menulis ulang `hapus_supplier` supaya hanya menghitung dokumen AKTIF.
+// Dipasang di sini supaya seluruh pemeriksaan di bawah menguji versi yang
+// benar-benar berjalan di produksi — bukan versi perantara.
+const SQL162 = await pasang('0162_hapus_supplier_hanya_hitung_yang_aktif.sql');
+console.log('  0158 + 0159 + 0161 + 0162 terpasang.');
 
 await sebagai(ADMIN);
 const sup = (nama) =>
@@ -238,6 +250,7 @@ benar('6. INTI: staff tetap bisa melahirkan supplier lewat nota', !!(await sup('
 console.log('\n§7 Dijalankan ulang');
 
 await db.exec(SQL161.replace(/notify pgrst[^;]*;/g, ''));
+await db.exec(SQL162.replace(/notify pgrst[^;]*;/g, ''));
 cek(
   '7. policynya tidak berlipat',
   Number((await satu(`select count(*) n from pg_policies where tablename='suppliers'`)).n),
@@ -245,6 +258,81 @@ cek(
 );
 const e7 = await galat(() => q(`select hapus_supplier($1)`, [berkah.id]));
 benar('7. penjaganya masih bekerja sesudah dijalankan ulang', !!e7, e7);
+
+// =====================================================================
+// §8 DOKUMEN YANG DIBATALKAN TIDAK MENAHAN (0162)
+// =====================================================================
+console.log('\n§8 Dokumen yang dibatalkan');
+
+// ============ KELUHAN YANG MELAHIRKAN 0162 ============
+//
+//   "nota dengan supplier sudah saya batalkan dari staff app, tetapi supplier
+//    yang dimaksud masih belum bisa dihapus"
+//
+// `batalkan_nota` TIDAK menghapus notanya — ia menandai `status='dibatalkan'`.
+// 0161 menghitung seluruh baris tanpa melihat status, sementara
+// `nama_supplier_terpakai` (yang mengisi kolom "Nota" di layar) menyaring
+// `status='aktif'`.
+//
+// Akibatnya: tombol Hapus MUNCUL karena layar melihat 0 nota, lalu ditekan,
+// lalu ditolak. Dua aturan untuk satu pertanyaan.
+const batal = await buat('Toko Sudah Batal');
+await q(`insert into goods_receipts (business_unit_id, code, supplier) values ($1,'NT-B1','Toko Sudah Batal')`, [BU]);
+cek(
+  '8. (persiapan) notanya menunjuk suppliernya',
+  Number((await satu(`select count(*) n from goods_receipts where supplier_id=$1`, [batal])).n),
+  1
+);
+
+// Selama notanya AKTIF, penghapusan tetap ditolak.
+const e8a = await galat(() => q(`select hapus_supplier($1)`, [batal]));
+benar('8. selama notanya aktif, tetap ditolak', !!e8a, 'TERHAPUS padahal notanya aktif');
+
+// Lalu notanya dibatalkan — persis yang dilakukan pemakainya.
+await q(`update goods_receipts set status='dibatalkan' where code='NT-B1'`);
+const e8b = await galat(() => q(`select hapus_supplier($1)`, [batal]));
+benar('8. INTI: sesudah notanya dibatalkan, boleh dihapus', !e8b, e8b);
+cek('8. barisnya yang itu hilang', await satu(`select 1 x from suppliers where id=$1`, [batal]), undefined);
+
+// ============ DAN TIDAK HIDUP KEMBALI SEKETIKA ============
+//
+// Pemeriksaan ini yang menemukan rantai paling halus di seluruh fitur ini.
+// Penghapusannya BERHASIL — lalu FK `on delete set null` melakukan UPDATE pada
+// notanya, UPDATE itu memicu `tautkan_supplier_nota`, dan triggernya melihat
+// `supplier_id is null` dengan teks nama masih terisi lalu MEMBUATNYA ULANG.
+//
+// Dicari lewat NAMA, bukan id — karena baris yang muncul kembali punya id yang
+// berbeda. Mencari lewat id saja akan hijau untuk fitur yang, dari layar,
+// terlihat seperti tombol Hapus yang tidak bekerja sama sekali.
+cek('8. INTI: dan tidak lahir kembali dengan id baru', await sup('Toko Sudah Batal'), undefined);
+
+// Notanya TIDAK ikut terhapus, dan namanya tetap tertulis di sana.
+const notaBatal = await satu(`select supplier, supplier_id, status from goods_receipts where code='NT-B1'`);
+cek('8. notanya tetap ada', notaBatal.status, 'dibatalkan');
+cek('8. INTI: nama suppliernya tetap tertulis di dokumen itu', notaBatal.supplier, 'Toko Sudah Batal');
+cek('8. hanya tautannya yang lepas', notaBatal.supplier_id, null);
+
+// ============ HAL YANG SAMA DI SISI KAS ============
+//
+// `dicoret_at` (0141) adalah bentuk pembatalan entri kas, dan seluruh pembaca
+// kas menyaringnya. 0161 tidak — jadi satu entri kas yang sudah dicoret pun
+// menahan penghapusan selamanya. Gejalanya belum dilaporkan siapa pun; sebabnya
+// sama persis.
+const kasBatal = await buat('Toko Kas Dicoret');
+await q(`insert into cash_entries (business_unit_id, entry_type, supplier) values ($1,'out','Toko Kas Dicoret')`, [BU]);
+benar('8. entri kas AKTIF menahan', !!(await galat(() => q(`select hapus_supplier($1)`, [kasBatal]))));
+
+await q(`update cash_entries set dicoret_at = now() where supplier='Toko Kas Dicoret'`);
+const e8c = await galat(() => q(`select hapus_supplier($1)`, [kasBatal]));
+benar('8. INTI: entri kas yang sudah dicoret tidak menahan', !e8c, e8c);
+
+// Kalimat penolakannya menyebut "AKTIF" — supaya orang yang membacanya tahu
+// bahwa membatalkan dokumennya adalah jalan keluar yang sah.
+const masihAktif = await buat('Toko Masih Aktif');
+await q(`insert into goods_receipts (business_unit_id, code, supplier) values ($1,'NT-A1','Toko Masih Aktif')`, [BU]);
+const e8d = await galat(() => q(`select hapus_supplier($1)`, [masihAktif]));
+benar('8. kalimatnya menyebut bahwa yang dihitung yang AKTIF', /AKTIF/.test(e8d ?? ''), e8d);
+benar('8. dan menyebut membatalkan dokumen sebagai jalan keluar', /batalkan dulu/i.test(e8d ?? ''), e8d);
 
 console.log('');
 if (gagal === 0) console.log(`${n} pemeriksaan 0161 lolos. ✅`);

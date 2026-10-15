@@ -24,6 +24,7 @@ const AKAR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const P = (rel) => path.join(AKAR, rel);
 
 const MIG = 'supabase/migrations/0161_hapus_supplier.sql';
+const M162 = 'supabase/migrations/0162_hapus_supplier_hanya_hitung_yang_aktif.sql';
 const SUP = 'js/modules/inventory/supplier.admin.js';
 const INV = 'js/modules/inventory/inventory.admin.page.js';
 const ESB = 'js/modules/inventory/esb.admin.js';
@@ -31,7 +32,7 @@ const KES = 'js/modules/inventory/kesiapan-esb.js';
 const SVC = 'js/modules/inventory/esb.service.js';
 
 const asli = new Map();
-for (const rel of [MIG, SUP, INV, ESB, KES, SVC]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
+for (const rel of [MIG, M162, SUP, INV, ESB, KES, SVC]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
 
 const PENANDA = path.join(AKAR, 'tools/.sabotase-aktif');
 const tandai = (rel) => fs.writeFileSync(PENANDA, `${path.basename(process.argv[1])} merusak ${rel}\n`);
@@ -103,29 +104,44 @@ const AUDIT = 'tools/audit-hapus-supplier.cjs';
 // ---------------------------------------------------------------
 console.log('SABOTASE PENJAGA PENGHAPUSAN:');
 // ---------------------------------------------------------------
+//
+// ============ DIARAHKAN KE 0162, BUKAN 0161 ============
+//
+// 0162 `create or replace` SELURUH `hapus_supplier`. Jadi merusak versi 0161
+// tidak berakibat apa-apa: definisi terakhir yang berlaku, dan tesnya tetap
+// hijau untuk sabotase yang mengenai KODE MATI.
+//
+// Kelima sabotase ini sempat menyasar 0161 dan LOLOS karena itu. Bentuk
+// kegagalan yang sudah dikenal di repo ini — harness yang berhenti menguji apa
+// pun tanpa bersuara — kali ini muncul lewat jalur baru: bukan polanya yang
+// basi, melainkan SASARANNYA yang sudah digantikan migration berikutnya.
 
 sabotase(
   'cek NOTA dibuang — 42 nota kehilangan induknya tanpa satu pun galat',
-  MIG,
-  '  select count(*) into v_nota from goods_receipts where supplier_id = p_id;',
+  M162,
+  `  select count(*) into v_nota
+    from goods_receipts
+   where supplier_id = p_id
+     and status = 'aktif';`,
   '  v_nota := 0;',
   PG
 );
 sabotase(
   'cek ENTRI KAS dibuang — "Kas Operasional" terhapus, form kas menolak nilai yang sudah tersimpan',
-  MIG,
+  M162,
   `  select count(*) into v_kas
     from cash_entries c
    where coalesce(btrim(c.supplier), '') <> ''
+     and c.dicoret_at is null
      and normal_nama_supplier(c.supplier) = normal_nama_supplier(v_nama);`,
   '  v_kas := 0;',
   PG
 );
 sabotase(
   'kas dicocokkan dengan `=` biasa — ejaan beda satu spasi lolos',
-  MIG,
-  '     and normal_nama_supplier(c.supplier) = normal_nama_supplier(v_nama);',
-  '     and c.supplier = v_nama;',
+  M162,
+  '     and c.dicoret_at is null\n     and normal_nama_supplier(c.supplier) = normal_nama_supplier(v_nama);',
+  '     and c.dicoret_at is null\n     and c.supplier = v_nama;',
   PG
 );
 // Sabotase `btrim <> ''` DIHAPUS dari sini, bukan dipindah pemeriksanya.
@@ -139,7 +155,7 @@ sabotase(
 // mengabaikan laporan harness ini.
 sabotase(
   'wewenang tidak diperiksa — staff bisa menghapus supplier',
-  MIG,
+  M162,
   '  if not is_bu_admin(auth.uid(), v_bu) then',
   '  if false then',
   PG
@@ -184,15 +200,15 @@ console.log('\nSABOTASE KALIMAT PENOLAKAN:');
 
 sabotase(
   'kalimatnya berhenti menyebut jalan keluarnya',
-  MIG,
-  'Kalau ini nama kembar, pakai Gabungkan supaya dokumennya pindah ke induk yang benar. Kalau supplier ini memang sudah tidak dipakai lagi, nonaktifkan saja lewat Edit.',
+  M162,
+  'Kalau ini nama kembar, pakai Gabungkan supaya dokumennya pindah ke induk yang benar. Kalau supplier ini memang sudah tidak dipakai lagi, batalkan dulu dokumennya, atau nonaktifkan saja lewat Edit.',
   '',
   PG
 );
 sabotase(
   'kalimatnya berhenti menyebut jumlahnya',
-  MIG,
-  "'\"%\" masih dipakai % nota dan % entri kas",
+  M162,
+  "'\"%\" masih dipakai % nota dan % entri kas yang AKTIF",
   "'\"%\" masih dipakai nota dan entri kas",
   AUDIT
 );
@@ -256,8 +272,11 @@ sabotase(
 sabotase(
   'layar ESB memuat kembali daftar supplier yang tidak dibaca siapa pun',
   ESB,
-  '      outletKantongKasEsb(businessUnitId).catch(() => [])',
-  '      outletKantongKasEsb(businessUnitId).catch(() => []),\n      listSuppliers(businessUnitId, { semua: true }).catch(() => [])',
+  // Pola diperbarui: pemuatannya sekarang berbentuk `{ apa, janji }` sejak
+  // dibungkus `semuaDenganBatas`. Harness yang polanya basi TIDAK menguji
+  // apa pun — ia cuma terlihat menguji.
+  "      { apa: 'Outlet pemilik kantong kas', janji: outletKantongKasEsb(businessUnitId).catch(() => []) }",
+  "      { apa: 'Outlet pemilik kantong kas', janji: outletKantongKasEsb(businessUnitId).catch(() => []) },\n      { apa: 'X', janji: listSuppliers(businessUnitId, { semua: true }).catch(() => []) }",
   AUDIT
 );
 
@@ -338,6 +357,45 @@ sabotase(
   "    'Unduhan tidak dihalangi: baris yang memakai kode ini memang sudah tertahan sendiri saat diekspor, ' +",
   "    'Ada yang belum cocok. ' +",
   AUDIT
+);
+
+// ---------------------------------------------------------------
+console.log('\nSABOTASE 0162 — DOKUMEN YANG DIBATALKAN:');
+// ---------------------------------------------------------------
+
+sabotase(
+  'hitungan nota berhenti menyaring `aktif` — tombol muncul, lalu ditolak (keluhan aslinya)',
+  M162,
+  "   where supplier_id = p_id\n     and status = 'aktif';",
+  '   where supplier_id = p_id;',
+  PG
+);
+sabotase(
+  'hitungan kas berhenti menyaring `dicoret_at` — satu entri yang dicoret menahan selamanya',
+  M162,
+  '     and c.dicoret_at is null\n',
+  '',
+  PG
+);
+sabotase(
+  'kalimat penolakan berhenti menyebut jalan keluarnya',
+  M162,
+  'batalkan dulu dokumennya, atau nonaktifkan saja lewat Edit.',
+  'tidak bisa dihapus.',
+  AUDIT
+);
+
+// ============ YANG PALING HALUS DARI SELURUHNYA ============
+//
+// Penghapusannya BERHASIL, lalu FK `on delete set null` memicu
+// `tautkan_supplier_nota`, dan triggernya MEMBUAT ULANG supplier yang baru saja
+// dihapus. Dari layar: tombol Hapus yang ditekan berkali-kali tanpa hasil.
+sabotase(
+  'trigger membangkitkan kembali supplier yang baru dihapus',
+  M162,
+  "     and coalesce(new.status, 'aktif') = 'aktif'\n",
+  '',
+  PG
 );
 
 console.log('');

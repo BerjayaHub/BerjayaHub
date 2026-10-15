@@ -340,6 +340,66 @@ if (svc) {
   }
 }
 
+// ---------------------------------------------------------------
+// 7. MIGRATION 0162 — YANG DIHITUNG HANYA DOKUMEN AKTIF.
+// ---------------------------------------------------------------
+//
+// ============ SATU PERTANYAAN, SATU ATURAN ============
+//
+// `nama_supplier_terpakai` (0144) menyaring `status = 'aktif'` — itulah angka
+// "Nota" yang ditampilkan layar Master Supplier. 0161 menghitung SELURUH baris.
+// Akibatnya tombol Hapus MUNCUL (layar melihat 0) lalu DITOLAK (database
+// melihat 1). Dua aturan untuk satu pertanyaan, di satu fitur.
+const m162 = baca('supabase/migrations/0162_hapus_supplier_hanya_hitung_yang_aktif.sql');
+if (m162) {
+  const kode = tanpaSqlKomentar(m162);
+  if (!/create or replace function hapus_supplier/.test(kode)) {
+    salah('audit-hapus-supplier: penyaring komentar SQL memakan kode 0162 — pemeriksaan di bawah tidak bisa dipercaya.');
+  }
+  if (/DUA DEFINISI "DIPAKAI"/.test(kode)) {
+    salah('audit-hapus-supplier: komentar 0162 tidak tersaring.');
+  }
+
+  const nota = kode.match(/select count\(\*\) into v_nota[\s\S]*?;/);
+  if (!nota || !/status = 'aktif'/.test(nota[0])) {
+    salah(
+      "0162: hitungan nota tidak lagi menyaring `status = 'aktif'`. Layar Master Supplier memakai " +
+        '`nama_supplier_terpakai` yang MENYARINGNYA — jadi tombol Hapus muncul untuk supplier yang lalu ditolak ' +
+        'database. Orang yang sudah membatalkan notanya, seperti yang disuruh, tetap ditolak tanpa penjelasan.'
+    );
+  }
+  const kas = kode.match(/select count\(\*\) into v_kas[\s\S]*?;/);
+  if (!kas || !/c\.dicoret_at is null/.test(kas[0])) {
+    salah(
+      '0162: hitungan entri kas tidak lagi menyaring `dicoret_at is null`. Seluruh pembaca kas menyaringnya (0141); ' +
+        'tanpa itu satu entri yang sudah dicoret menahan penghapusan selamanya.'
+    );
+  }
+  if (!/menyebut.{0,40}AKTIF|% nota dan % entri kas yang AKTIF/.test(kode)) {
+    salah('0162: kalimat penolakannya tidak lagi menyebut bahwa yang dihitung yang AKTIF — jalan keluarnya (membatalkan dokumen) jadi tidak terbaca.');
+  }
+  if (!/batalkan dulu dokumennya/.test(kode)) {
+    salah('0162: kalimat penolakannya tidak lagi menyebut "batalkan dulu dokumennya" sebagai jalan keluar.');
+  }
+
+  // ============ TRIGGER TIDAK BOLEH MEMBANGKITKAN YANG DIHAPUS ============
+  //
+  // FK `on delete set null` melakukan UPDATE pada notanya; UPDATE itu memicu
+  // `tautkan_supplier_nota`; triggernya melihat `supplier_id is null` dengan
+  // teks nama masih terisi, lalu MEMBUATNYA ULANG. Penghapusannya berhasil,
+  // lalu barisnya muncul kembali dengan id baru — tanpa satu pun galat.
+  const trg = kode.match(/create or replace function tautkan_supplier_nota[\s\S]*?\n\$\$;/);
+  if (!trg) {
+    salah('0162: `tautkan_supplier_nota` tidak lagi ditulis ulang di sini — supplier yang dihapus akan hidup kembali seketika lewat FK `on delete set null`.');
+  } else if (!/coalesce\(new\.status, 'aktif'\) = 'aktif'/.test(trg[0])) {
+    salah(
+      "0162: `tautkan_supplier_nota` tidak lagi mensyaratkan `status = 'aktif'` sebelum membuat baris master. " +
+        'FK `on delete set null` memicu trigger ini saat supplier dihapus, dan tanpa syarat itu ia MEMBUAT ULANG ' +
+        'supplier yang baru saja dihapus. Dari layar: tombol Hapus yang ditekan berkali-kali tanpa hasil.'
+    );
+  }
+}
+
 console.log('');
 if (gagal === 0) console.log('Audit hapus supplier & kesiapan ESB bersih. ✅');
 else console.error(`${gagal} masalah ditemukan.`);
