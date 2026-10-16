@@ -9000,4 +9000,82 @@ mencetak barisnya sendiri, kegagalan jaringan mencetak `net::ERR_…`.
 
 - [x] **Pesan galat unggah tidak lagi menuduh sinyal** — 48 sabotase
 
+---
 
+## Notifikasi Telegram setoran konten (`0164`)
+
+> *"buat notifikasi telegram nya saat ada outlet yang upload setor konten"*
+
+Dua event baru, rutenya diatur di Admin Portal seperti event lain:
+
+| Event | Kapan | Pemicu |
+|---|---|---|
+| 🎬 `konten_setor` | tiap berkas masuk | Trigger DB pada `konten_berkas` |
+| ⏰ `konten_belum_setor` | pagi hari tenggat, kalau masih ada yang belum | Cron `send-konten-reminders` |
+
+### Pemicunya di `konten_berkas`, bukan `konten_tugas`
+
+Baris `konten_tugas` **lahir saat layar dibuka** (0163) — staff yang sekadar
+mengintip briefnya sudah membuatnya. Trigger di sana akan mengumumkan "Setoran
+Konten" untuk outlet yang belum mengunggah apa pun, dan *pesan yang beberapa
+kali ternyata bohong adalah pesan yang berhenti dibuka*.
+
+`konten_berkas` hanya bertambah kalau berkasnya benar-benar sampai di R2 —
+layanannya mencatat barisnya sesudah PUT berhasil. Satu baris = satu berkas
+yang sungguh ada.
+
+### Per berkas, dengan harga yang diterima sadar
+
+Pilihan pemiliknya: notifikasi **tiap berkas**, sampai 3 pesan per outlet per
+minggu. Varian "hanya saat lengkap" lebih tenang tapi punya lubang yang tidak
+kelihatan — outlet yang mengunggah 1 video lalu berhenti tidak memunculkan
+pesan apa pun, dan diamnya tidak bisa dibedakan dari "belum ada yang setor".
+
+Supaya tiga pesan berturut-turut tidak terbaca sama, tiap pesan menyebut
+keadaan setoran **sesudah** berkas itu — berapa video, berapa foto, apa yang
+kurang. Dihitung dari database, bukan dari urutan pesan: dua staff yang
+mengunggah bersamaan membuat urutan pesan berhenti mencerminkan isinya.
+
+### Pengingat yang berbicara justru saat tidak ada yang terjadi
+
+Notifikasi per berkas hanya berbunyi kalau ada yang menyetor. Outlet yang tidak
+melakukan apa-apa tidak menghasilkan satu peristiwa pun — dan diamnya tidak
+bisa dibedakan dari *"notifikasinya yang rusak"*. Itu bukan kekhawatiran
+teoretis di repo ini: rekap Telegram pernah melaporkan `succeeded`
+berbulan-bulan sambil ditolak 401 setiap malam.
+
+`send-konten-reminders` membalik bebannya. Ia menyebut tiga keadaan yang
+berbeda, karena bedanya menentukan apa yang ditanyakan ke outletnya:
+
+- belum membuka modulnya sama sekali (barisnya belum lahir)
+- sudah membuka, belum mengunggah apa pun
+- baru sebagian — kurang video atau foto
+
+Outlet yang sudah lengkap **tidak disebut**: daftar yang memuat yang sudah
+beres memaksa orang membacanya untuk tahu siapa yang belum.
+
+### Urutan trigger: klaim komentar yang diuji, bukan dipercaya
+
+Komentar di 0164 mengklaim `trg_notify_konten_berkas` berjalan **sebelum**
+`trg_tandai_tugas_disetor` karena Postgres mengurutkan trigger AFTER menurut
+nama. Konsekuensinya: saat notifikasi berjalan, status tugasnya masih `belum` —
+jadi pesannya tidak boleh dibangun dari status di dalam trigger.
+
+Tes §3 membuktikannya dengan mencatat status yang terbaca **di dalam** trigger.
+Kalau klaim itu salah, orang berikutnya akan membangun sesuatu di atasnya —
+dan komentar yang melebih-lebihkan sebuah penjaga membuat orang berikutnya
+mempercayai penjaga yang tidak ada.
+
+### Dua sabotase yang lolos — keduanya bentuk yang sudah saya catat sendiri
+
+| Sabotase | Kenapa auditnya hijau |
+|---|---|
+| trigger diberi `when (false)` | `after insert on konten_berkas` tetap utuh — terdaftar ≠ menyala |
+| `Deno.env.get('CRON_SECRET')` diganti nama | baris penjaganya masih memuat teks "CRON_SECRET" |
+
+Keduanya persis bentuk yang sudah diperbaiki beberapa jam sebelumnya di trigger
+sampah 0163 dan di `purge-konten` — dan saya tetap menuliskan versi longgarnya
+di berkas yang baru. Pelajaran yang dicatat di satu tempat tidak otomatis ikut
+ke tempat berikutnya; yang menangkapnya tetap harness-nya, bukan ingatan.
+
+- [x] **Notifikasi Telegram setoran konten** (`0164`) — 20 tes PGlite, 65 sabotase

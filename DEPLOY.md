@@ -960,6 +960,7 @@ langkahnya tidak muat di bagian mana pun di atas. Dikerjakan **urut**.
 |---|---|---|
 | 0162 | `0162_hapus_supplier_hanya_hitung_yang_aktif.sql` | Nota/kas yang **dibatalkan** tidak lagi menahan penghapusan supplier + perbaikan supplier yang hidup kembali |
 | 0163 | `0163_konten_sosmed.sql` | Modul Konten Sosmed: setelan per outlet, tugas, berkas, tabel sampah R2, RLS |
+| 0164 | `0164_notifikasi_konten.sql` | Trigger notifikasi Telegram tiap berkas konten masuk |
 
 Sesudah `0163` jalan, modulnya **belum muncul di mana pun**. Ia perlu
 dinyalakan per BU — lihat K5.
@@ -1022,7 +1023,14 @@ yang menyebut *"blocked by CORS policy"*; kegagalan jaringan mencetak
 ```bash
 supabase functions deploy konten-r2
 supabase functions deploy purge-konten
+supabase functions deploy send-konten-reminders
+supabase functions deploy notify-telegram        # isinya berubah: cabang konten_berkas
 ```
+
+> `notify-telegram` **wajib** di-deploy ulang. Tanpa itu triggernya menembak ke
+> Edge Function versi lama, yang tidak mengenali tabel `konten_berkas` dan
+> membalas `skipped` — berhasil, tanpa satu pun pesan terkirim. Kegagalan yang
+> terlihat seperti keberhasilan di log.
 
 | Function | Tugasnya |
 |---|---|
@@ -1083,6 +1091,70 @@ select r2_key, dicatat_at, dihapus_at
 Baris yang `dicatat_at`-nya berumur lebih dari dua hari dan `dihapus_at`-nya
 masih null berarti cron-nya **tidak jalan** — bukan berarti tidak ada sampah.
 
+## K4b. Notifikasi Telegram konten (`0164`)
+
+Dua event baru. Rutenya diatur di **Admin Portal → Notifikasi Telegram**, sama
+seperti event lain — tombol **Tes** di sana membuktikan grupnya benar.
+
+| Event | Kapan | Pemicu |
+|---|---|---|
+| 🎬 `konten_setor` | tiap berkas konten masuk | Trigger DB `trg_notify_konten_berkas` |
+| ⏰ `konten_belum_setor` | pagi di hari tenggat, kalau masih ada yang belum | Cron `send-konten-reminders` |
+
+**Prasyarat yang sudah ada:** `notify_telegram_url` dan `notify_secret` di
+`integration_settings` (bagian 6). Kalau cuti & order stok sudah berfungsi,
+keduanya sudah terisi dan `konten_setor` ikut jalan tanpa setelan tambahan.
+
+### Cron pengingat
+
+Jalankan `dry_run` dulu — dan karena pengingatnya hanya berbunyi di hari
+tenggat, paksa tanggalnya supaya bisa diuji hari ini juga:
+
+```sql
+select net.http_post(
+  url     := 'https://<PROJECT-REF>.supabase.co/functions/v1/send-konten-reminders',
+  headers := jsonb_build_object(
+    'Content-Type',  'application/json',
+    'Authorization', 'Bearer <anon key>',
+    'x-cron-secret', '<CRON_SECRET>'
+  ),
+  body    := '{"dry_run": true, "date": "2026-10-17"}'::jsonb,   -- Sabtu, sesuaikan
+  timeout_milliseconds := 30000
+);
+```
+
+Jawaban `{"skipped": true, "reason": "Tidak ada outlet yang hari setornya …"}`
+berarti tanggal yang kamu paksa bukan hari setor outlet mana pun — bukan
+kerusakan. `{"semua_lengkap": true}` berarti semuanya sudah setor.
+
+```sql
+select cron.schedule(
+  'konten-belum-setor',
+  '0 2 * * *',                         -- 02:00 UTC = 09:00 WIB
+  $$
+  select net.http_post(
+    url     := 'https://<PROJECT-REF>.supabase.co/functions/v1/send-konten-reminders',
+    headers := jsonb_build_object(
+      'Content-Type',  'application/json',
+      'Authorization', 'Bearer <anon key>',
+      'x-cron-secret', '<CRON_SECRET>'
+    ),
+    body    := '{}'::jsonb,
+    timeout_milliseconds := 30000
+  );
+  $$
+);
+```
+
+Jadwalnya **harian**, bukan mingguan: tiap outlet boleh punya hari setor
+berbeda, dan function-nya sendiri yang memutuskan hari ini relevan atau tidak.
+Cron mingguan akan melewatkan outlet yang harinya bukan hari itu.
+
+> **Ia sengaja DIAM kalau semua outlet sudah lengkap.** Pesan "semua beres"
+> tiap minggu akan dilewati matanya, dan pada minggu ia tidak muncul tidak ada
+> yang menyadarinya. Hasilnya tetap dilaporkan ke pemanggil, jadi `dry_run`
+> tetap bisa membuktikan ia berjalan.
+
 ## K5. Yang diatur lewat UI sesudah deploy
 
 1. **Nyalakan modulnya per BU** — Admin Portal → Organisasi & Outlet → modul
@@ -1094,7 +1166,10 @@ masih null berarti cron-nya **tidak jalan** — bukan berarti tidak ada sampah.
    Outlet yang **belum** diatur tidak melihat modulnya di Staff App. Itu
    disengaja: outlet tanpa jadwal yang ditampilkan dengan tugas kosong membuat
    staff mengira ia lupa mengerjakan sesuatu yang memang tidak ada.
-3. Tugas mingguannya **lahir sendiri** saat staff membuka layarnya. Tidak ada
+3. **Atur rute dua event Telegram baru** — Admin Portal → Notifikasi Telegram →
+   🎬 *Berkas konten disetor outlet* dan ⏰ *Outlet belum setor konten*. Pakai
+   tombol **Tes** di tiap baris; tes itu membuktikan grupnya, bukan pemicunya.
+4. Tugas mingguannya **lahir sendiri** saat staff membuka layarnya. Tidak ada
    cron yang membuatnya — cron yang mati diam-diam akan membuat seluruh outlet
    berhenti punya tugas, dan gejalanya cuma layar kosong.
 

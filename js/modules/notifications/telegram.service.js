@@ -54,6 +54,18 @@ export const TELEGRAM_EVENTS = [
     icon: '📥',
     label: 'Kiriman diterima outlet',
     detail: 'Trigger DB · UPDATE dispatches saat status jadi diterima'
+  },
+  {
+    key: 'konten_setor',
+    icon: '🎬',
+    label: 'Berkas konten disetor outlet',
+    detail: 'Trigger DB · INSERT pada konten_berkas (0164). Satu pesan per berkas, maksimal 3 per setoran.'
+  },
+  {
+    key: 'konten_belum_setor',
+    icon: '⏰',
+    label: 'Outlet belum setor konten (hari tenggat)',
+    detail: 'Cron pagi · send-konten-reminders. Diam kalau semua outlet sudah lengkap.'
   }
 ];
 

@@ -37,8 +37,12 @@ const ADM = 'js/modules/konten/konten.admin.page.js';
 const R2 = 'supabase/functions/konten-r2/index.ts';
 const PURGE = 'supabase/functions/purge-konten/index.ts';
 const TABS = 'js/core/admin-tabs.js';
+const M164 = 'supabase/migrations/0164_notifikasi_konten.sql';
+const NOTIF = 'supabase/functions/notify-telegram/index.ts';
+const INGAT = 'supabase/functions/send-konten-reminders/index.ts';
+const TSVC = 'js/modules/notifications/telegram.service.js';
 
-const BERKAS = [MIG, ATURAN, SVC, STAF, ADM, R2, PURGE, TABS];
+const BERKAS = [MIG, ATURAN, SVC, STAF, ADM, R2, PURGE, TABS, M164, NOTIF, INGAT, TSVC];
 const asli = new Map();
 for (const rel of BERKAS) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
 
@@ -112,6 +116,7 @@ const sabotase = (nama, rel, dari, ke, pemeriksa) => {
 const AUDIT = 'tools/audit-konten.cjs';
 const PGLITE = 'tools/test-migrasi-0163.mjs';
 const MURNI = 'tools/test-aturan-konten.mjs';
+const PG164 = 'tools/test-migrasi-0164.mjs';
 
 // =====================================================================
 console.log('SABOTASE DATABASE (0163):');
@@ -555,6 +560,151 @@ sabotase(
   PURGE,
   "  const dryRun = body.dry_run === true;",
   '  const dryRun = false;',
+  AUDIT
+);
+
+// =====================================================================
+console.log('\nSABOTASE NOTIFIKASI TELEGRAM (0164):');
+// =====================================================================
+
+// Dua pemeriksa untuk sabotase yang sama: auditnya membaca SQL-nya, tes PGlite
+// MENJALANKANNYA. Trigger yang dicabut tanpa satu pun tes merah adalah trigger
+// yang tidak pernah dites.
+sabotase(
+  'trigger notifikasi dicabut — outlet menyetor dan tidak ada satu pun yang tahu',
+  M164,
+  'after insert on konten_berkas',
+  'after insert on konten_berkas when (false)',
+  AUDIT
+);
+sabotase(
+  'trigger notifikasi dicabut — DAN tes PGlite harus ikut merah',
+  M164,
+  '  after insert on konten_berkas\n  for each row execute function notify_telegram_event();',
+  '  after insert on konten_berkas\n  for each row when (false) execute function notify_telegram_event();',
+  PG164
+);
+
+sabotase(
+  'trigger ikut menyala saat berkas DIHAPUS — grup berubah jadi catatan perubahan',
+  M164,
+  '  after insert on konten_berkas',
+  '  after insert or delete on konten_berkas',
+  AUDIT
+);
+sabotase(
+  'trigger ikut menyala saat berkas DIHAPUS — tes PGlite memeriksa tgtype-nya',
+  M164,
+  '  after insert on konten_berkas\n  for each row execute function notify_telegram_event();',
+  '  after insert or delete on konten_berkas\n  for each row execute function notify_telegram_event();',
+  PG164
+);
+
+sabotase(
+  'BU dibaca dari baris berkas — kolom yang tidak ada, jatuh ke rute global, pesan masuk grup BU lain',
+  NOTIF,
+  "return { text: await pesanSetorKonten(record), eventKey: 'konten_setor', buId: tugas?.business_unit_id ?? null };",
+  "return { text: await pesanSetorKonten(record), eventKey: 'konten_setor', buId: record.business_unit_id ?? null };",
+  AUDIT
+);
+
+sabotase(
+  'cabang konten_berkas tidak lagi dibatasi INSERT',
+  NOTIF,
+  "    if (type !== 'INSERT') return null;",
+  '    if (false) return null;',
+  AUDIT
+);
+
+sabotase(
+  'kelengkapan tidak lagi dihitung dari database — tiga pesan per setoran yang terbaca sama persis',
+  NOTIF,
+  "    admin\n      .from('konten_berkas')\n      .select('jenis')\n      .eq('tugas_id', r.tugas_id)",
+  "    admin\n      .from('konten_tugas')\n      .select('jenis')\n      .eq('id', r.tugas_id)",
+  AUDIT
+);
+
+sabotase(
+  "event key diganti — rute yang diatur di Admin Portal tidak cocok dengan apa pun",
+  NOTIF,
+  "eventKey: 'konten_setor'",
+  "eventKey: 'konten'",
+  AUDIT
+);
+
+// =====================================================================
+console.log('\nSABOTASE PENGINGAT HARI TENGGAT:');
+// =====================================================================
+
+sabotase(
+  'hari dihitung dari jam server (UTC) — pukul 07.00 WIB menyasar outlet hari KEMARIN',
+  INGAT,
+  'const hariDari = (tgl: string) => new Date(`${tgl}T00:00:00Z`).getUTCDay();',
+  'const hariDari = (_tgl: string) => new Date().getDay();',
+  AUDIT
+);
+
+sabotase(
+  'saringan hari setor dicabut — outlet bertenggat Rabu ditegur hari Sabtu',
+  INGAT,
+  "    .eq('hari_setor', dow);",
+  '    ;',
+  AUDIT
+);
+
+sabotase(
+  'outlet yang sudah lengkap ikut masuk daftar — orang harus membacanya untuk tahu siapa yang belum',
+  INGAT,
+  '    if (video >= 1 && foto >= 1) {',
+  '    if (false) {',
+  AUDIT
+);
+
+sabotase(
+  '"belum pernah membuka" dilebur dengan "sudah buka, belum unggah"',
+  INGAT,
+  "      ? 'belum membuka modulnya sama sekali'",
+  "      ? 'belum setor'",
+  AUDIT
+);
+
+sabotase(
+  'penanda harian ditulis SEBELUM pengiriman — pengingat yang gagal hilang tanpa jejak',
+  INGAT,
+  "  if (!dryRun && hasil.some((h) => (h as { ok?: boolean }).ok)) {\n    await admin.from('telegram_notifications_sent').insert({ kind: EVENT_KEY, ref: hariIni });\n  }",
+  '  /* dipindah ke atas */',
+  AUDIT
+);
+
+sabotase(
+  '`CRON_SECRET` tidak diperiksa — siapa pun yang tahu URL-nya bisa menyuruh bot menegur outlet',
+  INGAT,
+  "const CRON_SECRET = Deno.env.get('CRON_SECRET');",
+  'const RAHASIA = undefined;',
+  AUDIT
+);
+
+sabotase(
+  '`dry_run` dicabut — tidak ada cara membuktikan cron-nya jalan tanpa menunggu hari tenggat',
+  INGAT,
+  '  const dryRun = body?.dry_run === true;',
+  '  const dryRun = false;',
+  AUDIT
+);
+
+sabotase(
+  'event setor dicabut dari katalog — rutenya tidak bisa diatur, dan tidak ada tombol Tes',
+  TSVC,
+  "    key: 'konten_setor',",
+  "    key: 'konten_setor_x',",
+  AUDIT
+);
+
+sabotase(
+  'event pengingat dicabut dari katalog',
+  TSVC,
+  "    key: 'konten_belum_setor',",
+  "    key: 'konten_belum_setor_x',",
   AUDIT
 );
 

@@ -697,6 +697,188 @@ if (purge) {
   }
 }
 
+// =====================================================================
+// 9. NOTIFIKASI TELEGRAM (0164).
+// =====================================================================
+const m164 = baca('supabase/migrations/0164_notifikasi_konten.sql');
+if (m164) {
+  const kode = tanpaSqlKomentar(m164);
+  if (!/create trigger trg_notify_konten_berkas/.test(kode)) {
+    salah('0164: trigger notifikasi hilang — tidak ada satu pun pemberitahuan saat outlet menyetor.');
+  }
+  const trg = kode.match(/create trigger trg_notify_konten_berkas[\s\S]*?;/);
+  if (trg) {
+    if (!/after insert on konten_berkas/.test(trg[0])) {
+      salah('0164: trigger notifikasi tidak lagi `after insert on konten_berkas`.');
+    }
+    // ============ PENGHAPUSAN TIDAK DIUMUMKAN ============
+    //
+    // Staff MEMANG boleh mengganti unggahannya (0163 memberinya izin itu dengan
+    // sengaja). Mengumumkan tiap pembatalan mengubah grup jadi catatan
+    // perubahan, dan grup yang berisik berhenti dibaca — termasuk pesan yang
+    // penting.
+    if (/\bdelete\b|\bupdate\b/.test(trg[0])) {
+      salah(
+        '0164: trigger notifikasi ikut menyala untuk DELETE/UPDATE. Staff mengganti unggahannya adalah hal normal; ' +
+          'mengumumkan tiap pembatalan membuat grup jadi catatan perubahan, dan grup yang berisik berhenti dibaca.'
+      );
+    }
+    if (!/execute function notify_telegram_event\(\)/.test(trg[0])) {
+      salah('0164: triggernya tidak memanggil `notify_telegram_event()` — jalur yang sudah ada sejak 0043.');
+    }
+    // ============ TERDAFTAR ≠ MENYALA ============
+    //
+    // `when (false)` meninggalkan seluruh baris lain utuh. Audit yang cuma
+    // mencocokkan `after insert on konten_berkas` tetap HIJAU untuk trigger
+    // yang tidak pernah menyala sekali pun. Pelajaran yang sama persis sudah
+    // dicatat di pemeriksaan trigger sampah 0163 di atas — dan saya tetap
+    // menuliskannya longgar di sini. Ditemukan sabotasenya.
+    if (/\bwhen\s*\(/.test(trg[0])) {
+      salah(
+        '0164: trigger notifikasi diberi syarat `when (...)`. Setoran yang tidak lolos syarat itu masuk tanpa ' +
+          'satu pun pemberitahuan — dan diamnya tidak bisa dibedakan dari "belum ada yang setor".'
+      );
+    }
+  }
+  // ============ TABEL YANG SALAH ADALAH KEGAGALAN YANG MASUK AKAL ============
+  //
+  // `konten_tugas` LAHIR saat layar dibuka, bukan saat ada yang disetor.
+  if (/on konten_tugas\s*\n?\s*for each row execute function notify_telegram_event/.test(kode)) {
+    salah(
+      '0164: trigger notifikasi dipasang di `konten_tugas`. Barisnya lahir saat layar DIBUKA (0163), jadi grup akan ' +
+        'menerima "Setoran Konten" untuk outlet yang cuma mengintip briefnya — dan pesan yang beberapa kali ternyata ' +
+        'bohong adalah pesan yang berhenti dibuka.'
+    );
+  }
+}
+
+const notif = baca('supabase/functions/notify-telegram/index.ts');
+if (notif) {
+  const kode = bersih(notif, 'notify-telegram/index.ts', ['konten_berkas', 'pesanSetorKonten']);
+  const bKonten = blokSampai(kode, "if (table === 'konten_berkas')", '\n  return null;\n}');
+  if (!bKonten) {
+    salah('notify-telegram: cabang `konten_berkas` hilang — triggernya menembak, dan tidak ada yang menerjemahkannya jadi pesan.');
+  } else {
+    if (!/if \(type !== 'INSERT'\) return null;/.test(bKonten)) {
+      salah('notify-telegram: cabang `konten_berkas` tidak lagi membatasi diri pada INSERT.');
+    }
+    // ============ BU DIBACA DARI TUGASNYA, BUKAN DARI BARISNYA ============
+    //
+    // `konten_berkas` TIDAK PUNYA kolom business_unit_id. `record.business_unit_id`
+    // memulangkan `undefined`, yang diam-diam jatuh ke rute global — pesan Cafe
+    // masuk ke grup Bengkel, tanpa satu pun galat.
+    if (/record\.business_unit_id/.test(bKonten)) {
+      salah(
+        'notify-telegram: BU dibaca dari `record.business_unit_id`, kolom yang TIDAK ADA di `konten_berkas`. ' +
+          'Hasilnya `undefined` yang jatuh ke rute global — pesan satu BU masuk ke grup BU lain, tanpa galat.'
+      );
+    }
+    if (!/\.from\('konten_tugas'\)[\s\S]{0,200}business_unit_id/.test(bKonten)) {
+      salah('notify-telegram: BU tidak lagi diambil dari tugasnya — rutenya jadi tebakan.');
+    }
+    if (!/eventKey: 'konten_setor'/.test(bKonten)) {
+      salah("notify-telegram: event key bukan 'konten_setor' — rute yang diatur di Admin Portal tidak akan cocok dengan apa pun.");
+    }
+  }
+
+  // Kelengkapan dihitung dari DATABASE, bukan dari urutan pesan.
+  const bPesan = blokSampai(kode, 'async function pesanSetorKonten', 'type Built =');
+  if (!/\.from\('konten_berkas'\)[\s\S]{0,160}\.eq\('tugas_id'/.test(bPesan)) {
+    salah(
+      'notify-telegram: `pesanSetorKonten` tidak lagi menghitung kelengkapan dari database. Dengan notifikasi ' +
+        'PER BERKAS, kalimat "kurang 1 foto" itulah satu-satunya yang membedakan ketiga pesan — tanpanya ketiganya ' +
+        'terbaca sama dan tidak ada yang bisa dikerjakan.'
+    );
+  }
+  if (!/Sudah lengkap/.test(bPesan)) {
+    salah('notify-telegram: pesan tidak lagi menandai setoran yang SUDAH lengkap — padahal itu satu-satunya pesan yang perlu ditindaklanjuti.');
+  }
+}
+
+const ingat = baca('supabase/functions/send-konten-reminders/index.ts');
+if (ingat) {
+  const kode = bersih(ingat, 'send-konten-reminders/index.ts', ['hariDari', 'konten_setelan_outlet']);
+
+  // ============ HARI DIHITUNG DARI TANGGALNYA, BUKAN DARI JAM SERVER ============
+  //
+  // Edge Function berjalan di UTC. Pada pukul 07.00 WIB, UTC masih di tanggal
+  // KEMARIN — jadi `new Date().getDay()` memulangkan hari yang salah persis
+  // pada jam pekerjaan ini dijalankan. Tidak ada galat; pengingatnya cuma
+  // menyasar outlet yang hari setornya kemarin.
+  if (!/new Date\(`\$\{tgl\}T00:00:00Z`\)\.getUTCDay\(\)/.test(kode)) {
+    salah(
+      'send-konten-reminders: hari dalam minggu tidak lagi dihitung dari tanggal WIB lewat UTC. Server berjalan di ' +
+        'UTC, jadi pada pukul 07.00 WIB `getDay()` lokal memulangkan hari KEMARIN — pengingatnya menyasar outlet ' +
+        'yang salah, tanpa satu pun galat.'
+    );
+  }
+  if (!/\.eq\('aktif', true\)/.test(kode) || !/\.eq\('hari_setor', dow\)/.test(kode)) {
+    salah(
+      'send-konten-reminders: outlet tidak lagi disaring `aktif` + hari setor hari ini. Outlet yang tenggatnya ' +
+        'Rabu akan ditegur pada hari Sabtu — teguran yang salah mengajari orang mengabaikan teguran.'
+    );
+  }
+  // Outlet yang sudah lengkap TIDAK disebut.
+  if (!/if \(video >= 1 && foto >= 1\)/.test(kode)) {
+    salah(
+      'send-konten-reminders: outlet yang sudah lengkap ikut masuk daftar. Daftar yang memuat yang sudah beres ' +
+        'memaksa orang MEMBACANYA untuk tahu siapa yang belum — yaitu tepat pekerjaan yang mau dihilangkan.'
+    );
+  }
+  // Tiga keadaan yang berbeda harus tetap berbeda.
+  if (!/belum membuka modulnya sama sekali/.test(kode)) {
+    salah(
+      'send-konten-reminders: "belum pernah membuka" dilebur dengan "sudah buka, belum unggah". Barisnya lahir saat ' +
+        'layar dibuka (0163), jadi bedanya nyata — dan bedanya yang menentukan apa yang ditanyakan ke outletnya.'
+    );
+  }
+  // ============ PENANDA DITULIS SESUDAH KIRIM ============
+  const iKirim = kode.indexOf('await sendTelegram(teks, chat)');
+  const iTandai = kode.indexOf("from('telegram_notifications_sent').insert(");
+  if (iKirim < 0 || iTandai < 0) {
+    salah('send-konten-reminders: jalur kirim + penanda harian tidak lengkap — pengingatnya bisa terkirim berkali-kali sehari.');
+  } else if (iTandai < iKirim) {
+    salah(
+      'send-konten-reminders: penanda harian ditulis SEBELUM pengiriman. Pengiriman yang gagal tetap menandai hari ' +
+        'ini "sudah", dan percobaan berikutnya melewatinya — pengingat hilang tanpa jejak, pada hari yang justru ' +
+        'paling membutuhkannya.'
+    );
+  }
+  if (!/hasil\.some\(\(h\) => \(h as \{ ok\?: boolean \}\)\.ok\)/.test(kode)) {
+    salah('send-konten-reminders: penanda harian ditulis tanpa memastikan ADA yang benar-benar terkirim.');
+  }
+  // Diikat ke pembacaan env DAN baris penjaganya. Mencari nama "CRON_SECRET"
+  // saja tetap hijau sesudah `Deno.env.get` diganti nama: penjaganya lalu
+  // membandingkan header dengan sesuatu yang tidak pernah terisi.
+  if (
+    !/Deno\.env\.get\('CRON_SECRET'\)/.test(kode) ||
+    !/req\.headers\.get\('x-cron-secret'\) !== CRON_SECRET/.test(kode)
+  ) {
+    salah(
+      'send-konten-reminders: pemeriksaan `CRON_SECRET` hilang atau tidak lagi membandingkan header dengan secret ' +
+        'yang benar-benar dibaca — siapa pun yang tahu URL-nya bisa menyuruh bot menegur outlet.'
+    );
+  }
+  if (!/body\?\.dry_run === true/.test(kode)) {
+    salah('send-konten-reminders: `dry_run` hilang — tidak ada cara membuktikan cron-nya mengenai sesuatu tanpa menunggu hari tenggat tiba.');
+  }
+}
+
+// Rutenya harus bisa diatur & dites dari Admin Portal.
+const tsvc = baca('js/modules/notifications/telegram.service.js');
+if (tsvc) {
+  const kode = bersih(tsvc, 'telegram.service.js', ['konten_setor']);
+  for (const key of ['konten_setor', 'konten_belum_setor']) {
+    if (!new RegExp(`key: '${key}'`).test(kode)) {
+      salah(
+        `telegram.service.js: event '${key}' tidak terdaftar di TELEGRAM_EVENTS. Rutenya tidak bisa diatur dari ` +
+          'Admin Portal, jadi pesannya jatuh ke rute cadangan atau tidak terkirim sama sekali — dan tidak ada ' +
+          'tombol Tes untuk membuktikan yang mana.'
+      );
+    }
+  }
+}
+
 console.log('');
 if (gagal === 0) console.log('Audit modul Konten Sosmed bersih. ✅');
 else console.error(`${gagal} masalah ditemukan.`);

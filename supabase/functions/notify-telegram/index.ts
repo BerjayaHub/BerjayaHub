@@ -247,6 +247,63 @@ async function pesanDispatch(r: any, diterima: boolean) {
     .join('\n');
 }
 
+const mb = (b: unknown) => `${(Number(b ?? 0) / (1024 * 1024)).toFixed(1)} MB`;
+
+/**
+ * Satu berkas konten masuk (0164).
+ *
+ * ============ KELENGKAPANNYA IKUT DISEBUT ============
+ *
+ * Pemiliknya memilih notifikasi PER BERKAS, bukan per setoran. Konsekuensinya
+ * satu outlet bisa mengirim tiga pesan dalam semenit, dan tanpa konteks
+ * ketiganya terbaca sama — "ada yang setor" — tanpa ada yang bisa dikerjakan.
+ *
+ * Jadi tiap pesan menyebut keadaan setoran SESUDAH berkas ini: berapa video,
+ * berapa foto, dan apa yang masih kurang. Pesan terakhir dalam rentetan itu
+ * yang berbunyi "lengkap" — dan itulah satu-satunya yang perlu ditindaklanjuti.
+ */
+// deno-lint-ignore no-explicit-any
+async function pesanSetorKonten(r: any) {
+  const { data: tugas } = await admin
+    .from('konten_tugas')
+    .select('id, outlet_id, business_unit_id, tenggat, jenis, brief')
+    .eq('id', r.tugas_id)
+    .maybeSingle();
+
+  const [outlet, bu, pengunggah, berkas] = await Promise.all([
+    namaOutlet(tugas?.outlet_id ?? null),
+    namaBu(tugas?.business_unit_id ?? null),
+    namaUser(r.diunggah_by ?? null),
+    admin
+      .from('konten_berkas')
+      .select('jenis')
+      .eq('tugas_id', r.tugas_id)
+      .then((x) => x.data ?? [])
+  ]);
+
+  // Dihitung dari database, bukan ditebak dari urutan pesan. Dua staff yang
+  // mengunggah bersamaan membuat urutan pesan tidak lagi mencerminkan isinya.
+  const video = berkas.filter((b: { jenis: string }) => b.jenis === 'video').length;
+  const foto = berkas.filter((b: { jenis: string }) => b.jenis === 'foto').length;
+  const kurang = [video < 1 ? '1 video' : '', foto < 1 ? '1 foto' : ''].filter(Boolean);
+
+  const lokasi = [bu, outlet].filter(Boolean).join(' · ');
+  return [
+    '🎬 <b>Setoran Konten</b>',
+    '',
+    lokasi ? `🏪 ${esc(lokasi)}` : '',
+    tugas?.tenggat ? `📅 Tenggat: <b>${fmtDate(tugas.tenggat)}</b>${tugas.jenis === 'khusus' ? ' (tugas khusus)' : ''}` : '',
+    `${r.jenis === 'video' ? '🎥' : '🖼️'} ${esc(r.nama_asli ?? r.jenis)} · ${esc(mb(r.ukuran_byte))}`,
+    `👤 Diunggah: ${esc(pengunggah)}`,
+    '',
+    `📊 Setoran sekarang: <b>${video} video, ${foto} foto</b>`,
+    kurang.length ? `⏳ Masih kurang ${esc(kurang.join(' dan '))}.` : '✅ <b>Sudah lengkap</b> — siap diunduh.',
+    tugas?.brief ? `\n📝 Brief: ${esc(tugas.brief)}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 type Built = { text: string; eventKey: string; buId: string | null };
 
 /**
@@ -338,6 +395,20 @@ async function buildMessage(payload: any): Promise<Built | null> {
       }
     }
     return null;
+  }
+
+  if (table === 'konten_berkas') {
+    // Hanya INSERT. `buId` sengaja dibaca dari TUGASNYA, bukan dari barisnya:
+    // `konten_berkas` tidak punya kolom business_unit_id sama sekali, dan
+    // mengarang `record.business_unit_id` di sini akan menghasilkan `undefined`
+    // yang diam-diam jatuh ke rute global — pesan Cafe masuk ke grup Bengkel.
+    if (type !== 'INSERT') return null;
+    const { data: tugas } = await admin
+      .from('konten_tugas')
+      .select('business_unit_id')
+      .eq('id', record.tugas_id)
+      .maybeSingle();
+    return { text: await pesanSetorKonten(record), eventKey: 'konten_setor', buId: tugas?.business_unit_id ?? null };
   }
 
   return null;
