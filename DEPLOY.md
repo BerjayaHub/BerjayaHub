@@ -984,6 +984,39 @@ Kalau salah satu dari ketiga yang wajib kosong, Edge Function **menolak dengan
 menyebut nama yang kurang** — bukan menerbitkan URL yang terlihat sah lalu
 ditolak R2 dengan XML yang tidak menyebut sebabnya.
 
+## K2b. CORS bucket R2 — **wajib, dan gampang terlupa**
+
+R2 → bucket `berjaya-konten` → **Settings** → **CORS Policy**:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://berjayahub.github.io"],
+    "AllowedMethods": ["PUT", "GET"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+Browser mengirim berkasnya LANGSUNG ke R2, jadi tanpa policy ini permintaannya
+diblokir **sebelum satu byte pun terkirim** — dan `XMLHttpRequest.onerror`
+tidak bisa membedakannya dari koneksi yang putus. Gejalanya: unggahan gagal di
+wifi maupun paket data, dengan pesan yang menyebut koneksi.
+
+`AllowedHeaders: ["*"]` perlu karena permintaannya membawa `Content-Type`, yang
+memicu preflight `OPTIONS`.
+
+**Cara memastikan ia yang jadi sebab**, bukan jaringan: buka DevTools (F12) →
+Console saat mengunggah. CORS yang memblokir selalu mencetak baris eksplisit
+yang menyebut *"blocked by CORS policy"*; kegagalan jaringan mencetak
+`net::ERR_…`.
+
+> Kalau nanti domainnya pindah (domain sendiri, atau pratinjau GitHub Pages
+> dengan origin lain), `AllowedOrigins` harus ikut ditambah. Origin yang tidak
+> terdaftar gagal dengan gejala yang sama persis.
+
 ## K3. Dua Edge Function baru
 
 ```bash

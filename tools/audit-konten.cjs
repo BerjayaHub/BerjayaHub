@@ -302,7 +302,7 @@ if (svc) {
   }
 
   // `fetch` tidak bisa melaporkan kemajuan UNGGAH.
-  const kirim = blok(kode, 'export function kirimKeR2', 1200);
+  const kirim = blokSampai(kode, 'export function kirimKeR2', 'export async function catatBerkas');
   if (!/new XMLHttpRequest\(\)/.test(kirim) || !/xhr\.upload\.onprogress/.test(kirim)) {
     salah(
       'konten.service.js: `kirimKeR2` tidak lagi melaporkan kemajuan unggah. `fetch` TIDAK BISA melakukannya; ' +
@@ -312,6 +312,20 @@ if (svc) {
   }
   if (!/belum tersimpan/.test(kirim)) {
     salah('konten.service.js: pesan gagal unggah tidak lagi mengatakan berkasnya BELUM tersimpan — staff mengira setorannya sudah masuk.');
+  }
+  // ============ `onerror` TIDAK BOLEH MENUDUH SATU SEBAB ============
+  //
+  // Ia menyala untuk koneksi putus DAN untuk CORS yang memblokir; browser
+  // sengaja tidak membedakannya. Kalimat yang menyebut salah satunya saja
+  // mengirim orang memeriksa wifi yang baik-baik saja — persis yang terjadi
+  // saat CORS bucket R2 belum diatur.
+  const onerror = blokSampai(kirim, 'xhr.onerror', 'xhr.onabort');
+  if (!/CORS/.test(onerror)) {
+    salah(
+      'konten.service.js: pesan `onerror` kembali menuduh satu sebab. `XMLHttpRequest` tidak bisa membedakan ' +
+        'koneksi putus dari permintaan yang diblokir CORS, jadi kalimatnya harus menyebut keduanya — kalau tidak, ' +
+        'kegagalan CORS terbaca sebagai masalah sinyal dan tidak ada yang memeriksa bucketnya.'
+    );
   }
 
   // ============ NOL BARIS DARI RLS BUKAN KEBERHASILAN ============

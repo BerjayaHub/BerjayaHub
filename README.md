@@ -8971,3 +8971,33 @@ perbaikannya — termasuk satu yang mengembalikan `upsert`-nya persis.
 
 - [x] **Tugas mingguan lahir lewat `insert`, bukan `upsert`** — 31 tes PGlite, 48 sabotase
 
+### Pesan kedua yang menuduh tempat yang salah, beberapa jam sesudah yang pertama
+
+Unggahan pertama gagal dengan *"Koneksi terputus saat mengunggah. Cek sinyal."*
+— di wifi, lalu di paket data, dua-duanya.
+
+`XMLHttpRequest.onerror` menyala untuk **dua hal yang browser sengaja tidak
+bedakan** ke JavaScript: koneksi yang putus, dan permintaan yang diblokir CORS.
+Dirahasiakan dengan alasan yang baik — supaya halaman tidak bisa menyelidiki
+server lain lewat pesan galatnya. Tapi artinya kode di sini **tidak bisa tahu**,
+dan kalimat saya mengaku tahu.
+
+Sebab sebenarnya: bucket R2 belum punya CORS policy, jadi PUT dari
+`berjayahub.github.io` ditolak browser sebelum satu byte pun terkirim. Yang
+diperiksa orangnya: wifi yang baik-baik saja.
+
+Ini **bentuk yang sama persis** dengan "jadwal setor belum lengkap" beberapa jam
+sebelumnya, di modul yang sama, oleh saya: satu kalimat yang memilih salah satu
+dari beberapa sebab, lalu dibaca sebagai diagnosis. Keduanya bukan bug logika —
+keduanya bug *kalimat*, dan keduanya memakan waktu orang lain, bukan waktu
+mesin.
+
+Sekarang pesannya menyebut kedua sebab dan mengaku tidak bisa membedakannya,
+plus memberi tanda yang bisa dipakai: *kalau wifi dan paket data sama-sama
+gagal, sebabnya yang kedua*. Satu sabotase menjaganya, dan `K2b` di DEPLOY.md
+memuat policy-nya beserta cara memastikan lewat DevTools Console — CORS selalu
+mencetak barisnya sendiri, kegagalan jaringan mencetak `net::ERR_…`.
+
+- [x] **Pesan galat unggah tidak lagi menuduh sinyal** — 48 sabotase
+
+

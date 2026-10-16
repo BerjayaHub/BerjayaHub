@@ -271,8 +271,27 @@ export function kirimKeR2(url, file, { onProgress } = {}) {
       xhr.status >= 200 && xhr.status < 300
         ? resolve()
         : reject(new Error(`R2 menolak unggahan (${xhr.status}). Coba lagi dari awal.`));
+    // ============ `onerror` TIDAK TAHU APA YANG SALAH ============
+    //
+    // Ia menyala untuk koneksi yang putus DAN untuk permintaan yang diblokir
+    // CORS — browser sengaja tidak membedakannya ke JavaScript, supaya halaman
+    // tidak bisa menyelidiki server lain lewat pesan galat.
+    //
+    // Versi pertama kalimat ini berbunyi "Cek sinyal, lalu coba lagi". Itu
+    // menuduh sebab yang tidak bisa diketahui dari sini, dan pada kegagalan
+    // yang sebenarnya — CORS bucket R2 yang belum diatur — ia mengirim orang
+    // memeriksa wifi yang baik-baik saja. Bentuk kesalahan yang sama dengan
+    // "jadwal belum lengkap" beberapa jam sebelumnya di modul ini.
+    //
+    // Sekarang ia menyebut keduanya dan mengaku tidak tahu yang mana.
     xhr.onerror = () =>
-      reject(new Error('Koneksi terputus saat mengunggah. Cek sinyal, lalu coba lagi — berkasnya belum tersimpan.'));
+      reject(
+        new Error(
+          'Unggahan ditolak sebelum terkirim. Dua sebab yang mungkin dan tidak bisa dibedakan dari sini: ' +
+            'koneksi terputus, atau izin CORS bucket penyimpanan belum diatur. Kalau wifi dan paket data ' +
+            'sama-sama gagal, sebabnya yang kedua — beri tahu admin. Berkasnya belum tersimpan.'
+        )
+      );
     xhr.onabort = () => reject(new Error('Unggahan dibatalkan.'));
     xhr.send(file);
   });

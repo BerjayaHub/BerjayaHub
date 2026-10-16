@@ -316,6 +316,14 @@ sabotase(
   AUDIT
 );
 
+sabotase(
+  'pesan `onerror` kembali menuduh sinyal — kegagalan CORS terbaca sebagai masalah wifi',
+  SVC,
+  "            'koneksi terputus, atau izin CORS bucket penyimpanan belum diatur. Kalau wifi dan paket data ' +",
+  "            'koneksi terputus. Cek sinyal, lalu paket data ' +",
+  AUDIT
+);
+
 // =====================================================================
 console.log('\nSABOTASE STAFF APP:');
 // =====================================================================
