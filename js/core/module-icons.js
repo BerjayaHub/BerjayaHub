@@ -18,6 +18,7 @@ const ICONS = {
   sales: '💰',
   reservation: '📅',
   asset: '🪑',
+  konten_sosmed: '🎬',
   shift: '🗓️',
   dokumen_ttd: '✍️',
   harga_outlet: '🏷️',

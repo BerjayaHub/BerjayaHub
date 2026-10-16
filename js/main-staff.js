@@ -25,6 +25,7 @@ import { renderCashPage } from './modules/cash/cash.page.js';
 import { renderReservationPage } from './modules/reservation/reservation.page.js';
 import { renderAssetPage } from './modules/asset/asset.page.js';
 import { renderShiftPage } from './modules/shift/shift.page.js';
+import { renderKontenPage } from './modules/konten/konten.page.js';
 import { renderProfilePage, initials } from './modules/profile/profile.page.js';
 import { getStaffPhotoUrl } from './modules/profile/profile.service.js';
 import { getMyTodaySession } from './modules/attendance/attendance.service.js';
@@ -35,6 +36,7 @@ import { pasangTabelResponsif } from './core/tabel-responsif.js';
 registerModule('attendance', renderAttendancePage);
 registerModule('leave', renderLeavePage);
 registerModule('cleaning_checklist', renderCleaningPage);
+registerModule('konten_sosmed', renderKontenPage);
 registerModule('inventory', renderInventoryPage);
 // Master Produk SENGAJA TIDAK didaftarkan di Staff App.
 //

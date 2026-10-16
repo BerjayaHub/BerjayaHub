@@ -941,3 +941,138 @@ diulang kapan saja.
 
 `audit-syntax` yang paling penting: satu SyntaxError membuat **seluruh**
 aplikasi berhenti di layar "Memuat…".
+
+---
+
+# Konten Sosmed — langkah deploy tersendiri (`0162` + `0163`)
+
+Modul ini satu-satunya yang menyimpan berkasnya **di luar Supabase**, jadi
+langkahnya tidak muat di bagian mana pun di atas. Dikerjakan **urut**.
+
+> Daftar migration di bagian 1 berhenti di `0116` dan sudah lama tidak
+> diperbarui. Saya tidak merapikannya di sini — menambal setengahnya akan
+> membuatnya terlihat terkini padahal tidak. Yang di bawah ini lengkap untuk
+> sesi ini saja.
+
+## K1. Migration (SQL Editor, urut)
+
+| # | File | Isinya |
+|---|---|---|
+| 0162 | `0162_hapus_supplier_hanya_hitung_yang_aktif.sql` | Nota/kas yang **dibatalkan** tidak lagi menahan penghapusan supplier + perbaikan supplier yang hidup kembali |
+| 0163 | `0163_konten_sosmed.sql` | Modul Konten Sosmed: setelan per outlet, tugas, berkas, tabel sampah R2, RLS |
+
+Sesudah `0163` jalan, modulnya **belum muncul di mana pun**. Ia perlu
+dinyalakan per BU — lihat K5.
+
+## K2. Secret R2 (Supabase → Edge Functions → Secrets)
+
+Empat, dan **ketiga yang pertama wajib**:
+
+| Nama | Dari mana |
+|---|---|
+| `R2_ACCOUNT_ID` | Cloudflare → R2 → Overview, bagian "Account ID" |
+| `R2_ACCESS_KEY_ID` | R2 → Manage API Tokens → token yang sudah dibuat |
+| `R2_SECRET_ACCESS_KEY` | **hanya ditampilkan sekali** saat tokennya dibuat |
+| `R2_BUCKET` | opsional — kalau tidak diisi, dipakai `berjaya-konten` |
+
+⚠️ **`R2_SECRET_ACCESS_KEY` tidak boleh ditempel di chat, di issue, atau di
+berkas mana pun di repo ini.** Ia ditempel langsung ke kolom Secrets di
+dashboard Supabase dan tidak perlu dilihat siapa pun sesudah itu — termasuk
+tidak perlu dilihat untuk menulis kodenya.
+
+Kalau salah satu dari ketiga yang wajib kosong, Edge Function **menolak dengan
+menyebut nama yang kurang** — bukan menerbitkan URL yang terlihat sah lalu
+ditolak R2 dengan XML yang tidak menyebut sebabnya.
+
+## K3. Dua Edge Function baru
+
+```bash
+supabase functions deploy konten-r2
+supabase functions deploy purge-konten
+```
+
+| Function | Tugasnya |
+|---|---|
+| `konten-r2` | Menerbitkan URL bertanda tangan: unggah (30 menit), tonton (1 jam), hapus. **Berkasnya tidak melewatinya** — browser PUT/GET langsung ke R2. |
+| `purge-konten` | Menghapus berkas tugas yang sudah ditandai selesai lewat masa tenggang (bawaan 7 hari), **dan** kunci yatim di `konten_berkas_sampah`. |
+
+## K4. Cron pembersih (SQL Editor, sekali saja)
+
+**Jalankan `dry_run` dulu.** Preseden: rekap Telegram melaporkan `succeeded`
+berbulan-bulan sambil ditolak 401 setiap malam.
+
+```sql
+select net.http_post(
+  url     := 'https://<PROJECT-REF>.supabase.co/functions/v1/purge-konten',
+  headers := jsonb_build_object(
+    'Content-Type',  'application/json',
+    'Authorization', 'Bearer <anon key>',
+    'x-cron-secret', '<CRON_SECRET>'
+  ),
+  body    := '{"dry_run": true}'::jsonb,
+  timeout_milliseconds := 30000
+);
+```
+
+Jawaban `{"tugas_dibersihkan": 0, ...}` **bukan** tanda gagal kalau belum ada
+tugas yang ditandai selesai. Yang harus dipastikan: jawabannya JSON, bukan
+`{"error":"Unauthorized"}`.
+
+```sql
+select cron.schedule(
+  'purge-konten',
+  '45 18 * * *',                       -- 18:45 UTC = 01:45 WIB, 15 menit setelah purge-old-selfies
+  $$
+  select net.http_post(
+    url     := 'https://<PROJECT-REF>.supabase.co/functions/v1/purge-konten',
+    headers := jsonb_build_object(
+      'Content-Type',  'application/json',
+      'Authorization', 'Bearer <anon key>',
+      'x-cron-secret', '<CRON_SECRET>'
+    ),
+    body    := '{}'::jsonb,
+    timeout_milliseconds := 30000
+  );
+  $$
+);
+```
+
+Sebulan kemudian, periksa bahwa ia benar-benar mengerjakan sesuatu:
+
+```sql
+select r2_key, dicatat_at, dihapus_at
+  from konten_berkas_sampah
+ where dihapus_at is null
+ order by dicatat_at
+ limit 20;
+```
+
+Baris yang `dicatat_at`-nya berumur lebih dari dua hari dan `dihapus_at`-nya
+masih null berarti cron-nya **tidak jalan** — bukan berarti tidak ada sampah.
+
+## K5. Yang diatur lewat UI sesudah deploy
+
+1. **Nyalakan modulnya per BU** — Admin Portal → Organisasi & Outlet → modul
+   BU → centang **Konten Sosmed**. BU yang tidak dicentang tidak melihatnya
+   sama sekali, di admin maupun staff.
+2. **Atur jadwal tiap outlet** — Admin Portal → Konten Sosmed → tab *Jadwal per
+   outlet* → **Atur**: hari setor, brief tetap (opsional), dan centang aktif.
+
+   Outlet yang **belum** diatur tidak melihat modulnya di Staff App. Itu
+   disengaja: outlet tanpa jadwal yang ditampilkan dengan tugas kosong membuat
+   staff mengira ia lupa mengerjakan sesuatu yang memang tidak ada.
+3. Tugas mingguannya **lahir sendiri** saat staff membuka layarnya. Tidak ada
+   cron yang membuatnya — cron yang mati diam-diam akan membuat seluruh outlet
+   berhenti punya tugas, dan gejalanya cuma layar kosong.
+
+## K6. Yang perlu diingat soal biaya
+
+R2 free tier: **10 GB-month** penyimpanan Standard, egress **gratis**. Enam
+outlet × 1 setoran/minggu × ~200 MB ≈ 4,8 GB/bulan **kalau tidak ada yang
+dihapus**. Jadi yang menjaga tagihannya tetap nol bukan batas ukurannya,
+melainkan kebiasaan **menandai selesai sesudah mengunduh** — itulah yang
+memicu penghapusannya.
+
+Batas 200 MB/berkas di Staff App adalah pagar yang **kita** pilih, bukan batas
+R2. Angkanya longgar dengan sengaja: 1 menit FHD 30fps dari HP kelas menengah
+terukur **141 MB**.

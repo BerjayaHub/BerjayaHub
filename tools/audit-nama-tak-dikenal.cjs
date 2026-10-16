@@ -32,6 +32,10 @@ const BAWAAN = new Set([
   'Error','TypeError','RangeError','RegExp','Symbol','BigInt','Proxy','Reflect','Intl',
   'parseInt','parseFloat','isNaN','isFinite','encodeURIComponent','decodeURIComponent','encodeURI','decodeURI',
   'URL','URLSearchParams','Blob','File','FileReader','FormData','Headers','Request','Response','AbortController',
+  // `XMLHttpRequest` dipakai di `konten.service.js` BUKAN karena kuno: `fetch`
+  // tidak bisa melaporkan kemajuan UNGGAH, dan untuk berkas 141 MB di wifi
+  // outlet batang kemajuan bukan hiasan.
+  'XMLHttpRequest','ProgressEvent',
   'Image','Audio','Event','CustomEvent','IntersectionObserver','MutationObserver','ResizeObserver',
   'localStorage','sessionStorage','crypto','structuredClone','atob','btoa','TextEncoder','TextDecoder',
   'Uint8Array','Int8Array','Float32Array','Float64Array','ArrayBuffer','DataView',

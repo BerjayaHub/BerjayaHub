@@ -8789,3 +8789,140 @@ Perbaikannya sekaligus membetulkan artinya: trigger hanya membuat baris master u
 Bentuk kegagalan yang sudah dikenal di repo ini (harness yang diam-diam berhenti menjaga), tapi lewat jalur baru: bukan polanya yang basi, melainkan **sasarannya yang sudah digantikan migration berikutnya**. Kelimanya diarahkan ke `0162`.
 
 - [x] **Dokumen yang dibatalkan tidak lagi menahan penghapusan supplier** (`0162`) — 28 sabotase
+
+---
+
+## Konten Sosmed — pengambilan konten dibagi ke outlet (`0163`)
+
+> *"untuk pengolahan sosmed masih banyak kendala, karena saya mengolah semua nya sendiri termasuk pengambilan konten … saya ingin membagi tugas saya kepada outlet juga, jadi perihal upload dan konsep konten dari saya, tetapi pengambilan konten dilakukan oleh staff outlet sendiri dan dijadwalkan setor kepada saya"*
+
+Satu outlet, satu setoran per minggu: minimal 1 video + 1 foto, maksimal 3
+berkas. Brief dari admin; kalau tidak ada brief, yang dipakai brief bawaan —
+*"ambil minimal 1 video dan 1 foto, maksimal 3 berkas, bebas sebagus mungkin
+dengan kreativitasmu"*.
+
+Tidak ada alur persetujuan. Penilaian kualitas lewat WhatsApp, seperti yang
+sudah berjalan — keputusan sadar, bukan yang belum dikerjakan. Alur
+persetujuan di aplikasi berarti admin harus membuka layar untuk mengatakan
+sesuatu yang lebih cepat ia katakan di grup, dan tombol "tolak" yang dipakai
+tanpa penjelasan lebih buruk daripada tidak ada tombolnya.
+
+### Berkasnya tidak di Supabase, dan itu bukan pilihan gaya
+
+| | Angka |
+|---|---|
+| Batas per berkas, Supabase free | **50 MB** |
+| 1 menit FHD 30fps, Motorola G57 Power (diukur sendiri) | **141 MB** |
+| 1 menit 2K 30fps, HP yang sama | **270 MB** |
+
+Jaraknya hampir tiga kali lipat — bukan sesuatu yang bisa ditutup dengan
+membatasi durasi. HP itu bahkan **tidak punya pilihan 720p**, jadi "turunkan
+kualitasnya" juga bukan jalan keluar.
+
+Dan yang lebih menentukan: kuota 1 GB Supabase dipakai **bersama selfie
+presensi harian**. Kalau konten mengisinya sampai penuh, yang berhenti bukan
+modul konten — **yang berhenti adalah clock-in staff.** Satu fitur baru yang
+mematikan fitur yang sudah dipakai 13 orang setiap hari.
+
+Jadi berkasnya di **Cloudflare R2**: 10 GB-month gratis, dan egress **gratis**
+— yang penting karena admin mengunduh setiap berkas yang masuk.
+
+### Dua ide yang saya ajukan lalu tarik sendiri
+
+**Kompres ke 50 MB lalu upscale dengan aplikasi pihak ketiga.** Saya
+mengusulkannya sebelum tahu ukuran sebenarnya. Sesudah angka 141 MB dan 270 MB
+masuk, rasio kompresinya jadi ~1:3 sampai 1:5 — dan upscaling tidak
+mengembalikan detail yang sudah dibuang, ia menebaknya. Untuk konten yang
+tujuannya terlihat bagus, itu kebalikan dari yang dibutuhkan. Saya katakan
+bahwa saya berubah pikiran, bukan diam-diam beralih.
+
+**Video selfie/joget untuk memperluas variasi.** Dibatalkan atas permintaan.
+
+### Berkas 141 MB yang hanya ada satu salinannya
+
+Seluruh desainnya ditentukan satu kenyataan: tidak ada salinan kedua di mana
+pun, dan penyimpanannya akan menghapus sendiri. Jadi:
+
+| Keputusan | Kalau tidak begitu |
+|---|---|
+| `XMLHttpRequest`, bukan `fetch` | `fetch` tidak bisa melaporkan kemajuan **unggah**. Staff melihat layar diam belasan menit, menyimpulkan aplikasinya menggantung, menutupnya — dan unggahannya hilang di 80%. |
+| Baris dicatat **sesudah** PUT berhasil | Unggahan yang putus meninggalkan baris yang menunjuk objek yang tidak pernah ada. Layar menampilkannya sebagai berkas sah sampai ada yang mencoba memutarnya. |
+| Kunci objek disusun **server** | Token R2-nya sama untuk semua orang. Kunci yang ditentukan browser = satu pemanggil bisa menimpa berkas outlet lain. |
+| Dua input berkas ber-`accept` | Satu input gabungan membuat staff memilih foto saat yang diminta video — dan salahnya ketahuan **sesudah** 141 MB terkirim. |
+| Konfirmasi "Selesai" menyebut penghapusan + 7 hari | Tanpa kalimat itu tombolnya terbaca seperti penanda biasa, dan sepekan kemudian berkasnya hilang. |
+
+### Kebocoran yang baru ketahuan bertahun-tahun kemudian
+
+Objek R2 yang barisnya hilang **tidak ditunjuk apa pun**, jadi tidak muncul di
+layar mana pun, jadi tidak ada yang tahu ia ada — sementara ia tetap
+menghitung kuota. Gejalanya, kalau pernah muncul: *"kenapa R2 saya penuh
+padahal isinya sedikit"*.
+
+Barisnya bisa hilang lewat **empat** jalan: staff membatalkan unggahannya,
+admin menghapus, tugasnya dihapus dan cascade membawanya, atau pembersih
+tugas selesai menghapusnya. Menambal keempatnya satu-satu berarti jalan kelima
+nanti akan bocor diam-diam.
+
+Yang dipasang: trigger `AFTER DELETE` pada `konten_berkas` yang mencatat
+kuncinya ke `konten_berkas_sampah`, **apa pun jalan hilangnya barisnya**, dan
+satu pekerjaan terjadwal yang menghabisinya. Triggernya `security definer` —
+tanpa itu ia berjalan sebagai staff, yang tidak punya izin INSERT ke tabel
+sampah, dan **penghapusan berkas staff gagal** dengan "permission denied" pada
+tabel yang tidak pernah ia sebut. Itu terjadi di tes pertama.
+
+`berkas_dihapus_at` hanya diisi kalau **semua** berkasnya terhapus. Satu yang
+gagal lalu tugasnya ditandai bersih berarti berkas itu keluar dari antrean
+selamanya — bocor tanpa jejak. Dibiarkan tanpa penanda, ia dicoba lagi besok.
+
+### Tugas mingguannya lahir saat disentuh, bukan dibuat cron
+
+Tenggatnya dihitung dari `hari_setor`, dan barisnya lahir saat layar pertama
+kali dibuka. Cron yang mati diam-diam berarti **seluruh** outlet berhenti
+punya tugas, dan gejalanya cuma layar kosong — yang tidak terlihat seperti
+kerusakan. Itu sudah terjadi sekali di repo ini dengan rekap Telegram, yang
+melaporkan `succeeded` berbulan-bulan sambil ditolak 401 setiap malam.
+
+Indeks unik partial (`where jenis = 'mingguan'`) + `upsert … ignoreDuplicates`
+menangani dua staff yang membuka layarnya pada detik yang sama: yang kedua
+diam saja, bukan melempar galat ke orang yang tidak melakukan kesalahan apa pun.
+
+### `XMLHttpRequest` yang ditolak auditnya sendiri
+
+`audit-nama-tak-dikenal` menandainya sebagai nama tanpa asal-usul. Kali ini
+yang salah **auditnya**, bukan kodenya: `XMLHttpRequest` global browser yang
+belum ada di daftarnya. Daftarnya ditambah — bukan kodenya diubah, karena
+alasan memakai XHR di sini load-bearing dan tertulis di tempatnya.
+
+Bedanya dengan kasus `constructor()` beberapa hari lalu: di situ mengubah kode
+lebih murah daripada mengajari audit soal anggota `class`. Di sini tidak ada
+yang perlu diajarkan — cuma satu nama yang kurang.
+
+### Tujuh sabotase yang lolos, dan satu yang saya cabut sendiri
+
+Dari 45 sabotase, tujuh lolos pada percobaan pertama. **Semuanya bentuk yang
+sama**: pemeriksanya hijau karena sasarannya ada di tempat lain.
+
+| Sabotase | Kenapa auditnya hijau |
+|---|---|
+| trigger diberi `when (false)` | `after delete on konten_berkas` tetap utuh — trigger **terdaftar** ≠ trigger **jalan** |
+| batas `>= 3` → `>= 300` | `v_jumlah >= 3` adalah **substring** dari `v_jumlah >= 300` |
+| `if (!yakin) return;` dicabut dari Selesai | jendela 2200 karakter merembes ke aksi *Hapus berkas*, yang punya barisnya sendiri |
+| pembacaan tabel sampah dialihkan | `update` di bawahnya masih menyebut nama tabel yang sama |
+| `Deno.env.get('CRON_SECRET')` diganti nama | baris penjaganya masih memuat teks "CRON_SECRET" |
+| `dryRun` dipaku `false` | objek `hasil` masih punya kunci `dry_run` |
+
+Satu lagi lolos karena alasan yang berlawanan: sabotase `sumber ?? {}` →
+`sumber || {}` tetap hijau, dan **tesnya benar** — untuk nilai yang sebenarnya
+masuk ke fungsi itu, keduanya berperilaku identik. Yang salah sabotasenya: ia
+merusak gaya tulis, bukan jawaban. Diganti dengan penjaga null yang dicabut
+seluruhnya, dan alasannya dicatat di harness-nya. *"Sabotase yang lolos" dan
+"sabotase yang tidak menguji apa pun" terlihat sama di layar dan artinya
+berlawanan.*
+
+Auditnya juga sempat **merah tanpa sebab** dua kali — jendela `blok()` yang
+merembes dan menuduh `urlUnggah` melakukan apa yang dilakukan `urlTonton` di
+bawahnya. Itu kebalikan dari mode kegagalan biasa, dan sama buruknya: audit
+yang merah tanpa sebab akan dimatikan orang berikutnya, dan yang mati bukan
+cuma pemeriksaan yang salah itu.
+
+- [x] **Modul Konten Sosmed** (`0163`) — 28 tes PGlite, 24 tes murni, 45 sabotase

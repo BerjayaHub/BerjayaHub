@@ -56,6 +56,9 @@ export const ADMIN_TAB_CATALOG = [
   { code: 'shift', label: 'Shift (jadwal kerja)', group: 'Modul lain' },
   { code: 'fleet', label: 'Armada (kendaraan)', group: 'Modul lain' },
   { code: 'asset', label: 'Inventaris Aset', group: 'Modul lain' },
+  // Kodenya sama dengan kode modul di tabel `modules`, jadi tabnya hanya muncul
+  // di BU yang modulnya dinyalakan — dan izinnya tetap bisa dicabut per user.
+  { code: 'konten_sosmed', label: 'Konten Sosmed', group: 'Modul lain' },
 
   // Mengunggah dokumen untuk dimintakan tanda tangan owner. SENGAJA bisa
   // diberikan ke admin BU/outlet, bukan super-admin-only: yang menyiapkan

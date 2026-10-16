@@ -25,6 +25,7 @@ import { renderShiftAdminPage } from './modules/shift/shift.admin.page.js';
 import { renderFleetAdminPage } from './modules/fleet/fleet.admin.page.js';
 import { renderReservationAdminPage } from './modules/reservation/reservation.admin.page.js';
 import { renderAssetAdminPage } from './modules/asset/asset.page.js';
+import { renderKontenAdminPage } from './modules/konten/konten.admin.page.js';
 import { renderAdminDashboard } from './modules/dashboard/dashboard.admin.page.js';
 import { renderReportAdminPage } from './modules/report/report.admin.page.js';
 import { renderTelegramAdminPage } from './modules/notifications/telegram.admin.page.js';
@@ -65,6 +66,7 @@ registerModule('shift', renderShiftAdminPage);
 registerModule('fleet', renderFleetAdminPage);
 registerModule('reservation', renderReservationAdminPage);
 registerModule('asset', renderAssetAdminPage);
+registerModule('konten_sosmed', renderKontenAdminPage);
 registerModule('dokumen_ttd', renderDokumenAdminPage);
 // ---- Pengelompokan menu: beberapa modul digabung jadi satu menu bertab ----
 // Modul di dalam grup tidak tampil sebagai menu terpisah.
