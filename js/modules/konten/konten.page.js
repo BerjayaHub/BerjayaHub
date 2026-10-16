@@ -121,7 +121,12 @@ export async function renderKontenPage(container, ctx) {
       return;
     }
     if (!tugas) {
-      isi.innerHTML = `<p class="error-text">Jadwal setor outlet ini belum lengkap. Beri tahu admin.</p>`;
+      // Sejak layanan membedakan sebabnya, `null` HANYA berarti satu hal:
+      // tenggatnya tidak bisa dihitung, yaitu hari setornya belum diisi.
+      // Sebab lain (gagal membuat, gagal membaca) sekarang melempar galatnya
+      // sendiri dan tertangkap di atas — dulu semuanya jatuh ke kalimat ini,
+      // dan kalimat ini mengirim orang memeriksa jadwal yang sudah benar.
+      isi.innerHTML = `<p class="error-text">Hari setor outlet ini belum diisi, jadi tenggatnya belum bisa dihitung. Beri tahu admin.</p>`;
       return;
     }
 

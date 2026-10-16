@@ -77,47 +77,74 @@ export async function listTugas({ businessUnitId, dari, sampai, outletId = null 
  * seperti kerusakan. Ini sudah terjadi sekali di repo ini dengan rekap
  * Telegram.
  *
- * `upsert` dengan `ignoreDuplicates`, bukan `insert`: dua staff yang membuka
- * layarnya pada detik yang sama akan sama-sama mencoba membuat barisnya, dan
- * yang kedua harus diam saja — bukan melempar galat ke layar orang yang tidak
- * melakukan kesalahan apa pun.
+ * ============ `insert` BIASA, BUKAN `upsert` ============
+ *
+ * Versi pertama memakai `upsert … { onConflict: 'outlet_id,tenggat',
+ * ignoreDuplicates: true }`, dan itu TIDAK PERNAH BISA BEKERJA.
+ *
+ * Indeks uniknya PARTIAL (`where jenis = 'mingguan'`), dan `ON CONFLICT`
+ * hanya bisa menyimpulkan indeks partial kalau predikatnya ikut disebut —
+ * sesuatu yang PostgREST tidak punya cara mengirimnya. Postgres menolak dengan
+ * `42P10: there is no unique or exclusion constraint matching the ON CONFLICT
+ * specification`.
+ *
+ * Dan karena galat `upsert`-nya tidak ditangkap, barisnya tidak pernah dibuat,
+ * pembacaan berikutnya memulangkan null, dan layar menuliskan **"Jadwal setor
+ * outlet ini belum lengkap"** — menyalahkan jadwal yang sebenarnya sudah benar.
+ * Satu kalimat salah yang mengirim orang memeriksa tempat yang keliru.
+ *
+ * `insert` biasa tidak butuh penyimpulan indeks sama sekali. Lomba antara dua
+ * staff yang membuka layarnya pada detik yang sama tetap ditangani — oleh
+ * indeks uniknya, yang memulangkan `23505`, dan itu kita diamkan: baris yang
+ * kita inginkan memang sudah ada.
  */
 export async function tugasMingguIni({ businessUnitId, outletId, hariSetor, hariIni }) {
   const tenggat = tenggatMingguIni(hariIni, hariSetor);
   if (!tenggat) return null;
 
-  const { data: ada } = await supabase
-    .from('konten_tugas')
-    .select('id')
-    .eq('outlet_id', outletId)
-    .eq('tenggat', tenggat)
-    .eq('jenis', 'mingguan')
-    .maybeSingle();
-
-  if (!ada) {
-    const {
-      data: { user }
-    } = await supabase.auth.getUser();
-    await supabase
+  const ambil = () =>
+    supabase
       .from('konten_tugas')
-      .upsert(
-        { business_unit_id: businessUnitId, outlet_id: outletId, tenggat, jenis: 'mingguan', dibuat_by: user?.id ?? null },
-        { onConflict: 'outlet_id,tenggat', ignoreDuplicates: true }
-      );
+      .select(
+        'id, outlet_id, business_unit_id, tenggat, jenis, brief, status, disetor_at, berkas_dihapus_at, ' +
+          'konten_berkas(id, jenis, r2_key, nama_asli, ukuran_byte, diunggah_at, diunggah_by)'
+      )
+      .eq('outlet_id', outletId)
+      .eq('tenggat', tenggat)
+      .eq('jenis', 'mingguan')
+      .maybeSingle();
+
+  let { data, error } = await ambil();
+  if (error) throw new Error(pesanTolakan(error, 'memuat tugas minggu ini'));
+  if (data) return data;
+
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  const { error: galatBuat } = await supabase.from('konten_tugas').insert({
+    business_unit_id: businessUnitId,
+    outlet_id: outletId,
+    tenggat,
+    jenis: 'mingguan',
+    dibuat_by: user?.id ?? null
+  });
+  // 23505 = baris itu dibuat device/tab lain sepersekian detik lebih dulu.
+  // Itu hasil yang kita inginkan, bukan kegagalan. Galat LAIN harus berbunyi —
+  // galat pembuatan yang ditelan adalah persis bagaimana bug ini lahir.
+  if (galatBuat && galatBuat.code !== '23505') {
+    throw new Error(pesanTolakan(galatBuat, 'membuat tugas konten minggu ini'));
   }
 
-  const { data, error } = await supabase
-    .from('konten_tugas')
-    .select(
-      'id, outlet_id, business_unit_id, tenggat, jenis, brief, status, disetor_at, berkas_dihapus_at, ' +
-        'konten_berkas(id, jenis, r2_key, nama_asli, ukuran_byte, diunggah_at, diunggah_by)'
-    )
-    .eq('outlet_id', outletId)
-    .eq('tenggat', tenggat)
-    .eq('jenis', 'mingguan')
-    .maybeSingle();
+  ({ data, error } = await ambil());
   if (error) throw new Error(pesanTolakan(error, 'memuat tugas minggu ini'));
-  return data ?? null;
+  // Barisnya dibuat tapi tidak terbaca = izin baca, bukan jadwal. Dibedakan
+  // supaya pesannya tidak mengirim orang memeriksa hal yang sudah benar.
+  if (!data) {
+    throw new Error(
+      'Tugas minggu ini sudah dibuat tapi tidak bisa dibaca kembali. Biasanya soal izin akses, bukan jadwalnya — beri tahu admin.'
+    );
+  }
+  return data;
 }
 
 /** ADMIN BU. Tugas tambahan di luar irama mingguan. */

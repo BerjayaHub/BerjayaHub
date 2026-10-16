@@ -8,6 +8,7 @@
  *   §5 Wewenang: staff tidak bisa menandai selesai.
  *   §6 Staff boleh membatalkan unggahannya sendiri, tapi tidak sesudah selesai.
  *   §7 Satu tugas mingguan per outlet per tenggat; tugas khusus boleh banyak.
+ *   §9 Cara layanan membuat tugas mingguan (partial index vs ON CONFLICT).
  *   §8 Dijalankan ulang.
  */
 import { PGlite } from '@electric-sql/pglite';
@@ -313,6 +314,55 @@ cek(
   Number((await satu(`select count(*) n from konten_berkas_sampah where r2_key='k/3.jpg'`)).n),
   1
 );
+
+// =====================================================================
+console.log('\n§9 Cara layanan membuat tugas mingguan');
+// =====================================================================
+//
+// ============ KENAPA INI DIUJI DI SINI, BUKAN DIPERCAYA SAJA ============
+//
+// Indeks uniknya PARTIAL (`where jenis = 'mingguan'`). `ON CONFLICT` hanya bisa
+// menyimpulkan indeks partial kalau predikatnya IKUT disebut — dan PostgREST
+// tidak punya cara mengirimnya, jadi `upsert({ onConflict: 'outlet_id,tenggat' })`
+// dari supabase-js SELALU ditolak Postgres dengan 42P10.
+//
+// Versi pertama layanan ini memakainya, galatnya tidak ditangkap, barisnya tidak
+// pernah dibuat, dan layar staff menuliskan "Jadwal setor outlet ini belum
+// lengkap" — menyalahkan jadwal yang sudah benar. Dua pemeriksaan di bawah
+// mengunci kedua sisinya supaya bentuk itu tidak bisa kembali diam-diam.
+
+const TG9 = '2026-10-17';
+let galat42P10 = null;
+try {
+  await q(
+    `insert into konten_tugas (business_unit_id, outlet_id, tenggat, jenis)
+     values ($1,$2,$3,'mingguan') on conflict (outlet_id, tenggat) do nothing`,
+    [BU, OUT, TG9]
+  );
+} catch (e) {
+  galat42P10 = e;
+}
+benar(
+  "9. `on conflict (outlet_id, tenggat)` tanpa predikat DITOLAK — inilah yang dikirim upsert()",
+  galat42P10 !== null && /no unique or exclusion constraint/i.test(String(galat42P10?.message ?? '')),
+  'kalau ini lolos, indeksnya berubah jadi tidak-partial dan jaminan "satu tugas mingguan" ikut berubah'
+);
+
+// Jalur yang dipakai layanan sekarang: insert biasa, lalu 23505 didiamkan.
+await q(`insert into konten_tugas (business_unit_id, outlet_id, tenggat, jenis) values ($1,$2,$3,'mingguan')`, [BU, OUT, TG9]);
+let kode23505 = null;
+try {
+  await q(`insert into konten_tugas (business_unit_id, outlet_id, tenggat, jenis) values ($1,$2,$3,'mingguan')`, [BU, OUT, TG9]);
+} catch (e) {
+  kode23505 = e?.code ?? null;
+}
+cek('9. insert kedua memulangkan 23505 — kode yang didiamkan layanan', kode23505, '23505');
+cek(
+  '9. dan barisnya tetap satu',
+  Number((await satu(`select count(*) n from konten_tugas where outlet_id=$1 and tenggat=$2 and jenis='mingguan'`, [OUT, TG9])).n),
+  1
+);
+
 
 // =====================================================================
 console.log('\n§8 Dijalankan ulang');

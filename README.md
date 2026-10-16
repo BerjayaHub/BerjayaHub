@@ -8926,3 +8926,48 @@ yang merah tanpa sebab akan dimatikan orang berikutnya, dan yang mati bukan
 cuma pemeriksaan yang salah itu.
 
 - [x] **Modul Konten Sosmed** (`0163`) — 28 tes PGlite, 24 tes murni, 45 sabotase
+
+### `upsert` yang tidak pernah bisa bekerja, dan kalimat yang menyalahkan jadwal
+
+Deploy pertama: jadwal outlet tersimpan benar di Admin Portal (Sabtu, brief
+terisi, aktif), tapi Staff App menulis **"Jadwal setor outlet ini belum
+lengkap."**
+
+Sebabnya bukan jadwalnya. Indeks unik tugas mingguan itu **partial**
+(`where jenis = 'mingguan'`), dan `ON CONFLICT` hanya bisa menyimpulkan indeks
+partial kalau **predikatnya ikut disebut** — sesuatu yang PostgREST tidak punya
+cara mengirimnya. Jadi `upsert({ onConflict: 'outlet_id,tenggat' })` selalu
+ditolak Postgres dengan `42P10`.
+
+Dibuktikan dulu sebelum apa pun diubah:
+
+| Yang dijalankan | Hasil |
+|---|---|
+| `on conflict (outlet_id, tenggat) do nothing` — yang dikirim `upsert()` | ✘ *no unique or exclusion constraint matching* |
+| `on conflict (outlet_id, tenggat) where jenis = 'mingguan' do nothing` | ✔ berhasil |
+
+Tapi kegagalan itu sendiri bukan yang membuatnya sulit dilihat. Yang membuatnya
+sulit: **galat `upsert`-nya tidak ditangkap** — `await supabase…upsert(…)` tanpa
+membaca `error`. Jadi rantainya: insert ditolak diam-diam → pembacaan berikutnya
+memulangkan `null` → dan `null` dipakai layar untuk **satu kalimat yang
+mengartikan sesuatu yang lain sama sekali**.
+
+Tiga perbaikan, bukan satu:
+
+1. `insert` biasa menggantikan `upsert`. Ia tidak butuh penyimpulan indeks sama
+   sekali; lomba antar-staff tetap ditangani indeks uniknya lewat `23505`, yang
+   kita diamkan — baris yang kita inginkan memang sudah ada.
+2. Galat pembuatan **dilempar**, kecuali `23505`.
+3. `null` kini hanya berarti **satu** hal: tenggatnya tidak bisa dihitung, yaitu
+   hari setornya belum diisi. "Dibuat tapi tidak terbaca" punya kalimatnya
+   sendiri yang menunjuk izin akses, bukan jadwal.
+
+Yang ketiga yang sebenarnya paling mahal kalau dilewatkan. Bug-nya satu baris;
+yang memakan waktu adalah **kalimat yang mengirim orang memeriksa tempat yang
+sudah benar**. Satu pesan untuk dua keadaan berbeda selalu berakhir begitu.
+
+Tes PGlite §9 mengunci kedua sisinya, dan tiga sabotase baru menjaga ketiga
+perbaikannya — termasuk satu yang mengembalikan `upsert`-nya persis.
+
+- [x] **Tugas mingguan lahir lewat `insert`, bukan `upsert`** — 31 tes PGlite, 48 sabotase
+

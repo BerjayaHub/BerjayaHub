@@ -333,12 +333,40 @@ if (svc) {
     }
   }
 
-  // Dua staff yang membuka layarnya pada detik yang sama.
-  const tmi = blok(kode, 'export async function tugasMingguIni', 1600);
-  if (!/ignoreDuplicates: true/.test(tmi)) {
+  // ============ `upsert` DI SINI TIDAK BISA BEKERJA SAMA SEKALI ============
+  //
+  // Indeks uniknya PARTIAL (`where jenis = 'mingguan'`), dan `ON CONFLICT`
+  // hanya bisa menyimpulkan indeks partial kalau predikatnya ikut disebut —
+  // sesuatu yang PostgREST tidak punya cara mengirimnya. Postgres menolak
+  // dengan 42P10, barisnya tidak pernah dibuat, dan layar staff menyalahkan
+  // jadwal yang sudah benar.
+  //
+  // Ini BUKAN dugaan: tes PGlite §9 membuktikan kedua sisinya.
+  const tmi = blok(kode, 'export async function tugasMingguIni', 2600);
+  if (/upsert\(/.test(tmi)) {
     salah(
-      'konten.service.js: `tugasMingguIni` tidak lagi memakai `ignoreDuplicates`. Staff kedua yang membuka layarnya ' +
-        'pada detik yang sama akan melihat galat pelanggaran indeks unik untuk kesalahan yang tidak ia lakukan.'
+      'konten.service.js: `tugasMingguIni` kembali memakai `upsert`. Indeks uniknya PARTIAL, jadi `ON CONFLICT` ' +
+        'tanpa predikat selalu ditolak Postgres (42P10) — tugasnya tidak pernah lahir, dan staff membaca "jadwal ' +
+        'belum lengkap" untuk jadwal yang sudah benar. Pakai `insert` biasa, lalu diamkan 23505.'
+    );
+  }
+  if (!/galatBuat\.code !== '23505'/.test(tmi)) {
+    salah(
+      'konten.service.js: `tugasMingguIni` tidak lagi mendiamkan 23505. Staff kedua yang membuka layarnya pada ' +
+        'detik yang sama akan melihat galat pelanggaran indeks unik untuk kesalahan yang tidak ia lakukan.'
+    );
+  }
+  if (!/if \(galatBuat && /.test(tmi)) {
+    salah(
+      'konten.service.js: galat pembuatan tugas ditelan lagi. Itu PERSIS bagaimana bug "jadwal belum lengkap" ' +
+        'lahir: insert yang gagal tanpa suara, lalu null yang dibaca layar sebagai jadwal yang salah.'
+    );
+  }
+  // Baris yang dibuat tapi tidak terbaca ≠ jadwal yang belum lengkap.
+  if (!/sudah dibuat tapi tidak bisa dibaca kembali/.test(tmi)) {
+    salah(
+      'konten.service.js: kedua sebab kembali dilebur jadi `null`. Layar lalu menuliskan satu kalimat untuk dua ' +
+        'keadaan yang berbeda, dan yang salah mengirim orang memeriksa tempat yang keliru.'
     );
   }
 

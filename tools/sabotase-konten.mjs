@@ -271,11 +271,32 @@ sabotase(
   AUDIT
 );
 
+// ============ SABOTASE YANG MENGEMBALIKAN BUG SUNGGUHAN ============
+//
+// Bentuk ini BUKAN hipotetis: ia versi pertama yang dikirim ke produksi, dan
+// gejalanya "Jadwal setor outlet ini belum lengkap" di layar outlet yang
+// jadwalnya sudah benar.
 sabotase(
-  '`ignoreDuplicates` dicabut — staff kedua melihat galat untuk kesalahan yang tidak ia lakukan',
+  '`insert` diganti `upsert` lagi — ON CONFLICT tak bisa menyimpulkan indeks partial, tugasnya tidak pernah lahir',
   SVC,
-  'ignoreDuplicates: true',
-  'ignoreDuplicates: false',
+  'const { error: galatBuat } = await supabase.from(\'konten_tugas\').insert({',
+  'const { error: galatBuat } = await supabase.from(\'konten_tugas\').upsert({',
+  AUDIT
+);
+
+sabotase(
+  'galat pembuatan tugas ditelan lagi — null yang dibaca layar sebagai jadwal yang salah',
+  SVC,
+  "if (galatBuat && galatBuat.code !== '23505') {",
+  'if (false) {',
+  AUDIT
+);
+
+sabotase(
+  'kedua sebab dilebur jadi null lagi — satu kalimat untuk dua keadaan yang berbeda',
+  SVC,
+  "      'Tugas minggu ini sudah dibuat tapi tidak bisa dibaca kembali. Biasanya soal izin akses, bukan jadwalnya \u2014 beri tahu admin.'",
+  "      'Gagal.'",
   AUDIT
 );
 
