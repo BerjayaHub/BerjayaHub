@@ -69,14 +69,29 @@ if (mod) {
         'HPP jauh lebih kecil dan laba terlihat besar — bug yang persis baru diperbaiki di laporan COGS.'
     );
   }
-  if (!/const hpp = awal \+ masuk - akhir;/.test(b)) {
-    salah('laba-rugi-outlet.js: rumus HPP berubah bentuk.');
+  // ============ BARANG KELUAR WAJIB DIKURANGKAN ============
+  //
+  // Tanpa itu, barang yang DIKIRIM Central Kitchen terhitung sebagai barang
+  // yang DIPAKAI Central Kitchen — dan kiriman internal terhitung DUA KALI di
+  // tingkat BU. Gejala lapangannya: food cost CK ratusan persen, total BU
+  // selalu terlalu besar, keduanya tercetak rapi tanpa galat.
+  if (!/const hpp = awal \+ masuk - keluar - akhir;/.test(b)) {
+    salah(
+      'laba-rugi-outlet.js: barang keluar tidak lagi dikurangkan dari HPP. Barang yang DIKIRIM terhitung sebagai ' +
+        'barang yang DIPAKAI, dan kiriman internal terhitung dua kali di total BU.'
+    );
+  }
+  if (!/const keluar = num\(keluarKiriman\.nilai\);/.test(b)) {
+    salah('laba-rugi-outlet.js: nilai barang keluar tidak lagi dibaca.');
   }
   if (!/const labaKotor = jual - hpp;/.test(b) || !/const labaBersih = labaKotor - biaya;/.test(b)) {
     salah('laba-rugi-outlet.js: rumus laba kotor / laba bersih berubah bentuk.');
   }
 
   // ============ CK & SUPPLIER TIDAK BOLEH DILEBUR ============
+  if (!/keluar: jumlah\('keluar'\)/.test(kode)) {
+    salah('laba-rugi-outlet.js: total barang keluar tidak lagi dijumlahkan — kolomnya tidak punya baris TOTAL.');
+  }
   if (!/nilaiCk: ck/.test(b) || !/nilaiSupplier: sup/.test(b)) {
     salah(
       'laba-rugi-outlet.js: nilai CK dan supplier tidak lagi dipisah. "Belanja outlet terlalu besar" ditindaklanjuti ' +
@@ -97,7 +112,7 @@ if (mod) {
   }
 
   // ============ BAHAN TANPA HPP DIHITUNG TERPISAH ============
-  if (!/const tanpaHpp = num\(stokAwal\.tanpaHpp\) \+ num\(stokAkhir\.tanpaHpp\) \+ num\(masukCk\.tanpaHpp\);/.test(b)) {
+  if (!/num\(masukCk\.tanpaHpp\) \+ num\(keluarKiriman\.tanpaHpp\)/.test(b)) {
     salah(
       'laba-rugi-outlet.js: bahan tanpa HPP tidak lagi dihitung. Diam-diam dianggap nol membuat HPP lebih kecil ' +
         'dan laba lebih besar — arah kesalahan yang paling tidak akan dipertanyakan siapa pun.'
@@ -152,14 +167,14 @@ if (mod) {
 // =====================================================================
 const svc = baca('js/modules/report/report.service.js');
 if (svc) {
-  const kode = bersih(svc, 'report.service.js', ['buildLabaRugiOutlet', 'nilaiKirimanMasuk']);
+  const kode = bersih(svc, 'report.service.js', ['buildLabaRugiOutlet', 'nilaiKirimanPerOutlet']);
 
   // ============ PERBAIKAN COGS ============
-  const nk = blokSampai(kode, 'async function nilaiKirimanMasuk', 'async function buildCogs');
+  const nk = blokSampai(kode, 'async function nilaiKirimanPerOutlet', 'async function buildCogs');
   if (!nk) {
     salah(
-      'report.service.js: `nilaiKirimanMasuk` hilang — kiriman dari CK kembali tidak dihitung sebagai barang ' +
-        'masuk, dan COGS outlet yang dipasok CK kembali jauh lebih kecil dari seharusnya.'
+      'report.service.js: `nilaiKirimanPerOutlet` hilang — kiriman antar-outlet kembali tidak dihitung, dan COGS ' +
+        'outlet yang dipasok CK kembali jauh lebih kecil dari seharusnya.'
     );
   } else {
     if (!/\.eq\('dispatches\.status', 'received'\)/.test(nk)) {
@@ -181,12 +196,32 @@ if (svc) {
     if (!/else kini\.tanpaHpp \+= 1;/.test(nk)) {
       salah('report.service.js: bahan tanpa HPP pada kiriman tidak lagi dihitung terpisah — nilainya diam-diam nol.');
     }
+    // ============ KEDUA SISI DARI SATU BARIS YANG SAMA ============
+    if (!/tambah\(masuk, b\.dispatches\?\.to_outlet_id/.test(nk) || !/tambah\(keluar, b\.dispatches\?\.from_outlet_id/.test(nk)) {
+      salah(
+        'report.service.js: kiriman tidak lagi dihitung di KEDUA sisi. Satu baris yang sama adalah "masuk" bagi ' +
+          'tujuannya dan "keluar" bagi asalnya — kehilangan sisi keluar membuat kiriman internal terhitung dua kali.'
+      );
+    }
+    // Saringan outlet harus diterapkan SESUDAH kedua sisi terhitung.
+    if (/if \(outletId\) q = q\.eq\('dispatches\.to_outlet_id', outletId\)/.test(nk)) {
+      salah(
+        'report.service.js: kiriman disaring per outlet DI SERVER. Itu membuang sisi yang satunya — outlet yang ' +
+          'dipilih kehilangan sisi keluarnya, dan COGS-nya kembali terlalu besar.'
+      );
+    }
   }
   if (!/pembelian\.set\(oid, \(pembelian\.get\(oid\) \?\? 0\) \+ k\.nilai\)/.test(kode)) {
-    salah('report.service.js: nilai kiriman CK tidak lagi ditambahkan ke barang masuk pada `buildCogs`.');
+    salah('report.service.js: nilai kiriman masuk tidak lagi ditambahkan ke barang masuk pada `buildCogs`.');
+  }
+  if (!/pembelian\.set\(oid, \(pembelian\.get\(oid\) \?\? 0\) - k\.nilai\)/.test(kode)) {
+    salah(
+      'report.service.js: nilai kiriman KELUAR tidak lagi dikurangkan pada `buildCogs`. COGS Central Kitchen ' +
+        'kembali menghitung barang yang dikirimnya sebagai barang yang dipakainya.'
+    );
   }
   // Catatan perubahan harus ada — rekap lama memuat angka yang berbeda.
-  if (!/sejak perbaikan ini, kolom Barang Masuk memuat kiriman dari Central Kitchen/.test(kode)) {
+  if (!/sejak perbaikan ini, kolom Masuk − Keluar memuat kiriman antar-outlet di KEDUA arah/.test(kode)) {
     salah(
       'report.service.js: catatan bahwa angka COGS BERUBAH hilang. Rekap yang terlanjur dicetak memuat angka yang ' +
         'jauh lebih kecil, dan tanpa kalimat ini orang yang membandingkannya mengira salah satunya rusak.'
@@ -202,6 +237,9 @@ if (svc) {
   }
 
   const lr = blokSampai(kode, 'async function buildLabaRugiOutlet', '\n// ---');
+  if (!/keluarKiriman: kirimanDua\.keluar\.get\(o\.id\)/.test(lr)) {
+    salah('report.service.js: laporan Laba Rugi tidak lagi mengirim nilai barang keluar — kolom Keluar kosong dan HPP kembali dobel.');
+  }
   // Nota dibatalkan tidak ikut.
   const rn = blokSampai(kode, 'async function rincianNotaSupplier', 'async function biayaNonBahanPerOutlet');
   if (!/if \(nRow\.status === 'dibatalkan'\) continue;/.test(rn)) {

@@ -9364,4 +9364,38 @@ memang punya rincian. Di Excel tiap bagian jadi **sheet sendiri**: menumpuknya
 di satu sheet membuat kolom yang berbeda bertabrakan, dan `SUM` kolomnya jadi
 campuran dua hal.
 
-- [x] **Laporan Laba Rugi Outlet + perbaikan COGS** — 33 tes murni, 28 sabotase
+### Dan satu lagi yang ketahuan dari berkas Excel sungguhan
+
+Laporan pertama yang diunduh memperlihatkan **food cost Central Kitchen
+884,7%**. Bukan karena CK boros: laporannya **tidak punya unsur "barang
+keluar" sama sekali**, jadi barang yang CK *kirim* terhitung sebagai barang
+yang CK *pakai*.
+
+```
+CK awal 100, kirim 60, akhir 40   -> HPP 60, padahal CK tidak memakai apa pun
+Outlet awal 0, masuk 60, akhir 10 -> HPP 50 (benar)
+TOTAL BU                          -> 110, padahal grup cuma memakai 50
+```
+
+Kiriman internal terhitung **dua kali** di tingkat BU — sekali sebagai barang
+yang hilang dari CK, sekali lagi lewat outlet penerimanya. Pada angka nyata
+sesi ini, TOTAL HPP melebihi seharusnya sebesar **16.238.990**, persis nilai
+kiriman internalnya.
+
+Rumusnya sekarang `awal + masuk − keluar − akhir`, dan perbaikan yang sama
+dipasang di laporan COGS.
+
+**Keluar dinilai dari qty DITERIMA, bukan qty dikirim** — dan bedanya
+menentukan ke mana susut perjalanan jatuh:
+
+| kirim 60, diterima 50 | HPP pengirim | akibatnya |
+|---|---|---|
+| keluar = 60 | `100 − 40 − 60 = 0` | susut 10 **lenyap** dari laporan |
+| keluar = 50 | `100 − 40 − 50 = 10` | susut jadi beban pengirim ✓ |
+
+Satu hal teknis yang mudah salah: baris kiriman **tidak boleh disaring per
+outlet di server**, karena satu baris yang sama adalah "masuk" bagi tujuannya
+dan "keluar" bagi asalnya. Menyaringnya di server membuang sisi yang satunya,
+dan outlet yang dipilih kehilangan sisi keluarnya.
+
+- [x] **Laporan Laba Rugi Outlet + dua perbaikan COGS** — 40 tes murni, 35 sabotase

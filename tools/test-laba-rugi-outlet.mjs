@@ -55,8 +55,8 @@ ok('barang masuk = CK + supplier', () => {
   assert.equal(B.nilaiSupplier, 300_000);
 });
 
-ok('HPP = awal + masuk − akhir', () => {
-  assert.equal(B.hpp, 600_000, '1.000.000 + 800.000 − 1.200.000');
+ok('HPP = awal + masuk − keluar − akhir', () => {
+  assert.equal(B.hpp, 600_000, '1.000.000 + 800.000 − 0 − 1.200.000');
 });
 
 ok('laba kotor = omzet − HPP', () => assert.equal(B.labaKotor, 3_400_000));
@@ -82,6 +82,72 @@ ok('tanpa kiriman CK, HPP-nya jauh lebih kecil — dan itu yang salah', () => {
   });
   assert.equal(tanpaCk.hpp, 100_000);
   assert.notEqual(tanpaCk.hpp, B.hpp, 'bedanya 500.000 — persis nilai kiriman yang hilang');
+});
+
+// ---------------------------------------------------------------
+console.log('§1b Kiriman internal tidak boleh terhitung dua kali');
+// ---------------------------------------------------------------
+//
+// ============ PEMERIKSAAN TERPENTING DI BERKAS INI ============
+//
+// Outlet yang MENGIRIM stoknya berkurang sebesar yang dikirim. Tanpa
+// mengurangkannya, barang yang ia KIRIM terhitung sebagai barang yang ia
+// PAKAI — dan di tingkat BU kiriman internal terhitung DUA KALI.
+//
+// Gejalanya di lapangan: food cost Central Kitchen ratusan persen, dan total
+// BU yang selalu terlalu besar. Keduanya tercetak rapi tanpa satu pun galat.
+
+const CK = barisLabaRugi({
+  outlet: 'Central Kitchen',
+  stokAwal: { nilai: 100 },
+  stokAkhir: { nilai: 40 },
+  keluarKiriman: { nilai: 60 },
+  omzet: 0
+});
+const PENERIMA = barisLabaRugi({
+  outlet: 'Outlet',
+  stokAwal: { nilai: 0 },
+  masukCk: { nilai: 60 },
+  stokAkhir: { nilai: 10 },
+  omzet: 500
+});
+
+ok('CK yang hanya mengirim: HPP nol, bukan sebesar kirimannya', () => {
+  assert.equal(CK.hpp, 0, '100 + 0 − 60 − 40');
+});
+
+ok('outlet penerima tetap benar', () => assert.equal(PENERIMA.hpp, 50));
+
+ok('TOTAL BU tidak lagi dobel — 50, bukan 110', () => {
+  assert.equal(ringkasLabaRugi([CK, PENERIMA]).hpp, 50);
+});
+
+// ============ SUSUT PERJALANAN JATUH KE PENGIRIM ============
+//
+// `keluar` dinilai dari qty DITERIMA, bukan qty dikirim. Kalau memakai qty
+// dikirim, barang yang hilang di jalan lenyap dari laporan sama sekali.
+ok('kirim 60 diterima 50 -> susut 10 jadi beban PENGIRIM', () => {
+  const pengirim = barisLabaRugi({
+    stokAwal: { nilai: 100 },
+    stokAkhir: { nilai: 40 },
+    keluarKiriman: { nilai: 50 },
+    omzet: 0
+  });
+  assert.equal(pengirim.hpp, 10, 'susutnya tidak boleh lenyap');
+});
+
+ok('barang masuk bersih = masuk − keluar', () => {
+  assert.equal(CK.masukBersih, -60);
+  assert.equal(PENERIMA.masukBersih, 60);
+});
+
+ok('bahan tanpa HPP pada kiriman keluar ikut dihitung', () => {
+  const b = barisLabaRugi({ keluarKiriman: { nilai: 0, tanpaHpp: 2 }, omzet: 1, opnameAwal: OPN, opnameAkhir: OPN2 });
+  assert.equal(b.tanpaHpp, 2);
+});
+
+ok('total keluar dijumlahkan', () => {
+  assert.equal(ringkasLabaRugi([CK, PENERIMA]).keluar, 60);
 });
 
 // ---------------------------------------------------------------

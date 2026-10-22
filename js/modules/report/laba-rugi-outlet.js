@@ -8,7 +8,7 @@
  * ============ RUMUSNYA ============
  *
  *   Penjualan (omzet)
- *   − HPP           = stok awal + barang masuk − stok akhir
+ *   − HPP           = stok awal + barang masuk − barang keluar − stok akhir
  *   = Laba kotor
  *   − Biaya non-bahan (buku kas)
  *   = Laba bersih outlet
@@ -17,6 +17,33 @@
  *
  *   dari CK        kiriman antar-outlet, dinilai qty × HPP
  *   dari supplier  nota terima, dinilai harga nota yang sesungguhnya
+ *
+ * ============ DAN KENAPA ADA "BARANG KELUAR" ============
+ *
+ * Outlet yang MENGIRIM — Central Kitchen terutama — stoknya berkurang sebesar
+ * yang dikirim. Tanpa mengurangkannya, barang yang ia KIRIM terhitung sebagai
+ * barang yang ia PAKAI:
+ *
+ *     CK awal 100, kirim 60, akhir 40   -> HPP 60, padahal CK tidak memakai
+ *                                          apa pun
+ *     Outlet awal 0, masuk 60, akhir 10 -> HPP 50 (benar)
+ *     TOTAL BU                          -> 110, padahal grup cuma memakai 50
+ *
+ * Kiriman internal terhitung DUA KALI di tingkat BU: sekali sebagai barang
+ * yang hilang dari CK, sekali lagi lewat outlet penerimanya. Gejalanya di
+ * lapangan: food cost CK ratusan persen, dan total BU yang selalu terlalu
+ * besar — keduanya tercetak rapi tanpa satu pun galat.
+ *
+ * ============ KELUAR DINILAI DARI QTY DITERIMA ============
+ *
+ * Bukan qty dikirim, dan bedanya menentukan ke mana susut perjalanan jatuh.
+ *
+ *     kirim 60, diterima 50 (10 susut di jalan)
+ *     keluar = 60 -> CK: 100 − 40 − 60 = 0, susutnya LENYAP dari laporan
+ *     keluar = 50 -> CK: 100 − 40 − 50 = 10, susutnya jadi beban pengirim ✓
+ *
+ * Yang kedua yang benar: barangnya memang hilang, dan hilangnya di tangan
+ * pengirim.
  *
  * Keduanya dipisah karena pertanyaannya berbeda. "Belanja outlet terlalu
  * besar" ditindaklanjuti dengan memeriksa nota; "kiriman CK terlalu besar"
@@ -69,6 +96,7 @@ export function barisLabaRugi({
   stokAkhir = {},
   masukCk = {},
   masukSupplier = {},
+  keluarKiriman = {},
   omzet = 0,
   biayaNonBahan = 0,
   opnameAwal = null,
@@ -79,8 +107,9 @@ export function barisLabaRugi({
   const ck = num(masukCk.nilai);
   const sup = num(masukSupplier.nilai);
   const masuk = ck + sup;
+  const keluar = num(keluarKiriman.nilai);
 
-  const hpp = awal + masuk - akhir;
+  const hpp = awal + masuk - keluar - akhir;
   const jual = num(omzet);
   const labaKotor = jual - hpp;
   const biaya = num(biayaNonBahan);
@@ -97,7 +126,7 @@ export function barisLabaRugi({
   // Bahan tanpa HPP dihitung TERPISAH, tidak diam-diam dianggap nol. Nol
   // membuat HPP terlihat lebih kecil dan laba terlihat lebih besar — arah
   // kesalahan yang paling tidak akan dipertanyakan siapa pun.
-  const tanpaHpp = num(stokAwal.tanpaHpp) + num(stokAkhir.tanpaHpp) + num(masukCk.tanpaHpp);
+  const tanpaHpp = num(stokAwal.tanpaHpp) + num(stokAkhir.tanpaHpp) + num(masukCk.tanpaHpp) + num(keluarKiriman.tanpaHpp);
   const barisTanpaHarga = num(masukSupplier.barisTanpaHarga);
 
   return {
@@ -110,6 +139,9 @@ export function barisLabaRugi({
     nilaiCk: ck,
     nilaiSupplier: sup,
     masuk,
+    keluarKiriman,
+    keluar,
+    masukBersih: masuk - keluar,
     hpp,
     omzet: jual,
     labaKotor,
@@ -166,6 +198,7 @@ export function ringkasLabaRugi(baris) {
     nilaiCk: jumlah('nilaiCk'),
     nilaiSupplier: jumlah('nilaiSupplier'),
     masuk: jumlah('masuk'),
+    keluar: jumlah('keluar'),
     hpp,
     omzet,
     labaKotor,

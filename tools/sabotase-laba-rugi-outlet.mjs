@@ -118,8 +118,41 @@ sabotase(
 sabotase(
   'rumus HPP dibalik — stok akhir ditambah, bukan dikurangi',
   MOD,
+  '  const hpp = awal + masuk - keluar - akhir;',
+  '  const hpp = awal + masuk - keluar + akhir;',
+  MURNI
+);
+
+// ============ SABOTASE TERPENTING DI BERKAS INI ============
+//
+// Ini keadaan laporannya SEBELUM diperbaiki: barang yang DIKIRIM Central
+// Kitchen terhitung sebagai barang yang DIPAKAI, dan kiriman internal
+// terhitung dua kali di total BU. Gejalanya food cost CK 884,7% — terlihat di
+// berkas Excel sungguhan sebelum ini dibetulkan.
+sabotase(
+  'barang keluar tidak dikurangkan — kiriman internal terhitung DUA KALI',
+  MOD,
+  '  const hpp = awal + masuk - keluar - akhir;',
   '  const hpp = awal + masuk - akhir;',
-  '  const hpp = awal + masuk + akhir;',
+  MURNI
+);
+sabotase(
+  'barang keluar tidak dikurangkan — DAN auditnya harus ikut merah',
+  MOD,
+  '  const hpp = awal + masuk - keluar - akhir;',
+  '  const hpp = awal + masuk - akhir;',
+  AUDIT
+);
+
+// ============ SUSUT PERJALANAN TIDAK BOLEH LENYAP ============
+//
+// `keluar` dinilai qty DITERIMA. Memakai nilai lain membuat barang yang hilang
+// di jalan tidak muncul sebagai beban siapa pun.
+sabotase(
+  'barang keluar dinilai nol — susut perjalanan lenyap dari laporan',
+  MOD,
+  '  const keluar = num(keluarKiriman.nilai);',
+  '  const keluar = 0;',
   MURNI
 );
 
@@ -134,8 +167,8 @@ sabotase(
 sabotase(
   'HPP minus dipotong ke nol — tanda bahwa ada dokumen belum dicatat hilang',
   MOD,
-  '  const hpp = awal + masuk - akhir;',
-  '  const hpp = Math.max(0, awal + masuk - akhir);',
+  '  const hpp = awal + masuk - keluar - akhir;',
+  '  const hpp = Math.max(0, awal + masuk - keluar - akhir);',
   MURNI
 );
 
@@ -167,7 +200,7 @@ sabotase(
 sabotase(
   'bahan tanpa HPP tidak lagi dihitung — nilainya diam-diam nol',
   MOD,
-  '  const tanpaHpp = num(stokAwal.tanpaHpp) + num(stokAkhir.tanpaHpp) + num(masukCk.tanpaHpp);',
+  '  const tanpaHpp = num(stokAwal.tanpaHpp) + num(stokAkhir.tanpaHpp) + num(masukCk.tanpaHpp) + num(keluarKiriman.tanpaHpp);',
   '  const tanpaHpp = 0;',
   MURNI
 );
@@ -209,7 +242,7 @@ console.log('\nSABOTASE PERBAIKAN COGS:');
 // =====================================================================
 
 sabotase(
-  'nilai kiriman CK tidak lagi ditambahkan ke barang masuk — bug lamanya kembali',
+  'nilai kiriman masuk tidak lagi ditambahkan — bug lamanya kembali',
   SVC,
   '    pembelian.set(oid, (pembelian.get(oid) ?? 0) + k.nilai);',
   '    /* dibuang */',
@@ -217,25 +250,80 @@ sabotase(
 );
 
 sabotase(
+  'nilai kiriman KELUAR tidak dikurangkan di COGS — CK menghitung kirimannya sebagai pemakaian',
+  SVC,
+  '    pembelian.set(oid, (pembelian.get(oid) ?? 0) - k.nilai);',
+  '    /* dibuang */',
+  AUDIT
+);
+
+sabotase(
+  'kiriman cuma dihitung satu sisi — sisi keluarnya hilang',
+  SVC,
+  "    tambah(keluar, b.dispatches?.from_outlet_id, nilai, adaHpp);",
+  '    /* dibuang */',
+  AUDIT
+);
+
+sabotase(
+  'kiriman disaring per outlet DI SERVER — sisi keluar outlet terpilih terbuang',
+  SVC,
+  "      .lte('dispatches.received_at', isoTo(to));\n    return q.range(dari, sampai);",
+  "      .lte('dispatches.received_at', isoTo(to));\n    if (outletId) q = q.eq('dispatches.to_outlet_id', outletId);\n    return q.range(dari, sampai);",
+  AUDIT
+);
+
+sabotase(
+  'laporan Laba Rugi tidak lagi mengirim nilai barang keluar',
+  SVC,
+  '      keluarKiriman: kirimanDua.keluar.get(o.id) ?? kosong,',
+  '      /* dibuang */',
+  AUDIT
+);
+
+sabotase(
   'kiriman yang masih di jalan ikut dihitung — barang masuk lebih besar dari stoknya',
   SVC,
-  "      .eq('dispatches.status', 'received')\n      .gte('dispatches.received_at', isoFrom(from))\n      .lte('dispatches.received_at', isoTo(to));\n    if (outletId) q = q.eq('dispatches.to_outlet_id', outletId);\n    return q.range(dari, sampai);\n  });\n\n  const hasil = new Map();",
-  "      .gte('dispatches.received_at', isoFrom(from))\n      .lte('dispatches.received_at', isoTo(to));\n    if (outletId) q = q.eq('dispatches.to_outlet_id', outletId);\n    return q.range(dari, sampai);\n  });\n\n  const hasil = new Map();",
+  `to_outlet_id, status, received_at, business_unit_id)', {
+        count: 'exact'
+      })
+      .eq('dispatches.business_unit_id', businessUnitId)
+      .eq('dispatches.status', 'received')
+      .gte('dispatches.received_at', isoFrom(from))
+      .lte('dispatches.received_at', isoTo(to));`,
+  `to_outlet_id, status, received_at, business_unit_id)', {
+        count: 'exact'
+      })
+      .eq('dispatches.business_unit_id', businessUnitId)
+      .gte('dispatches.received_at', isoFrom(from))
+      .lte('dispatches.received_at', isoTo(to));`,
   AUDIT
 );
 
 sabotase(
   'kiriman dihitung per tanggal KIRIM — dua bulan salah sekaligus',
   SVC,
-  "      .gte('dispatches.received_at', isoFrom(from))\n      .lte('dispatches.received_at', isoTo(to));\n    if (outletId) q = q.eq('dispatches.to_outlet_id', outletId);\n    return q.range(dari, sampai);\n  });\n\n  const hasil = new Map();",
-  "      .gte('dispatches.created_at', isoFrom(from))\n      .lte('dispatches.created_at', isoTo(to));\n    if (outletId) q = q.eq('dispatches.to_outlet_id', outletId);\n    return q.range(dari, sampai);\n  });\n\n  const hasil = new Map();",
+  `to_outlet_id, status, received_at, business_unit_id)', {
+        count: 'exact'
+      })
+      .eq('dispatches.business_unit_id', businessUnitId)
+      .eq('dispatches.status', 'received')
+      .gte('dispatches.received_at', isoFrom(from))
+      .lte('dispatches.received_at', isoTo(to));`,
+  `to_outlet_id, status, received_at, business_unit_id)', {
+        count: 'exact'
+      })
+      .eq('dispatches.business_unit_id', businessUnitId)
+      .eq('dispatches.status', 'received')
+      .gte('dispatches.created_at', isoFrom(from))
+      .lte('dispatches.created_at', isoTo(to));`,
   AUDIT
 );
 
 sabotase(
   'catatan bahwa angka COGS BERUBAH dicabut — rekap lama jadi tak terjelaskan',
   SVC,
-  "      'PENTING: sejak perbaikan ini, kolom Barang Masuk memuat kiriman dari Central Kitchen, bukan hanya nota ' +",
+  "      'PENTING: sejak perbaikan ini, kolom Masuk − Keluar memuat kiriman antar-outlet di KEDUA arah, bukan hanya ' +",
   "      '' +",
   AUDIT
 );

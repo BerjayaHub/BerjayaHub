@@ -291,41 +291,72 @@ async function nilaiStokPerOutlet({ businessUnitId, outletId, tanggal, hpp }) {
  * Nilainya qty × HPP, pola yang sama dengan `rekap-kiriman.js`. Tidak ada
  * "harga beli" pada transfer internal; HPP satu-satunya nilai yang masuk akal.
  */
-async function nilaiKirimanMasuk({ businessUnitId, outletId, from, to, hpp }) {
+/**
+ * ============ DAN SISI KELUARNYA, YANG SEMPAT TIDAK ADA SAMA SEKALI ============
+ *
+ * Outlet yang MENGIRIM stoknya berkurang sebesar yang dikirim. Tanpa
+ * mengurangkannya, barang yang ia KIRIM terhitung sebagai barang yang ia
+ * PAKAI — dan kiriman internal terhitung DUA KALI di tingkat BU:
+ *
+ *     CK awal 100, kirim 60, akhir 40   -> COGS 60, padahal CK tidak memakai
+ *     Outlet awal 0, masuk 60, akhir 10 -> COGS 50 (benar)
+ *     TOTAL                             -> 110, padahal grup memakai 50
+ *
+ * Gejala lapangannya: food cost Central Kitchen ratusan persen.
+ *
+ * Nilainya dari qty DITERIMA, bukan qty dikirim. Kalau memakai qty dikirim,
+ * barang yang susut di perjalanan lenyap dari laporan; dengan qty diterima,
+ * susutnya tetap jadi beban pengirimnya — dan itu memang tempatnya hilang.
+ */
+async function nilaiKirimanPerOutlet({ businessUnitId, outletId, from, to, hpp }) {
   const baris = await ambilSemua((dari, sampai) => {
-    let q = supabase
+    const q = supabase
       .from('dispatch_items')
       // `!inner` supaya saringan status & tanggal bisa menempel ke headernya.
-      .select('product_id, received_qty, dispatches!inner(to_outlet_id, status, received_at, business_unit_id)', {
+      //
+      // TIDAK disaring per outlet di sini walau `outletId` ada: satu baris
+      // yang sama dibutuhkan DUA KALI — sebagai "masuk" bagi tujuannya dan
+      // "keluar" bagi asalnya. Menyaringnya di server akan membuang sisi yang
+      // satunya, dan outlet yang dipilih kehilangan sisi keluarnya.
+      .select('product_id, received_qty, dispatches!inner(from_outlet_id, to_outlet_id, status, received_at, business_unit_id)', {
         count: 'exact'
       })
       .eq('dispatches.business_unit_id', businessUnitId)
       .eq('dispatches.status', 'received')
       .gte('dispatches.received_at', isoFrom(from))
       .lte('dispatches.received_at', isoTo(to));
-    if (outletId) q = q.eq('dispatches.to_outlet_id', outletId);
     return q.range(dari, sampai);
   });
 
-  const hasil = new Map();
-  for (const b of baris) {
-    const oid = b.dispatches?.to_outlet_id;
-    if (!oid) continue;
-    const qty = Number(b.received_qty);
-    if (!Number.isFinite(qty) || qty <= 0) continue;
-
-    const h = hpp.get(b.product_id);
-    const adaHpp = h !== null && h !== undefined && Number.isFinite(Number(h));
-    const kini = hasil.get(oid) ?? { nilai: 0, tanpaHpp: 0, jumlahItem: 0 };
+  const masuk = new Map();
+  const keluar = new Map();
+  const tambah = (peta, oid, nilai, adaHpp) => {
+    if (!oid) return;
+    const kini = peta.get(oid) ?? { nilai: 0, tanpaHpp: 0, jumlahItem: 0 };
     kini.jumlahItem += 1;
     // Bahan tanpa HPP DIHITUNG TERPISAH, tidak diam-diam dianggap nol. Nol
-    // membuat COGS terlihat lebih kecil tanpa ada yang menandainya — persis
-    // bentuk kegagalan yang sedang diperbaiki berkas ini.
-    if (adaHpp) kini.nilai += Number(h) * qty;
+    // membuat COGS terlihat lebih kecil tanpa ada yang menandainya.
+    if (adaHpp) kini.nilai += nilai;
     else kini.tanpaHpp += 1;
-    hasil.set(oid, kini);
+    peta.set(oid, kini);
+  };
+
+  for (const b of baris) {
+    const qty = Number(b.received_qty);
+    if (!Number.isFinite(qty) || qty <= 0) continue;
+    const h = hpp.get(b.product_id);
+    const adaHpp = h !== null && h !== undefined && Number.isFinite(Number(h));
+    const nilai = adaHpp ? Number(h) * qty : 0;
+    tambah(masuk, b.dispatches?.to_outlet_id, nilai, adaHpp);
+    tambah(keluar, b.dispatches?.from_outlet_id, nilai, adaHpp);
   }
-  return hasil;
+
+  // Saringan outlet diterapkan DI SINI, sesudah kedua sisi terhitung.
+  if (outletId) {
+    const satu = (peta) => new Map(peta.has(outletId) ? [[outletId, peta.get(outletId)]] : []);
+    return { masuk: satu(masuk), keluar: satu(keluar) };
+  }
+  return { masuk, keluar };
 }
 
 async function buildCogs({ businessUnitId, outletId, from, to }) {
@@ -367,7 +398,7 @@ async function buildCogs({ businessUnitId, outletId, from, to }) {
       if (outletId) q = q.eq('outlet_id', outletId);
       return q.range(dari, sampai);
     }),
-    nilaiKirimanMasuk({ businessUnitId, outletId, from, to, hpp })
+    nilaiKirimanPerOutlet({ businessUnitId, outletId, from, to, hpp })
   ]);
 
   // Nota yang DIBATALKAN (0131) barangnya sudah ditarik — ikut menghitungnya
@@ -380,12 +411,23 @@ async function buildCogs({ businessUnitId, outletId, from, to }) {
 
   // ============ KIRIMAN DARI CK IKUT "BARANG MASUK" ============
   //
-  // Lihat penjelasan panjang di `nilaiKirimanMasuk`. Tanpa baris ini, COGS
+  // Lihat penjelasan panjang di `nilaiKirimanPerOutlet`. Tanpa baris ini, COGS
   // outlet yang dipasok CK jauh lebih kecil dari seharusnya — tanpa galat.
   let tanpaHppKiriman = 0;
-  for (const [oid, k] of kirimanMasuk) {
+  for (const [oid, k] of kirimanMasuk.masuk) {
     pembelian.set(oid, (pembelian.get(oid) ?? 0) + k.nilai);
     tanpaHppKiriman += k.tanpaHpp;
+  }
+
+  // ============ DAN SISI KELUARNYA DIKURANGKAN ============
+  //
+  // Lihat penjelasan di `nilaiKirimanPerOutlet`. Tanpa ini, barang yang
+  // DIKIRIM CK terhitung sebagai barang yang DIPAKAI CK, dan total BU
+  // menghitung kiriman internal dua kali.
+  const keluarKiriman = new Map();
+  for (const [oid, k] of kirimanMasuk.keluar) {
+    keluarKiriman.set(oid, k.nilai);
+    pembelian.set(oid, (pembelian.get(oid) ?? 0) - k.nilai);
   }
 
   const kosong = { nilai: 0, tanpaHpp: 0, jumlahItem: 0 };
@@ -434,7 +476,7 @@ async function buildCogs({ businessUnitId, outletId, from, to }) {
       { header: 'Outlet', width: 1.6 },
       { header: 'Opname Awal', width: 1 },
       { header: 'Stok Awal', width: 1.2, numeric: true },
-      { header: 'Barang Masuk', width: 1.3, numeric: true },
+      { header: 'Masuk − Keluar', width: 1.4, numeric: true },
       { header: 'Opname Akhir', width: 1 },
       { header: 'Stok Akhir', width: 1.2, numeric: true },
       { header: 'COGS', width: 1.3, numeric: true },
@@ -444,7 +486,7 @@ async function buildCogs({ businessUnitId, outletId, from, to }) {
     bold: baris.length > 1 ? [rows.length - 1] : [],
     summary: [
       { label: 'Stok awal', value: rp(total.awal) },
-      { label: 'Barang masuk (CK + supplier)', value: rp(total.pembelian) },
+      { label: 'Masuk − keluar (bersih)', value: rp(total.pembelian) },
       { label: 'Stok akhir', value: rp(total.akhir) },
       { label: 'COGS', value: rp(total.cogs) },
       {
@@ -458,15 +500,19 @@ async function buildCogs({ businessUnitId, outletId, from, to }) {
       // Rekap yang terlanjur dicetak sebelum perbaikan ini memuat COGS yang
       // jauh lebih kecil. Tanpa kalimat ini, orang yang membandingkannya akan
       // mengira salah satunya rusak — dan tidak ada cara menjawabnya.
-      'PENTING: sejak perbaikan ini, kolom Barang Masuk memuat kiriman dari Central Kitchen, bukan hanya nota ' +
-      'supplier. Sebelumnya kiriman CK menaikkan stok akhir tapi tidak pernah masuk sisi barang masuk, sehingga ' +
-      'COGS outlet yang dipasok CK tercetak jauh lebih kecil dari seharusnya. Rekap lama yang sudah dicetak ' +
-      'memuat angka yang itu. ' +
+      'PENTING: sejak perbaikan ini, kolom Masuk − Keluar memuat kiriman antar-outlet di KEDUA arah, bukan hanya ' +
+      'nota supplier. Sebelumnya kiriman yang DITERIMA menaikkan stok akhir tanpa pernah masuk sisi barang masuk ' +
+      '(COGS outlet penerima tercetak terlalu kecil), dan kiriman yang DIKIRIM menurunkan stok tanpa dikurangkan ' +
+      '(COGS pengirim tercetak terlalu besar, dan total BU menghitung kiriman internal dua kali). Rekap lama yang ' +
+      'sudah dicetak memuat angka yang itu. ' +
       (tanpaHppKiriman
         ? `${tanpaHppKiriman} baris kiriman belum punya HPP dan nilainya dihitung nol — lengkapi HPP bahannya supaya COGS tidak terlalu kecil. `
         : '') +
-      'COGS = stok awal + barang masuk − stok akhir. Barang masuk = nota supplier (harga nota) + kiriman CK ' +
-      '(qty diterima × HPP, dihitung pada TANGGAL TERIMA supaya cocok dengan saldo stok). ' +
+      'COGS = stok awal + (barang masuk − barang keluar) − stok akhir. Masuk = nota supplier (harga nota) + ' +
+      'kiriman diterima dari outlet lain; keluar = kiriman yang DIKIRIM outlet ini. Keduanya qty diterima × HPP, ' +
+      'dihitung pada TANGGAL TERIMA supaya cocok dengan saldo stok. ' +
+      'Barang keluar dikurangkan supaya barang yang DIKIRIM Central Kitchen tidak terhitung sebagai barang yang ' +
+      'DIPAKAI Central Kitchen — tanpa itu kiriman internal terhitung dua kali dan total BU selalu terlalu besar. ' +
       'Stok awal = nilai SALDO STOK pada akhir hari sebelum ' +
       `${from}; stok akhir = nilai saldo stok pada akhir hari ${to}. Keduanya = Σ (saldo × HPP), memakai ` +
       'saldo semua bahan — bukan nilai satu sesi opname, karena sesi perbaikan hanya berisi bahan yang dibetulkan ' +
@@ -1151,12 +1197,13 @@ async function buildLabaRugiOutlet({ businessUnitId, outletId, from, to }) {
     .limit(10000);
   if (outletId) salesQ = salesQ.eq('outlet_id', outletId);
 
-  const [stokAwal, stokAkhir, petaAwal, petaAkhir, ck, sup, biaya, salesRes] = await Promise.all([
+  const [stokAwal, stokAkhir, petaAwal, petaAkhir, ck, kirimanDua, sup, biaya, salesRes] = await Promise.all([
     nilaiStokPerOutlet({ businessUnitId, outletId, tanggal: hariSebelum, hpp }),
     nilaiStokPerOutlet({ businessUnitId, outletId, tanggal: to, hpp }),
     opnameTerakhirPerOutlet({ businessUnitId, outletIds, sampai: hariSebelum }),
     opnameTerakhirPerOutlet({ businessUnitId, outletIds, sampai: to, sejak: from }),
     rincianKirimanMasuk({ businessUnitId, outletId, from, to, hpp }),
+    nilaiKirimanPerOutlet({ businessUnitId, outletId, from, to, hpp }),
     rincianNotaSupplier({ businessUnitId, outletId, from, to }),
     biayaNonBahanPerOutlet({ businessUnitId, outletId, from, to }),
     salesQ
@@ -1177,6 +1224,7 @@ async function buildLabaRugiOutlet({ businessUnitId, outletId, from, to }) {
       stokAkhir: stokAkhir.get(o.id) ?? kosong,
       masukCk: ck.get(o.id) ?? kosong,
       masukSupplier: sup.get(o.id) ?? { nilai: 0, barisTanpaHarga: 0 },
+      keluarKiriman: kirimanDua.keluar.get(o.id) ?? kosong,
       omzet: omzet.get(o.id) ?? 0,
       biayaNonBahan: biaya.get(o.id)?.nilai ?? 0,
       opnameAwal: petaAwal.get(o.id) ? { tanggal: petaAwal.get(o.id).count_date } : null,
@@ -1197,6 +1245,7 @@ async function buildLabaRugiOutlet({ businessUnitId, outletId, from, to }) {
     rp(b.awal),
     rp(b.nilaiCk),
     rp(b.nilaiSupplier),
+    rp(b.keluar),
     rp(b.akhir),
     rp(b.hpp),
     persen(b.foodCostPersen),
@@ -1213,6 +1262,7 @@ async function buildLabaRugiOutlet({ businessUnitId, outletId, from, to }) {
       rp(total.awal),
       rp(total.nilaiCk),
       rp(total.nilaiSupplier),
+      rp(total.keluar),
       rp(total.akhir),
       rp(total.hpp),
       persen(total.foodCostPersen),
@@ -1295,6 +1345,7 @@ async function buildLabaRugiOutlet({ businessUnitId, outletId, from, to }) {
       { header: 'Stok Awal', width: 1.2, numeric: true },
       { header: 'Masuk CK', width: 1.2, numeric: true },
       { header: 'Masuk Supplier', width: 1.3, numeric: true },
+      { header: 'Keluar (kirim)', width: 1.2, numeric: true },
       { header: 'Stok Akhir', width: 1.2, numeric: true },
       { header: 'HPP', width: 1.2, numeric: true },
       { header: 'Food Cost', width: 0.9 },
@@ -1308,6 +1359,7 @@ async function buildLabaRugiOutlet({ businessUnitId, outletId, from, to }) {
     bold: baris.length > 1 ? [rows.length - 1] : [],
     summary: [
       { label: 'Penjualan', value: rp(total.omzet) },
+      { label: 'Barang keluar (kiriman)', value: rp(total.keluar) },
       { label: 'HPP', value: rp(total.hpp) },
       { label: 'Food cost', value: persen(total.foodCostPersen) },
       { label: 'Laba kotor', value: rp(total.labaKotor) },
@@ -1317,11 +1369,16 @@ async function buildLabaRugiOutlet({ businessUnitId, outletId, from, to }) {
     ],
     note:
       `${pesanLabaRugi(total)} ` +
-      'HPP = stok awal + barang masuk (CK + supplier) − stok akhir, yaitu barang yang BENAR-BENAR hilang dari ' +
+      'HPP = stok awal + barang masuk (CK + supplier) − barang KELUAR − stok akhir, yaitu barang yang ' +
+      'BENAR-BENAR hilang dari ' +
       'rak — bukan HPP resep. Selisihnya terhadap laporan Laba Kotor adalah tumpahan, kelebihan takar, waste tak ' +
       'tercatat, dan kehilangan. ' +
-      'Kiriman CK dinilai qty diterima × HPP pada TANGGAL TERIMA (bukan tanggal kirim) supaya cocok dengan saldo ' +
+      'Kiriman dinilai qty diterima × HPP pada TANGGAL TERIMA (bukan tanggal kirim) supaya cocok dengan saldo ' +
       'stok; nota supplier memakai harga notanya sendiri, dan nota yang dibatalkan tidak ikut. ' +
+      'Kolom Keluar adalah kiriman yang DIKIRIM outlet ini — dikurangkan supaya barang yang dikirim Central ' +
+      'Kitchen tidak terhitung sebagai barang yang dipakainya. Tanpa itu food cost CK terbaca ratusan persen dan ' +
+      'total BU menghitung kiriman internal DUA KALI. Nilainya memakai qty DITERIMA, jadi susut di perjalanan ' +
+      'tetap jadi beban pengirimnya. ' +
       'Biaya Lain = kas keluar yang BUKAN pembayaran nota bahan, menurut outlet peruntukannya; yang dicoret tidak ' +
       'ikut. Gaji/NBM TIDAK termasuk — lihat Rekap Penggajian. ' +
       (outletId
