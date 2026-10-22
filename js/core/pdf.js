@@ -45,7 +45,17 @@ export async function exportTablePDF({
   rows,
   filename = 'laporan',
   maxLines = 3,
-  orientation = 'landscape'
+  orientation = 'landscape',
+  // ============ LAMPIRAN FOTO DI HALAMAN BELAKANG ============
+  //
+  // [{ dataUrl, penanda }] — dicetak SESUDAH seluruh tabel, dua foto per
+  // halaman, masing-masing dengan keterangannya.
+  //
+  // Di belakang dan bukan di dalam baris: foto bukti kas berukuran wajar
+  // membuat tiap baris setinggi 34pt, dan laporan 300 baris jadi 60 halaman
+  // yang hampir seluruhnya ruang kosong. Tabelnya dibaca, lampirannya dirujuk —
+  // dua kebutuhan berbeda yang tidak perlu dipaksa satu tata letak.
+  lampiranFoto = []
 }) {
   const JsPDF = await loadJsPDF();
   const doc = new JsPDF({ unit: 'pt', format: 'a4', orientation });
@@ -164,6 +174,38 @@ export async function exportTablePDF({
   doc.setFontSize(8);
   doc.setTextColor(120);
   doc.text(`Dicetak ${new Date().toLocaleString('id-ID')} — Berjaya Hub`, M, y);
+
+  // --- Lampiran foto
+  const lampiran = (lampiranFoto ?? []).filter((f) => f && f.dataUrl);
+  if (lampiran.length) {
+    const PER_HAL = 2;
+    const fotoW = (W - M * 2 - 20) / PER_HAL;
+    const fotoH = Math.min(H - M * 2 - 70, fotoW * 1.35);
+
+    for (let i = 0; i < lampiran.length; i += PER_HAL) {
+      doc.addPage();
+      doc.setFontSize(11);
+      doc.setTextColor(20);
+      doc.text(`Lampiran foto (${i + 1}–${Math.min(i + PER_HAL, lampiran.length)} dari ${lampiran.length})`, M, M + 4);
+
+      lampiran.slice(i, i + PER_HAL).forEach((f, k) => {
+        const x = M + k * (fotoW + 20);
+        const atas = M + 24;
+        doc.setFontSize(8);
+        doc.setTextColor(90);
+        // Penanda ditulis SEBELUM gambarnya digambar, jadi ia tetap ada
+        // walaupun `addImage` melempar. Lampiran tanpa penanda adalah tumpukan
+        // gambar yang tidak bisa dicocokkan dengan barisnya.
+        doc.text(doc.splitTextToSize(String(f.penanda ?? '-'), fotoW), x, atas);
+        try {
+          doc.addImage(f.dataUrl, 'JPEG', x, atas + 14, fotoW, fotoH);
+        } catch {
+          doc.setTextColor(176, 58, 46);
+          doc.text('(foto gagal dimuat)', x, atas + 28);
+        }
+      });
+    }
+  }
 
   doc.save(`${filename}.pdf`);
 }

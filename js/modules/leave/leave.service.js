@@ -1,5 +1,6 @@
 import { supabase } from '../../config/supabase-client.js';
 import { compressImage } from '../../core/image-compress.js';
+import { ambilSemua, ambilPerPotong } from '../../core/ambil-semua.js';
 
 // ---- Util ----
 
@@ -143,6 +144,64 @@ export async function removeStaffEntitlement(userId, leaveTypeId) {
   if (error) throw error;
 }
 
+/**
+ * ADMIN. Bahan mentah untuk layar "Sisa Cuti semua staff".
+ *
+ * Memulangkan data MENTAH, bukan tabel jadi — aritmetikanya ada di
+ * `sisa-cuti.js` supaya bisa diuji tanpa database. Berkas ini hanya mengambil.
+ *
+ * ============ KENAPA SATU PERMINTAAN PER TABEL, BUKAN PER STAFF ============
+ *
+ * Tab "Hak & Jatah" memanggil `listStaffEntitlements(userId)` satu per satu —
+ * wajar di sana, karena ia membuka satu staff pada satu waktu. Di sini pola itu
+ * berarti 40 staff = 40 permintaan berurutan, dan layarnya menggantung belasan
+ * detik di wifi outlet.
+ *
+ * ============ DAN KENAPA LEWAT `ambilSemua` ============
+ *
+ * PostgREST memotong jawaban di ~1.000 baris TANPA error. Satu BU dengan 40
+ * staff yang masing-masing mengajukan cuti sebulan sekali sudah melewati itu
+ * dalam dua tahun — dan yang terjadi bukan galat, melainkan beberapa staff
+ * yang sisanya terlihat lebih besar daripada seharusnya. Persis bentuk yang
+ * sudah pernah memakan waktu di resep.
+ */
+export async function dataSisaCutiBu(businessUnitId, tahun) {
+  const staff = await listBuStaff(businessUnitId);
+  const ids = staff.map((s) => s.user_id).filter(Boolean);
+  if (!ids.length) return { staff: [], jenis: [], entitlements: [], pengajuan: [] };
+
+  const [jenis, entitlements, pengajuan] = await Promise.all([
+    listLeaveTypesForAdmin(businessUnitId),
+    // `.in()` dipecah: seribu UUID di query string menghasilkan URL puluhan
+    // kilobyte, dan itu ditolak sebelum sampai ke database.
+    ambilPerPotong(ids, async (potong) =>
+      ambilSemua(async (dari, sampai) =>
+        supabase
+          .from('leave_entitlements')
+          .select('user_id, leave_type_id, quota_days')
+          .in('user_id', potong)
+          .range(dari, sampai)
+      )
+    ),
+    ambilSemua(async (dari, sampai) =>
+      supabase
+        .from('leave_requests')
+        .select('user_id, leave_type_id, day_count, status, start_date')
+        .eq('business_unit_id', businessUnitId)
+        // Hanya dua status yang dipakai perhitungan. `rejected` & `cancelled`
+        // disaring DI SERVER, bukan di browser: keduanya tidak pernah dipakai
+        // di layar ini, dan membawanya pulang cuma memperbesar peluang
+        // pemotongan ~1.000 baris mengenai data yang benar-benar dibutuhkan.
+        .in('status', ['approved', 'pending'])
+        .gte('start_date', `${tahun}-01-01`)
+        .lte('start_date', `${tahun}-12-31`)
+        .range(dari, sampai)
+    )
+  ]);
+
+  return { staff, jenis, entitlements, pengajuan };
+}
+
 // ---- Pengajuan (staff) ----
 
 export async function listMyLeaveRequests() {
@@ -212,7 +271,22 @@ export async function getAttachmentUrl(path) {
 
 // ---- Admin ----
 
-export async function listLeaveRequestsForAdmin({ businessUnitId, status }) {
+/**
+ * @param {object} o
+ *   dari/sampai  'YYYY-MM-DD' opsional — disaring pada TANGGAL CUTI yang
+ *                BERSINGGUNGAN dengan rentang, bukan yang mulai di dalamnya.
+ *
+ * ============ BERSINGGUNGAN, BUKAN "MULAI DI DALAM RENTANG" ============
+ *
+ * Cuti 28 Sep – 3 Okt TIDAK mulai di bulan Oktober. Kalau saringannya memakai
+ * `start_date >= dari`, cuti itu hilang dari daftar Oktober — padahal orangnya
+ * memang tidak masuk tanggal 1, 2, dan 3. Admin yang menyusun jadwal shift
+ * Oktober melihat daftar yang bersih dan menugaskan orang yang sedang cuti.
+ *
+ * Jadi syaratnya: mulai sebelum/pada `sampai`, DAN berakhir pada/sesudah
+ * `dari`.
+ */
+export async function listLeaveRequestsForAdmin({ businessUnitId, status, dari = null, sampai = null }) {
   let query = supabase
     .from('leave_requests')
     .select(
@@ -228,6 +302,8 @@ export async function listLeaveRequestsForAdmin({ businessUnitId, status }) {
     .order('created_at', { ascending: false })
     .limit(300);
   if (status) query = query.eq('status', status);
+  if (sampai) query = query.lte('start_date', sampai);
+  if (dari) query = query.gte('end_date', dari);
   const { data, error } = await query;
   if (error) throw error;
   return data ?? [];

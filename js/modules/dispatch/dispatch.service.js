@@ -352,6 +352,11 @@ export async function getDispatchItems(dispatchId) {
     // nol, dan bukan "sesuai kiriman".
     .select(
       'id, sent_qty, received_qty, product_id, keterangan, ordered_qty, dicek_qty, dicek_at, ' +
+        // `revisi` ikut sejak 0165: riwayat perubahan SESUDAH SJ diterima,
+        // beserta siapa yang mengubahnya. Dibawa di sini, bukan diambil lewat
+        // permintaan kedua, supaya dialog revisi tidak pernah menampilkan
+        // jejak yang tertinggal satu langkah dari angkanya.
+        'revisi, ' +
         'pengecek:user_profiles!dicek_by(full_name), products(name, base_unit)'
     )
     .eq('dispatch_id', dispatchId);
@@ -405,6 +410,27 @@ export async function teruskanKiriman(dispatchId, tujuanOutletId, alasan) {
  *
  * Hanya mengisi yang MASIH KOSONG — keterangan pengirim bukan milik penerima.
  */
+/**
+ * Revisi SJ yang SUDAH diterima (0165).
+ *
+ * @param {Array} items [{ product_id, received_qty, sent_qty? }] — HANYA yang
+ *   berubah. Baris yang tidak disebut tidak disentuh server; mengirim
+ *   seluruhnya akan menulis gerakan stok bernilai nol untuk yang tidak berubah.
+ *
+ * Seluruh penjaganya ada di database (status, wewenang, alasan wajib). Yang di
+ * `revisi-kiriman.js` cuma menolak lebih dulu dengan kalimat yang sama — dua
+ * lapis, dan yang menentukan tetap yang bawah.
+ */
+export async function revisiKirimanDiterima(dispatchId, items, alasan) {
+  const { data, error } = await supabase.rpc('revisi_kiriman_diterima', {
+    p_dispatch: dispatchId,
+    p_items: items,
+    p_alasan: alasan
+  });
+  if (error) throw error;
+  return data ?? {};
+}
+
 export async function lengkapiKeteranganKiriman(dispatchId, items) {
   const isi = (items ?? []).filter((i) => String(i.keterangan ?? '').trim());
   if (!isi.length) return 0;

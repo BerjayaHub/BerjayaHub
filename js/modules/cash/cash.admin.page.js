@@ -28,6 +28,7 @@ import { bukaDialogNota } from '../inventory/nota-dialog.js';
 import { pecahKeterangan, petaNotaPerEntri } from './keterangan-nota.js';
 import { keadaanKoreksi, totalKas } from './koreksi-kas.js';
 import { LABEL_PENGELUARAN, saringPengeluaran, ringkasPengeluaran } from './jenis-pengeluaran.js';
+import { unduhKasExcel, unduhKasPDF } from './ekspor-kas.js';
 import { kodeKas, cocokKodeKas } from './kode-kas.js';
 import { buKasEntri, supplierKasWajib, opsiSupplierKas, periksaSupplierKas, LABEL_PENERIMA } from './supplier-kas.js';
 import { opsiKantong, namaKantong, tanpaKantong, NAMA_TANPA_KANTONG } from './kantong-wajib.js';
@@ -205,6 +206,17 @@ async function loadMutasi(content) {
           : ''
       }
     </p>
+    <!-- Unduhan mengikuti APA YANG TERLIHAT, termasuk saringan jenis
+         pengeluaran dan pencarian nomor kas. Unduhan yang memuat baris yang
+         tidak terlihat saat tombolnya ditekan adalah bentuk kegagalan yang
+         baru ketahuan setelah berkasnya dikirim ke orang lain. -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 10px">
+      <button id="cm-xlsx">⬇ Export Excel (+ foto)</button>
+      <button id="cm-pdf">⬇ Export PDF (+ lampiran foto)</button>
+      <span style="font-size:0.78rem;color:var(--color-text-muted)">
+        ${rows.length} baris terlihat · tiap nota dibentangkan jadi baris per barang
+      </span>
+    </div>
     <div class="table-scroll"><table class="data-table kartu-sempit">
       <thead><tr><th style="width:30px"></th><th>No. Kas</th><th>Tanggal</th><th>Pemegang</th><th>Kantong</th><th>Jenis</th><th>Kategori / Lawan</th><th>Jumlah</th><th>Supplier</th><th>Bukti</th><th>Aksi</th></tr></thead>
       <tbody>
@@ -275,6 +287,45 @@ async function loadMutasi(content) {
       </span>
     </div>
   `;
+  // ============ UNDUHAN MEMAKAI `rows`, BUKAN `semuaBaris` ============
+  //
+  // `rows` adalah yang LOLOS seluruh saringan dan benar-benar tergambar.
+  // `semuaBaris` memuat yang tersembunyi juga. Memakai yang kedua menghasilkan
+  // berkas yang isinya berbeda dari layar saat tombolnya ditekan — dan karena
+  // berkas itu dikirim ke orang lain, salahnya baru ketahuan di sana.
+  const judulUnduh = 'Mutasi Kas';
+  const subjudulUnduh =
+    `Periode ${from || '…'} s/d ${to || '…'}` +
+    (holderId ? ` · pemegang tertentu` : ' · semua pemegang') +
+    (saringBahan ? ` · saringan: ${LABEL_PENGELUARAN[saringBahan] ?? saringBahan}` : '') +
+    (cariKode.trim() ? ` · cari "${cariKode.trim()}"` : '');
+  const namaBerkas = `mutasi-kas-${(from || 'awal').replace(/-/g, '')}-${(to || 'akhir').replace(/-/g, '')}`;
+
+  const pasangUnduh = (id, fn, apa) =>
+    result.querySelector(id)?.addEventListener(
+      'click',
+      sekaliJalan(async (ev) => {
+        const tombol = ev.currentTarget;
+        const semula = tombol.textContent;
+        // Fotonya diunduh satu per satu dari Supabase lalu dikecilkan; untuk
+        // 50 baris berfoto itu belasan detik. Tanpa penanda, tombol yang diam
+        // terbaca seperti tombol yang rusak — dan orang menekannya lagi.
+        tombol.textContent = `Menyiapkan ${apa}…`;
+        tombol.disabled = true;
+        try {
+          const h = await fn({ entries: rows, judul: judulUnduh, subjudul: subjudulUnduh, namaBerkas });
+          toast(h.pesan ?? `${apa} terunduh.`, 'success');
+        } catch (e) {
+          toast(e.message ?? `Gagal menyiapkan ${apa}.`, 'error');
+        } finally {
+          tombol.textContent = semula;
+          tombol.disabled = false;
+        }
+      })
+    );
+  pasangUnduh('#cm-xlsx', unduhKasExcel, 'Excel');
+  pasangUnduh('#cm-pdf', unduhKasPDF, 'PDF');
+
   result.querySelectorAll('.btn-proof').forEach((btn) =>
     btn.addEventListener('click', async () => {
       try {

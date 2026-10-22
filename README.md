@@ -9079,3 +9079,200 @@ di berkas yang baru. Pelajaran yang dicatat di satu tempat tidak otomatis ikut
 ke tempat berikutnya; yang menangkapnya tetap harness-nya, bukan ingatan.
 
 - [x] **Notifikasi Telegram setoran konten** (`0164`) — 20 tes PGlite, 65 sabotase
+
+---
+
+## Saringan nama & ekspor berfoto (lima perubahan)
+
+> *"tambahkan satu tab lagi … sisa cuti semua staff / filter nama staff dan filter tanggal / semua filter di modul presensi berikan filter nama, termasuk di nbm / cash ledger export excel dan pdf beserta kolom foto nota / tab nota terima tambahkan sheet per nota"*
+
+### Satu bentuk kegagalan, lima tempat
+
+Kelimanya menghasilkan **berkas atau layar yang isinya tidak sama dengan yang
+dikira orang** — dan empat dari lima berkasnya dikirim ke orang lain (akuntan,
+grup WhatsApp, lampiran tagihan). Kegagalannya karena itu tidak terlihat di
+komputer yang membuatnya.
+
+| Yang dijaga | Kalau tidak |
+|---|---|
+| Saringan nama diterapkan **sebelum** `lastRecords` | layar 1 orang, PDF 40 orang |
+| Saringan masuk **judul** rekap NBM | rekap upah satu orang terbaca sebagai rekap seluruh outlet yang kehilangan orang |
+| Unduhan kas memakai `rows`, bukan `semuaBaris` | berkas memuat baris yang tidak terlihat saat tombolnya ditekan |
+| Nominal hanya di baris **pertama** tiap nota | kolom bernama "Nominal" berisi angka di tiap baris — dan kolom seperti itu **pasti** dijumlahkan orang |
+| Nama sheet dibersihkan dari `: \ / ? * [ ]` | `INV/2026/09` membuat Excel menolak **seluruh berkasnya**, tanpa menyebut sheet mana |
+| Batas 60 nota **menolak** | memotong diam-diam di nota ke-60 = separuh tagihan tidak tercocokkan |
+
+### Tiga keadaan jatah cuti yang tidak boleh dilebur
+
+`sisa` bernilai `null` untuk **dua** keadaan yang berbeda, dan layar yang hanya
+membaca `sisa` menampilkan keduanya sama:
+
+- **belum diberi** — staff belum didaftarkan di jenis cuti itu (admin lupa)
+- **tanpa batas** — sudah didaftarkan, jatahnya sengaja belum dibatasi
+
+Ditambah yang ketiga: jenis cuti yang memang **tidak memotong jatah**, di mana
+"sisa" tidak punya arti sama sekali. Kalau ketiganya jadi satu angka, cuti
+sakit terbaca "habis" dan staff ditolak mengajukan cuti yang belum dibatasi
+siapa pun.
+
+`Number(null)` adalah **0**, dan 0 hari adalah jatah yang sah — jadi null
+diperiksa **sebelum** dikonversi, bukan sesudah. Jebakan yang sama sudah
+menggigit dua kali di repo ini, dan tetap perlu dituliskan lagi di sini.
+
+### Pengajuan tertunda dilaporkan terpisah, tidak dijumlahkan
+
+Admin yang melihat "sisa 3" lalu menyetujui dua pengajuan tertunda @2 hari akan
+membuat sisanya minus. Menambahkannya diam-diam ke `terpakai` memperbaiki itu —
+tapi menghasilkan **sisa yang berbeda dari yang dilihat staff di aplikasinya
+sendiri**, dan pertanyaan itu tidak bisa dijawab siapa pun. Jadi tertunda
+ditampilkan sebagai `+n menunggu` di bawah angkanya.
+
+### Rentang cuti memakai persinggungan, bukan "mulai di dalam rentang"
+
+Cuti 28 Sep – 3 Okt **tidak mulai** di bulan Oktober. Dengan
+`start_date >= dari`, ia hilang dari daftar Oktober — dan admin yang menyusun
+shift Oktober melihat daftar bersih lalu menugaskan orang yang sedang cuti.
+Syaratnya: `start_date <= sampai` **dan** `end_date >= dari`.
+
+### `cash_entries` tidak punya daftar barang
+
+Kaitan ke nota hanya ada dari arah sebaliknya: `goods_receipts.payment_entry_id`
+menunjuk entri kas yang **membayar** nota itu. Jadi entri kas terbagi dua, dan
+keduanya tetap terlihat — entri bernota dibentangkan jadi satu baris per barang,
+entri lain (biaya, gaji, NBM) tetap satu baris berkolom barang kosong.
+
+Yang kedua ikut dengan sengaja: menyaringnya keluar membuat total laporan tidak
+pernah sama dengan saldo di layar Mutasi Kas, dan **laporan yang totalnya
+berbeda tanpa penjelasan selalu disangka salah hitung, bukan disangka saringan.**
+
+Nota yang ditunjuk `penyesuaian_nota` **tidak** dibentangkan — itu entri
+koreksi, bukan pembayaran, dan membentangkannya membuat daftar barang yang sama
+muncul dua kali.
+
+### "Tepat satu kolom foto" yang tidak pernah benar
+
+JSDoc `exportTableXLSXFoto` menyatakan hanya satu kolom boleh `foto: true`.
+Perulangannya sebenarnya sudah memperlakukan tiap kolom foto sendiri-sendiri
+sejak awal; yang mengunci cuma perhitungan tinggi baris, yang memakai
+`findIndex` — **kolom foto kedua akan tergambar dengan benar tapi barisnya
+terlalu pendek.** Gagal diam-diam, bukan menolak. Batasannya dicabut, bukan
+"didokumentasikan ulang".
+
+### Empat sabotase yang lolos — dua salah audit, dua salah sabotase
+
+| Lolos | Sebab sebenarnya |
+|---|---|
+| `ambilSemua` dicabut dari `leave_requests` | audit mencari kata `ambilSemua` se-blok, dan menemukan milik `leave_entitlements` |
+| `?? 'GAGAL'` dicabut di `siapkanLaporanKas` | audit mencarinya se-berkas, dan menemukan milik `unduhKasExcel` |
+| `lastRecords = [...records]` | **sabotasenya** yang salah — menyalin array yang sudah disaring tidak mengubah apa pun |
+| `const records` → `const recordsX` | **sabotasenya** yang salah — itu ReferenceError, bukan kerusakan yang sedang dijaga |
+
+Dua yang pertama diperbaiki di auditnya; dua yang terakhir diganti dengan
+sabotase yang benar-benar merusak, dan alasannya dicatat di harness-nya. *Yang
+lolos karena auditnya longgar dan yang lolos karena sabotasenya tumpul terlihat
+sama di layar, dan artinya berlawanan.*
+
+Auditnya sendiri juga sempat **tidak bisa dimuat sama sekali**: polanya memuat
+`/` dan `[`, yang di dalam regex literal butuh escape berlapis. Audit yang gagal
+dijalankan tidak menjaga apa pun — dan hijaunya tidak akan pernah terlihat
+mencurigakan.
+
+### Satu merah lama yang dibereskan sekalian
+
+`test-cuti-jadwal` merah sejak `0160` menambahkan keadaan ketiga `tugasLuar` ke
+ringkasan baris jadwal; harapannya tidak ikut diperbarui. Kodenya benar, tesnya
+yang basi. Dibetulkan karena **merah yang dibiarkan mengajari orang mengabaikan
+merah, termasuk yang sungguhan.**
+
+- [x] **Tab Sisa Cuti + saringan nama/tanggal + ekspor berfoto** — 58 tes murni, 45 sabotase
+
+---
+
+## Surat Jalan yang sudah diterima kini bisa direvisi (`0165`)
+
+> *"cek di modul pengiriman, apakah SJ yang statusnya sudah diterima oleh outlet masih bisa diedit atau tidak? jika tidak bisa buat bisa, karena ada beberapa case membutuhkan ubah ini"*
+
+### Jawaban pemeriksaannya: tidak bisa, oleh siapa pun
+
+| Jalur | Setelah `received` |
+|---|---|
+| `ubah_draft_kiriman` | ❌ `boleh_kelola_draft` mensyaratkan `status = 'draft'` — bahkan yang baru *dikirim* pun sudah tidak bisa |
+| `simpan_cek_kiriman` | ❌ *"Kiriman ini sudah diproses, hasil cek tidak bisa diubah lagi."* |
+| `receive_dispatch` | ❌ hanya menerima `status = 'sent'` |
+| `batalkan_kiriman` | ❌ menolak eksplisit |
+
+Begitu outlet menekan Terima, SJ-nya beku permanen — dan yang terjadi di
+lapangan adalah orang membuat SJ tandingan atau membiarkan angkanya salah.
+Keduanya lebih buruk daripada revisi yang berjejak.
+
+### Satu hal yang saya kira sebaliknya, dan tidak jadi kaprah karena ditanya
+
+Pemiliknya bertanya balik: *"bukankah bila belum diterima oleh outlet maka stok
+di CK tidak berkurang, walaupun statusnya dalam pengiriman?"*
+
+Diperiksa, dan **benar**:
+
+- `kirim_draft_kiriman` tidak menulis satu pun `stock_movements`
+- `create_dispatch` — jalur lama yang memang memotong saat kirim — sudah tidak
+  dipanggil kode mana pun di `js/`
+- seluruh gerakan stok ditulis `receive_dispatch`: `transfer_out` −`sent_qty`
+  di CK, `transfer_in` +`dicek_qty` di outlet
+
+Itu yang menentukan seluruh bentuk `0165`:
+
+| Yang diubah | Stok CK | Stok outlet |
+|---|---|---|
+| Jumlah **diterima** | tidak tersentuh — `transfer_out` memakai `sent_qty` yang tidak ikut berubah | dikoreksi |
+| **Tambah barang** | berkurang `sent_qty` | bertambah `received_qty` |
+
+Kalau bedanya dilebur jadi "pokoknya koreksi stok", penambahan barang akan
+memotong stok CK dua kali atau tidak sama sekali — **tanpa galat di mana pun.**
+Yang membacanya baru tahu saat opname berikutnya.
+
+### Koreksi ditulis, bukan menimpa
+
+Gerakan lama tidak disentuh; selisihnya ditulis sebagai `stock_movements` baru
+yang menunjuk SJ yang sama. Polanya sama dengan revisi opname (`0155`): stok
+sekarang jadi benar **dan** riwayat "apa yang terjadi hari itu" tetap utuh.
+Menimpa gerakan lama membuat laporan periode lampau berubah sendiri
+berbulan-bulan sesudah ditutup.
+
+### Nama pelaku disimpan, bukan dicari belakangan — dan tesnya yang menemukan
+
+Jejak revisi awalnya hanya menyimpan `by` (uuid). Tes PGlite yang menghapus
+baris `user_profiles` membuat asersi header gagal: `direvisi_by`
+ber-`on delete set null`, jadi penunjuknya **menguap**, dan header SJ berbunyi
+"pernah direvisi, entah oleh siapa".
+
+Jadi `by_nama` dan `direvisi_by_nama` ditulis **saat perubahan terjadi**. Nama
+saat itu memang yang benar untuk catatan pertanggungjawaban, bukan nama hari
+ini — dan jejaknya selamat dari staff yang keluar. Efek sampingnya: dialog
+tidak perlu peta nama sama sekali, jadi satu parameter hilang.
+
+### Dua temuan dari harness-nya sendiri
+
+**Tes yang salah, bukan kodenya.** Helper saldo stok menjumlah *seluruh* SJ,
+bukan satu SJ — hijau selama baru ada satu dokumen, merah begitu dokumen kedua
+memakai barang yang sama di outlet yang sama. Kesalahannya menunjuk hal yang
+benar: **angka stok tidak pernah milik satu dokumen.**
+
+**Satu sabotase lolos, dan auditnya benar.** Mencabut penjaga
+`status <> 'received'` tidak membuat satu tes pun merah — karena cabang draft
+dan sent sudah menangkapnya lebih dulu, jadi penjaga itu **hanya** menjaga SJ
+yang dibatalkan, dan tesnya tidak pernah mencoba keadaan itu. Lubang tesnya,
+bukan sabotase yang tumpul.
+
+### Lubang audit keempat dari sebab yang sama
+
+`audit-nama-tak-dikenal` menandai `onSelesai()` sebagai nama tak dikenal. Pola
+parameternya memakai `[^()]`, jadi ia berhenti pada `(` pertama **di dalam**
+daftar parameter — `namaUser = new Map()` memutusnya, dan `onSelesai` yang
+berdiri sesudahnya tidak pernah tercatat. Tambalan yang ada hanya menangkap
+parameter *bernilai bawaan*.
+
+Komentarnya sendiri sudah mencatat tiga temuan palsu dari sebab ini. Yang
+keempat menutupnya: satu lapis kurung bersarang kini diizinkan — lalu diuji
+dengan memasang pemanggilan palsu untuk memastikan ia belum jadi longgar
+sampai berhenti menjaga.
+
+- [x] **Revisi SJ yang sudah diterima** (`0165`) — 64 tes PGlite, 35 tes murni, 29 sabotase

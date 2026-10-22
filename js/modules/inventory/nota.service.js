@@ -428,3 +428,27 @@ export async function urlFotoNota(path, expiresIn = UMUR_TAUTAN_KETUK) {
   if (error) throw error;
   return data?.signedUrl ?? null;
 }
+
+/**
+ * Banyak tautan sekaligus — untuk EKSPOR, bukan untuk ketukan di layar.
+ *
+ * Umurnya panjang (1 jam, bukan `UMUR_TAUTAN_KETUK` yang pendek) dengan
+ * sengaja: ekspor 50 nota berfoto butuh waktu mengunduh seluruh gambarnya, dan
+ * tautan yang kedaluwarsa di tengah jalan membuat separuh laporan berisi "foto
+ * gagal dimuat" tanpa sebab yang bisa ditebak siapa pun.
+ *
+ * Galatnya DITELAN di sini — berbeda dengan `urlFotoNota`, dan bedanya
+ * disengaja. Di sana satu foto gagal berarti satu ketukan gagal, dan orangnya
+ * perlu tahu sebabnya. Di sini satu foto gagal tidak boleh membatalkan ekspor
+ * 50 nota; yang hilang cuma gambarnya, dan laporannya menandainya sendiri.
+ */
+export async function urlFotoNotaBanyak(paths, expiresIn = 3600) {
+  const bersih = [...new Set((paths ?? []).filter(Boolean))];
+  if (!bersih.length) return new Map();
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrls(bersih, expiresIn);
+  if (error) {
+    console.warn('[nota] gagal membuat signed URL foto nota:', error.message);
+    return new Map();
+  }
+  return new Map((data ?? []).filter((d) => d.signedUrl && !d.error).map((d) => [d.path, d.signedUrl]));
+}

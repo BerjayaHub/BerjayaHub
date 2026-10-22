@@ -890,6 +890,49 @@ siapa pun.
 
 ---
 
+## K7. Revisi Surat Jalan yang sudah diterima (`0165`)
+
+Hanya migration — tidak ada Edge Function, tidak ada cron, tidak ada setelan
+yang perlu diisi. Jalankan `0165`, push kodenya, selesai.
+
+**Yang berubah di layar:** tab *Dokumen* di Staff App, baris SJ berstatus
+*diterima*, muncul tombol **Revisi** untuk CK maupun outlet tujuan.
+
+| Yang bisa diubah | Akibatnya ke stok |
+|---|---|
+| Jumlah **diterima** | hanya stok outlet tujuan bergeser |
+| **Tambah barang** yang kelupaan ditulis | stok CK berkurang (jumlah kirim) **dan** stok outlet bertambah (jumlah diterima) |
+
+> **Kenapa jumlah diterima tidak menyentuh stok CK.** `kirim_draft_kiriman`
+> tidak menulis gerakan stok sama sekali; seluruhnya ditulis saat outlet
+> menekan Terima. Yang memotong stok CK adalah `sent_qty`, dan itu tidak ikut
+> berubah saat jumlah diterima dibetulkan. Jadi selama SJ berstatus *dikirim*,
+> stok CK memang belum berkurang.
+
+**Koreksinya ditulis sebagai gerakan BARU**, bukan menimpa yang lama — stok
+sekarang jadi benar sementara riwayat "apa yang terjadi hari itu" tetap utuh.
+Laporan periode lampau tidak berubah sendiri.
+
+**Tanda ekspor ESB dicabut otomatis** kalau SJ-nya sudah pernah diekspor, dengan
+jejak di kolom `esb_dibatalkan_*` (sama dengan `0143`). SJ itu ikut ekspor
+berikutnya membawa angka yang sudah dibetulkan.
+
+### Memeriksa sesudah deploy
+
+```sql
+-- SJ yang pernah direvisi, beserta siapa yang terakhir mengubahnya
+select code, direvisi_at, direvisi_by_nama
+  from dispatches
+ where direvisi_at is not null
+ order by direvisi_at desc
+ limit 20;
+```
+
+Nama editornya disimpan **saat perubahan**, bukan dicari belakangan:
+`direvisi_by` ber-`on delete set null`, jadi penunjuknya menguap begitu baris
+`user_profiles`-nya dihapus — dan jejak pertanggungjawaban yang kehilangan
+pelakunya tidak mempertanggungjawabkan siapa pun.
+
 ## Sebelum push — jalankan semua audit
 
 ```bash
@@ -961,6 +1004,7 @@ langkahnya tidak muat di bagian mana pun di atas. Dikerjakan **urut**.
 | 0162 | `0162_hapus_supplier_hanya_hitung_yang_aktif.sql` | Nota/kas yang **dibatalkan** tidak lagi menahan penghapusan supplier + perbaikan supplier yang hidup kembali |
 | 0163 | `0163_konten_sosmed.sql` | Modul Konten Sosmed: setelan per outlet, tugas, berkas, tabel sampah R2, RLS |
 | 0164 | `0164_notifikasi_konten.sql` | Trigger notifikasi Telegram tiap berkas konten masuk |
+| 0165 | `0165_revisi_kiriman_diterima.sql` | Surat Jalan yang sudah diterima bisa direvisi (jumlah diterima + tambah barang), stok dikoreksi otomatis |
 
 Sesudah `0163` jalan, modulnya **belum muncul di mana pun**. Ia perlu
 dinyalakan per BU — lihat K5.

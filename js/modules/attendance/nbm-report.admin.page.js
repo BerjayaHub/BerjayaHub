@@ -11,7 +11,7 @@ import {
   removeNbmAdjustment
 } from './nbm.service.js';
 import { exportTablePDF } from '../../core/pdf.js';
-import { toast, formDialog, shareDialog, confirmDialog } from '../../core/ui.js';
+import { toast, formDialog, shareDialog, confirmDialog, fuzzyMatch } from '../../core/ui.js';
 import { formatRupiah, formatThousands, parseNumber, attachThousandsInput } from '../../core/format.js';
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
@@ -43,6 +43,10 @@ export async function renderNbmReportTab(container, businessUnitId) {
           ${outlets.map((o) => `<option value="${o.id}">${esc(o.name)}</option>`).join('')}
         </select>
       </div>
+      <div class="field" style="margin:0;min-width:170px">
+        <label for="nbm-report-nama">Nama staff</label>
+        <input type="search" id="nbm-report-nama" placeholder="ketik sebagian nama" autocomplete="off" />
+      </div>
       <div class="field" style="margin:0"><label>Dari tanggal</label><input type="date" id="nbm-report-from" value="${range.from}" /></div>
       <div class="field" style="margin:0"><label>Sampai tanggal</label><input type="date" id="nbm-report-to" value="${range.to}" /></div>
       <button class="primary" id="btn-nbm-report" style="max-width:120px">Tampilkan</button>
@@ -53,6 +57,13 @@ export async function renderNbmReportTab(container, businessUnitId) {
   `;
 
   document.getElementById('btn-nbm-report').addEventListener('click', () => runReport(businessUnitId, outlets));
+  // Enter di kotak nama = tekan Tampilkan. Rekap NBM menghitung ulang seluruh
+  // config & tier per outlet, jadi ia TIDAK dijalankan per ketukan huruf
+  // seperti saringan nama di layar lain — itu akan memanggil belasan query
+  // tiap huruf.
+  document.getElementById('nbm-report-nama').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runReport(businessUnitId, outlets);
+  });
   document.getElementById('btn-nbm-pindah-basis').addEventListener('click', () => koreksiMassal(businessUnitId, outlets));
   document.getElementById('btn-nbm-export').addEventListener('click', async () => {
     if (!lastReportRows.length) return toast('Tampilkan datanya dulu sebelum export.', 'warning');
@@ -97,7 +108,9 @@ async function runReport(businessUnitId, outlets) {
   const resultEl = document.getElementById('nbm-report-result');
   resultEl.innerHTML = loadingHtml('Menghitung…', { baris: 5 });
 
-  const records = await listAttendanceForNbm({
+  const cariNama = document.getElementById('nbm-report-nama').value ?? '';
+
+  const semuaRecords = await listAttendanceForNbm({
     businessUnitId,
     outletId,
     // `isoFrom`/`isoTo`, BUKAN `new Date(...)` mentah.
@@ -110,6 +123,19 @@ async function runReport(businessUnitId, outlets) {
     dateFrom: isoFrom(from),
     dateTo: isoTo(to)
   });
+
+  // ============ DISARING DI SATU TITIK, SEBELUM APA PUN DIHITUNG ============
+  //
+  // Nama disaring DI SINI dan tidak di mana pun lagi. Di bawah, `records`
+  // menurunkan enam hal sekaligus: baris tabel, total per staff, teks
+  // WhatsApp, PDF per baris, PDF total, dan `lastReportRows`. Menyaring di
+  // salah satunya berarti lima yang lain memuat orang yang tidak terlihat di
+  // layar — dan yang paling berbahaya di antaranya adalah teks WhatsApp, yang
+  // langsung dikirim ke grup tanpa dibaca ulang.
+  const records = cariNama.trim()
+    ? semuaRecords.filter((r) => fuzzyMatch(cariNama, r.user_profiles?.full_name ?? ''))
+    : semuaRecords;
+  const tersembunyi = semuaRecords.length - records.length;
 
   // NBM dihitung berdasarkan outlet BASIS (nbm_outlet), bukan lokasi absen.
   // Fallback ke lokasi absen untuk record lama yang belum punya basis.
@@ -157,7 +183,13 @@ async function runReport(businessUnitId, outlets) {
   // sekali supaya ketiganya TIDAK pernah berbeda. Kalau dihitung terpisah,
   // cepat atau lambat salah satunya tertinggal saat filternya berubah.
   const namaOutlet = outletId ? outlets.find((o) => o.id === outletId)?.name ?? '-' : 'Semua outlet';
-  const judulPeriode = `Outlet basis: ${namaOutlet} · Periode ${fmtTanggal(from)} s/d ${fmtTanggal(to)}`;
+  // Saringan nama ikut masuk JUDUL, bukan cuma ke layar. Judul itu dipakai
+  // WhatsApp dan PDF juga — dan rekap NBM yang hanya memuat satu orang tanpa
+  // keterangan apa pun terbaca seperti rekap seluruh outlet yang kehilangan
+  // orang. Di dokumen yang menyangkut upah, itu kesalahan yang mahal.
+  const judulPeriode =
+    `Outlet basis: ${namaOutlet} · Periode ${fmtTanggal(from)} s/d ${fmtTanggal(to)}` +
+    (cariNama.trim() ? ` · HANYA nama yang cocok "${cariNama.trim()}"` : '');
 
   const totalsByStaff = {};
   for (const row of rows) {
@@ -196,6 +228,11 @@ async function runReport(businessUnitId, outlets) {
         </div>
       </div>
       <p style="font-size:0.78rem;color:var(--color-text-muted);margin:0 0 8px">${esc(judulPeriode)}</p>
+      ${
+        tersembunyi
+          ? `<p style="font-size:0.78rem;margin:0 0 8px"><span class="nota-telat">${tersembunyi} baris disembunyikan saringan nama</span> — WhatsApp dan PDF di layar ini juga hanya memuat yang terlihat.</p>`
+          : ''
+      }
       <div class="table-scroll"><table class="data-table table-freeze-1">
         <thead><tr><th>Staff</th><th style="text-align:right">Total NBM</th></tr></thead>
         <tbody>

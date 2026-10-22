@@ -64,6 +64,26 @@ function namaTersedia(src) {
   for (const m of src.matchAll(/\bclass\s+([A-Za-z_$][\w$]*)/g)) ada.add(m[1]);
   // parameter fungsi & arrow — diambil kasar, memang sengaja longgar
   for (const m of src.matchAll(/\(([^()]{0,400})\)\s*(?:=>|\{)/g)) tambah(m[1]);
+  // ============ DAFTAR PARAMETER YANG MEMUAT TANDA KURUNG ============
+  //
+  // Pola di atas memakai `[^()]`, jadi ia berhenti pada `(` pertama di DALAM
+  // daftar parameter:
+  //
+  //     function buka({ sj, produk = [], namaUser = new Map(), onSelesai })
+  //
+  // `onSelesai` berdiri SESUDAH `new Map()`, jadi ia tidak pernah tercatat —
+  // lalu `onSelesai(...)` di badan fungsinya dilaporkan sebagai nama tak
+  // dikenal. Tambalan `[(,]\s*nama\s*=` di bawah tidak menolongnya karena
+  // `onSelesai` TIDAK bernilai bawaan.
+  //
+  // Ini temuan palsu KEEMPAT dari sebab yang sama, dan komentar di bawah sudah
+  // mencatat tiga yang pertama. Temuan palsu adalah cara audit ini mati: orang
+  // berhenti membacanya, lalu berhenti melihat yang sungguhan.
+  //
+  // Jadi satu lapis kurung bersarang diizinkan. Dua lapis masih lolos, dan itu
+  // dibiarkan dengan sadar — daftar parameter sedalam itu praktis tidak ada,
+  // dan pola yang mengejarnya akan mulai mencocokkan hal lain.
+  for (const m of src.matchAll(/\((((?:[^()]|\([^()]*\)){0,400}))\)\s*(?:=>|\{)/g)) tambah(m[1]);
   for (const m of src.matchAll(/([A-Za-z_$][\w$]*)\s*=>/g)) ada.add(m[1]);
   // PARAMETER BERNILAI BAWAAN BERUPA FUNGSI.
   //

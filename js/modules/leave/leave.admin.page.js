@@ -1,6 +1,16 @@
-import { toast, confirmDialog, formDialog, shareDialog } from '../../core/ui.js';
+import { toast, confirmDialog, formDialog, shareDialog, fuzzyMatch } from '../../core/ui.js';
+import { todayWIB, monthEndWIB } from '../../core/dates.js';
+import {
+  susunSisaCuti,
+  ringkasSisaCuti,
+  pesanRingkas,
+  teksSel,
+  tahunBerjalanWIB,
+  KEADAAN
+} from './sisa-cuti.js';
 import { pesanCutiWa, fmtRentang, diubahAdmin } from './pesan-cuti.js';
 import {
+  dataSisaCutiBu,
   listLeaveRequestsForAdmin,
   reviewLeaveRequest,
   getAttachmentUrl,
@@ -24,6 +34,12 @@ const STATUS_BADGE = {
 
 const TABS = [
   { key: 'requests', label: 'Pengajuan' },
+  // Di sebelah Pengajuan dan BUKAN di dalam "Hak & Jatah", walaupun datanya
+  // bertetangga. "Hak & Jatah" adalah layar MENGATUR — dibuka satu staff pada
+  // satu waktu. Yang ini layar MELIHAT: seluruh BU sekaligus, tanpa tombol apa
+  // pun. Menggabungkannya memaksa orang yang cuma ingin tahu sisa cuti masuk
+  // ke layar penuh tombol ubah.
+  { key: 'sisa', label: 'Sisa Cuti' },
   { key: 'types', label: 'Jenis Cuti' },
   { key: 'quotas', label: 'Hak & Jatah' }
 ];
@@ -41,6 +57,7 @@ export async function renderLeaveAdminPage(container, { businessUnitId }) {
   async function showTab(key) {
     container.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));
     if (key === 'requests') await renderRequestsTab(content, businessUnitId);
+    if (key === 'sisa') await renderSisaTab(content, businessUnitId);
     if (key === 'types') await renderTypesTab(content, businessUnitId);
     if (key === 'quotas') await renderEntitlementsTab(content, businessUnitId);
   }
@@ -48,35 +65,176 @@ export async function renderLeaveAdminPage(container, { businessUnitId }) {
   await showTab('requests');
 }
 
+// ---- Tab: Sisa Cuti (seluruh staff BU) ----
+
+async function renderSisaTab(content, businessUnitId) {
+  const tahun = tahunBerjalanWIB();
+  content.innerHTML = loadingHtml('Menghitung sisa cuti…', { baris: 6 });
+
+  let data;
+  try {
+    data = await dataSisaCutiBu(businessUnitId, tahun);
+  } catch (error) {
+    content.innerHTML = `<p class="error-text">${escapeHtml(error.message ?? error)}</p>`;
+    return;
+  }
+
+  const tabel = susunSisaCuti({ ...data, tahun });
+  const ringkas = ringkasSisaCuti(tabel);
+
+  if (!tabel.baris.length) {
+    content.innerHTML = `<p style="color:var(--color-text-muted)">${escapeHtml(pesanRingkas(ringkas))}</p>`;
+    return;
+  }
+
+  const render = (cari) => {
+    const terlihat = tabel.baris.filter((b) => fuzzyMatch(cari, b.nama));
+    const body = content.querySelector('#sisa-body');
+    const info = content.querySelector('#sisa-info');
+    body.innerHTML =
+      terlihat.map((b) => barisSisaHtml(b, tabel.jenis)).join('') ||
+      `<tr><td colspan="${tabel.jenis.length + 1}">Tidak ada nama yang cocok.</td></tr>`;
+    info.textContent = terlihat.length === tabel.baris.length ? '' : `${tabel.baris.length - terlihat.length} staff lain disembunyikan saringan nama.`;
+  };
+
+  content.innerHTML = `
+    <p class="inline-card" style="margin:0 0 10px;font-size:0.88rem">${escapeHtml(pesanRingkas(ringkas))}</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
+      <div class="field" style="margin:0;min-width:200px">
+        <label for="sisa-cari">Nama staff</label>
+        <input type="search" id="sisa-cari" placeholder="ketik sebagian nama" autocomplete="off" />
+      </div>
+      <div style="font-size:0.82rem;color:var(--color-text-muted);padding-bottom:6px">
+        Tahun <strong>${tahun}</strong>
+      </div>
+    </div>
+    <p id="sisa-info" style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 6px"></p>
+
+    <!-- Keterangan dibaca SEBELUM tabelnya, bukan sesudah: tiga keadaan di
+         bawah terlihat mirip di sel, dan orang yang salah membacanya akan
+         mengira jatah yang belum diatur adalah jatah yang sudah habis. -->
+    <p style="font-size:0.78rem;color:var(--color-text-muted);margin:0 0 10px;max-width:680px">
+      <strong>7 dari 12</strong> = sisa 7 hari dari jatah 12 ·
+      <strong>belum diberi</strong> = staff belum didaftarkan di jenis cuti itu (atur di tab Hak &amp; Jatah) ·
+      <strong>n terpakai</strong> = sudah didaftarkan tapi jatahnya belum diisi angka ·
+      <strong>—</strong> = jenis cuti ini memang tidak memotong jatah.
+      Pengajuan yang masih <em>menunggu</em> belum dipotong, dan ditandai terpisah.
+    </p>
+
+    <div class="table-scroll"><table class="data-table table-freeze-1">
+      <thead><tr>
+        <th>Staff</th>
+        ${tabel.jenis.map((j) => `<th>${escapeHtml(j.name)}</th>`).join('')}
+      </tr></thead>
+      <tbody id="sisa-body"></tbody>
+    </table></div>
+  `;
+
+  content.querySelector('#sisa-cari').addEventListener('input', (e) => render(e.target.value));
+  render('');
+}
+
+function barisSisaHtml(b, jenis) {
+  const sel = jenis
+    .map((j) => {
+      const c = b.sel.find((x) => x.jenisId === j.id);
+      const teks = escapeHtml(teksSel(c));
+      // Minus diberi penanda merah: ia satu-satunya keadaan yang tidak bisa
+      // terjadi tanpa ada yang menyetujui melampaui jatah.
+      const kelas = c?.keadaan === KEADAAN.BERKUOTA && c.sisa < 0 ? 'nota-telat' : c?.habis ? 'nota-telat' : '';
+      const tunda = c?.tertunda ? `<div style="font-size:0.72rem;color:var(--color-text-muted)">+${c.tertunda} menunggu</div>` : '';
+      return `<td>${kelas ? `<span class="${kelas}">${teks}</span>` : teks}${tunda}</td>`;
+    })
+    .join('');
+  return `<tr>
+    <td>${escapeHtml(b.nama)}${
+      b.belumDiatur ? '<div style="font-size:0.72rem;color:var(--color-text-muted)">belum diatur sama sekali</div>' : ''
+    }</td>
+    ${sel}
+  </tr>`;
+}
+
 // ---- Tab: Pengajuan ----
 
 async function renderRequestsTab(content, businessUnitId) {
+  // Bawaan: hari ini sampai akhir bulan. Yang paling sering ditanyakan di layar
+  // ini adalah "siapa yang cuti dari sekarang sampai tutup bulan" — bukan
+  // seluruh riwayat. Rentangnya tetap bisa digeser ke belakang kapan saja.
+  const awal = todayWIB();
+  const akhir = monthEndWIB();
+
   content.innerHTML = `
-    <div class="field" style="max-width:220px">
-      <label>Status</label>
-      <select id="leave-status-filter">
-        <option value="">Semua</option>
-        <option value="pending">Menunggu</option>
-        <option value="approved">Disetujui</option>
-        <option value="rejected">Ditolak</option>
-        <option value="cancelled">Dibatalkan</option>
-      </select>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:4px">
+      <div class="field" style="margin:0;min-width:180px">
+        <label for="leave-nama-filter">Nama staff</label>
+        <input type="search" id="leave-nama-filter" placeholder="ketik sebagian nama" autocomplete="off" />
+      </div>
+      <div class="field" style="margin:0;max-width:200px">
+        <label for="leave-status-filter">Status</label>
+        <select id="leave-status-filter">
+          <option value="">Semua</option>
+          <option value="pending">Menunggu</option>
+          <option value="approved">Disetujui</option>
+          <option value="rejected">Ditolak</option>
+          <option value="cancelled">Dibatalkan</option>
+        </select>
+      </div>
+      <div class="field" style="margin:0;min-width:140px">
+        <label for="leave-dari">Cuti dari</label>
+        <input type="date" id="leave-dari" value="${awal}" />
+      </div>
+      <div class="field" style="margin:0;min-width:140px">
+        <label for="leave-sampai">sampai</label>
+        <input type="date" id="leave-sampai" value="${akhir}" />
+      </div>
+      <button id="leave-semua" class="btn-ghost btn-inline" style="font-size:0.8rem">Semua tanggal</button>
     </div>
+    <p style="font-size:0.78rem;color:var(--color-text-muted);margin:0 0 10px;max-width:620px">
+      Rentangnya memakai <strong>tanggal cuti</strong>, dan memuat cuti yang
+      <strong>bersinggungan</strong> dengan rentang itu — cuti 28 Sep–3 Okt tetap muncul di rentang Oktober.
+    </p>
     <div id="leave-req-result">${loadingHtml('Memuat…')}</div>
   `;
   const filter = document.getElementById('leave-status-filter');
+  const nama = document.getElementById('leave-nama-filter');
+  const dari = document.getElementById('leave-dari');
+  const sampai = document.getElementById('leave-sampai');
   const result = document.getElementById('leave-req-result');
 
   async function refresh() {
     result.innerHTML = loadingHtml('Memuat…', { baris: 5 });
     let requests;
     try {
-      requests = await listLeaveRequestsForAdmin({ businessUnitId, status: filter.value });
+      requests = await listLeaveRequestsForAdmin({
+        businessUnitId,
+        status: filter.value,
+        dari: dari.value || null,
+        sampai: sampai.value || null
+      });
     } catch (error) {
       result.innerHTML = `<p class="error-text">${error.message ?? error}</p>`;
       return;
     }
+
+    // ============ NAMA DISARING DI BROWSER, TANGGAL DI SERVER ============
+    //
+    // Bukan karena malas: `fuzzyMatch` menerima huruf yang berurutan tapi tidak
+    // berdampingan ("bdi" cocok dengan "Budi"), dan itu tidak bisa diungkapkan
+    // sebagai `ilike` tanpa menjadi pencarian yang berbeda dari layar lain.
+    // Rentang tanggalnya sudah memotong jumlah barisnya lebih dulu, jadi yang
+    // disaring di sini tidak pernah sebesar seluruh riwayat.
+    const semua = requests;
+    requests = requests.filter((r) => fuzzyMatch(nama.value, r.user_profiles?.full_name ?? ''));
+    const disembunyikan = semua.length - requests.length;
+
     result.innerHTML = `
+      ${
+        disembunyikan
+          ? `<p style="font-size:0.8rem;color:var(--color-text-muted);margin:0 0 6px">
+               ${disembunyikan} pengajuan lain disembunyikan saringan nama.
+             </p>`
+          : ''
+      }
       <div class="table-scroll" style="margin-top:12px"><table class="data-table table-freeze-1">
         <thead><tr><th>Staff</th><th>Diajukan</th><th>Jenis</th><th>Tanggal Cuti</th><th>Hari</th><th>Alasan</th><th>Status</th><th>Aksi</th></tr></thead>
         <tbody>
@@ -88,6 +246,17 @@ async function renderRequestsTab(content, businessUnitId) {
   }
 
   filter.addEventListener('change', refresh);
+  dari.addEventListener('change', refresh);
+  sampai.addEventListener('change', refresh);
+  // `input`, bukan `change`: saringan nama tidak memanggil jaringan sama sekali
+  // (lihat catatan di atas), jadi menyaring per ketukan huruf itu murah — dan
+  // menunggu blur membuat kotaknya terasa rusak.
+  nama.addEventListener('input', refresh);
+  document.getElementById('leave-semua').addEventListener('click', () => {
+    dari.value = '';
+    sampai.value = '';
+    refresh();
+  });
   await refresh();
 }
 

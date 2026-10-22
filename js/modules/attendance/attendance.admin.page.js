@@ -28,7 +28,7 @@ import {
 import { totalMenitIstirahat } from './istirahat.js';
 import { renderNbmSettingsTab } from './nbm-settings.admin.page.js';
 import { renderNbmReportTab } from './nbm-report.admin.page.js';
-import { toast, formDialog } from '../../core/ui.js';
+import { toast, formDialog, fuzzyMatch } from '../../core/ui.js';
 import { exportTablePDF } from '../../core/pdf.js';
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 import { LATE_LABEL, LATE_BADGE } from '../shift/shift.service.js';
@@ -131,6 +131,17 @@ async function renderPresensiTab(container, businessUnitId) {
       body.innerHTML = `<tr><td colspan="12" class="error-text">Gagal memuat rekap presensi: ${escapeHtml(error.message ?? error)}</td></tr>`;
       return;
     }
+    // ============ DISARING SEBELUM `lastRecords`, BUKAN SESUDAH ============
+    //
+    // `lastRecords` yang dipakai Export PDF. Kalau saringan nama diterapkan
+    // sesudahnya, layarnya menampilkan satu orang dan PDF-nya memuat empat
+    // puluh — unduhan yang isinya tidak sama dengan yang terlihat saat
+    // tombolnya ditekan, dan tidak ada apa pun yang menandainya.
+    const namaCari = container.querySelector('#filter-nama')?.value ?? '';
+    const sebelumNama = records.length;
+    if (namaCari.trim()) {
+      records = records.filter((r) => fuzzyMatch(namaCari, r.user_profiles?.full_name ?? ''));
+    }
     lastRecords = records;
 
     // Istirahat diambil SEKALIGUS untuk seluruh baris, bukan satu per baris:
@@ -169,7 +180,19 @@ async function renderPresensiTab(container, businessUnitId) {
       }
       potongan.push(rowHtml(r, outletOf(r), pushAktif, petaIstirahat));
     }
-    body.innerHTML = potongan.join('') || '<tr><td colspan="12">Tidak ada data.</td></tr>';
+    // Yang disembunyikan saringan DISEBUT. "Tidak ada data" untuk rentang yang
+    // sebenarnya berisi 40 baris adalah kalimat yang mengirim orang memeriksa
+    // tanggalnya — padahal yang menyaring cuma kotak nama di sebelahnya.
+    const tersembunyi = sebelumNama - records.length;
+    body.innerHTML =
+      potongan.join('') ||
+      `<tr><td colspan="12">${
+        tersembunyi
+          ? `Tidak ada nama yang cocok. ${tersembunyi} baris lain ada di rentang ini.`
+          : 'Tidak ada data.'
+      }</td></tr>`;
+    const infoNama = container.querySelector('#filter-nama-info');
+    if (infoNama) infoNama.textContent = tersembunyi ? `${tersembunyi} baris lain disembunyikan saringan nama.` : '';
 
     // Lengkapi pilihan filter outlet dengan outlet lain yang terpakai di data.
     const sel = container.querySelector('#filter-outlet');
@@ -336,6 +359,10 @@ async function renderPresensiTab(container, businessUnitId) {
     </details>
 
     <div class="inline-card" style="max-width:640px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:16px">
+      <div class="field" style="margin:0;min-width:180px">
+        <label for="filter-nama">Nama staff</label>
+        <input type="search" id="filter-nama" placeholder="ketik sebagian nama" autocomplete="off" />
+      </div>
       <div class="field" style="margin:0">
         <label>Outlet</label>
         <select id="filter-outlet">
@@ -356,6 +383,7 @@ async function renderPresensiTab(container, businessUnitId) {
       <button id="btn-recalc-all" title="Untuk presensi yang terlanjur Tanpa jadwal karena jadwalnya baru dibuat belakangan">↻ Hitung Ulang Shift</button>
       <button id="btn-renilai-all" title="Untuk jadwal yang DIKOREKSI belakangan — mengubah penilaian yang sudah tercatat">⟳ Nilai Ulang (jadwal dikoreksi)</button>
       <button id="btn-export-att">⇩ Export PDF</button>
+      <p id="filter-nama-info" style="font-size:0.78rem;color:var(--color-text-muted);margin:0;flex-basis:100%"></p>
     </div>
 
     <div class="table-scroll"><table class="data-table table-freeze-1">
@@ -669,6 +697,11 @@ async function renderPresensiTab(container, businessUnitId) {
     filters.dateTo = isoTo(document.getElementById('filter-to').value);
     refresh();
   });
+
+  // Nama disaring di browser atas data yang sudah di tangan, jadi ia tidak
+  // perlu menunggu tombol Filter — dan membuatnya menunggu akan terasa seperti
+  // kotak yang rusak, karena tiga saringan di sebelahnya memang butuh tombol.
+  document.getElementById('filter-nama').addEventListener('input', refresh);
 
   await refresh();
 }

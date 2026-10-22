@@ -115,8 +115,12 @@ const seminggu = [
   selJadwal({ cuti: null, jadwal: { is_off: true } }),
   selJadwal({ cuti: null, jadwal: null })
 ];
-cek('4. ringkasan seminggu', ringkasBaris(seminggu), { cuti: 2, off: 1, shift: 1, kosong: 1 });
-cek('4. masukan bukan array tidak meledak', ringkasBaris(null), { cuti: 0, off: 0, shift: 0, kosong: 0 });
+// `tugasLuar` ditambahkan oleh 0160 sebagai keadaan KETIGA sel jadwal, dan
+// harapan di sini tidak ikut diperbarui — jadi tesnya merah sejak saat itu
+// untuk kode yang benar. Merah yang dibiarkan mengajari orang mengabaikan
+// merah, termasuk yang sungguhan.
+cek('4. ringkasan seminggu', ringkasBaris(seminggu), { cuti: 2, off: 1, shift: 1, tugasLuar: 0, kosong: 1 });
+cek('4. masukan bukan array tidak meledak', ringkasBaris(null), { cuti: 0, off: 0, shift: 0, tugasLuar: 0, kosong: 0 });
 
 console.log(gagal === 0 ? '✅ cuti di jadwal shift: semua lulus' : `❌ cuti di jadwal shift: ${gagal} gagal`);
 process.exit(gagal === 0 ? 0 : 1);

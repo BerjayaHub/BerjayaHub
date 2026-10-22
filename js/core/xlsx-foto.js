@@ -84,7 +84,18 @@ function pisahDataUrl(dataUrl) {
  * @param {object} o
  *   filename   nama file tanpa ekstensi
  *   sheetName  nama sheet
- *   columns    [{ header, numeric?, foto?, width? }] — tepat satu boleh `foto: true`
+ *   columns    [{ header, numeric?, foto?, width? }] — BOLEH LEBIH DARI SATU `foto: true`
+ *
+ * ============ DULU TERTULIS "TEPAT SATU", DAN ITU TIDAK PERNAH BENAR ============
+ *
+ * Perulangan di bawah sudah memperlakukan tiap kolom `foto` sendiri-sendiri
+ * sejak awal; satu-satunya yang mengunci ke satu kolom adalah perhitungan
+ * tinggi baris, yang memakai `findIndex` (kolom foto PERTAMA). Jadi kolom foto
+ * kedua akan tergambar dengan benar tapi barisnya mungkin terlalu pendek —
+ * gagal diam-diam, bukan menolak.
+ *
+ * Batasannya dicabut di sini, bukan "didokumentasikan ulang": laporan kas butuh
+ * dua kolom (bukti kas dan foto nota), dan keduanya memang dua hal berbeda.
  *   rows       array of array. Sel di kolom foto berisi data URL, atau null.
  *   title      judul opsional
  *   subtitle   keterangan opsional
@@ -111,7 +122,10 @@ export async function exportTableXLSXFoto({
   wb.created = new Date();
   const ws = wb.addWorksheet(sheetName.slice(0, 31)); // Excel batasi 31 karakter
 
-  const iFoto = columns.findIndex((c) => c.foto);
+  // `some`, bukan `findIndex`: yang dibutuhkan cuma "apakah ADA kolom foto",
+  // dan `findIndex` memulangkan 0 untuk kolom pertama — yang lolos `>= 0` tapi
+  // keliru dibaca sebagai indeks saat jumlah kolom fotonya lebih dari satu.
+  const adaKolomFoto = columns.some((c) => c.foto);
 
   // --- Judul
   let baris = 1;
@@ -192,7 +206,7 @@ export async function exportTableXLSXFoto({
     // Tinggi baris disetel supaya gambarnya muat utuh. Tanpa ini gambar akan
     // menumpuk ke baris di bawahnya dan tabelnya jadi tidak terbaca.
     // ~0,75 pt per piksel, ditambah sedikit ruang.
-    ws.getRow(r).height = iFoto >= 0 ? Math.round(FOTO_H * 0.78) + 6 : 18;
+    ws.getRow(r).height = adaKolomFoto ? Math.round(FOTO_H * 0.78) + 6 : 18;
     baris++;
   }
 
@@ -224,6 +238,121 @@ export async function exportTableXLSXFoto({
   // Dikembalikan supaya pemanggil bisa mengatakan apa adanya berapa foto yang
   // ikut dan berapa yang gagal — bukan sekadar "berhasil".
   return { adaFoto, gagalFoto, barisTerkirim: rows.length };
+}
+
+/**
+ * Banyak sheet dalam satu .xlsx, tiap sheet boleh membawa SATU gambar besar
+ * di bawah tabelnya (mis. foto nota).
+ *
+ * ============ GAMBARNYA DI BAWAH TABEL, BUKAN DI DALAM SEL ============
+ *
+ * Di `exportTableXLSXFoto`, gambar duduk di dalam sel karena satu baris = satu
+ * benda berfoto. Di sini terbalik: satu SHEET = satu nota, dan fotonya milik
+ * seluruh sheet. Menaruhnya di sel akan memaksa satu baris setinggi 120 px di
+ * tengah daftar barang.
+ *
+ * @param {object} o
+ *   filename nama berkas tanpa ekstensi
+ *   sheets   [{ name, title?, subtitle?, columns, rows, foto?, fotoKeterangan? }]
+ *            `foto` berisi data URL, atau 'GAGAL', atau null.
+ *
+ * Nama sheet dibatasi 31 karakter DAN tidak boleh kembar — dua sheet bernama
+ * sama membuat berkasnya GAGAL DIBUKA sama sekali, bukan sekadar tampil aneh.
+ */
+export async function exportSheetsXLSXFoto({ filename = 'laporan', sheets = [] }) {
+  const ExcelJS = await loadExcelJS();
+  const daftar = (sheets ?? []).filter((s) => s && Array.isArray(s.columns));
+  if (!daftar.length) throw new Error('Tidak ada sheet yang bisa diekspor.');
+
+  const wb = new ExcelJS.Workbook();
+  wb.created = new Date();
+  const terpakai = new Set();
+  let adaFoto = 0;
+  let gagalFoto = 0;
+
+  for (const s of daftar) {
+    let nama = String(s.name ?? 'Sheet').slice(0, 31) || 'Sheet';
+    let n = 2;
+    while (terpakai.has(nama)) nama = `${nama.slice(0, 27)} (${n++})`;
+    terpakai.add(nama);
+    const ws = wb.addWorksheet(nama);
+
+    let baris = 1;
+    if (s.title) {
+      ws.getCell(baris, 1).value = s.title;
+      ws.getCell(baris, 1).font = { bold: true, size: 13 };
+      baris++;
+    }
+    if (s.subtitle) {
+      ws.getCell(baris, 1).value = s.subtitle;
+      ws.getCell(baris, 1).font = { size: 10, color: { argb: 'FF666666' } };
+      baris++;
+    }
+    if (s.title || s.subtitle) baris++;
+
+    const barisKepala = baris;
+    s.columns.forEach((c, i) => {
+      const sel = ws.getCell(barisKepala, i + 1);
+      sel.value = c.header;
+      sel.font = { bold: true };
+      sel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEFEFEF' } };
+      sel.border = { bottom: { style: 'thin', color: { argb: 'FFBBBBBB' } } };
+    });
+    baris++;
+
+    for (const row of s.rows ?? []) {
+      s.columns.forEach((c, i) => {
+        const sel = ws.getCell(baris, i + 1);
+        if (c.numeric) {
+          sel.value = keAngka(row[i]);
+          sel.alignment = { horizontal: 'right' };
+          return;
+        }
+        sel.value = row[i] ?? '';
+        sel.alignment = { wrapText: true, vertical: 'top' };
+      });
+      baris++;
+    }
+
+    ws.columns.forEach((kolom, i) => {
+      const c = s.columns[i];
+      if (!c) return;
+      if (c.width) {
+        kolom.width = c.width;
+        return;
+      }
+      const isi = [c.header, ...(s.rows ?? []).map((r) => String(r[i] ?? ''))];
+      kolom.width = Math.min(40, Math.max(10, ...isi.map((v) => String(v).length + 2)));
+    });
+
+    // --- Foto nota, di bawah tabelnya
+    baris += 1;
+    const gambar = pisahDataUrl(s.foto);
+    if (gambar) {
+      ws.getCell(baris, 1).value = s.fotoKeterangan || 'Foto nota';
+      ws.getCell(baris, 1).font = { bold: true, size: 10 };
+      baris++;
+      const id = wb.addImage(gambar);
+      ws.addImage(id, { tl: { col: 0.1, row: baris - 1 }, ext: { width: 420, height: 560 }, editAs: 'oneCell' });
+      adaFoto++;
+    } else if (s.foto === 'GAGAL') {
+      // Dibedakan dari "memang tidak berfoto" — alasannya sama dengan di
+      // `exportTableXLSXFoto`: kalau dilebur, orang akan disuruh memfoto ulang
+      // nota yang fotonya sudah ada.
+      ws.getCell(baris, 1).value = '(foto nota gagal dimuat)';
+      ws.getCell(baris, 1).font = { italic: true, color: { argb: 'FFB03A2E' }, size: 10 };
+      gagalFoto++;
+    } else {
+      ws.getCell(baris, 1).value = '(nota ini tidak berfoto)';
+      ws.getCell(baris, 1).font = { italic: true, color: { argb: 'FF999999' }, size: 10 };
+    }
+
+    ws.views = [{ state: 'frozen', ySplit: barisKepala }];
+  }
+
+  const buffer = await wb.xlsx.writeBuffer();
+  unduh(buffer, `${filename}.xlsx`);
+  return { sheet: daftar.length, adaFoto, gagalFoto };
 }
 
 function unduh(buffer, namaFile) {

@@ -19,6 +19,7 @@ import { susunLaporanNota } from './laporan-nota.js';
 import { susunBahanMasuk } from './laporan-bahan-masuk.js';
 import { riwayatNota, itemNota, itemNotaBanyak, urlFotoNota } from './nota.service.js';
 import { pesanGagalFoto, PESAN_GAGAL_UMUM } from '../../core/tautan-foto.js';
+import { unduhNotaPerSheet, periksaBatas, pesanHasilPerSheet } from './ekspor-nota-persheet.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -48,6 +49,11 @@ export async function renderNotaAdmin(container, { businessUnitId, outlets }) {
            SAMA PERSIS - yang diekspor adalah yang sedang terlihat, bukan
            rentang lain yang harus diisi ulang di dialog tersendiri. -->
       <button id="nt-ekspor" class="primary">⬇ Export Excel (rentang ini)</button>
+      <!-- Bentuk KEDUA, bukan pengganti. Yang di kiri menjawab "berapa total
+           belanja bulan ini"; yang ini menjawab "mana nota untuk tagihan yang
+           ini, dan apa isinya". Dua pertanyaan berbeda, dua bentuk berkas —
+           dan yang kedua punya batas jumlah nota, yang pertama tidak. -->
+      <button id="nt-ekspor-sheet">⬇ Export per Nota (+ foto)</button>
     </div>
     <div id="nt-hasil"></div>
   `;
@@ -245,6 +251,64 @@ export async function renderNotaAdmin(container, { businessUnitId, outlets }) {
           // Catatan yang hilang dalam 3 detik sama saja dengan tidak ada.
           catatan.length ? 'warning' : 'success'
         );
+      },
+      { teks: 'Menyiapkan…' }
+    )
+  );
+
+  container.querySelector('#nt-ekspor-sheet').addEventListener(
+    'click',
+    sekaliJalan(
+      async () => {
+        if (!notaTampil.length) {
+          toast('Tampilkan dulu rentang yang mau diekspor.', 'warning');
+          return;
+        }
+        // Batasnya diperiksa SEBELUM satu foto pun diunduh. Memeriksanya di
+        // dalam `unduhNotaPerSheet` saja berarti orang menunggu belasan detik
+        // untuk sebuah penolakan yang sudah bisa diketahui sejak awal.
+        const tolak = periksaBatas(notaTampil.length);
+        if (tolak) {
+          await infoDialog({ title: 'Terlalu banyak nota', message: tolak });
+          return;
+        }
+
+        const namaOutlet = state.outletId ? outlets.find((o) => o.id === state.outletId)?.name ?? '' : 'Semua outlet';
+        let items;
+        try {
+          items = await itemNotaBanyak(notaTampil.map((n) => n.id));
+        } catch (e) {
+          toast(`Gagal mengambil isi notanya: ${e.message ?? e}`, 'error');
+          return;
+        }
+        const lapGabung = susunBahanMasuk({
+          notas: notaTampil,
+          items,
+          hpp,
+          periode: { dari: state.dateFrom, sampai: state.dateTo, outlet: namaOutlet }
+        });
+
+        try {
+          const h = await unduhNotaPerSheet({
+            notas: notaTampil,
+            hpp,
+            // Sheet pertama SAMA PERSIS dengan sheet Rincian pada ekspor di
+            // sebelahnya — dibangun dari fungsi yang sama, bukan disalin.
+            // Dua ekspor yang totalnya berbeda untuk rentang yang sama adalah
+            // keluhan yang tidak akan pernah bisa dijawab.
+            sheetGabungan: {
+              name: 'Rincian (semua)',
+              title: lapGabung.judul,
+              subtitle: lapGabung.subjudul,
+              columns: lapGabung.kolomRincian,
+              rows: lapGabung.rincian
+            },
+            namaBerkas: `${lapGabung.namaBerkas}-per-nota`
+          });
+          toast(pesanHasilPerSheet(h), h.tanpaBaris || h.gagalFoto ? 'warning' : 'success');
+        } catch (e) {
+          toast(e.message ?? 'Gagal menyiapkan berkas.', 'error');
+        }
       },
       { teks: 'Menyiapkan…' }
     )

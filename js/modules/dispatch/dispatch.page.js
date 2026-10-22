@@ -4,6 +4,7 @@ import { formatNum } from '../../core/format.js';
 import { listProducts } from '../product/product.service.js';
 import { getOutletStockMap } from '../inventory/inventory.service.js';
 import { createItemPicker } from './item-picker.js';
+import { bukaDialogRevisiKiriman } from './dialog-revisi-kiriman.js';
 import { saringTabel } from './saring-tabel.js';
 import { keadaanOrderKeCk, labelTombolDraft, pesanKeadaan } from './draft-outlet.js';
 import { petaDraftPerOrder, keadaanOrder, ringkasOrder } from './order-draft.js';
@@ -289,10 +290,25 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
                     d.status === 'sent'
                       ? `<button class="btn-danger btn-batal-kiriman" data-id="${d.id}" data-code="${esc(d.code ?? '')}"
                            data-ke="${esc(d.to_outlet?.name ?? '')}">Batalkan</button>`
-                      : d.status === 'received' && d.to_outlet_id === state.outletId
-                        ? `<button class="btn-teruskan-kiriman" data-id="${d.id}" data-code="${esc(d.code ?? '')}"
+                      : // SEJAK 0165 "diterima" punya DUA tombol, dan syaratnya
+                        // berbeda:
+                        //
+                        //   Teruskan  hanya outlet yang MEMEGANG barangnya
+                        //   Revisi    CK maupun outlet tujuan — yang salah
+                        //             ketik biasanya yang mengetik
+                        //
+                        // Keduanya ditulis sebagai satu ungkapan utuh, bukan
+                        // dipecah jadi potongan bersyarat. Bentuk pecahnya
+                        // sempat dipakai dan membuat `audit-kiriman-salah-alamat`
+                        // serta sabotase 0133 kehilangan sasarannya — penjaga
+                        // yang diam-diam berhenti menjaga, bukan yang berbunyi.
+                        d.status === 'received' && d.to_outlet_id === state.outletId
+                        ? `<button class="btn-revisi-kiriman" data-id="${d.id}">Revisi</button>
+                           <button class="btn-teruskan-kiriman" data-id="${d.id}" data-code="${esc(d.code ?? '')}"
                              data-ke="${esc(d.to_outlet?.name ?? '')}">Teruskan →</button>`
-                        : '<span style="font-size:0.78rem;color:var(--color-text-muted)">—</span>'
+                        : d.status === 'received' && d.from_outlet_id === state.outletId
+                          ? `<button class="btn-revisi-kiriman" data-id="${d.id}">Revisi</button>`
+                          : '<span style="font-size:0.78rem;color:var(--color-text-muted)">—</span>'
                   }</td>
                 </tr>`
               )
@@ -300,6 +316,43 @@ export async function renderDispatchPage(container, { businessUnitId, outletId }
           }</tbody>
         </table></div>
       `;
+
+      // ---- Revisi SJ yang SUDAH diterima (0165) ----
+      //
+      // Daftar outlet yang dipegang pemakai dikirim apa adanya; aturan "boleh
+      // atau tidak" ada di `revisi-kiriman.js`, dan penjaga sebenarnya di
+      // database. Tiga lapis, dan yang menentukan tetap yang paling bawah.
+      hasil.querySelectorAll('.btn-revisi-kiriman').forEach((btn) =>
+        btn.addEventListener(
+          'click',
+          sekaliJalan(async () => {
+            const sj = kiriman.find((x) => x.id === btn.dataset.id);
+            if (!sj) return toast('Kirimannya tidak ketemu lagi — muat ulang halaman.', 'warning');
+            // Daftar barang dimuat SAAT dibutuhkan, bukan di awal layar.
+            // Layar Dokumen dibuka jauh lebih sering untuk melihat PDF
+            // daripada untuk merevisi, dan memuat seluruh master produk tiap
+            // kali membukanya adalah ongkos yang dibayar semua orang untuk
+            // sesuatu yang dipakai sesekali.
+            let produk = [];
+            try {
+              produk = await listProducts(businessUnitId);
+            } catch {
+              // Gagal memuat master produk TIDAK boleh menutup dialognya:
+              // yang hilang cuma kemampuan menambah barang baru, sedangkan
+              // membetulkan jumlah diterima — alasan paling sering orang
+              // membukanya — tetap bisa.
+            }
+            await bukaDialogRevisiKiriman({
+              sj,
+              outletSaya: [state.outletId],
+              produk,
+              // Jejak revisi membawa `by_nama` dari database (0165), jadi
+              // tidak ada peta nama yang perlu disiapkan di sini.
+              onSelesai: muat
+            });
+          })
+        )
+      );
 
       // ---- Batalkan kiriman yang belum diterima ----
       hasil.querySelectorAll('.btn-batal-kiriman').forEach((btn) =>
