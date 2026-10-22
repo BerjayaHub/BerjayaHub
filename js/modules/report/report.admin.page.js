@@ -1,6 +1,6 @@
 import { toast } from '../../core/ui.js';
 import { exportTablePDF } from '../../core/pdf.js';
-import { exportTableXLSX } from '../../core/xlsx.js';
+import { exportTableXLSX, exportSheetsXLSX } from '../../core/xlsx.js';
 import { listBuStaff } from '../leave/leave.service.js';
 import { listCashCategories, listKantongKasTerlihat } from '../cash/cash.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
@@ -268,6 +268,35 @@ export async function renderReportAdminPage(container, { businessUnitId }) {
   async function exportXlsx() {
     if (!last?.data?.rows?.length) return toast('Tampilkan laporannya dulu.', 'warning');
     try {
+      const bagian = last.data.bagian ?? [];
+      if (bagian.length) {
+        // ============ RINCIANNYA JADI SHEET SENDIRI ============
+        //
+        // Menumpuknya di satu sheet di bawah tabel utama membuat kolom yang
+        // berbeda bertabrakan — "Nilai" milik rekap bahan jatuh di bawah
+        // "Catatan" milik tabel utama, dan SUM kolomnya jadi campuran dua hal.
+        await exportSheetsXLSX({
+          filename: `laporan-${last.report.key}`,
+          sheets: [
+            {
+              name: 'Ringkasan',
+              title: last.report.label,
+              subtitle: last.subtitle,
+              columns: last.data.columns.map((c) => ({ header: c.header, numeric: !!c.numeric })),
+              rows: last.data.rows
+            },
+            ...bagian.map((b) => ({
+              name: String(b.judul ?? 'Rincian').replace(/[:\\/?*[\]]+/g, '-').slice(0, 31),
+              title: b.judul,
+              subtitle: last.subtitle,
+              columns: (b.columns ?? []).map((c) => ({ header: c.header, numeric: !!c.numeric })),
+              rows: b.rows ?? []
+            }))
+          ]
+        });
+        toast('Excel laporan terunduh.', 'success');
+        return;
+      }
       await exportTableXLSX({
         title: last.report.label,
         subtitle: last.subtitle,
@@ -325,6 +354,35 @@ function renderResult(report, data, subtitle) {
       </table>
     </div>
     ${data.note ? `<p class="report-note">${mdBold(esc(data.note))}</p>` : ''}
+    ${
+      // ============ BAGIAN RINCIAN, KALAU LAPORANNYA PUNYA ============
+      //
+      // Laporan yang tidak memuat `bagian` tidak berubah sama sekali — kerangka
+      // ini tetap tidak tahu isi laporan apa pun. Yang ditambahkan cuma
+      // kemampuan menggambar tabel SUSULAN di bawah tabel utama, untuk laporan
+      // yang memang punya rincian (mis. Laba Rugi Outlet per dokumen & bahan).
+      (data.bagian ?? [])
+        .map(
+          (b) => `
+            <h3 style="font-size:0.95rem;margin:18px 0 6px">${esc(b.judul ?? '')}</h3>
+            <div class="table-scroll"><table class="data-table table-freeze-1 kartu-sempit">
+              <thead><tr>${(b.columns ?? [])
+                .map((c) => `<th${c.numeric ? ' style="text-align:right"' : ''}>${esc(c.header)}</th>`)
+                .join('')}</tr></thead>
+              <tbody>${
+                (b.rows ?? [])
+                  .map(
+                    (r) =>
+                      `<tr>${r
+                        .map((cell, ci) => `<td${b.columns?.[ci]?.numeric ? ' style="text-align:right"' : ''}>${esc(cell)}</td>`)
+                        .join('')}</tr>`
+                  )
+                  .join('') || `<tr><td colspan="${(b.columns ?? []).length || 1}">Tidak ada data.</td></tr>`
+              }</tbody>
+            </table></div>`
+        )
+        .join('')
+    }
   `;
 }
 

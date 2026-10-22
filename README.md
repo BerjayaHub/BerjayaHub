@@ -9276,3 +9276,92 @@ dengan memasang pemanggilan palsu untuk memastikan ia belum jadi longgar
 sampai berhenti menjaga.
 
 - [x] **Revisi SJ yang sudah diterima** (`0165`) — 64 tes PGlite, 35 tes murni, 29 sabotase
+
+---
+
+## Laporan Laba Rugi Outlet — dan satu bug yang ditemukan sambil mencarinya
+
+> *"laporan ini berisi barang masuk ke outlet melalui CK, dan beli bahan sendiri, lalu hasil opname dengan value, serta penjualan dengan value, satu lagi pengeluaran outlet selain bahan … keempat unsur ini ditampilkan detailnya lalu dibandingkan"*
+
+### Namanya
+
+Yang digambarkan adalah **Laba Rugi Outlet** — di akuntansi restoran: *outlet
+P&L dengan rekonsiliasi stok*. Keempat unsurnya persis bagian-bagian satu
+rumus:
+
+```
+Penjualan
+− HPP  = stok awal + barang masuk (CK + supplier) − stok akhir
+= Laba kotor
+− Biaya operasional selain bahan
+= Laba bersih outlet
+```
+
+### Yang sudah ada, dan yang kurang
+
+| Laporan lama | Isinya | Yang kurang |
+|---|---|---|
+| **Laba Kotor** | omzet − HPP dari **resep** (teoretis) | tidak menyentuh barang masuk nyata, tidak ada biaya operasional |
+| **COGS** | stok awal + pembelian − stok akhir | tidak menghitung kiriman CK, tidak ada penjualan, tidak ada biaya |
+
+Tidak ada yang menggabungkan keempatnya, dan tidak ada yang menampilkan
+rinciannya.
+
+### Bug yang ditemukan saat memeriksa: COGS tidak menghitung kiriman CK
+
+`buildCogs` mengambil "pembelian" dari view `nota_ringkas`. Definisinya
+diperiksa: isinya **murni `goods_receipts`** — nota supplier saja. Sementara
+stok awal & akhirnya dari `saldo_stok_pada`, yang menjumlahkan **seluruh**
+`stock_movements`, termasuk `transfer_in` dari CK.
+
+Barangnya menaikkan stok akhir tapi tidak pernah masuk sisi barang masuk:
+
+```
+stok awal 100 · kiriman CK 50 · beli supplier 30 · terpakai 60
+stok akhir = 120
+
+COGS seharusnya           : 60
+COGS yang tercetak selama ini: 100 + 30 − 120 = 10
+```
+
+Outlet yang belanja sendiri saja tidak terkena; yang dipasok CK terkena telak —
+dan itu sebagian besar outlet. **Tidak ada galat di mana pun**, angkanya
+tercetak rapi, dan arah kesalahannya membuat biaya terlihat kecil — yaitu arah
+yang paling tidak akan dipertanyakan siapa pun.
+
+Diperbaiki, dan laporannya sekarang memuat kalimat bahwa **angkanya berubah**
+beserta sebabnya. Rekap yang terlanjur dicetak memuat angka yang lama, dan
+tanpa kalimat itu orang yang membandingkannya akan mengira salah satunya rusak.
+
+### Tanggal terima, bukan tanggal kirim
+
+Gerakan stok kiriman ditulis `receive_dispatch` **saat diterima**. Kiriman yang
+berangkat 31 Agustus dan diterima 1 September menaikkan stok September —
+menghitungnya di Agustus membuat **dua bulan salah sekaligus**, dan selisihnya
+tidak akan pernah bisa dijelaskan.
+
+### Yang dijaga di laporan barunya
+
+| Keputusan | Kalau tidak |
+|---|---|
+| CK & supplier **tidak dilebur** | "belanja terlalu besar" ditindaklanjuti dengan memeriksa nota, "kiriman terlalu besar" dengan memeriksa order — satu angka tidak memberitahu ke mana melihat |
+| HPP minus **dilaporkan apa adanya** + ditandai | stok akhir > awal + masuk berarti ada barang tanpa dokumen; dipotong ke nol, tandanya hilang dan angkanya terbaca sebagai untung luar biasa |
+| Food cost `null` saat omzet nol | `Infinity%` dan `0%` sama-sama berbohong, dan dua-duanya tercetak rapi |
+| Bahan tanpa HPP dihitung **terpisah** | dianggap nol membuat HPP kecil dan laba besar — arah yang tidak akan dipertanyakan |
+| Nota dibatalkan & kas dicoret **tidak ikut** | barang yang sudah ditarik menaikkan HPP; biaya berbeda dari layar Kas |
+| `untuk_nota` wajib ikut terambil | tanpa kolomnya, `untukBahan()` membaca `undefined` dan **seluruh** pembayaran nota terhitung dua kali — sekali sebagai barang masuk, sekali sebagai biaya |
+
+Rincian per dokumen & rekap per bahan hanya digambar saat **satu outlet
+dipilih**; di tingkat BU laporannya satu baris per outlet supaya bisa
+dibandingkan. Enam outlet berincian penuh menghasilkan belasan halaman yang
+tidak dibaca siapa pun.
+
+### Kerangka laporan belajar satu hal baru
+
+Halaman Laporan tetap tidak tahu isi laporan apa pun — yang ditambahkan cuma
+kemampuan menggambar tabel **susulan** di bawah tabel utama, untuk laporan yang
+memang punya rincian. Di Excel tiap bagian jadi **sheet sendiri**: menumpuknya
+di satu sheet membuat kolom yang berbeda bertabrakan, dan `SUM` kolomnya jadi
+campuran dua hal.
+
+- [x] **Laporan Laba Rugi Outlet + perbaikan COGS** — 33 tes murni, 28 sabotase

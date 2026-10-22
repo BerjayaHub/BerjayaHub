@@ -13,6 +13,8 @@ import { listBuStaff } from '../leave/leave.service.js';
 import { LATE_LABEL } from '../shift/shift.service.js';
 import { laporanKasUser, rincianMutasiKas } from '../cash/cash.service.js';
 import { nilaiStok, barisCogs, ringkasCogs } from './cogs.js';
+import { barisLabaRugi, ringkasLabaRugi, persen, rekapPerBahan, pesanLabaRugi } from './laba-rugi-outlet.js';
+import { selainBahan } from '../cash/jenis-pengeluaran.js';
 import { susunMutasiKas } from './mutasi-kas.js';
 
 // =========================================================
@@ -39,13 +41,23 @@ export const REPORTS = [
     build: buildProfitLoss
   },
   {
+    key: 'laba_rugi_outlet',
+    label: 'Laba Rugi Outlet',
+    group: 'Keuangan',
+    description:
+      'Empat arus dipertemukan: barang masuk (kiriman CK + nota supplier), stok awal & akhir dari opname, ' +
+      'penjualan, dan pengeluaran outlet selain bahan. Menghasilkan HPP nyata, food cost %, laba kotor, dan laba ' +
+      'bersih per outlet. Pilih satu outlet untuk melihat rincian per dokumen dan rekap per bahan.',
+    build: buildLabaRugiOutlet
+  },
+  {
     key: 'cogs',
     label: 'COGS (Harga Pokok Penjualan)',
     group: 'Keuangan',
     description:
-      'Stok awal + pembelian − stok akhir, per outlet. Stok awal & akhir = nilai SALDO STOK pada tanggalnya ' +
-      '(seluruh bahan × HPP, hasil opname sudah termasuk); pembelian dari nota terima supplier. ' +
-      'Berbeda dari Laba Kotor, yang menghitung HPP dari resep.',
+      'Stok awal + barang masuk − stok akhir, per outlet. Barang masuk mencakup nota supplier DAN kiriman ' +
+      'dari Central Kitchen. Stok awal & akhir = nilai SALDO STOK pada tanggalnya (seluruh bahan × HPP, hasil ' +
+      'opname sudah termasuk). Berbeda dari Laba Kotor, yang menghitung HPP dari resep.',
     build: buildCogs
   },
   {
@@ -115,6 +127,7 @@ const rpMinus = (n) => (Number(n) ? `(${formatRupiah(Math.round(Math.abs(Number(
 
 const pad2 = (n) => String(n).padStart(2, '0');
 /** 'YYYY-MM-DD' dari komponen LOKAL — jangan pakai toISOString (bisa geser 1 hari). */
+const fnum = (n) => formatNum(Number(n) || 0);
 const dateKey = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 
 /** Semua tanggal 'YYYY-MM-DD' antara from..to (inklusif). */
@@ -246,6 +259,75 @@ async function nilaiStokPerOutlet({ businessUnitId, outletId, tanggal, hpp }) {
   return hasil;
 }
 
+/**
+ * Nilai BARANG MASUK DARI CK per outlet, pada periode.
+ *
+ * ============ KENAPA INI SEMPAT HILANG DARI COGS ============
+ *
+ * `buildCogs` mengambil "pembelian" dari `nota_ringkas`, dan view itu MURNI
+ * `goods_receipts` — nota supplier saja. Sementara stok awal & akhirnya dari
+ * `saldo_stok_pada`, yang menjumlahkan SELURUH `stock_movements` termasuk
+ * `transfer_in` dari CK.
+ *
+ * Jadi untuk outlet yang dipasok CK, barangnya menaikkan stok akhir tapi tidak
+ * pernah masuk sisi "pembelian":
+ *
+ *     stok awal 100 · kiriman CK 50 · beli supplier 30 · terpakai 60
+ *     stok akhir = 120
+ *     COGS seharusnya           : 60
+ *     COGS tanpa kiriman CK     : 100 + 30 − 120 = 10
+ *
+ * Angkanya jauh lebih kecil dari seharusnya, tercetak rapi, tanpa satu pun
+ * galat. Outlet yang belanja sendiri saja tidak terkena; yang dipasok CK
+ * terkena telak — dan itu sebagian besar outlet.
+ *
+ * ============ DIHITUNG PER TANGGAL TERIMA, BUKAN TANGGAL KIRIM ============
+ *
+ * Gerakan stoknya ditulis `receive_dispatch` SAAT DITERIMA. Kiriman yang
+ * berangkat 31 Agustus dan diterima 1 September menaikkan stok September —
+ * jadi menghitungnya di Agustus membuat kedua bulan salah sekaligus, dan
+ * selisihnya tidak akan pernah bisa dijelaskan.
+ *
+ * Nilainya qty × HPP, pola yang sama dengan `rekap-kiriman.js`. Tidak ada
+ * "harga beli" pada transfer internal; HPP satu-satunya nilai yang masuk akal.
+ */
+async function nilaiKirimanMasuk({ businessUnitId, outletId, from, to, hpp }) {
+  const baris = await ambilSemua((dari, sampai) => {
+    let q = supabase
+      .from('dispatch_items')
+      // `!inner` supaya saringan status & tanggal bisa menempel ke headernya.
+      .select('product_id, received_qty, dispatches!inner(to_outlet_id, status, received_at, business_unit_id)', {
+        count: 'exact'
+      })
+      .eq('dispatches.business_unit_id', businessUnitId)
+      .eq('dispatches.status', 'received')
+      .gte('dispatches.received_at', isoFrom(from))
+      .lte('dispatches.received_at', isoTo(to));
+    if (outletId) q = q.eq('dispatches.to_outlet_id', outletId);
+    return q.range(dari, sampai);
+  });
+
+  const hasil = new Map();
+  for (const b of baris) {
+    const oid = b.dispatches?.to_outlet_id;
+    if (!oid) continue;
+    const qty = Number(b.received_qty);
+    if (!Number.isFinite(qty) || qty <= 0) continue;
+
+    const h = hpp.get(b.product_id);
+    const adaHpp = h !== null && h !== undefined && Number.isFinite(Number(h));
+    const kini = hasil.get(oid) ?? { nilai: 0, tanpaHpp: 0, jumlahItem: 0 };
+    kini.jumlahItem += 1;
+    // Bahan tanpa HPP DIHITUNG TERPISAH, tidak diam-diam dianggap nol. Nol
+    // membuat COGS terlihat lebih kecil tanpa ada yang menandainya — persis
+    // bentuk kegagalan yang sedang diperbaiki berkas ini.
+    if (adaHpp) kini.nilai += Number(h) * qty;
+    else kini.tanpaHpp += 1;
+    hasil.set(oid, kini);
+  }
+  return hasil;
+}
+
 async function buildCogs({ businessUnitId, outletId, from, to }) {
   let outletQ = supabase.from('outlets').select('id, name').eq('business_unit_id', businessUnitId).order('name');
   if (outletId) outletQ = outletQ.eq('id', outletId);
@@ -267,7 +349,7 @@ async function buildCogs({ businessUnitId, outletId, from, to }) {
   sebelum.setDate(sebelum.getDate() - 1);
   const hariSebelum = dateKey(sebelum);
 
-  const [stokAwal, stokAkhir, petaAwal, petaAkhir, notaRes] = await Promise.all([
+  const [stokAwal, stokAkhir, petaAwal, petaAkhir, notaRes, kirimanMasuk] = await Promise.all([
     nilaiStokPerOutlet({ businessUnitId, outletId, tanggal: hariSebelum, hpp }),
     nilaiStokPerOutlet({ businessUnitId, outletId, tanggal: to, hpp }),
     // Opname TIDAK lagi jadi sumber angkanya — ia penanda apakah angka itu
@@ -284,7 +366,8 @@ async function buildCogs({ businessUnitId, outletId, from, to }) {
         .lte('receipt_date', to);
       if (outletId) q = q.eq('outlet_id', outletId);
       return q.range(dari, sampai);
-    })
+    }),
+    nilaiKirimanMasuk({ businessUnitId, outletId, from, to, hpp })
   ]);
 
   // Nota yang DIBATALKAN (0131) barangnya sudah ditarik — ikut menghitungnya
@@ -293,6 +376,16 @@ async function buildCogs({ businessUnitId, outletId, from, to }) {
   for (const n of notaRes) {
     if (n.status === 'dibatalkan') continue;
     pembelian.set(n.outlet_id, (pembelian.get(n.outlet_id) ?? 0) + (Number(n.total) || 0));
+  }
+
+  // ============ KIRIMAN DARI CK IKUT "BARANG MASUK" ============
+  //
+  // Lihat penjelasan panjang di `nilaiKirimanMasuk`. Tanpa baris ini, COGS
+  // outlet yang dipasok CK jauh lebih kecil dari seharusnya — tanpa galat.
+  let tanpaHppKiriman = 0;
+  for (const [oid, k] of kirimanMasuk) {
+    pembelian.set(oid, (pembelian.get(oid) ?? 0) + k.nilai);
+    tanpaHppKiriman += k.tanpaHpp;
   }
 
   const kosong = { nilai: 0, tanpaHpp: 0, jumlahItem: 0 };
@@ -341,7 +434,7 @@ async function buildCogs({ businessUnitId, outletId, from, to }) {
       { header: 'Outlet', width: 1.6 },
       { header: 'Opname Awal', width: 1 },
       { header: 'Stok Awal', width: 1.2, numeric: true },
-      { header: 'Pembelian', width: 1.2, numeric: true },
+      { header: 'Barang Masuk', width: 1.3, numeric: true },
       { header: 'Opname Akhir', width: 1 },
       { header: 'Stok Akhir', width: 1.2, numeric: true },
       { header: 'COGS', width: 1.3, numeric: true },
@@ -351,7 +444,7 @@ async function buildCogs({ businessUnitId, outletId, from, to }) {
     bold: baris.length > 1 ? [rows.length - 1] : [],
     summary: [
       { label: 'Stok awal', value: rp(total.awal) },
-      { label: 'Pembelian', value: rp(total.pembelian) },
+      { label: 'Barang masuk (CK + supplier)', value: rp(total.pembelian) },
       { label: 'Stok akhir', value: rp(total.akhir) },
       { label: 'COGS', value: rp(total.cogs) },
       {
@@ -360,7 +453,21 @@ async function buildCogs({ businessUnitId, outletId, from, to }) {
       }
     ],
     note:
-      'COGS = stok awal + pembelian − stok akhir. Stok awal = nilai SALDO STOK pada akhir hari sebelum ' +
+      // ============ ANGKANYA BERUBAH SEJAK KIRIMAN CK IKUT ============
+      //
+      // Rekap yang terlanjur dicetak sebelum perbaikan ini memuat COGS yang
+      // jauh lebih kecil. Tanpa kalimat ini, orang yang membandingkannya akan
+      // mengira salah satunya rusak — dan tidak ada cara menjawabnya.
+      'PENTING: sejak perbaikan ini, kolom Barang Masuk memuat kiriman dari Central Kitchen, bukan hanya nota ' +
+      'supplier. Sebelumnya kiriman CK menaikkan stok akhir tapi tidak pernah masuk sisi barang masuk, sehingga ' +
+      'COGS outlet yang dipasok CK tercetak jauh lebih kecil dari seharusnya. Rekap lama yang sudah dicetak ' +
+      'memuat angka yang itu. ' +
+      (tanpaHppKiriman
+        ? `${tanpaHppKiriman} baris kiriman belum punya HPP dan nilainya dihitung nol — lengkapi HPP bahannya supaya COGS tidak terlalu kecil. `
+        : '') +
+      'COGS = stok awal + barang masuk − stok akhir. Barang masuk = nota supplier (harga nota) + kiriman CK ' +
+      '(qty diterima × HPP, dihitung pada TANGGAL TERIMA supaya cocok dengan saldo stok). ' +
+      'Stok awal = nilai SALDO STOK pada akhir hari sebelum ' +
       `${from}; stok akhir = nilai saldo stok pada akhir hari ${to}. Keduanya = Σ (saldo × HPP), memakai ` +
       'saldo semua bahan — bukan nilai satu sesi opname, karena sesi perbaikan hanya berisi bahan yang dibetulkan ' +
       'dan nilainya akan jauh lebih kecil dari stok sebenarnya. Hasil opname tetap ikut dengan sendirinya: ' +
@@ -841,4 +948,384 @@ async function buildCashMutationDetail({ outletId, userId, categoryId, accountId
     categoryId
   });
   return susunMutasiKas({ baris, periode: { dari: from, sampai: to } });
+}
+
+// ---------------------------------------------------------
+// Laba Rugi Outlet — empat arus dipertemukan.
+// ---------------------------------------------------------
+
+/**
+ * Barang masuk dari CK, DIRINCI: per dokumen dan per bahan sekaligus.
+ *
+ * Satu query, dua bentuk keluaran — bukan dua query. Rincian dokumen dan rekap
+ * bahan yang diambil terpisah bisa menjawab berbeda untuk periode yang sama
+ * begitu salah satunya lupa menyaring status.
+ */
+async function rincianKirimanMasuk({ businessUnitId, outletId, from, to, hpp }) {
+  const baris = await ambilSemua((dari, sampai) => {
+    let q = supabase
+      .from('dispatch_items')
+      .select(
+        'product_id, received_qty, products(name, base_unit), ' +
+          'dispatches!inner(id, code, to_outlet_id, status, received_at, business_unit_id, from_outlet:outlets!from_outlet_id(name))',
+        { count: 'exact' }
+      )
+      .eq('dispatches.business_unit_id', businessUnitId)
+      .eq('dispatches.status', 'received')
+      .gte('dispatches.received_at', isoFrom(from))
+      .lte('dispatches.received_at', isoTo(to));
+    if (outletId) q = q.eq('dispatches.to_outlet_id', outletId);
+    return q.range(dari, sampai);
+  });
+
+  const perOutlet = new Map();
+  for (const b of baris) {
+    const oid = b.dispatches?.to_outlet_id;
+    if (!oid) continue;
+    const qty = Number(b.received_qty);
+    if (!Number.isFinite(qty) || qty <= 0) continue;
+
+    const h = hpp.get(b.product_id);
+    const adaHpp = h !== null && h !== undefined && Number.isFinite(Number(h));
+    const nilai = adaHpp ? Number(h) * qty : 0;
+
+    if (!perOutlet.has(oid)) perOutlet.set(oid, { nilai: 0, tanpaHpp: 0, jumlahItem: 0, dok: new Map(), bahan: [] });
+    const o = perOutlet.get(oid);
+    o.nilai += nilai;
+    o.jumlahItem += 1;
+    if (!adaHpp) o.tanpaHpp += 1;
+
+    const kode = b.dispatches?.code || '(tanpa nomor)';
+    if (!o.dok.has(kode)) {
+      o.dok.set(kode, { kode, tanggal: (b.dispatches?.received_at ?? '').slice(0, 10), dari: b.dispatches?.from_outlet?.name ?? '-', nilai: 0, item: 0 });
+    }
+    const d = o.dok.get(kode);
+    d.nilai += nilai;
+    d.item += 1;
+
+    o.bahan.push({
+      product_id: b.product_id,
+      nama: b.products?.name ?? '',
+      satuan: b.products?.base_unit ?? '',
+      qty,
+      nilai,
+      adaHpp
+    });
+  }
+  return perOutlet;
+}
+
+/** Barang masuk dari supplier, dirinci per nota dan per bahan. */
+async function rincianNotaSupplier({ businessUnitId, outletId, from, to }) {
+  const [nota, item] = await Promise.all([
+    ambilSemua((dari, sampai) => {
+      let q = supabase
+        .from('nota_ringkas')
+        .select('id, outlet_id, code, receipt_date, supplier, total, status, baris_tanpa_harga', { count: 'exact' })
+        .eq('business_unit_id', businessUnitId)
+        .gte('receipt_date', from)
+        .lte('receipt_date', to);
+      if (outletId) q = q.eq('outlet_id', outletId);
+      return q.range(dari, sampai);
+    }),
+    ambilSemua((dari, sampai) => {
+      let q = supabase
+        .from('goods_receipt_items')
+        .select('receipt_id, product_id, qty, line_total, unit_cost, products(name, base_unit), goods_receipts!inner(outlet_id, business_unit_id, receipt_date, status)', {
+          count: 'exact'
+        })
+        .eq('goods_receipts.business_unit_id', businessUnitId)
+        .gte('goods_receipts.receipt_date', from)
+        .lte('goods_receipts.receipt_date', to);
+      if (outletId) q = q.eq('goods_receipts.outlet_id', outletId);
+      return q.range(dari, sampai);
+    })
+  ]);
+
+  const perOutlet = new Map();
+  const notaDipakai = new Set();
+  for (const nRow of nota) {
+    // Nota DIBATALKAN (0131) barangnya sudah ditarik — ikut menghitungnya
+    // membuat barang masuk, dan karenanya HPP, lebih besar dari sebenarnya.
+    if (nRow.status === 'dibatalkan') continue;
+    notaDipakai.add(nRow.id);
+    if (!perOutlet.has(nRow.outlet_id)) {
+      perOutlet.set(nRow.outlet_id, { nilai: 0, barisTanpaHarga: 0, dok: [], bahan: [] });
+    }
+    const o = perOutlet.get(nRow.outlet_id);
+    o.nilai += Number(nRow.total) || 0;
+    o.barisTanpaHarga += Number(nRow.baris_tanpa_harga) || 0;
+    o.dok.push({
+      kode: nRow.code || '(tanpa nomor)',
+      tanggal: nRow.receipt_date,
+      dari: nRow.supplier || '-',
+      nilai: Number(nRow.total) || 0
+    });
+  }
+
+  for (const it of item) {
+    // Baris milik nota yang dibatalkan dibuang di sini juga — kalau tidak,
+    // rekap per bahan akan memuat barang yang totalnya tidak ikut dihitung,
+    // dan dua bagian laporan yang sama jadi tidak sejalan.
+    if (!notaDipakai.has(it.receipt_id)) continue;
+    const oid = it.goods_receipts?.outlet_id;
+    const o = perOutlet.get(oid);
+    if (!o) continue;
+    o.bahan.push({
+      product_id: it.product_id,
+      nama: it.products?.name ?? '',
+      satuan: it.products?.base_unit ?? '',
+      qty: Number(it.qty) || 0,
+      nilai: Number(it.line_total ?? (Number(it.qty) || 0) * (Number(it.unit_cost) || 0)) || 0
+    });
+  }
+  return perOutlet;
+}
+
+/** Pengeluaran kas SELAIN bahan, per outlet peruntukan. */
+async function biayaNonBahanPerOutlet({ businessUnitId, outletId, from, to }) {
+  const baris = await ambilSemua((dari, sampai) => {
+    let q = supabase
+      .from('cash_entries')
+      // Kolomnya persis `KOLOM_DIBUTUHKAN` milik `jenis-pengeluaran.js`:
+      // `untuk_nota` yang tidak ikut terbaca `undefined`, dan SELURUH
+      // pembayaran nota akan terhitung sebagai "selain bahan".
+      .select('id, entry_type, untuk_nota, penyesuaian_nota, amount, dicoret_at, notes, entry_date, outlet_id, cash_categories(name), outlets!outlet_id(business_unit_id)', {
+        count: 'exact'
+      })
+      .eq('outlets.business_unit_id', businessUnitId)
+      .gte('entry_date', from)
+      .lte('entry_date', to);
+    if (outletId) q = q.eq('outlet_id', outletId);
+    return q.range(dari, sampai);
+  });
+
+  const perOutlet = new Map();
+  for (const e of baris) {
+    // Yang dicoret (0141) TIDAK ikut menjumlah — seluruh pembaca kas
+    // menyaringnya, dan laporan yang tidak ikut akan berbeda dari layar Kas.
+    if (e.dicoret_at) continue;
+    if (!selainBahan(e)) continue;
+    const oid = e.outlet_id;
+    if (!oid) continue;
+    if (!perOutlet.has(oid)) perOutlet.set(oid, { nilai: 0, dok: [] });
+    const o = perOutlet.get(oid);
+    const n = Number(e.amount) || 0;
+    o.nilai += n;
+    o.dok.push({
+      tanggal: e.entry_date,
+      kategori: e.cash_categories?.name ?? '-',
+      keterangan: e.notes ?? '',
+      nilai: n
+    });
+  }
+  return perOutlet;
+}
+
+async function buildLabaRugiOutlet({ businessUnitId, outletId, from, to }) {
+  let outletQ = supabase.from('outlets').select('id, name').eq('business_unit_id', businessUnitId).order('name');
+  if (outletId) outletQ = outletQ.eq('id', outletId);
+  const [outletRes, products, recipes] = await Promise.all([
+    outletQ,
+    listProducts(businessUnitId).catch(() => []),
+    listRecipesFull(businessUnitId).catch(() => [])
+  ]);
+  if (outletRes.error) throw outletRes.error;
+  const outlets = outletRes.data ?? [];
+  const outletIds = outlets.map((o) => o.id);
+  const hpp = computeCosts(products, recipes);
+
+  // Stok awal = keadaan rak SEBELUM hari pertama. Memakai `from` sendiri akan
+  // mengambil pergerakan hari itu sebagai stok awal, dan barang masuk hari
+  // pertama terhitung dua kali.
+  const sebelum = new Date(`${from}T00:00:00`);
+  sebelum.setDate(sebelum.getDate() - 1);
+  const hariSebelum = dateKey(sebelum);
+
+  let salesQ = supabase
+    .from('sales')
+    .select('outlet_id, revenue')
+    .eq('business_unit_id', businessUnitId)
+    .gte('sale_date', from)
+    .lte('sale_date', to)
+    .limit(10000);
+  if (outletId) salesQ = salesQ.eq('outlet_id', outletId);
+
+  const [stokAwal, stokAkhir, petaAwal, petaAkhir, ck, sup, biaya, salesRes] = await Promise.all([
+    nilaiStokPerOutlet({ businessUnitId, outletId, tanggal: hariSebelum, hpp }),
+    nilaiStokPerOutlet({ businessUnitId, outletId, tanggal: to, hpp }),
+    opnameTerakhirPerOutlet({ businessUnitId, outletIds, sampai: hariSebelum }),
+    opnameTerakhirPerOutlet({ businessUnitId, outletIds, sampai: to, sejak: from }),
+    rincianKirimanMasuk({ businessUnitId, outletId, from, to, hpp }),
+    rincianNotaSupplier({ businessUnitId, outletId, from, to }),
+    biayaNonBahanPerOutlet({ businessUnitId, outletId, from, to }),
+    salesQ
+  ]);
+  if (salesRes.error) throw salesRes.error;
+
+  const omzet = new Map();
+  for (const s of salesRes.data ?? []) {
+    omzet.set(s.outlet_id, (omzet.get(s.outlet_id) ?? 0) + (Number(s.revenue) || 0));
+  }
+
+  const kosong = { nilai: 0, tanpaHpp: 0, jumlahItem: 0 };
+  const baris = outlets.map((o) =>
+    barisLabaRugi({
+      outlet: o.name,
+      outletId: o.id,
+      stokAwal: stokAwal.get(o.id) ?? kosong,
+      stokAkhir: stokAkhir.get(o.id) ?? kosong,
+      masukCk: ck.get(o.id) ?? kosong,
+      masukSupplier: sup.get(o.id) ?? { nilai: 0, barisTanpaHarga: 0 },
+      omzet: omzet.get(o.id) ?? 0,
+      biayaNonBahan: biaya.get(o.id)?.nilai ?? 0,
+      opnameAwal: petaAwal.get(o.id) ? { tanggal: petaAwal.get(o.id).count_date } : null,
+      opnameAkhir: petaAkhir.get(o.id) ? { tanggal: petaAkhir.get(o.id).count_date } : null
+    })
+  );
+  const total = ringkasLabaRugi(baris);
+
+  // ============ RINGKASAN BU, RINCIAN SAAT OUTLET DIPILIH ============
+  //
+  // Di tingkat BU laporannya satu baris per outlet supaya bisa dibandingkan.
+  // Rincian dokumen & rekap bahan hanya digambar kalau SATU outlet dipilih —
+  // enam outlet berincian penuh menghasilkan belasan halaman yang tidak
+  // dibaca siapa pun.
+  const rows = baris.map((b) => [
+    b.outlet,
+    rp(b.omzet),
+    rp(b.awal),
+    rp(b.nilaiCk),
+    rp(b.nilaiSupplier),
+    rp(b.akhir),
+    rp(b.hpp),
+    persen(b.foodCostPersen),
+    rp(b.labaKotor),
+    rp(b.biayaNonBahan),
+    rp(b.labaBersih),
+    b.catatan
+  ]);
+
+  if (baris.length > 1) {
+    rows.push([
+      'TOTAL',
+      rp(total.omzet),
+      rp(total.awal),
+      rp(total.nilaiCk),
+      rp(total.nilaiSupplier),
+      rp(total.akhir),
+      rp(total.hpp),
+      persen(total.foodCostPersen),
+      rp(total.labaKotor),
+      rp(total.biayaNonBahan),
+      rp(total.labaBersih),
+      ''
+    ]);
+  }
+
+  const bagian = [];
+  if (outletId && baris.length === 1) {
+    const o = baris[0];
+    const dokCk = [...(ck.get(o.outletId)?.dok?.values() ?? [])].sort((a, b) => String(a.tanggal).localeCompare(String(b.tanggal)));
+    const dokSup = (sup.get(o.outletId)?.dok ?? []).sort((a, b) => String(a.tanggal).localeCompare(String(b.tanggal)));
+    const dokBiaya = (biaya.get(o.outletId)?.dok ?? []).sort((a, b) => String(a.tanggal).localeCompare(String(b.tanggal)));
+    const bahan = rekapPerBahan(ck.get(o.outletId)?.bahan ?? [], sup.get(o.outletId)?.bahan ?? []);
+
+    bagian.push({
+      judul: `Barang masuk dari Central Kitchen (${dokCk.length} surat jalan)`,
+      columns: [
+        { header: 'Tanggal Terima', width: 1 },
+        { header: 'No. SJ', width: 1.2 },
+        { header: 'Dari', width: 1.4 },
+        { header: 'Item', width: 0.7, numeric: true },
+        { header: 'Nilai (HPP)', width: 1.3, numeric: true }
+      ],
+      rows: dokCk.map((d) => [d.tanggal, d.kode, d.dari, d.item, rp(d.nilai)])
+    });
+
+    bagian.push({
+      judul: `Barang masuk dari supplier (${dokSup.length} nota)`,
+      columns: [
+        { header: 'Tanggal Nota', width: 1 },
+        { header: 'No. Nota', width: 1.2 },
+        { header: 'Supplier', width: 1.6 },
+        { header: 'Nilai', width: 1.3, numeric: true }
+      ],
+      rows: dokSup.map((d) => [d.tanggal, d.kode, d.dari, rp(d.nilai)])
+    });
+
+    bagian.push({
+      judul: `Rekap barang masuk per bahan (${bahan.length} bahan)`,
+      columns: [
+        { header: 'Bahan', width: 1.8 },
+        { header: 'Satuan', width: 0.7 },
+        { header: 'Qty dari CK', width: 1, numeric: true },
+        { header: 'Nilai CK', width: 1.2, numeric: true },
+        { header: 'Qty Supplier', width: 1, numeric: true },
+        { header: 'Nilai Supplier', width: 1.2, numeric: true },
+        { header: 'Nilai Total', width: 1.3, numeric: true }
+      ],
+      rows: bahan.map((b) => [
+        b.nama + (b.tanpaHpp ? ' (tanpa HPP)' : ''),
+        b.satuan,
+        b.qtyCk ? fnum(b.qtyCk) : '',
+        b.nilaiCk ? rp(b.nilaiCk) : '',
+        b.qtySupplier ? fnum(b.qtySupplier) : '',
+        b.nilaiSupplier ? rp(b.nilaiSupplier) : '',
+        rp(b.nilaiTotal)
+      ])
+    });
+
+    bagian.push({
+      judul: `Pengeluaran outlet selain bahan (${dokBiaya.length} entri)`,
+      columns: [
+        { header: 'Tanggal', width: 1 },
+        { header: 'Kategori', width: 1.4 },
+        { header: 'Keterangan', width: 2.4 },
+        { header: 'Nilai', width: 1.3, numeric: true }
+      ],
+      rows: dokBiaya.map((d) => [d.tanggal, d.kategori, d.keterangan, rp(d.nilai)])
+    });
+  }
+
+  return {
+    columns: [
+      { header: 'Outlet', width: 1.5 },
+      { header: 'Penjualan', width: 1.3, numeric: true },
+      { header: 'Stok Awal', width: 1.2, numeric: true },
+      { header: 'Masuk CK', width: 1.2, numeric: true },
+      { header: 'Masuk Supplier', width: 1.3, numeric: true },
+      { header: 'Stok Akhir', width: 1.2, numeric: true },
+      { header: 'HPP', width: 1.2, numeric: true },
+      { header: 'Food Cost', width: 0.9 },
+      { header: 'Laba Kotor', width: 1.3, numeric: true },
+      { header: 'Biaya Lain', width: 1.2, numeric: true },
+      { header: 'Laba Bersih', width: 1.3, numeric: true },
+      { header: 'Catatan', width: 2 }
+    ],
+    rows,
+    bagian,
+    bold: baris.length > 1 ? [rows.length - 1] : [],
+    summary: [
+      { label: 'Penjualan', value: rp(total.omzet) },
+      { label: 'HPP', value: rp(total.hpp) },
+      { label: 'Food cost', value: persen(total.foodCostPersen) },
+      { label: 'Laba kotor', value: rp(total.labaKotor) },
+      { label: 'Biaya selain bahan', value: rp(total.biayaNonBahan) },
+      { label: 'Laba bersih', value: rp(total.labaBersih) },
+      { label: 'Dikunci opname', value: `${total.outletTerkunci}/${total.outletTotal} outlet` }
+    ],
+    note:
+      `${pesanLabaRugi(total)} ` +
+      'HPP = stok awal + barang masuk (CK + supplier) − stok akhir, yaitu barang yang BENAR-BENAR hilang dari ' +
+      'rak — bukan HPP resep. Selisihnya terhadap laporan Laba Kotor adalah tumpahan, kelebihan takar, waste tak ' +
+      'tercatat, dan kehilangan. ' +
+      'Kiriman CK dinilai qty diterima × HPP pada TANGGAL TERIMA (bukan tanggal kirim) supaya cocok dengan saldo ' +
+      'stok; nota supplier memakai harga notanya sendiri, dan nota yang dibatalkan tidak ikut. ' +
+      'Biaya Lain = kas keluar yang BUKAN pembayaran nota bahan, menurut outlet peruntukannya; yang dicoret tidak ' +
+      'ikut. Gaji/NBM TIDAK termasuk — lihat Rekap Penggajian. ' +
+      (outletId
+        ? ''
+        : 'Pilih satu outlet untuk melihat rincian per dokumen dan rekap per bahan. ')
+  };
 }
