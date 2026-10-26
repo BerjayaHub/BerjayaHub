@@ -73,6 +73,10 @@ async function render(container, { businessUnitId }, isAdmin) {
    */
   const namaOutlet = (a) =>
     outlets.find((o) => o.id === a?.outlet_id)?.name ?? a?.outlets?.name ?? '-';
+
+  /** Nama outlet PEMILIK foto acuan — dipakai menandai fotonya. */
+  const namaOutletAcuanDari = (a) =>
+    a?.photo_acuan_outlet ? (outlets.find((o) => o.id === a.photo_acuan_outlet)?.name ?? null) : null;
   if (!outlets.length) {
     container.innerHTML = `<h1>Inventaris Aset</h1><p style="color:var(--color-text-muted)">Belum ada outlet yang bisa kamu akses di BU ini.</p>`;
     return;
@@ -193,7 +197,12 @@ async function render(container, { businessUnitId }, isAdmin) {
     // Semua signed URL diambil sekali untuk seluruh halaman. Satu permintaan
     // per baris akan menembakkan puluhan koneksi berbarengan dan sebagian
     // tertunda lama — tabelnya lalu tampak "sebagian fotonya rusak".
-    fotoUrl = await getAssetPhotoUrls(rows.map((a) => a.photo_path));
+    // Foto ACUAN ikut diminta tautannya.
+    //
+    // Kalau tidak, barisnya menampilkan tombol "Lihat" yang tidak pernah
+    // menemukan tautannya — terbaca sebagai foto yang gagal dimuat, padahal
+    // cuma tidak pernah diminta.
+    fotoUrl = await getAssetPhotoUrls(rows.flatMap((a) => [a.photo_path, a.photo_acuan]));
 
     const rusak = rows.filter((a) => !a.belumDidata && a.condition === 'rusak').length;
     const totalUnit = rows.reduce((t, a) => t + (Number(a.qty) || 0), 0);
@@ -220,7 +229,7 @@ async function render(container, { businessUnitId }, isAdmin) {
                     ${isAdmin ? `<td data-label="Pilih">${a.id ? `<input type="checkbox" class="as-pick" data-id="${a.id}"${dipilih.has(a.id) ? ' checked' : ''} />` : ''}</td>` : ''}
                     <td style="font-family:monospace;font-size:0.78rem" data-label="Kode">${esc(a.kode ?? '-')}</td>
                     <td data-label="Nama Barang"><strong>${esc(a.name)}</strong>${a.notes ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${esc(a.notes)}</div>` : ''}</td>
-                    <td data-label="Foto">${a.belumDidata ? '-' : fotoSel(a, fotoUrl)}</td>
+                    <td data-label="Foto">${fotoSel(a, fotoUrl, namaOutletAcuanDari(a))}</td>
                     <td style="font-size:0.85rem" data-label="Kategori">${esc(a.category ?? '-')}</td>
                     <td style="text-align:right" data-label="Jumlah">${
                       // "Belum didata" TIDAK ditulis sebagai 0.
@@ -1133,12 +1142,38 @@ async function render(container, { businessUnitId }, isAdmin) {
  * bisa jadi hanya sementara, dan lebih baik user bisa mencoba lagi daripada
  * melihat "-" yang seolah berarti fotonya memang tidak ada.
  */
-function fotoSel(a, fotoUrl) {
-  if (!a.photo_path) return '<span style="color:var(--color-text-muted)">-</span>';
-  const url = fotoUrl.get(a.photo_path);
-  if (!url) return `<button class="as-photo" data-path="${esc(a.photo_path)}">Lihat</button>`;
-  return `<img src="${esc(url)}" alt="" loading="lazy" class="as-thumb" data-path="${esc(a.photo_path)}"
-    style="width:52px;height:52px;object-fit:cover;border-radius:6px;background:#eee;cursor:zoom-in;border:1px solid var(--color-border,#e3e3e3)" />`;
+function fotoSel(a, fotoUrl, namaOutletAcuan = null) {
+  // ============ FOTO ACUAN DITANDAI, BUKAN DISAMARKAN ============
+  //
+  // Kalau outlet ini belum punya fotonya sendiri, yang tampil foto dari outlet
+  // yang sudah mendatanya — supaya barangnya bisa dikenali, bukan cuma dibaca
+  // namanya.
+  //
+  // Tapi ia WAJIB terlihat berbeda. Foto yang disamarkan sebagai milik sendiri
+  // akan dipakai sebagai bukti kondisi barang outlet ini — padahal ia memotret
+  // barang di gudang lain, yang mungkin mulus saat punya sendiri sudah gompal.
+  const path = a.photo_path || a.photo_acuan;
+  if (!path) return '<span style="color:var(--color-text-muted)">-</span>';
+
+  const acuan = !a.photo_path && a.photo_acuan;
+  const judul = acuan
+    ? `Foto acuan dari ${namaOutletAcuan || 'outlet lain'} — bukan foto barang di outlet ini`
+    : '';
+  const url = fotoUrl.get(path);
+
+  const penanda = acuan
+    ? `<span style="display:block;font-size:0.62rem;color:var(--color-text-muted);line-height:1.2;margin-top:2px">foto outlet lain</span>`
+    : '';
+
+  if (!url) {
+    return `<button class="as-photo" data-path="${esc(path)}"${acuan ? ` title="${esc(judul)}"` : ''}>Lihat</button>${penanda}`;
+  }
+  return `<img src="${esc(url)}" alt="" loading="lazy" class="as-thumb" data-path="${esc(path)}"${
+    acuan ? ` title="${esc(judul)}"` : ''
+  }
+    style="width:52px;height:52px;object-fit:cover;border-radius:6px;background:#eee;cursor:zoom-in;border:1px solid ${
+      acuan ? 'var(--color-text-muted)' : 'var(--color-border,#e3e3e3)'
+    };${acuan ? 'opacity:.75;border-style:dashed' : ''}" />${penanda}`;
 }
 
 function esc(s) {

@@ -98,6 +98,19 @@ export function gabungItemDenganStok({ items = [], stok = [] } = {}) {
       condition_note: s?.condition_note ?? null,
       notes: s?.notes ?? null,
       photo_path: s?.photo_path ?? null,
+      // ============ FOTO ACUAN DARI OUTLET LAIN ============
+      //
+      // Dipakai hanya kalau outlet ini belum punya fotonya sendiri. Outlet
+      // yang belum mendata item ini tidak bisa mengenalinya dari kode dan nama
+      // saja — "Botol kris" tidak memberi tahu siapa pun botol yang mana, dan
+      // dua outlet lalu mendata dua barang berbeda dengan nama yang sama.
+      //
+      // Disimpan di kolom SENDIRI, bukan ditimpakan ke `photo_path`. Kalau
+      // ditimpakan, layar tidak bisa lagi membedakan "foto barang ini" dari
+      // "foto barang serupa milik outlet lain" — dan staff yang mengiranya
+      // foto sendiri akan memakainya sebagai bukti kondisi barangnya.
+      photo_acuan: s?.photo_path ? null : (i?.photo_path ?? null),
+      photo_acuan_outlet: s?.photo_path ? null : (i?.photo_outlet_id ?? null),
       // Tidak adanya baris stok ADALAH penandanya. Tidak ada kolom tambahan
       // yang bisa basi atau lupa diisi.
       belumDidata: !s,

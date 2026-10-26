@@ -131,11 +131,12 @@ await q(`insert into assets (business_unit_id, outlet_id, name, category, qty, c
 for (const f of [
   '0168_aset_master_bu_dan_kode.sql',
   '0169_aset_pindah_dan_izin_hapus.sql',
-  '0170_kerusakan_aset_dan_riwayat.sql'
+  '0170_kerusakan_aset_dan_riwayat.sql',
+  '0171_foto_acuan_item_aset.sql'
 ]) {
   await db.exec(fs.readFileSync(path.join(AKAR, 'supabase/migrations', f), 'utf8').replace(/notify pgrst[^;]*;/g, ''));
 }
-console.log('  0168 + 0169 + 0170 terpasang.');
+console.log('  0168 + 0169 + 0170 + 0171 terpasang.');
 
 const PIRING = (await satu(`select id from asset_items where name = 'Piring Ayam'`)).id;
 const qtyDi = async (outlet) =>
@@ -345,6 +346,69 @@ const eLangsung = await galat(() =>
 );
 await db.exec(`reset role`);
 benar('§7 insert langsung ditolak RLS', /policy|row-level/i.test(eLangsung ?? ''), eLangsung ?? 'malah masuk');
+
+// ===============================================================
+console.log('§8 Foto acuan antar outlet (0171)');
+// ===============================================================
+
+// ============ KENAPA INI ADA ============
+//
+// Daftar satu outlet memuat SELURUH item BU, termasuk yang outlet itu belum
+// mendatanya. Untuk item seperti itu yang terlihat cuma kode dan nama — dan
+// "Botol kris" tidak memberi tahu siapa pun botol yang mana. Dua outlet lalu
+// mendata dua barang berbeda dengan nama yang sama.
+await sebagai(STAFF);
+cek('§8 awalnya item belum punya foto acuan', (await satu(`select photo_path from asset_items where id=$1`, [PIRING])).photo_path, null);
+
+await q(`update asset_stock set photo_path = $1 where asset_item_id=$2 and outlet_id=$3`, [`${A}/foto-a.jpg`, PIRING, A]);
+const acuan1 = await satu(`select photo_path, photo_outlet_id from asset_items where id=$1`, [PIRING]);
+cek('§8 foto outlet A jadi acuan item', acuan1.photo_path, `${A}/foto-a.jpg`);
+// Outletnya ikut disimpan supaya layar bisa mengatakan "ini foto outlet lain"
+// — tanpa itu, staff bisa mengira foto itu mendokumentasikan barangnya sendiri.
+cek('§8 outlet pemiliknya ikut tercatat', acuan1.photo_outlet_id, A);
+
+// ============ FOTO TERTUA, BUKAN TERBARU ============
+//
+// Outlet B memotret belakangan. Acuannya TIDAK berpindah: outlet yang baru
+// memotret tidak otomatis "lebih benar", dan acuan yang berganti tiap ada
+// outlet memotret membuat barang yang sama terlihat berbeda tiap minggu.
+await sebagai(STAFF_B);
+await q(`update asset_stock set photo_path = $1 where asset_item_id=$2 and outlet_id=$3`, [`${B}/foto-b.jpg`, PIRING, B]);
+cek(
+  '§8 acuan tidak berpindah ke foto yang lebih baru',
+  (await satu(`select photo_path from asset_items where id=$1`, [PIRING])).photo_path,
+  `${A}/foto-a.jpg`
+);
+
+// ============ PENUNJUK YANG MENGGANTUNG DIBERESKAN ============
+//
+// Foto outlet A dihapus. Kalau penunjuknya dibiarkan, yang terlihat bukan
+// galat melainkan gambar yang gagal dimuat — terbaca seperti "belum difoto",
+// padahal fotonya ada dan sedang dilihat outlet sebelah.
+await q(`update asset_stock set photo_path = null where asset_item_id=$1 and outlet_id=$2`, [PIRING, A]);
+const acuan2 = await satu(`select photo_path, photo_outlet_id from asset_items where id=$1`, [PIRING]);
+cek('§8 acuan berpindah ke foto yang masih ada', acuan2.photo_path, `${B}/foto-b.jpg`);
+cek('§8 beserta outletnya', acuan2.photo_outlet_id, B);
+
+// Dan kalau tidak ada foto sama sekali, penunjuknya DIKOSONGKAN — bukan
+// dibiarkan menunjuk berkas yang sudah tidak ada.
+await q(`update asset_stock set photo_path = null where asset_item_id=$1`, [PIRING]);
+const acuan3 = await satu(`select photo_path, photo_outlet_id from asset_items where id=$1`, [PIRING]);
+cek('§8 tanpa foto mana pun, penunjuknya dikosongkan', [acuan3.photo_path, acuan3.photo_outlet_id], [null, null]);
+
+// Baris stok yang DIHAPUS juga harus memicu hitung ulang.
+await q(`update asset_stock set photo_path = $1 where asset_item_id=$2 and outlet_id=$3`, [`${B}/foto-b2.jpg`, PIRING, B]);
+cek(
+  '§8 acuan terisi lagi',
+  (await satu(`select photo_path from asset_items where id=$1`, [PIRING])).photo_path,
+  `${B}/foto-b2.jpg`
+);
+await q(`delete from asset_stock where asset_item_id=$1 and outlet_id=$2`, [PIRING, B]);
+cek(
+  '§8 baris stok dihapus -> acuannya ikut dibereskan',
+  (await satu(`select photo_path from asset_items where id=$1`, [PIRING])).photo_path,
+  null
+);
 
 // ---------------------------------------------------------------
 console.log(`\n${gagal === 0 ? '✅' : '❌'} test-migrasi-0170: ${n - gagal}/${n} lulus`);

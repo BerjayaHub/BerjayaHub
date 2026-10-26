@@ -38,7 +38,7 @@ export async function listAssets({ businessUnitId, outletId, condition, category
   // Master item: selalu seluruhnya, tidak disaring server-side selain kategori.
   let qItem = supabase
     .from('asset_items')
-    .select('id, kode, name, category, size')
+    .select('id, kode, name, category, size, photo_path, photo_outlet_id')
     .eq('business_unit_id', businessUnitId)
     .limit(limit);
   if (category) qItem = qItem.eq('category', category);
