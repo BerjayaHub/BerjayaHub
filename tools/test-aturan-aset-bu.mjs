@@ -17,6 +17,8 @@
  */
 import {
   bacaKode,
+  kalimatRiwayat,
+  rekapKerusakan,
   cariMirip,
   dugaanKembar,
   gabungItemDenganStok,
@@ -184,6 +186,63 @@ cek('§5 belum didata tetap dihitung sendiri', rRusak.belumDidata, 2);
 
 cek('§5 tanpa argumen tidak melempar', ringkasOutlet().item, 0);
 cek('§5 totalnya nol, bukan NaN', ringkasOutlet().totalUnit, 0);
+
+// ===============================================================
+console.log('§6 Riwayat jadi kalimat');
+// ===============================================================
+
+// Tabel berisi `qty | 12 | 8` memuat seluruh faktanya, tapi yang membacanya
+// harus menerjemahkan sendiri — dan ia membacanya justru saat sedang bingung
+// kenapa angkanya tidak cocok.
+cek('§6 perubahan jumlah', kalimatRiwayat({ aksi: 'ubah', kolom: 'qty', sebelum: '12', sesudah: '8' }), 'Jumlah: 12 → 8');
+cek('§6 kolom diterjemahkan', kalimatRiwayat({ aksi: 'ubah', kolom: 'nama', sebelum: 'A', sesudah: 'B' }), 'Nama: A → B');
+
+// ============ BARIS 'rusak' BUKAN PERUBAHAN KOLOM ============
+//
+// Ia kejadian, dan kalimatnya harus menyebut SEBABNYA — itu satu-satunya
+// alasan baris itu ada. Membacanya sebagai "pecah: → 2" membuang justru
+// bagian yang menjawab "ke mana barangnya".
+cek(
+  '§6 kerusakan menyebut sebabnya',
+  kalimatRiwayat({ aksi: 'rusak', kolom: 'pecah', sesudah: '2', catatan: 'jatuh saat cuci' }),
+  'Pecah 2 unit — jatuh saat cuci'
+);
+cek('§6 kerusakan tanpa sebab tetap terbaca', kalimatRiwayat({ aksi: 'rusak', kolom: 'hilang', sesudah: '1' }), 'Hilang 1 unit');
+benar(
+  '§6 pembatalan dikatakan sebagai pembatalan',
+  /Pembatalan/.test(kalimatRiwayat({ aksi: 'batal-rusak', kolom: 'pecah', sebelum: '3', catatan: 'salah ketik' }))
+);
+benar('§6 pendataan pertama', /Didata pertama kali/.test(kalimatRiwayat({ aksi: 'didata', sesudah: '5' })));
+
+// Kosong DIKATAKAN. Panah yang menunjuk ruang kosong terbaca seperti tampilan
+// yang rusak, bukan seperti catatan yang memang dikosongkan.
+cek(
+  '§6 nilai kosong ditulis "(kosong)"',
+  kalimatRiwayat({ aksi: 'ubah', kolom: 'catatan', sebelum: 'lama', sesudah: '' }),
+  'Catatan: lama → (kosong)'
+);
+benar('§6 tanpa argumen tidak melempar', typeof kalimatRiwayat() === 'string');
+
+// ===============================================================
+console.log('§7 Rekap kerusakan');
+// ===============================================================
+const kerusakan = [
+  { jenis: 'pecah', qty: 2 },
+  { jenis: 'rusak', qty: 1 },
+  { jenis: 'pecah', qty: 3 },
+  // Yang DIBATALKAN tidak ikut dihitung — barangnya tidak pernah benar-benar
+  // hilang. Tapi barisnya tetap ada di daftar, karena pembatalan yang tidak
+  // terlihat sama membingungkannya dengan kerusakan yang tidak tercatat.
+  { jenis: 'pecah', qty: 50, dibatalkan_at: '2026-10-01' }
+];
+const rk = rekapKerusakan(kerusakan);
+cek('§7 kejadian yang dihitung', rk.kejadian, 3);
+cek('§7 yang dibatalkan dihitung terpisah', rk.dibatalkan, 1);
+cek('§7 unit TIDAK memuat yang dibatalkan', rk.unit, 6);
+cek('§7 per jenis', [rk.per.pecah, rk.per.rusak, rk.per.hilang], [5, 1, 0]);
+cek('§7 jenis yang tidak terpakai tetap nol, bukan hilang', rk.per.hilang, 0);
+cek('§7 tanpa argumen tidak melempar', rekapKerusakan().unit, 0);
+cek('§7 nilai cacat tidak jadi NaN', rekapKerusakan([{ jenis: 'pecah', qty: 'x' }]).unit, 0);
 
 // ---------------------------------------------------------------
 console.log(`\n${gagal === 0 ? '✅' : '❌'} test-aturan-aset-bu: ${n - gagal}/${n} lulus`);

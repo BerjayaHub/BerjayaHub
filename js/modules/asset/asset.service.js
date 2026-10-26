@@ -51,7 +51,14 @@ export async function listAssets({ businessUnitId, outletId, condition, category
 
   let qStok = supabase
     .from('asset_stock')
-    .select('id, asset_item_id, outlet_id, qty, condition, condition_note, size, notes, photo_path, updated_at, outlets!outlet_id(name)')
+    .select(
+      'id, asset_item_id, outlet_id, qty, condition, condition_note, size, notes, photo_path, updated_at, ' +
+        // Nama pengubah ikut diambil supaya daftarnya bisa menjawab "siapa yang
+        // mengubah ini" tanpa membuka riwayat satu per satu. Embed-nya di
+        // dalam `!left` supaya baris yang pengubahnya sudah keluar tidak ikut
+        // hilang — embed wajib yang gagal membatalkan SELURUH query (0086).
+        'user_profiles!asset_stock_updated_by_fkey(full_name), outlets!outlet_id(name)'
+    )
     .in('asset_item_id', ids);
   if (outletId) qStok = qStok.eq('outlet_id', outletId);
   const { data: stok, error: eStok } = await qStok;
@@ -59,7 +66,13 @@ export async function listAssets({ businessUnitId, outletId, condition, category
 
   let rows;
   if (outletId) {
-    rows = gabungItemDenganStok({ items, stok }).map((r) => ({ ...r, id: r.stokId, outlet_id: outletId }));
+    const pengubah = new Map((stok ?? []).map((x) => [x.asset_item_id, x.user_profiles?.full_name ?? null]));
+    rows = gabungItemDenganStok({ items, stok }).map((r) => ({
+      ...r,
+      id: r.stokId,
+      outlet_id: outletId,
+      diubah_oleh: pengubah.get(r.itemId) ?? null
+    }));
   } else {
     // ============ TANPA OUTLET: HANYA BARIS YANG BENAR-BENAR ADA ============
     //
@@ -85,6 +98,7 @@ export async function listAssets({ businessUnitId, outletId, condition, category
         photo_path: s.photo_path,
         outlet_id: s.outlet_id,
         outlets: s.outlets,
+        diubah_oleh: s.user_profiles?.full_name ?? null,
         belumDidata: false,
         updated_at: s.updated_at
       };
@@ -450,4 +464,105 @@ export async function getAssetPhotoUrls(paths, expiresIn = UMUR_TAUTAN_THUMBNAIL
     return new Map();
   }
   return new Map((data ?? []).filter((d) => d.signedUrl && !d.error).map((d) => [d.path, d.signedUrl]));
+}
+
+// =========================================================
+// KERUSAKAN & RIWAYAT (0170)
+// =========================================================
+
+export const JENIS_KERUSAKAN = { rusak: 'Rusak', pecah: 'Pecah', hilang: 'Hilang' };
+export const JENIS_KERUSAKAN_OPTIONS = Object.entries(JENIS_KERUSAKAN).map(([value, label]) => ({ value, label }));
+
+/**
+ * Catat barang rusak/pecah/hilang. Jumlahnya BERKURANG sebagai akibatnya.
+ *
+ * ============ FOTO DIUNGGAH LEBIH DULU, BUKAN SESUDAH ============
+ *
+ * Fotonya wajib, dan `asset_damage.photo_path` NOT NULL. Kalau barisnya dibuat
+ * dulu lalu fotonya menyusul — seperti yang dilakukan `saveAsset` — kegagalan
+ * unggah di tengah meninggalkan catatan kerusakan TANPA bukti, yaitu persis
+ * yang tidak boleh ada.
+ *
+ * Nama berkasnya karena itu dibuat di sini, bukan dari id baris yang belum
+ * lahir. Kalau RPC-nya kemudian gagal, yang tertinggal cuma satu berkas yatim
+ * di storage — jauh lebih murah daripada catatan tanpa bukti, dan tidak
+ * mengubah satu angka pun.
+ */
+export async function catatKerusakan({ itemId, outletId, qty, jenis, sebab, tanggal, file }) {
+  if (!file) throw new Error('Foto bukti wajib dilampirkan.');
+
+  const kecil = await compressImage(file, { preset: 'asset' });
+  const ext = (kecil.name?.split('.').pop() || 'jpg').toLowerCase();
+  // Segmen pertama path WAJIB outlet — izin baca/tulis foto memakainya (0050).
+  const path = `${outletId}/kerusakan/${crypto.randomUUID()}.${ext}`;
+
+  const { error: upErr } = await supabase.storage
+    .from('asset-photos')
+    .upload(path, kecil, { upsert: false, contentType: kecil.type || 'image/jpeg' });
+  if (upErr) throw upErr;
+
+  const { data, error } = await supabase.rpc('catat_kerusakan_aset', {
+    p_item: itemId,
+    p_outlet: outletId,
+    p_qty: Number(qty),
+    p_jenis: jenis,
+    p_photo_path: path,
+    p_sebab: sebab?.trim() || null,
+    p_tanggal: tanggal || null
+  });
+  if (error) {
+    // Berkasnya sudah terlanjur naik tapi tidak dipakai siapa pun. Dibersihkan
+    // supaya tidak jadi sampah permanen; kegagalan pembersihannya diabaikan —
+    // yang penting pesan galat aslinya sampai ke orangnya.
+    try {
+      await supabase.storage.from('asset-photos').remove([path]);
+    } catch {
+      /* diabaikan dengan sengaja */
+    }
+    throw error;
+  }
+  return data;
+}
+
+export async function batalkanKerusakan(id, alasan) {
+  const { data, error } = await supabase.rpc('batalkan_kerusakan_aset', { p_id: id, p_alasan: alasan });
+  if (error) throw error;
+  return data;
+}
+
+/** Catatan kerusakan satu BU, boleh disaring outlet & rentang tanggal. */
+export async function listKerusakan({ businessUnitId, outletId, dari, sampai }) {
+  return ambilSemua((a, b) => {
+    let q = supabase
+      .from('asset_damage')
+      .select(
+        'id, qty, jenis, sebab, photo_path, tanggal, dilapor_by_nama, created_at, dibatalkan_at, dibatalkan_by_nama, alasan_batal, outlet_id, asset_items!inner(id, kode, name, category, business_unit_id), outlets!outlet_id(name)'
+      )
+      .eq('asset_items.business_unit_id', businessUnitId);
+    if (outletId) q = q.eq('outlet_id', outletId);
+    if (dari) q = q.gte('tanggal', dari);
+    if (sampai) q = q.lte('tanggal', sampai);
+    return q.order('tanggal', { ascending: false }).range(a, b);
+  });
+}
+
+/**
+ * Riwayat perubahan satu item.
+ *
+ * `outletId` menyaring kejadian milik outlet itu, TAPI perubahan nama &
+ * kategori ikut terbawa — ia tersimpan tanpa outlet karena berlaku di semua
+ * outlet, dan menyembunyikannya membuat "kenapa namanya berubah" tidak
+ * terjawab di layar tempat orang bertanya.
+ */
+export async function listRiwayatAset({ itemId, outletId, limit = 100 }) {
+  let q = supabase
+    .from('asset_log')
+    .select('id, aksi, kolom, sebelum, sesudah, catatan, oleh_nama, at, outlet_id')
+    .eq('asset_item_id', itemId)
+    .order('at', { ascending: false })
+    .limit(limit);
+  if (outletId) q = q.or(`outlet_id.eq.${outletId},outlet_id.is.null`);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data ?? [];
 }

@@ -166,3 +166,80 @@ export function ringkasOutlet(baris = []) {
     totalUnit: b.reduce((a, r) => a + (Number(r.qty) || 0), 0)
   };
 }
+
+// =========================================================
+// RIWAYAT & KERUSAKAN (0170)
+// =========================================================
+
+const LABEL_KOLOM = {
+  qty: 'Jumlah',
+  kondisi: 'Kondisi',
+  catatan: 'Catatan',
+  nama: 'Nama',
+  kategori: 'Kategori',
+  outlet: 'Outlet'
+};
+
+const LABEL_JENIS = { rusak: 'Rusak', pecah: 'Pecah', hilang: 'Hilang' };
+
+/**
+ * Satu baris riwayat jadi KALIMAT.
+ *
+ * ============ KENAPA BUKAN SEKADAR MENAMPILKAN KOLOMNYA ============
+ *
+ * Tabel berisi `qty | 12 | 8` memang memuat seluruh faktanya, tapi yang
+ * membacanya harus menerjemahkan sendiri — dan ia membacanya justru saat
+ * sedang bingung kenapa angkanya tidak cocok. Kalimat "Jumlah 12 → 8"
+ * menjawab pertanyaannya tanpa langkah tambahan.
+ *
+ * Yang paling penting: baris 'rusak' TIDAK dibaca sebagai perubahan kolom.
+ * Ia kejadian, dan kalimatnya harus menyebut SEBABNYA — itu satu-satunya
+ * alasan baris itu ada.
+ */
+export function kalimatRiwayat(l) {
+  const kolom = LABEL_KOLOM[l?.kolom] ?? teks(l?.kolom);
+  const dari = teks(l?.sebelum);
+  const ke = teks(l?.sesudah);
+
+  if (l?.aksi === 'rusak') {
+    const jenis = LABEL_JENIS[l?.kolom] ?? kolom;
+    return `${jenis} ${ke} unit${teks(l?.catatan) ? ` — ${teks(l.catatan)}` : ''}`;
+  }
+  if (l?.aksi === 'batal-rusak') {
+    const jenis = LABEL_JENIS[l?.kolom] ?? kolom;
+    return `Pembatalan catatan ${jenis.toLowerCase()} ${dari} unit${teks(l?.catatan) ? ` — ${teks(l.catatan)}` : ''}`;
+  }
+  if (l?.aksi === 'didata') return `Didata pertama kali: ${ke} unit`;
+  if (l?.aksi === 'hapus') return `Dihapus dari outlet ini (terakhir ${dari} unit)`;
+  if (l?.aksi === 'pindah') return `Dipindahkan: ${dari || '—'} → ${ke || '—'}`;
+
+  // Kosong DIKATAKAN sebagai "(kosong)", bukan dibiarkan jadi "→ ".
+  // Panah yang menunjuk ruang kosong terbaca seperti tampilan yang rusak,
+  // bukan seperti catatan yang memang dikosongkan.
+  const sisi = (v) => (v === '' ? '(kosong)' : v);
+  return `${kolom}: ${sisi(dari)} → ${sisi(ke)}`;
+}
+
+/**
+ * Rekap kerusakan untuk sebuah daftar kejadian.
+ *
+ * Yang DIBATALKAN tidak ikut dihitung — barangnya tidak pernah benar-benar
+ * hilang. Tapi barisnya tetap ada di daftar, karena pembatalan yang tidak
+ * terlihat sama membingungkannya dengan kerusakan yang tidak tercatat.
+ */
+export function rekapKerusakan(baris = []) {
+  const b = (Array.isArray(baris) ? baris : []).filter((r) => !r?.dibatalkan_at);
+  const per = {};
+  for (const k of Object.keys(LABEL_JENIS)) per[k] = 0;
+  for (const r of b) {
+    const j = teks(r?.jenis);
+    if (per[j] === undefined) per[j] = 0;
+    per[j] += Number(r?.qty) || 0;
+  }
+  return {
+    kejadian: b.length,
+    dibatalkan: (Array.isArray(baris) ? baris : []).length - b.length,
+    unit: b.reduce((a, r) => a + (Number(r?.qty) || 0), 0),
+    per
+  };
+}

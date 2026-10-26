@@ -1,6 +1,6 @@
 import { listMyOutlets } from '../../core/my-outlets.js';
 import { listBuOwner } from '../owner/owner.service.js';
-import { toast, confirmDialog, formDialog } from '../../core/ui.js';
+import { toast, confirmDialog, formDialog, infoDialog } from '../../core/ui.js';
 import { formatNum } from '../../core/format.js';
 import { exportTablePDF, imageToDataUrl } from '../../core/pdf.js';
 import { exportTableXLSXFoto } from '../../core/xlsx-foto.js';
@@ -16,6 +16,10 @@ import {
   getAssetPhotoUrls,
   listKategoriAset,
   ubahItemAset,
+  catatKerusakan,
+  batalkanKerusakan,
+  listRiwayatAset,
+  JENIS_KERUSAKAN_OPTIONS,
   bacaBerkasImporAset,
   pindahAset,
   pindahFotoAset
@@ -30,6 +34,7 @@ import { pesanGagalFoto, PESAN_GAGAL_UMUM } from '../../core/tautan-foto.js';
 // Aturan impornya tinggal di modul murni — bisa diuji terhadap berkas .xlsx
 // sungguhan tanpa browser, dan layar ini cuma menggambarkannya.
 import { barisTemplateAset, susunImporAset, nilaiSimpan, ringkasImpor } from './impor-aset.js';
+import { kalimatRiwayat } from './aturan-aset-bu.js';
 
 /**
  * Inventaris Aset — dipakai Staff App maupun Admin Portal.
@@ -206,7 +211,7 @@ async function render(container, { businessUnitId }, isAdmin) {
       </p>
       <div class="table-scroll">
         <table class="data-table table-freeze-1 kartu-sempit">
-          <thead><tr>${isAdmin ? '<th style="width:34px"><input type="checkbox" id="as-all" title="Pilih semua yang terlihat" /></th>' : ''}<th>Kode</th><th>Nama Barang</th><th>Foto</th><th>Kategori</th><th>Jumlah</th><th>Ukuran</th><th>Kondisi</th>${isAdmin ? '<th>Outlet</th>' : ''}<th>Aksi</th></tr></thead>
+          <thead><tr>${isAdmin ? '<th style="width:34px"><input type="checkbox" id="as-all" title="Pilih semua yang terlihat" /></th>' : ''}<th>Kode</th><th>Nama Barang</th><th>Foto</th><th>Kategori</th><th>Jumlah</th><th>Ukuran</th><th>Kondisi</th>${isAdmin ? '<th>Outlet</th>' : ''}<th>Terakhir diubah</th><th>Aksi</th></tr></thead>
           <tbody>
             ${
               rows
@@ -236,14 +241,32 @@ async function render(container, { businessUnitId }, isAdmin) {
                         : `<span class="badge ${ASSET_CONDITION_BADGE[a.condition] ?? ''}">${esc(conditionText(a))}</span>`
                     }</td>
                     ${isAdmin ? `<td style="font-size:0.82rem" data-label="Outlet">${esc(namaOutlet(a))}</td>` : ''}
+                    <td style="font-size:0.78rem;color:var(--color-text-muted)" data-label="Terakhir diubah">${
+                      // Nama DAN tanggal, bukan salah satu. "Budi" tanpa kapan
+                      // tidak bisa dipakai menelusuri apa pun, dan tanggal
+                      // tanpa nama cuma memindahkan pertanyaannya.
+                      a.updated_at
+                        ? `${esc(new Date(a.updated_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: '2-digit' }))}${
+                            a.diubah_oleh ? `<br>${esc(a.diubah_oleh)}` : ''
+                          }`
+                        : '—'
+                    }</td>
                     <td data-label="Aksi">
                       <button class="as-edit" data-item="${a.itemId}"${a.id ? ` data-id="${a.id}"` : ''}>${a.belumDidata ? 'Data' : 'Edit'}</button>
+                      ${
+                        // "Catat rusak" cuma untuk barang yang BENAR-BENAR ada
+                        // di outlet ini. Barang yang belum didata tidak punya
+                        // jumlah untuk dikurangi, dan menawarkannya cuma
+                        // menghasilkan penolakan yang membingungkan.
+                        a.id && a.qty > 0 ? `<button class="as-rusak" data-item="${a.itemId}">Catat rusak</button>` : ''
+                      }
+                      <button class="as-riwayat" data-item="${a.itemId}">Riwayat</button>
                       ${a.id ? `<button class="as-del" data-id="${a.id}">Hapus</button>` : ''}
                     </td>
                   </tr>`
                 )
                 .join('') ||
-                `<tr><td colspan="${isAdmin ? 10 : 8}">${
+                `<tr><td colspan="${isAdmin ? 11 : 9}">${
                   adaSaringan(state)
                     ? 'Tidak ada aset yang cocok dengan saringan ini.'
                     : 'Belum ada aset tercatat.'
@@ -309,6 +332,12 @@ async function render(container, { businessUnitId }, isAdmin) {
     // Dicari lewat `itemId`, bukan `id`: baris yang belum didata TIDAK punya
     // baris stok, jadi `id`-nya null dan pencarian lewat `id` akan membuka
     // form kosong untuk barang yang namanya sudah jelas.
+    list.querySelectorAll('.as-rusak').forEach((b) =>
+      b.addEventListener('click', () => dialogKerusakan(rows.find((a) => a.itemId === b.dataset.item)))
+    );
+    list.querySelectorAll('.as-riwayat').forEach((b) =>
+      b.addEventListener('click', () => dialogRiwayat(rows.find((a) => a.itemId === b.dataset.item)))
+    );
     list.querySelectorAll('.as-edit').forEach((b) =>
       b.addEventListener('click', () => openForm(rows.find((a) => a.itemId === b.dataset.item)))
     );
@@ -469,6 +498,116 @@ async function render(container, { businessUnitId }, isAdmin) {
     } catch (error) {
       toast(error.message ?? 'Gagal memindahkan aset.', 'error');
     }
+  }
+
+  /** Hari ini menurut WIB — sama dengan yang dipakai database (0170). */
+  const hariIniWIB = () => new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+
+  /**
+   * Catat barang rusak/pecah/hilang.
+   *
+   * Jumlahnya BERKURANG sebagai akibat, dan itu dikatakan di dialognya —
+   * orang yang mengisi angka harus tahu bahwa angka itu dipotong dari stok,
+   * bukan ditambahkan ke kolom "rusak" di sebelahnya.
+   */
+  async function dialogKerusakan(a) {
+    if (!a?.itemId || !a?.id) return;
+    const values = await formDialog({
+      title: `Catat rusak — ${a.name}`,
+      fields: [
+        {
+          name: 'qty',
+          label: `Berapa unit? (tercatat ${formatNum(a.qty)})`,
+          type: 'number',
+          required: true,
+          min: 1,
+          help: `Jumlah di outlet ini akan BERKURANG sebanyak angka ini.`
+        },
+        { name: 'jenis', label: 'Jenis', type: 'select', value: 'pecah', options: JENIS_KERUSAKAN_OPTIONS },
+        {
+          name: 'tanggal',
+          label: 'Tanggal kejadian',
+          type: 'date',
+          required: true,
+          value: hariIniWIB(),
+          // Tanggal KEJADIAN, bukan tanggal pengetikan: barang pecah Sabtu dan
+          // baru dicatat Senin adalah keadaan biasa, dan rekap bulanan ikut
+          // meleset kalau yang dipakai tanggal ketiknya.
+          help: 'Boleh mundur kalau barangnya pecah beberapa hari lalu.'
+        },
+        { name: 'sebab', label: 'Sebab (opsional)', type: 'text', placeholder: 'mis. jatuh saat cuci' },
+        {
+          name: 'file',
+          label: 'Foto bukti (wajib)',
+          type: 'file',
+          required: true,
+          accept: 'image/*',
+          help: 'Tanpa foto, catatan ini tidak bisa disimpan.'
+        }
+      ],
+      submitText: 'Catat & kurangi jumlah'
+    });
+    if (!values) return;
+    if (!values.file) return toast('Foto bukti wajib dilampirkan.', 'warning');
+    if (Number(values.qty) > Number(a.qty)) {
+      // Dicegat di sini juga, bukan cuma di database — supaya orangnya tahu
+      // sebelum fotonya telanjur terunggah.
+      return toast(`Tercatat cuma ${formatNum(a.qty)} di outlet ini. Betulkan dulu jumlahnya kalau catatannya yang keliru.`, 'warning');
+    }
+
+    try {
+      const hasil = await catatKerusakan({
+        itemId: a.itemId,
+        outletId: a.outlet_id,
+        qty: values.qty,
+        jenis: values.jenis,
+        sebab: values.sebab,
+        tanggal: values.tanggal,
+        file: values.file
+      });
+      toast(`Tercatat. Sisa ${formatNum(hasil?.sisa ?? 0)} unit di outlet ini.`, 'success');
+      await refresh();
+    } catch (error) {
+      toast(error.message ?? 'Gagal mencatat kerusakan.', 'error');
+    }
+  }
+
+  /** Riwayat satu barang: dari berapa jadi berapa, oleh siapa, kapan. */
+  async function dialogRiwayat(a) {
+    if (!a?.itemId) return;
+    let log = [];
+    try {
+      log = await listRiwayatAset({ itemId: a.itemId, outletId: a.outlet_id });
+    } catch (error) {
+      return toast(error.message ?? 'Gagal memuat riwayat.', 'error');
+    }
+
+    await infoDialog({
+      title: `Riwayat — ${a.kode ? a.kode + ' ' : ''}${a.name}`,
+      bodyHtml: log.length
+        ? `<div class="table-scroll" style="max-height:60vh"><table class="data-table kartu-sempit">
+             <thead><tr><th>Waktu</th><th>Perubahan</th><th>Oleh</th></tr></thead>
+             <tbody>
+               ${log
+                 .map(
+                   (l) => `<tr>
+                     <td data-label="Waktu" style="white-space:nowrap;font-size:0.8rem">${esc(
+                       new Date(l.at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })
+                     )}</td>
+                     <td data-label="Perubahan">${esc(kalimatRiwayat(l))}</td>
+                     <td data-label="Oleh" style="font-size:0.82rem">${
+                       // Nama disimpan saat menulis, jadi tetap terbaca
+                       // walaupun orangnya sudah keluar. Yang benar-benar
+                       // tidak diketahui ditulis apa adanya, bukan dikosongkan.
+                       esc(l.oleh_nama || 'tidak diketahui')
+                     }</td>
+                   </tr>`
+                 )
+                 .join('')}
+             </tbody>
+           </table></div>`
+        : '<p style="color:var(--color-text-muted)">Belum ada perubahan tercatat untuk barang ini.</p>'
+    });
   }
 
   async function openForm(existing) {
