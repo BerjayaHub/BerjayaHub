@@ -151,7 +151,7 @@ export function angkaSel(v) {
  * @param {Map<string,string>} fotoSel id aset -> data URL foto (atau 'GAGAL')
  * @returns {Array[]} baris siap tulis
  */
-export function barisTemplateAset(aset, fotoSel = new Map()) {
+export function barisTemplateAset(aset, fotoSel = new Map(), namaOutlet = null) {
   return (Array.isArray(aset) ? aset : []).map((a) => [
     // `null` berarti sel foto kosong. 'GAGAL' dipertahankan apa adanya supaya
     // yang membacanya tahu fotonya ADA tapi tidak terbawa — sel kosong terbaca
@@ -176,7 +176,19 @@ export function barisTemplateAset(aset, fotoSel = new Map()) {
     teks(a.size),
     KONDISI_IMPOR[a.condition] ?? teks(a.condition),
     teks(a.condition_note),
-    teks(a.outlets?.name),
+    // ============ OUTLET WAJIB TERTULIS DI SETIAP BARIS ============
+    //
+    // Dulu diambil dari embed `outlets(name)`, yang cuma ada pada baris yang
+    // PUNYA baris stok. Sejak 0168 daftar satu outlet juga memuat item yang
+    // belum pernah didata di sana — dan baris seperti itu tidak punya embed,
+    // jadi kolom Outletnya kosong.
+    //
+    // Kosong di sini BUKAN sekadar jelek dipandang: saat berkasnya diunggah
+    // balik, baris tanpa outlet tidak punya tujuan yang disebut siapa pun.
+    // Menebaknya berarti menuliskan jumlah hasil hitungan ke outlet yang
+    // salah — kesalahan yang tidak memunculkan galat dan baru ketahuan saat
+    // dua outlet sama-sama merasa angkanya aneh.
+    namaOutlet ? teks(namaOutlet(a)) : teks(a.outlets?.name),
     teks(a.notes)
   ]);
 }
@@ -345,7 +357,14 @@ export function susunImporAset({ aoa, gambar = [], asetSekarang = [], outlets = 
     }
 
     const outletSel = teks(ambil(row, 'Outlet'));
-    const outletId = outletSel ? outletPerNama.get(normal(outletSel)) : (item?.outlet_id ?? null);
+    // Sel Outlet kosong hanya boleh jatuh ke baris yang BENAR-BENAR tertunjuk
+    // — yaitu baris stok dari template versi lama yang dicocokkan lewat UUID.
+    //
+    // TIDAK boleh jatuh ke `item.outlet_id`: `item` adalah baris PERTAMA yang
+    // kebetulan berkode sama, dan di template "semua outlet" baris itu bisa
+    // milik outlet mana saja. Menebak dari situ menuliskan jumlah ke outlet
+    // yang tidak pernah disebut orangnya.
+    const outletId = outletSel ? outletPerNama.get(normal(outletSel)) : (dariIdLama?.outlet_id ?? null);
     if (outletSel && !outletId) {
       tolak.push({ baris: nomor, nama, sebab: `Outlet "${outletSel}" tidak ada, atau bukan outlet yang bisa kamu isi.` });
       continue;

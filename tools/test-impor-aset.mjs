@@ -303,6 +303,34 @@ const tplNol = barisTemplateAset([{ ...SEKARANG[0], qty: 0, belumDidata: false }
 assert.equal(tplNol[0][4], 0, 'barang yang sudah dihitung dan memang nol: tetap ditulis 0');
 ok('INTI: template membedakan "belum didata" dari "sudah dihitung, nol"');
 
+// ============ KOLOM OUTLET TIDAK BOLEH KOSONG DI TEMPLATE ============
+//
+// Baris yang belum didata tidak punya embed `outlets(name)` — ia tidak punya
+// baris stok sama sekali. Kalau template mengambil namanya dari embed, kolom
+// Outletnya kosong, dan saat berkasnya diunggah balik baris itu tidak punya
+// tujuan yang disebut siapa pun.
+const belumDidataTanpaEmbed = { ...SEKARANG[0], outlets: undefined, outlet_id: 'o-ck', belumDidata: true, qty: 0 };
+const tplOutlet = barisTemplateAset([belumDidataTanpaEmbed], new Map(), (a) =>
+  OUTLETS.find((o) => o.id === a.outlet_id)?.name ?? ''
+);
+assert.equal(tplOutlet[0][8], 'Central Kitchen Tangerang', 'kolom Outlet harus terisi walau barisnya belum punya stok');
+ok('INTI: template selalu menuliskan outletnya, termasuk untuk barang yang belum didata');
+
+// Dan sel Outlet yang kosong TIDAK ditebak dari item berkode sama.
+//
+// `item` adalah baris PERTAMA yang kebetulan berkode itu; di template "semua
+// outlet" ia bisa milik outlet mana saja. Menebak dari situ menuliskan hasil
+// hitungan ke outlet yang tidak pernah disebut orangnya — tanpa galat, dan
+// baru ketahuan saat dua outlet sama-sama merasa angkanya aneh.
+const outletKosong = susunImporAset({
+  aoa: [KOLOM_IMPOR_ASET, [null, 'M001', 'Kursi Kayu', '', 9, '', '', '', '', '']],
+  asetSekarang: SEKARANG,
+  outlets: OUTLETS
+});
+assert.equal(outletKosong.tambah.length + outletKosong.ubah.length, 0, 'tidak boleh ditebak');
+assert.match(outletKosong.tolak[0].sebab, /Outlet wajib diisi/);
+ok('INTI: sel Outlet kosong DITOLAK, bukan ditebak dari item berkode sama');
+
 // Dan unggahan baliknya MELEWATI baris itu, bukan menuliskan nol.
 const kembali = susunImporAset({
   aoa: [KOLOM_IMPOR_ASET, [null, 'M001', 'Kursi Kayu', '', '', '', '', '', 'Central Kitchen Tangerang', '']],

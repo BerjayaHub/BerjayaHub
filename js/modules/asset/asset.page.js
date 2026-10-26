@@ -787,7 +787,7 @@ async function render(container, { businessUnitId }, isAdmin) {
           { header: 'Outlet', width: 22 },
           { header: 'Catatan', width: 30 }
         ],
-        rows: barisTemplateAset(rows, fotoSel)
+        rows: barisTemplateAset(rows, fotoSel, namaOutlet)
       });
       toast('Template terunduh. Isi di Excel, lalu tekan ⇧ Impor Excel.', 'success');
     } catch (error) {
