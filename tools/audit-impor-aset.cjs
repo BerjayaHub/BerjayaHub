@@ -92,9 +92,31 @@ if (modul) {
         'mengosongkan seluruh kolom yang kebetulan tidak diisi orangnya — bug 0119 dalam bentuk kelima.'
     );
   }
-  // Header dicari lewat DUA judul, bukan satu.
-  if (!/const iNama = sel\.indexOf\(normal\('Nama Barang'\)\);/.test(kode) || !/const iId = sel\.indexOf\(normal\('ID \(jangan diubah\)'\)\);/.test(kode)) {
+  // Header dicari lewat DUA judul, bukan satu: 'Nama Barang' plus salah satu
+  // kolom kunci ('Kode' untuk template baru, ID lama untuk yang sudah
+  // terlanjur diunduh orang).
+  if (
+    !/const iNama = sel\.indexOf\(normal\('Nama Barang'\)\);/.test(kode) ||
+    !/const iKode = sel\.indexOf\(normal\('Kode'\)\);/.test(kode) ||
+    !/const iIdLama = sel\.indexOf\(normal\(KOLOM_ID_LAMA\)\);/.test(kode)
+  ) {
     salah('impor-aset.js: header dikenali dari satu judul saja — subjudul yang kebetulan memuat kata itu akan dikira header.');
+  }
+  // Template versi LAMA masih harus bisa diunggah. Orang sudah mengisinya
+  // berjam-jam sebelum perubahan ini terpasang, dan menolaknya dengan
+  // "bukan template" menghapus pekerjaan itu tanpa menjelaskan apa pun.
+  if (!/export const KOLOM_ID_LAMA = 'ID \(jangan diubah\)';/.test(kode)) {
+    salah('impor-aset.js: template versi lama (berkolom ID) tidak lagi diterima — berkas yang sedang diisi orang jadi tertolak.');
+  }
+  // Baris yang belum didata & dibiarkan kosong DILEWATI, bukan ditulis nol.
+  if (!/if \(!lama && qtySel === null && !punyaFoto\) \{/.test(kode)) {
+    salah(
+      'impor-aset.js: baris belum-didata yang jumlahnya dikosongkan tidak lagi dilewati. ' +
+        'Mengunggah balik template tanpa mengubah apa pun akan menetapkan NOL untuk seluruh barang yang belum dihitung.'
+    );
+  }
+  if (!/a\.belumDidata \? null : Number\(a\.qty\) \|\| 0,/.test(kode)) {
+    salah('impor-aset.js: template menulis 0 untuk barang yang belum didata — padahal belum ada yang menghitungnya.');
   }
   // Kolom dipetakan lewat judul, bukan indeks tetap.
   // Bentuk POSITIFNYA yang dijaga, bukan larangan `row[0]`. Larangan hanya

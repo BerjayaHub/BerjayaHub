@@ -56,6 +56,8 @@ const ID_LEMARI = '22222222-2222-2222-2222-222222222222';
 const SEKARANG = [
   {
     id: ID_KURSI,
+    itemId: 'item-kursi',
+    kode: 'M001',
     name: 'Kursi Kayu',
     category: 'Meja Kursi',
     qty: 4,
@@ -67,6 +69,8 @@ const SEKARANG = [
   },
   {
     id: ID_LEMARI,
+    itemId: 'item-lemari',
+    kode: 'P001',
     name: 'Lemari Besi',
     category: 'Penyimpanan',
     qty: 1,
@@ -116,6 +120,16 @@ assert.equal(rencana.ubah.length, 2);
 assert.equal(rencana.tambah.length, 1);
 assert.equal(rencana.tolak.length, 0);
 ok('INTI: dua baris ber-ID diperbarui, satu tanpa ID jadi barang baru');
+
+// ============ TEMPLATE LAMA MASIH DITERIMA ============
+//
+// Berkas fixture ini memakai header LAMA ("ID (jangan diubah)") — persis
+// seperti template yang sudah terlanjur diunduh orang dan diisi berjam-jam
+// sebelum perubahannya terpasang. Menolaknya berarti pekerjaan itu hilang,
+// dengan pesan yang tidak menjelaskan sebabnya.
+assert.ok(header.kolom['ID (jangan diubah)'] !== undefined, 'kolom ID lama harus tetap dikenali');
+assert.equal(header.kolom['Kode'], undefined, 'fixture ini memang belum punya kolom Kode');
+ok('INTI: template versi LAMA (berkolom ID) masih bisa diunggah');
 
 // Tiap baris membawa gambarnya SENDIRI — bukan bergeser satu.
 assert.equal(rencana.ubah.find((b) => b.id === ID_KURSI).fotoDi.nama, 'Image 1');
@@ -207,7 +221,7 @@ console.log('\n§5 Yang ditolak');
 
 const tolakan = (baris) => susunImporAset({ aoa: [KOLOM_IMPOR_ASET, baris], asetSekarang: SEKARANG, outlets: OUTLETS }).tolak;
 
-assert.match(tolakan([null, 'id-asing', 'X', '', 1, '', 'Normal', '', 'AB Gading Serpong', ''])[0].sebab, /ID "id-asing" tidak ada/);
+assert.match(tolakan([null, 'ZZ999', 'X', '', 1, '', 'Normal', '', 'AB Gading Serpong', ''])[0].sebab, /Kode "ZZ999" tidak ada/);
 assert.match(tolakan([null, '', '', '', 1, '', 'Normal', '', 'AB Gading Serpong', ''])[0].sebab, /Nama barang wajib/);
 assert.match(tolakan([null, '', 'X', '', 1, '', 'hancur', '', 'AB Gading Serpong', ''])[0].sebab, /Kondisi "hancur" tidak dikenal/);
 assert.match(tolakan([null, '', 'X', '', -2, '', 'Normal', '', 'AB Gading Serpong', ''])[0].sebab, /tidak boleh negatif/);
@@ -220,7 +234,10 @@ ok('INTI: tujuh sebab penolakan, masing-masing menyebut barisnya dan apa yang ha
 // ikut ditolak hanya karena selnya dikosongkan.
 const punyaCatatan = [{ ...SEKARANG[0], condition: 'lainnya', condition_note: 'hilang sebagian' }];
 const r5 = susunImporAset({
-  aoa: [KOLOM_IMPOR_ASET, [null, ID_KURSI, 'Kursi Kayu', '', '', '', '', '', '', '']],
+  // Jumlahnya diisi: baris yang SUDAH ADA boleh dikosongkan jumlahnya dan
+  // nilainya dipertahankan, tapi di sini yang diuji kondisinya — biar tidak
+  // dua hal sekaligus.
+  aoa: [KOLOM_IMPOR_ASET, [null, 'M001', 'Kursi Kayu', '', 4, '', '', '', 'AB Gading Serpong', '']],
   asetSekarang: punyaCatatan,
   outlets: OUTLETS
 });
@@ -258,22 +275,76 @@ assert.match(kosongBerfoto.tolak[0].sebab, /Nama barang wajib/);
 ok('INTI: baris kosong yang menempeli foto tetap dilaporkan, bukan dilewati');
 
 const ringkas = ringkasImpor(rencana);
-assert.deepEqual(ringkas, { tambah: 1, ubah: 2, tolak: 0, foto: 3, melayang: 0, ganda: 0 });
+assert.deepEqual(ringkas, { tambah: 1, ubah: 2, tolak: 0, lewati: 0, foto: 3, melayang: 0, ganda: 0 });
 ok('ringkasannya menghitung apa adanya');
 
 console.log('\n§7 Template & masukan aneh');
 
 const tpl = barisTemplateAset(SEKARANG, new Map([[ID_KURSI, 'data:image/png;base64,xx']]));
 assert.equal(tpl.length, 2);
-assert.equal(tpl[0][1], ID_KURSI, 'kolom kedua harus ID');
+assert.equal(tpl[0][1], 'M001', 'kolom kedua harus KODE, bukan UUID');
 assert.equal(tpl[0][6], 'Normal', 'kondisi ditulis sebagai label, bukan kode');
 // Barang berfoto yang fotonya gagal dimuat ditandai 'GAGAL', bukan dikosongkan.
 assert.equal(barisTemplateAset([{ ...SEKARANG[0], photo_path: 'x.jpg' }], new Map())[0][0], 'GAGAL');
 assert.equal(tpl[0][0], null, 'barang tanpa foto: sel kosong');
 ok('INTI: foto yang gagal dimuat ditandai GAGAL — sel kosong terbaca "belum difoto"');
 
+// ============ "BELUM DIDATA" DITULIS KOSONG, BUKAN NOL ============
+//
+// Template satu outlet memuat SELURUH item BU, termasuk yang outlet itu belum
+// pernah menghitungnya. Kalau barisnya ditulis "0", orang yang mengunduh
+// template lalu mengunggahnya kembali TANPA MENGUBAH APA PUN akan menetapkan
+// nol untuk seluruh barang yang belum dihitung — mengubah "belum ada yang
+// melihat" jadi "sudah dicek, memang tidak ada", dalam satu klik, tanpa galat,
+// dan tanpa cara mengembalikannya.
+const tplBelum = barisTemplateAset([{ ...SEKARANG[0], qty: 0, belumDidata: true }], new Map());
+assert.equal(tplBelum[0][4], null, 'barang yang belum didata: kolom Jumlah KOSONG, bukan 0');
+const tplNol = barisTemplateAset([{ ...SEKARANG[0], qty: 0, belumDidata: false }], new Map());
+assert.equal(tplNol[0][4], 0, 'barang yang sudah dihitung dan memang nol: tetap ditulis 0');
+ok('INTI: template membedakan "belum didata" dari "sudah dihitung, nol"');
+
+// Dan unggahan baliknya MELEWATI baris itu, bukan menuliskan nol.
+const kembali = susunImporAset({
+  aoa: [KOLOM_IMPOR_ASET, [null, 'M001', 'Kursi Kayu', '', '', '', '', '', 'Central Kitchen Tangerang', '']],
+  // SEKARANG[0] ada di o-serpong, jadi di Central Kitchen item ini belum didata.
+  asetSekarang: SEKARANG,
+  outlets: OUTLETS
+});
+assert.equal(kembali.tambah.length, 0, 'baris belum-didata yang dibiarkan kosong TIDAK boleh jadi baris baru');
+assert.equal(kembali.ubah.length, 0);
+assert.equal(kembali.tolak.length, 0, 'ini bukan kesalahan — tidak boleh masuk daftar ditolak');
+assert.equal(kembali.lewati.length, 1, 'dilaporkan terpisah, supaya orangnya tahu ada yang belum diisi');
+ok('INTI: mengunggah balik template tanpa mengisi apa pun tidak menetapkan nol di mana pun');
+
+// Tapi jumlah yang DIISI nol memang berarti nol — orangnya sudah menghitung.
+const nolSengaja = susunImporAset({
+  aoa: [KOLOM_IMPOR_ASET, [null, 'M001', 'Kursi Kayu', '', 0, '', '', '', 'Central Kitchen Tangerang', '']],
+  asetSekarang: SEKARANG,
+  outlets: OUTLETS
+});
+assert.equal(nolSengaja.tambah.length, 1);
+assert.equal(nolSengaja.tambah[0].qty, 0);
+assert.equal(nolSengaja.tambah[0].itemId, 'item-kursi', 'kodenya menunjuk item yang sudah ada, bukan bikin item baru');
+ok('INTI: nol yang DIKETIK orang tetap tersimpan sebagai nol');
+
+// Baris yang sudah ada boleh dikosongkan jumlahnya — nilai lamanya bertahan.
+const adaTapiKosong = susunImporAset({
+  aoa: [KOLOM_IMPOR_ASET, [null, 'M001', 'Kursi Kayu', '', '', '', '', '', 'AB Gading Serpong', '']],
+  asetSekarang: SEKARANG,
+  outlets: OUTLETS
+});
+assert.equal(adaTapiKosong.ubah.length, 1);
+assert.equal(nilaiSimpan(adaTapiKosong.ubah[0]).qty, 4, 'jumlah lama dipertahankan, bukan dijadikan nol');
+ok('INTI: baris yang sudah didata boleh dikosongkan jumlahnya tanpa kehilangan angkanya');
+
 assert.equal(KOLOM_IMPOR_ASET[0], 'Foto');
-assert.equal(KOLOM_IMPOR_ASET[1], 'ID (jangan diubah)');
+// Kolom kunci sekarang KODE, bukan UUID.
+//
+// UUID tidak bisa dicocokkan dengan apa pun di dunia nyata, jadi satu-satunya
+// cara memakainya adalah percaya. Kode bisa dibaca, sudah tertempel di
+// barangnya, dan menunjuk item se-BU — persis yang dibutuhkan template yang
+// memuat beberapa outlet sekaligus.
+assert.equal(KOLOM_IMPOR_ASET[1], 'Kode');
 assert.deepEqual(Object.keys(KONDISI_IMPOR), ['normal', 'rusak', 'lainnya']);
 ok('bentuk templatenya tetap: Foto di kolom pertama, ID di kedua');
 

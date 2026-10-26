@@ -185,7 +185,7 @@ console.log('\nSABOTASE BENTUK TEMPLATE & PEMBACAANNYA:');
 sabotase(
   'header dikenali dari satu judul saja — subjudul "3 berfoto" dikira header',
   MURNI,
-  '    if (iNama < 0 || iId < 0) continue;',
+  '    if (iNama < 0 || (iKode < 0 && iIdLama < 0)) continue;',
   '    if (iNama < 0) continue;',
   TES
 );
@@ -245,9 +245,9 @@ sabotase(
 console.log('\nSABOTASE YANG DITOLAK:');
 
 sabotase(
-  'ID asing diterima — barisnya diam-diam jadi barang baru, bukan memperbarui apa pun',
+  'Kode asing diterima — barisnya diam-diam jadi barang baru, bukan memperbarui apa pun',
   MURNI,
-  '    if (id && !lama) {',
+  '    if (kode && !item) {',
   '    if (false) {',
   TES
 );
@@ -275,7 +275,7 @@ sabotase(
 sabotase(
   'barang baru tanpa outlet diterima',
   MURNI,
-  '    if (!lama && !outletId) {',
+  '    if (!outletId) {',
   '    if (false) {',
   TES
 );
@@ -289,7 +289,7 @@ sabotase(
 sabotase(
   'barang baru tanpa nama diterima',
   MURNI,
-  '    if (!nama && !lama) {',
+  '    if (!nama && !item) {',
   '    if (false) {',
   TES
 );
@@ -333,6 +333,29 @@ sabotase(
 );
 
 console.log('\nSABOTASE FILTER CATATAN:');
+
+// ============ SABOTASE BARU, UNTUK ATURAN 0168 ============
+sabotase(
+  'template menulis 0 untuk barang yang belum didata',
+  MURNI,
+  '    a.belumDidata ? null : Number(a.qty) || 0,',
+  '    Number(a.qty) || 0,',
+  AUDIT
+);
+sabotase(
+  'baris belum-didata yang dikosongkan ditulis jadi nol, bukan dilewati',
+  MURNI,
+  '    if (!lama && qtySel === null && !punyaFoto) {',
+  '    if (false) {',
+  AUDIT
+);
+sabotase(
+  'template versi lama ditolak — berkas yang sedang diisi orang hilang',
+  MURNI,
+  "export const KOLOM_ID_LAMA = 'ID (jangan diubah)';",
+  "export const KOLOM_ID_LAMA = '__tidak dipakai__';",
+  AUDIT
+);
 
 sabotase(
   'kotak Cari catatan digambar tapi tidak menyaring apa pun',

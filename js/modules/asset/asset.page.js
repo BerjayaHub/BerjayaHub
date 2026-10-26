@@ -745,18 +745,22 @@ async function render(container, { businessUnitId }, isAdmin) {
         // terbawa ke dalam berkas, dan yang membukanya seminggu lagi cuma
         // punya berkasnya.
         subtitle:
-          'Baris ber-ID akan DIPERBARUI · baris tanpa ID jadi barang BARU · sel yang dikosongkan dibiarkan apa adanya · ' +
+          'Kolom Kode sudah terisi — jangan diubah · baris tanpa Kode jadi barang BARU · ' +
+          'Jumlah yang dikosongkan DILEWATI (barangnya belum dihitung) · sel lain yang dikosongkan dibiarkan apa adanya · ' +
           'tempelkan foto di kolom A pada baris barangnya',
         columns: [
           { header: 'Foto', foto: true },
-          { header: 'ID (jangan diubah)', width: 38 },
-          // TANPA kolom Kode, dengan sengaja.
+          // KODE menggantikan kolom ID yang dulu berisi UUID.
           //
-          // Kode dibuat database dan tidak bisa diisi orang, jadi kolomnya di
-          // template cuma mengundang orang mengetiknya — lalu hasilnya
-          // diabaikan diam-diam. Lebih buruk lagi: `barisTemplateAset()`
-          // menyusun barisnya menurut POSISI, jadi satu kolom tambahan di sini
-          // menggeser seluruh isinya satu langkah ke kanan tanpa satu pun galat.
+          // UUID tidak bisa dicocokkan dengan apa pun di dunia nyata, jadi
+          // satu-satunya cara memakainya adalah percaya; kode bisa dibaca,
+          // sudah tertempel di barangnya, dan menunjuk item se-BU — persis
+          // yang dibutuhkan template yang memuat beberapa outlet sekaligus.
+          //
+          // Urutannya WAJIB sama dengan `KOLOM_IMPOR_ASET`: `barisTemplateAset()`
+          // menyusun barisnya menurut POSISI, jadi satu kolom yang bergeser di
+          // sini memindahkan seluruh isinya tanpa satu pun galat.
+          { header: 'Kode', width: 12 },
           { header: 'Nama Barang', width: 28 },
           { header: 'Kategori', width: 18 },
           { header: 'Jumlah', numeric: true, width: 10 },
@@ -825,9 +829,19 @@ async function render(container, { businessUnitId }, isAdmin) {
       <div class="inline-card">
         <h3 style="margin-top:0;font-size:0.95rem">Pratinjau impor — belum disimpan</h3>
         <p style="font-size:0.84rem;margin:0 0 8px">
-          <strong>${r.ubah}</strong> diperbarui · <strong>${r.tambah}</strong> barang baru ·
+          <strong>${r.ubah}</strong> diperbarui · <strong>${r.tambah}</strong> baris baru ·
           <strong>${r.foto}</strong> foto ikut${r.tolak ? ` · <span class="nota-telat">${r.tolak} ditolak</span>` : ''}
         </p>
+        ${
+          // Dikatakan TERPISAH dari "ditolak": ini bukan kesalahan. Tanpa
+          // kalimat ini, orang yang mengisi 5 baris dari 300 akan melihat
+          // "5 baris baru" dan mengira 295 sisanya gagal.
+          r.lewati
+            ? `<p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
+                 ${r.lewati} baris dilewati karena kolom Jumlah-nya dikosongkan — barangnya tetap "belum didata" di outlet itu.
+               </p>`
+            : ''
+        }
         ${
           r.melayang || r.ganda
             ? `<p class="error-text" style="font-size:0.82rem;margin:0 0 8px">

@@ -28,11 +28,21 @@
  *      sebelum menyimpan. Satu-satunya yang bisa memastikan jangkarnya benar
  *      adalah mata orang yang punya barangnya.
  *
- * ============ DICOCOKKAN LEWAT ID, BUKAN NAMA ============
+ * ============ DICOCOKKAN LEWAT KODE, BUKAN ID MAUPUN NAMA ============
  *
- * Alasannya sama persis dengan template Kode SKU (`product/sku-template.js`):
- * nama berubah, id tidak, dan dua barang boleh bernama sama di dua outlet.
- * Baris ber-ID DIPERBARUI; baris tanpa ID jadi barang BARU.
+ * Dulu kolom kuncinya UUID baris aset ("8d8f548c-0b72-4be0-…"). Sejak 0168
+ * setiap item punya KODE yang dibuat sistem (B001, K012), dan kode itu jauh
+ * lebih baik sebagai kunci:
+ *
+ *   - bisa dibaca dan diperiksa orang; UUID tidak bisa dicocokkan dengan apa
+ *     pun di dunia nyata, jadi satu-satunya cara memakainya adalah percaya;
+ *   - menunjuk ITEM (se-BU), bukan baris satu outlet — persis yang dibutuhkan
+ *     template yang memuat beberapa outlet sekaligus;
+ *   - sudah tertempel di barangnya.
+ *
+ * Baris BERKODE diperbarui; baris tanpa kode jadi barang BARU. Kode TIDAK
+ * pernah diketik orang — ia sudah terisi di template, dan kolomnya cuma perlu
+ * dibiarkan.
  *
  * ============ SEL KOSONG BERARTI "JANGAN DIAPA-APAKAN" ============
  *
@@ -55,7 +65,7 @@
  */
 export const KOLOM_IMPOR_ASET = [
   'Foto',
-  'ID (jangan diubah)',
+  'Kode',
   'Nama Barang',
   'Kategori',
   'Jumlah',
@@ -65,6 +75,21 @@ export const KOLOM_IMPOR_ASET = [
   'Outlet',
   'Catatan'
 ];
+
+/**
+ * Judul kolom kunci versi LAMA, sebelum 0168.
+ *
+ * ============ KENAPA MASIH DITERIMA ============
+ *
+ * Template yang sudah terlanjur diunduh orang berisi kolom ini, dan sebagian
+ * sudah diisi berjam-jam sebelum perubahannya terpasang. Menolaknya dengan
+ * "Berkasnya tidak memuat baris judul template" berarti pekerjaan itu hilang,
+ * dan pesannya tidak menjelaskan apa pun tentang sebab sebenarnya.
+ *
+ * UUID di kolom itu adalah id baris aset lama, dan 0168 MEMPERTAHANKAN id itu
+ * sebagai id baris stok — jadi pencocokannya masih bisa dikerjakan.
+ */
+export const KOLOM_ID_LAMA = 'ID (jangan diubah)';
 
 /** Kondisi yang diterima database (0045). Kuncinya kode, isinya label Excel. */
 export const KONDISI_IMPOR = { normal: 'Normal', rusak: 'Rusak', lainnya: 'Lain-lain' };
@@ -133,10 +158,21 @@ export function barisTemplateAset(aset, fotoSel = new Map()) {
     // sebagai "barang ini belum difoto", dan orang akan memfoto ulang barang
     // yang fotonya sudah ada.
     a.photo_path ? (fotoSel.get(a.id) ?? 'GAGAL') : null,
-    a.id,
+    teks(a.kode),
     teks(a.name),
     teks(a.category),
-    Number(a.qty) || 0,
+    // ============ "BELUM DIDATA" DITULIS KOSONG, BUKAN NOL ============
+    //
+    // Template satu outlet memuat SELURUH item BU, termasuk yang outlet itu
+    // belum pernah menghitungnya. Menuliskannya "0" berarti orang yang
+    // mengunduh template lalu mengunggahnya kembali tanpa mengubah apa pun
+    // akan MENETAPKAN nol untuk seluruh barang yang belum dihitung —
+    // mengubah "belum ada yang melihat" jadi "sudah dicek, memang tidak ada"
+    // dalam satu klik, tanpa galat, dan tanpa cara mengembalikannya.
+    //
+    // Sel kosong juga yang membuat baris itu DILEWATI saat diunggah; lihat
+    // `susunImporAset`.
+    a.belumDidata ? null : Number(a.qty) || 0,
     teks(a.size),
     KONDISI_IMPOR[a.condition] ?? teks(a.condition),
     teks(a.condition_note),
@@ -165,11 +201,14 @@ export function cariHeader(aoa) {
     // Mencari "Foto" saja akan mengenali baris mana pun yang kebetulan memuat
     // kata itu — termasuk subjudul "… 12 berfoto".
     const iNama = sel.indexOf(normal('Nama Barang'));
-    const iId = sel.indexOf(normal('ID (jangan diubah)'));
-    if (iNama < 0 || iId < 0) continue;
+    const iKode = sel.indexOf(normal('Kode'));
+    const iIdLama = sel.indexOf(normal(KOLOM_ID_LAMA));
+    // Salah satu kolom kunci sudah cukup — template lama memakai ID, yang baru
+    // memakai Kode. Lihat catatan di `KOLOM_ID_LAMA`.
+    if (iNama < 0 || (iKode < 0 && iIdLama < 0)) continue;
 
     const kolom = {};
-    for (const judul of KOLOM_IMPOR_ASET) {
+    for (const judul of [...KOLOM_IMPOR_ASET, KOLOM_ID_LAMA]) {
       const i = sel.indexOf(normal(judul));
       if (i >= 0) kolom[judul] = i;
     }
@@ -235,6 +274,7 @@ export function susunImporAset({ aoa, gambar = [], asetSekarang = [], outlets = 
       tambah: [],
       ubah: [],
       tolak: [],
+      lewati: [],
       foto: { melayang: [], ganda: [] },
       galat: 'Berkasnya tidak memuat baris judul template. Unduh templatenya dulu, isi di situ, lalu unggah kembali.'
     };
@@ -248,39 +288,70 @@ export function susunImporAset({ aoa, gambar = [], asetSekarang = [], outlets = 
   const jumlahBaris = isi.length;
   const { perBaris, melayang, ganda } = cocokkanFoto(gambar, barisHeader, jumlahBaris);
 
-  const idAda = new Map((asetSekarang ?? []).map((a) => [String(a.id), a]));
+  // DUA peta, bukan satu.
+  //
+  // Kode menunjuk ITEM (se-BU), sedangkan "sel kosong = pertahankan nilai
+  // lama" menuntut baris OUTLET yang tepat. Satu peta berkunci kode saja akan
+  // mengambil nilai lama milik outlet yang salah begitu template memuat lebih
+  // dari satu outlet — dan yang tertulis adalah catatan outlet sebelah.
+  const kodeBaku = (v) => teks(v).toUpperCase();
+  const itemPerKode = new Map();
+  const barisPerKodeOutlet = new Map();
+  const barisPerId = new Map();
+  for (const a of asetSekarang ?? []) {
+    if (a?.id) barisPerId.set(String(a.id), a);
+    const k = kodeBaku(a?.kode);
+    if (!k) continue;
+    if (!itemPerKode.has(k)) itemPerKode.set(k, a);
+    if (a?.outlet_id) barisPerKodeOutlet.set(`${k}|${a.outlet_id}`, a);
+  }
   const outletPerNama = new Map((outlets ?? []).map((o) => [normal(o.name), o.id]));
   const ambil = (row, judul) => (kolom[judul] === undefined ? '' : row?.[kolom[judul]]);
 
   const tambah = [];
   const ubah = [];
   const tolak = [];
+  const lewati = [];
 
   for (let i = 0; i < isi.length; i++) {
     const row = isi[i] ?? [];
     const barisExcel = barisHeader + 1 + i;
-    const kosong = KOLOM_IMPOR_ASET.every((j) => teks(ambil(row, j)) === '');
+    const kosong = [...KOLOM_IMPOR_ASET, KOLOM_ID_LAMA].every((j) => teks(ambil(row, j)) === '');
     const punyaFoto = perBaris.has(barisExcel);
     if (kosong && !punyaFoto) continue;
 
     const nomor = barisExcel + 1; // yang dilihat orang di Excel, 1-based
-    const id = teks(ambil(row, 'ID (jangan diubah)'));
+    const kode = kodeBaku(ambil(row, 'Kode'));
+    const idLama = teks(ambil(row, KOLOM_ID_LAMA));
     const nama = teks(ambil(row, 'Nama Barang'));
-    const lama = id ? idAda.get(id) : null;
 
-    if (id && !lama) {
-      tolak.push({ baris: nomor, nama, sebab: `ID "${id}" tidak ada di inventaris ini. Jangan mengubah kolom ID.` });
+    // Template lama: UUID baris stok. 0168 mempertahankan id itu, jadi
+    // barisnya masih bisa ditemukan — dan dari barisnya, itemnya.
+    const dariIdLama = idLama ? barisPerId.get(idLama) : null;
+    if (idLama && !dariIdLama) {
+      tolak.push({ baris: nomor, nama, sebab: `ID "${idLama}" tidak ada di inventaris ini. Jangan mengubah kolom ID.` });
       continue;
     }
-    if (!nama && !lama) {
+
+    const item = kode ? itemPerKode.get(kode) : dariIdLama;
+
+    if (kode && !item) {
+      tolak.push({ baris: nomor, nama, sebab: `Kode "${kode}" tidak ada di inventaris ini. Jangan mengubah kolom Kode.` });
+      continue;
+    }
+    if (!nama && !item) {
       tolak.push({ baris: nomor, nama: '', sebab: 'Nama barang wajib diisi untuk barang baru.' });
       continue;
     }
 
-    const kondisiSel = teks(ambil(row, 'Kondisi'));
-    const kondisi = kondisiSel ? kodeKondisi(kondisiSel) : lama ? null : 'normal';
-    if (kondisiSel && !kondisi) {
-      tolak.push({ baris: nomor, nama, sebab: `Kondisi "${kondisiSel}" tidak dikenal. Isi: Normal, Rusak, atau Lain-lain.` });
+    const outletSel = teks(ambil(row, 'Outlet'));
+    const outletId = outletSel ? outletPerNama.get(normal(outletSel)) : (item?.outlet_id ?? null);
+    if (outletSel && !outletId) {
+      tolak.push({ baris: nomor, nama, sebab: `Outlet "${outletSel}" tidak ada, atau bukan outlet yang bisa kamu isi.` });
+      continue;
+    }
+    if (!outletId) {
+      tolak.push({ baris: nomor, nama, sebab: 'Outlet wajib diisi.' });
       continue;
     }
 
@@ -290,14 +361,33 @@ export function susunImporAset({ aoa, gambar = [], asetSekarang = [], outlets = 
       continue;
     }
 
-    const outletSel = teks(ambil(row, 'Outlet'));
-    const outletId = outletSel ? outletPerNama.get(normal(outletSel)) : null;
-    if (outletSel && !outletId) {
-      tolak.push({ baris: nomor, nama, sebab: `Outlet "${outletSel}" tidak ada, atau bukan outlet yang bisa kamu isi.` });
+    // Baris outlet ini yang sudah ada — INI yang dipakai mempertahankan sel
+    // kosong, bukan `item` yang cuma menunjuk barangnya.
+    const lama = kode
+      ? (barisPerKodeOutlet.get(`${kode}|${outletId}`) ?? null)
+      : (dariIdLama?.outlet_id === outletId ? dariIdLama : null);
+
+    // ============ BARIS BELUM DIDATA YANG DIBIARKAN KOSONG: DILEWATI ============
+    //
+    // Template memuat seluruh item BU, jadi sebagian besarnya adalah barang
+    // yang outlet ini belum pernah menghitungnya. Membiarkan barisnya apa
+    // adanya adalah cara paling wajar mengatakan "yang ini belum saya urus".
+    //
+    // Memperlakukannya sebagai jumlah nol akan menetapkan "sudah dicek, tidak
+    // ada" untuk ratusan barang sekaligus — hanya karena orangnya mengunggah
+    // kembali berkas yang baru saja ia unduh.
+    if (!lama && qtySel === null && !punyaFoto) {
+      lewati.push({ baris: nomor, nama: nama || teks(item?.name), kode });
       continue;
     }
-    if (!lama && !outletId) {
-      tolak.push({ baris: nomor, nama, sebab: 'Outlet wajib diisi untuk barang baru.' });
+
+    // Kondisi dibaca SESUDAH `lama` ada: sel kosong berarti "pertahankan
+    // kondisi yang tercatat", dan itu cuma bisa diputuskan kalau barisnya
+    // sudah diketahui.
+    const kondisiSel = teks(ambil(row, 'Kondisi'));
+    const kondisi = kondisiSel ? kodeKondisi(kondisiSel) : lama ? null : 'normal';
+    if (kondisiSel && !kondisi) {
+      tolak.push({ baris: nomor, nama, sebab: `Kondisi "${kondisiSel}" tidak dikenal. Isi: Normal, Rusak, atau Lain-lain.` });
       continue;
     }
 
@@ -315,7 +405,11 @@ export function susunImporAset({ aoa, gambar = [], asetSekarang = [], outlets = 
     const nilai = {
       baris: nomor,
       fotoDi: punyaFoto ? perBaris.get(barisExcel) : null,
-      name: nama || teks(lama?.name),
+      // Item yang SUDAH ADA dikenali lewat kodenya, jadi barisnya tidak pernah
+      // berubah jadi item baru hanya karena namanya diketik sedikit berbeda.
+      itemId: item?.itemId ?? null,
+      kode: kode || teks(item?.kode),
+      name: nama || teks(item?.name),
       category: teks(ambil(row, 'Kategori')),
       qty: qtySel,
       size: teks(ambil(row, 'Ukuran')),
@@ -325,11 +419,14 @@ export function susunImporAset({ aoa, gambar = [], asetSekarang = [], outlets = 
       notes: teks(ambil(row, 'Catatan'))
     };
 
-    if (lama) ubah.push({ ...nilai, id, lama });
+    // "ubah" = outlet ini SUDAH punya barisnya. Item yang sudah terdaftar tapi
+    // belum pernah didata di outlet ini tetap masuk "tambah" — karena memang
+    // baris stok baru yang dibuat, bukan yang lama yang diubah.
+    if (lama) ubah.push({ ...nilai, id: lama.id, lama });
     else tambah.push(nilai);
   }
 
-  return { tambah, ubah, tolak, foto: { melayang, ganda }, galat: null };
+  return { tambah, ubah, tolak, lewati, foto: { melayang, ganda }, galat: null };
 }
 
 /**
@@ -366,6 +463,10 @@ export function ringkasImpor(rencana) {
     tambah: rencana?.tambah?.length ?? 0,
     ubah: rencana?.ubah?.length ?? 0,
     tolak: rencana?.tolak?.length ?? 0,
+    // Dilaporkan TERPISAH dari "ditolak": yang ini bukan kesalahan, cuma baris
+    // yang memang belum diisi. Menggabungkannya membuat pratinjau terlihat
+    // penuh masalah padahal berkasnya baik-baik saja.
+    lewati: rencana?.lewati?.length ?? 0,
     foto: (rencana?.tambah ?? []).concat(rencana?.ubah ?? []).filter((b) => b.fotoDi).length,
     melayang: rencana?.foto?.melayang?.length ?? 0,
     ganda: rencana?.foto?.ganda?.length ?? 0
