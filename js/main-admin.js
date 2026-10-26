@@ -33,6 +33,8 @@ import { renderTutorialAdminPage } from './modules/tutorial/tutorial.admin.page.
 import { renderBuAppearancePage } from './modules/organization/bu-appearance.admin.page.js';
 import { renderOrganizationAdminPage } from './modules/organization/organization.admin.page.js';
 import { renderDokumenAdminPage } from './modules/owner/dokumen.admin.page.js';
+import { renderSparepartAdminPage } from './modules/sparepart/sparepart.admin.page.js';
+import { renderPenjualanBengkelAdminPage } from './modules/sparepart/penjualan-bengkel.admin.page.js';
 import { listBusinessUnitsBasic } from './modules/organization/organization.service.js';
 import { renderGroupPage } from './core/group-page.js';
 import { canAccessTab } from './core/admin-tabs.js';
@@ -68,6 +70,8 @@ registerModule('reservation', renderReservationAdminPage);
 registerModule('asset', renderAssetAdminPage);
 registerModule('konten_sosmed', renderKontenAdminPage);
 registerModule('dokumen_ttd', renderDokumenAdminPage);
+registerModule('sparepart', renderSparepartAdminPage);
+registerModule('penjualan_bengkel', renderPenjualanBengkelAdminPage);
 // ---- Pengelompokan menu: beberapa modul digabung jadi satu menu bertab ----
 // Modul di dalam grup tidak tampil sebagai menu terpisah.
 const GROUPS = {

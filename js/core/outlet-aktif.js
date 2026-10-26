@@ -146,7 +146,13 @@ export function outletAktif({ scopes, buId, outletBoleh, tersimpan = null }) {
  */
 export function modulUntukPeran(kode, outletRole, opsi = {}) {
   const bolehJual = opsi.bolehJual;
-  if (kode === 'sales') return bolehJual !== false;
+  // Penjualan Bengkel mengikuti setelan yang SAMA dengan Penjualan biasa.
+  //
+  // Keduanya ditulis di satu baris, bukan dua cabang berurutan, supaya
+  // perubahan aturannya nanti tidak bisa mengenai yang satu dan melewatkan
+  // yang lain — kegagalan yang tidak memunculkan galat, cuma satu kartu yang
+  // muncul di outlet yang tidak boleh berjualan.
+  if (kode === 'sales' || kode === 'penjualan_bengkel') return bolehJual !== false;
   if (!outletRole) return true;
   // Produksi hanya di central kitchen.
   if (kode === 'production') return outletRole === 'central_kitchen';

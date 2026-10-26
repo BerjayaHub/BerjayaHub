@@ -167,15 +167,25 @@ sabotase(
 sabotase(
   'Penjualan dikunci lagi ke peran outlet — CK tidak bisa mencatat tumpengnya',
   INTI,
-  "  if (kode === 'sales') return bolehJual !== false;",
-  "  if (kode === 'sales') return outletRole !== 'central_kitchen';",
+  "  if (kode === 'sales' || kode === 'penjualan_bengkel') return bolehJual !== false;",
+  "  if (kode === 'sales' || kode === 'penjualan_bengkel') return outletRole !== 'central_kitchen';",
   TES
 );
 sabotase(
   'setelan "tidak boleh jual" diabaikan — centang di Admin Portal jadi hiasan',
   INTI,
+  "  if (kode === 'sales' || kode === 'penjualan_bengkel') return bolehJual !== false;",
+  "  if (kode === 'sales' || kode === 'penjualan_bengkel') return true;",
+  TES
+);
+// Bengkel DIJATUHKAN dari barisnya — `sales` tetap benar, jadi tes lama yang
+// cuma memeriksa `sales` akan tetap hijau. Inilah bentuk kegagalan yang
+// dicari: satu modul diperbaiki, saudaranya ketinggalan diam-diam.
+sabotase(
+  'Penjualan Bengkel lepas dari setelan "boleh jual"',
+  INTI,
+  "  if (kode === 'sales' || kode === 'penjualan_bengkel') return bolehJual !== false;",
   "  if (kode === 'sales') return bolehJual !== false;",
-  "  if (kode === 'sales') return true;",
   TES
 );
 sabotase('satu-satunya outlet tidak dipakai', INTI, 'if (daftar.length === 1) {', 'if (false) {', TES);

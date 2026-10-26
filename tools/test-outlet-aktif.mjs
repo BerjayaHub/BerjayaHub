@@ -169,6 +169,25 @@ uji('INTI: outlet yang penjualannya DIMATIKAN tidak menampilkan kartunya', () =>
   assert.equal(modulUntukPeran('sales', 'central_kitchen', { bolehJual: false }), false);
 });
 
+uji('INTI: Penjualan Bengkel mengikuti setelan yang SAMA', () => {
+  // ============ KENAPA DIUJI TERPISAH DARI `sales` ============
+  //
+  // Dua modul penjualan sekarang bersandar pada satu setelan. Tes yang cuma
+  // memeriksa `sales` tetap hijau kalau `penjualan_bengkel` jatuh dari
+  // barisnya — dan kegagalannya bukan galat, cuma satu kartu yang muncul di
+  // outlet bengkel yang justru tidak boleh berjualan (gudang, kantor).
+  //
+  // Bengkel TIDAK punya peran dapur, jadi perannya tidak boleh ikut
+  // menentukan apa pun di sini.
+  assert.equal(modulUntukPeran('penjualan_bengkel', 'store', { bolehJual: true }), true);
+  assert.equal(modulUntukPeran('penjualan_bengkel', null, { bolehJual: true }), true);
+  assert.equal(modulUntukPeran('penjualan_bengkel', 'central_kitchen', { bolehJual: true }), true);
+  assert.equal(modulUntukPeran('penjualan_bengkel', 'store', { bolehJual: false }), false);
+  assert.equal(modulUntukPeran('penjualan_bengkel', null, { bolehJual: false }), false);
+  // Setelan tak diketahui -> tetap tampil, sama seperti `sales`.
+  assert.equal(modulUntukPeran('penjualan_bengkel', null), true);
+});
+
 uji('setelan tidak diketahui -> kartunya TETAP tampil', () => {
   // Outlet belum dipilih, atau bidangnya tidak ikut termuat. Menyembunyikan
   // modul karena satu bidang yang kebetulan kosong terbaca sebagai fitur

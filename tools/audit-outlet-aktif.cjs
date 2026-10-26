@@ -58,11 +58,21 @@ if (inti) {
   // memeriksanya tanpa pernah melihat `outlet_role` — Central Kitchen memang
   // boleh menjual (tumpeng, dsb). Mengunci kartunya ke peran mengabaikan
   // setelan yang sudah disediakan untuk pertanyaan itu.
-  if (!/if \(kode === 'sales'\) return bolehJual !== false;/.test(kode)) {
+  //
+  // `penjualan_bengkel` (BU bengkel) mengikuti setelan yang SAMA. Keduanya
+  // dituntut berada di SATU baris, bukan dua cabang berurutan: dua cabang
+  // berarti perubahan aturan berikutnya bisa mengenai yang satu dan
+  // melewatkan yang lain, dan kegagalannya cuma satu kartu yang muncul di
+  // outlet yang tidak boleh berjualan — tanpa galat apa pun.
+  const barisJual = /if \(kode === 'sales' \|\| kode === 'penjualan_bengkel'\) return bolehJual !== false;/;
+  if (!barisJual.test(kode)) {
     salah(
-      "js/core/outlet-aktif.js: modul `sales` tidak mengikuti `bolehJual`. " +
+      "js/core/outlet-aktif.js: `sales` dan `penjualan_bengkel` harus satu baris yang mengikuti `bolehJual`. " +
         'Kemampuannya sudah ada di database sejak 0021/0025; yang menyembunyikan kartunya cuma layar.'
     );
+  }
+  if (/kode === 'penjualan_bengkel'[^\n]*outletRole/.test(kode)) {
+    salah("js/core/outlet-aktif.js: `penjualan_bengkel` dikunci ke peran outlet — bengkel tidak punya peran dapur.");
   }
   if (/kode === 'sales'[^\n]*outletRole !== 'central_kitchen'/.test(kode)) {
     salah("js/core/outlet-aktif.js: `sales` masih dikunci ke peran outlet — CK tidak akan pernah bisa mencatat penjualannya.");

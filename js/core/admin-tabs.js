@@ -48,6 +48,16 @@ export const ADMIN_TAB_CATALOG = [
   { code: 'production', label: 'Produksi', group: 'Inventory' },
   { code: 'sales', label: 'Penjualan', group: 'Inventory' },
 
+  // BU BENGKEL. Kodenya sama dengan kode modul di tabel `modules`, jadi tabnya
+  // hanya muncul di BU yang modulnya dinyalakan — BU cafe tidak akan melihat
+  // keduanya sama sekali, dan izinnya tetap bisa dicabut per user.
+  //
+  // Grupnya 'Inventory' walaupun sparepart TIDAK menyimpan stok: tempat orang
+  // mencari "daftar barang" adalah grup itu, dan grup baru berisi dua tab
+  // hanya menambah tempat untuk gagal menemukannya.
+  { code: 'sparepart', label: 'Sparepart & Jasa', group: 'Inventory' },
+  { code: 'penjualan_bengkel', label: 'Penjualan Bengkel', group: 'Inventory' },
+
   // Menu berdiri sendiri (tidak digabung ke grup Inventory) supaya mudah dicari.
   { code: 'reservation', label: 'Reservasi', group: 'Modul lain' },
   { code: 'attendance', label: 'Presensi', group: 'Modul lain' },

@@ -32,6 +32,7 @@ import { getMyTodaySession } from './modules/attendance/attendance.service.js';
 import { loadingHtml, sekaliJalan } from './core/loading.js';
 import { pasangPenandaKoneksi } from './core/koneksi.js';
 import { pasangTabelResponsif } from './core/tabel-responsif.js';
+import { renderPenjualanBengkelPage } from './modules/sparepart/penjualan-bengkel.page.js';
 
 registerModule('attendance', renderAttendancePage);
 registerModule('leave', renderLeavePage);
@@ -58,6 +59,12 @@ registerModule('cash_ledger', renderCashPage);
 registerModule('reservation', renderReservationPage);
 registerModule('asset', renderAssetPage);
 registerModule('shift', renderShiftPage);
+// Penjualan Bengkel BUKAN varian dari modul Penjualan, melainkan modulnya
+// sendiri. Bengkel melaporkan NOMINAL harian tanpa barang; cafe melaporkan
+// baris per menu dengan harga dan stok. Menumpangkan keduanya di satu layar
+// berarti setiap pembaca layar itu harus tahu BU-nya bertipe apa — dan yang
+// lupa akan menampilkan kotak jumlah menu di bengkel.
+registerModule('penjualan_bengkel', renderPenjualanBengkelPage);
 
 const app = document.getElementById('app');
 

@@ -14,6 +14,7 @@ import {
   setBuModules
 } from './organization.service.js';
 import { toast, confirmDialog, formDialog } from '../../core/ui.js';
+import { isianOutlet, lengkapiNilaiOutlet } from './aturan-tipe-bu.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
 const BU_TYPE_OPTIONS = [
@@ -86,17 +87,29 @@ export async function renderOrganizationAdminPage(container) {
 
 function buCardHtml(bu, outlets) {
   const typeLabel = BU_TYPE_OPTIONS.find((t) => t.value === bu.type)?.label ?? bu.type;
+
+  // Kolom "Peran" ikut hilang untuk BU yang tidak memakainya — satu sumber
+  // aturan dengan dialognya. Kalau tabelnya tetap menampilkan "Standalone"
+  // sementara dialognya tidak punya isian itu, yang membacanya akan mengira
+  // ada setelan yang hilang.
+  const adaPeran = isianOutlet(bu.type).peranOutlet;
+  const jumlahKolom = adaPeran ? 4 : 3;
+
   const outletRows =
     outlets
       .map(
         (o) => `
         <tr>
           <td>${escapeHtml(o.name)}</td>
-          <td>${OUTLET_ROLE_LABEL[o.outlet_role] ?? o.outlet_role}${
-            o.reservation_mode === 'hotel'
-              ? ' <span class="badge badge-pending" style="font-size:0.62rem">Hotel</span>'
+          ${
+            adaPeran
+              ? `<td>${OUTLET_ROLE_LABEL[o.outlet_role] ?? o.outlet_role}${
+                  o.reservation_mode === 'hotel'
+                    ? ' <span class="badge badge-pending" style="font-size:0.62rem">Hotel</span>'
+                    : ''
+                }</td>`
               : ''
-          }</td>
+          }
           <td>${o.is_active ? 'Aktif' : 'Nonaktif'}</td>
           <td>
             <button class="btn-edit-outlet" data-bu="${bu.id}" data-outlet="${o.id}">Edit</button>
@@ -104,7 +117,8 @@ function buCardHtml(bu, outlets) {
           </td>
         </tr>`
       )
-      .join('') || '<tr><td colspan="4" style="color:var(--color-text-muted)">Belum ada outlet.</td></tr>';
+      .join('') ||
+    `<tr><td colspan="${jumlahKolom}" style="color:var(--color-text-muted)">Belum ada outlet.</td></tr>`;
 
   return `
     <div class="inline-card" style="max-width:640px">
@@ -122,7 +136,7 @@ function buCardHtml(bu, outlets) {
         </div>
       </div>
       <table class="data-table" style="margin-top:12px">
-        <thead><tr><th>Outlet</th><th>Peran</th><th>Status</th><th>Aksi</th></tr></thead>
+        <thead><tr><th>Outlet</th>${adaPeran ? '<th>Peran</th>' : ''}<th>Status</th><th>Aksi</th></tr></thead>
         <tbody>${outletRows}</tbody>
       </table>
       <button class="btn-add-outlet" data-bu="${bu.id}" style="margin-top:10px">+ Tambah Outlet</button>
@@ -160,15 +174,21 @@ function wireActions(container, businessUnits, organizations, outletsByBu) {
     }));
   });
 
+  // Tipe BU dibaca dari daftar yang SUDAH dimuat, bukan dari atribut tombol.
+  // Atribut HTML hanya memuat id; menebak tipenya dari sana berarti menebak.
+  const tipeBuDari = (id) => businessUnits.find((b) => b.id === id)?.type ?? '';
+
   container.querySelectorAll('.btn-add-outlet').forEach((btn) => {
-    btn.addEventListener('click', () => openOutletDialog(container, btn.dataset.bu, outletsByBu[btn.dataset.bu] ?? [], null));
+    btn.addEventListener('click', () =>
+      openOutletDialog(container, btn.dataset.bu, outletsByBu[btn.dataset.bu] ?? [], null, tipeBuDari(btn.dataset.bu))
+    );
   });
 
   container.querySelectorAll('.btn-edit-outlet').forEach((btn) => {
     btn.addEventListener('click', () => {
       const outlets = outletsByBu[btn.dataset.bu] ?? [];
       const outlet = outlets.find((o) => o.id === btn.dataset.outlet);
-      openOutletDialog(container, btn.dataset.bu, outlets, outlet);
+      openOutletDialog(container, btn.dataset.bu, outlets, outlet, tipeBuDari(btn.dataset.bu));
     });
   });
 
@@ -294,17 +314,24 @@ async function openBuDialog(container, organizations, existing) {
   }
 }
 
-async function openOutletDialog(container, businessUnitId, siblingOutlets, existing) {
+async function openOutletDialog(container, businessUnitId, siblingOutlets, existing, tipeBu) {
   const isEdit = !!existing;
   const ckOptions = siblingOutlets
     .filter((o) => o.outlet_role === 'central_kitchen' && o.id !== existing?.id)
     .map((o) => ({ value: o.id, label: o.name }));
 
-  const values = await formDialog({
-    title: isEdit ? 'Edit Outlet' : 'Tambah Outlet',
-    fields: [
-      { name: 'name', label: 'Nama Outlet', type: 'text', required: true, value: existing?.name ?? '' },
-      { name: 'address', label: 'Alamat (opsional)', type: 'text', value: existing?.address ?? '' },
+  // Peran Outlet & Mode Reservasi adalah gagasan dapur — tidak berarti apa-apa
+  // di bengkel. Menampilkannya bukan sekadar berantakan: "Peran Outlet" WAJIB
+  // diisi, dan jawabannya dibaca sungguhan oleh modul Pengiriman.
+  const tampil = isianOutlet(tipeBu);
+
+  const fields = [
+    { name: 'name', label: 'Nama Outlet', type: 'text', required: true, value: existing?.name ?? '' },
+    { name: 'address', label: 'Alamat (opsional)', type: 'text', value: existing?.address ?? '' }
+  ];
+
+  if (tampil.peranOutlet) {
+    fields.push(
       {
         name: 'outlet_role',
         label: 'Peran Outlet',
@@ -319,28 +346,47 @@ async function openOutletDialog(container, businessUnitId, siblingOutlets, exist
         type: 'select',
         value: existing?.served_by_outlet_id ?? '',
         options: [{ value: '', label: '-- pilih Central Kitchen --' }, ...ckOptions]
-      },
-      { name: 'allow_sales', label: 'Bisa melakukan penjualan (sales)', type: 'checkbox', value: existing ? existing.allow_sales !== false : true },
-      {
-        name: 'reservation_mode',
-        label: 'Mode Reservasi',
-        type: 'select',
-        value: existing?.reservation_mode ?? 'cafe',
-        // Mode menentukan SELURUH tampilan modul Reservasi di outlet ini, bukan
-        // sekadar label — cafe memakai slot jam + pax, hotel memakai rentang
-        // tanggal + tipe kamar. Karena itu ditaruh di master outlet, bukan di
-        // pengaturan modul: ini sifat outletnya, bukan preferensi tampilan.
-        help: 'Cafe = reservasi meja (jam + jumlah tamu). Hotel = booking kamar (check-in/check-out, tanpa persetujuan).',
-        options: [
-          { value: 'cafe', label: 'Cafe — reservasi meja' },
-          { value: 'hotel', label: 'Hotel — booking kamar' }
-        ]
-      },
-      { name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing ? existing.is_active : true }
-    ],
+      }
+    );
+  }
+
+  fields.push({
+    name: 'allow_sales',
+    label: 'Bisa melakukan penjualan (sales)',
+    type: 'checkbox',
+    value: existing ? existing.allow_sales !== false : true
+  });
+
+  if (tampil.modeReservasi) {
+    fields.push({
+      name: 'reservation_mode',
+      label: 'Mode Reservasi',
+      type: 'select',
+      value: existing?.reservation_mode ?? 'cafe',
+      // Mode menentukan SELURUH tampilan modul Reservasi di outlet ini, bukan
+      // sekadar label — cafe memakai slot jam + pax, hotel memakai rentang
+      // tanggal + tipe kamar. Karena itu ditaruh di master outlet, bukan di
+      // pengaturan modul: ini sifat outletnya, bukan preferensi tampilan.
+      help: 'Cafe = reservasi meja (jam + jumlah tamu). Hotel = booking kamar (check-in/check-out, tanpa persetujuan).',
+      options: [
+        { value: 'cafe', label: 'Cafe — reservasi meja' },
+        { value: 'hotel', label: 'Hotel — booking kamar' }
+      ]
+    });
+  }
+
+  fields.push({ name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing ? existing.is_active : true });
+
+  const jawaban = await formDialog({
+    title: isEdit ? 'Edit Outlet' : 'Tambah Outlet',
+    fields,
     submitText: 'Simpan',
     onReady: (form) => {
       const roleSelect = form.elements['outlet_role'];
+      // Isian ini bisa TIDAK ADA sekarang (BU bengkel). Tanpa penjaga ini,
+      // `addEventListener` pada undefined melempar, dan dialognya tampil
+      // setengah jadi tanpa satu pun pesan yang menjelaskan kenapa.
+      if (!roleSelect) return;
       const ckField = form.elements['served_by_outlet_id']?.closest('.field');
       const sync = () => {
         if (ckField) ckField.style.display = roleSelect.value === 'served_by_ck' ? 'block' : 'none';
@@ -349,7 +395,11 @@ async function openOutletDialog(container, businessUnitId, siblingOutlets, exist
       sync();
     }
   });
-  if (!values) return;
+  if (!jawaban) return;
+
+  // Setelan yang isiannya tidak ditampilkan dilengkapi TERANG-TERANGAN di
+  // sini, bukan dibiarkan `undefined` — lihat catatan di `lengkapiNilaiOutlet`.
+  const values = lengkapiNilaiOutlet({ nilai: jawaban, tipeBu, sebelumnya: existing });
 
   if (values.outlet_role === 'served_by_ck' && !values.served_by_outlet_id) {
     toast('Pilih Central Kitchen yang melayani outlet ini.', 'warning');

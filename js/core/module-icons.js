@@ -22,6 +22,8 @@ const ICONS = {
   shift: '🗓️',
   dokumen_ttd: '✍️',
   harga_outlet: '🏷️',
+  sparepart: '🔧',
+  penjualan_bengkel: '🧰',
   grp_org: '🏢',
   grp_user: '👤',
   grp_inventory: '📦'
