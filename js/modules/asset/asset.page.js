@@ -51,6 +51,23 @@ async function render(container, { businessUnitId }, isAdmin) {
   // Admin maupun staff sama-sama dibatasi scope-nya. Sebelumnya `isAdmin` melewati
   // penyaringan sama sekali, sehingga admin outlet melihat seluruh outlet BU.
   const outlets = await listMyOutlets(businessUnitId).catch(() => []);
+
+  /**
+   * Nama outlet sebuah baris.
+   *
+   * ============ KENAPA DARI `outlets`, BUKAN DARI EMBED ============
+   *
+   * Embed `outlets(name)` cuma ada pada baris yang PUNYA baris stok. Sejak
+   * 0168 daftar satu outlet juga memuat item yang belum pernah didata di sana,
+   * dan baris seperti itu tidak punya embed apa pun — kolom Outletnya jadi "-"
+   * untuk SELURUH daftar, termasuk baris yang outletnya jelas.
+   *
+   * `outlet_id` selalu ada (baris stok membawanya, baris belum-didata diisi
+   * outlet yang sedang dipilih), jadi namanya dicari dari daftar outlet yang
+   * memang sudah dimuat layar ini.
+   */
+  const namaOutlet = (a) =>
+    outlets.find((o) => o.id === a?.outlet_id)?.name ?? a?.outlets?.name ?? '-';
   if (!outlets.length) {
     container.innerHTML = `<h1>Inventaris Aset</h1><p style="color:var(--color-text-muted)">Belum ada outlet yang bisa kamu akses di BU ini.</p>`;
     return;
@@ -218,7 +235,7 @@ async function render(container, { businessUnitId }, isAdmin) {
                         ? '<span style="color:var(--color-text-muted)">-</span>'
                         : `<span class="badge ${ASSET_CONDITION_BADGE[a.condition] ?? ''}">${esc(conditionText(a))}</span>`
                     }</td>
-                    ${isAdmin ? `<td style="font-size:0.82rem" data-label="Outlet">${esc(a.outlets?.name ?? '-')}</td>` : ''}
+                    ${isAdmin ? `<td style="font-size:0.82rem" data-label="Outlet">${esc(namaOutlet(a))}</td>` : ''}
                     <td data-label="Aksi">
                       <button class="as-edit" data-item="${a.itemId}"${a.id ? ` data-id="${a.id}"` : ''}>${a.belumDidata ? 'Data' : 'Edit'}</button>
                       ${a.id ? `<button class="as-del" data-id="${a.id}">Hapus</button>` : ''}
@@ -626,7 +643,7 @@ async function render(container, { businessUnitId }, isAdmin) {
           formatNum(a.qty),
           a.size ?? '-',
           conditionText(a),
-          a.outlets?.name ?? '-',
+          namaOutlet(a),
           a.notes ?? '-'
         ]),
         filename: 'inventaris-aset'
@@ -697,7 +714,7 @@ async function render(container, { businessUnitId }, isAdmin) {
           Number(a.qty) || 0,
           a.size ?? '-',
           conditionText(a),
-          a.outlets?.name ?? '-',
+          namaOutlet(a),
           a.notes ?? '-'
         ])
       });
