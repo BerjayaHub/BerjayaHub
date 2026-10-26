@@ -141,12 +141,25 @@ if (svc) {
     salah('asset.service.js: sel berformula/rich-text tidak diterjemahkan — nilainya masuk sebagai "[object Object]" dan lolos sebagai nama barang.');
   }
 
-  // Filter catatan sungguh sampai ke query.
-  if (!/if \(catatan\) query = query\.ilike\('notes', `%\$\{catatan\}%`\);/.test(kode)) {
+  // ============ FILTER CATATAN SEKARANG DI KLIEN, BUKAN DI QUERY ============
+  //
+  // Sejak 0168, daftar satu outlet memuat juga item yang BELUM PUNYA BARIS
+  // STOK. Baris seperti itu tidak ada di server, jadi tidak ada yang bisa
+  // disaring `ilike` di sana — menyaring di query akan menghilangkan seluruh
+  // baris "belum didata" setiap kali kotak Catatan diisi, dan itu terbaca
+  // seperti barangnya memang tidak ada.
+  //
+  // Yang dijaga tetap sama: kotaknya harus BENAR-BENAR menyaring.
+  if (!/rows = rows\.filter\(\(r\) => String\(r\.notes \?\? ''\)\.toLowerCase\(\)\.includes\(k\)\);/.test(kode)) {
     salah('asset.service.js: filter Catatan tidak menyaring apa pun — kotaknya digambar, hasilnya tidak berubah.');
   }
-  if (!/listAssets\(\{ businessUnitId, outletId, condition, category, q, catatan, limit = 500 \}\)/.test(kode)) {
-    salah('asset.service.js: `listAssets` tidak menerima `catatan` — nilainya dibuang sebelum sampai ke query.');
+  if (!/listAssets\(\{ businessUnitId, outletId, condition, category, q, catatan, limit = \d+ \}\)/.test(kode)) {
+    salah('asset.service.js: `listAssets` tidak menerima `catatan` — nilainya dibuang sebelum sampai ke penyaring.');
+  }
+  // Kondisi ikut disaring di klien, dengan alasan yang sama. Baris yang belum
+  // didata belum punya kondisi, dan ia TIDAK boleh ikut terhitung "normal".
+  if (!/rows = rows\.filter\(\(r\) => !r\.belumDidata && r\.condition === condition\);/.test(kode)) {
+    salah('asset.service.js: saringan Kondisi tidak lagi mengecualikan baris yang belum didata.');
   }
 }
 

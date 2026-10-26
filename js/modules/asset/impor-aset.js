@@ -344,6 +344,11 @@ export function nilaiSimpan(baris) {
   const pakai = (baru, lamaNilai) => (teks(baru) === '' ? (lamaNilai ?? null) : teks(baru));
   return {
     id: baris.id ?? null,
+    // Sejak 0168, yang menentukan BARANG MANA adalah itemnya, bukan baris
+    // stoknya. Tanpa ini, baris "ubah" dari template akan diperlakukan sebagai
+    // barang baru: item kedua dengan kode kedua untuk barang yang sama, dan
+    // jumlah lamanya tertinggal di item yang tidak lagi dilihat siapa pun.
+    itemId: baris.itemId ?? lama.itemId ?? null,
     name: baris.name,
     category: pakai(baris.category, lama.category),
     qty: baris.qty === null || baris.qty === undefined ? (baris.id ? (Number(lama.qty) ?? 1) : 1) : baris.qty,

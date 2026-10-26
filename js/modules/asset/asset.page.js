@@ -15,6 +15,7 @@ import {
   getAssetPhotoUrl,
   getAssetPhotoUrls,
   listKategoriAset,
+  ubahItemAset,
   bacaBerkasImporAset,
   pindahAset,
   pindahFotoAset
@@ -172,38 +173,60 @@ async function render(container, { businessUnitId }, isAdmin) {
     // tertunda lama — tabelnya lalu tampak "sebagian fotonya rusak".
     fotoUrl = await getAssetPhotoUrls(rows.map((a) => a.photo_path));
 
-    const rusak = rows.filter((a) => a.condition === 'rusak').length;
+    const rusak = rows.filter((a) => !a.belumDidata && a.condition === 'rusak').length;
     const totalUnit = rows.reduce((t, a) => t + (Number(a.qty) || 0), 0);
+    // DIPISAH dari "jumlahnya nol" dengan sengaja: yang ini perlu didatangi,
+    // yang itu sudah selesai dihitung. Keduanya menampilkan angka 0, dan kalau
+    // tidak dibedakan di sini, orang yang membaca daftarnya akan mengira
+    // semuanya sudah dihitung.
+    const belum = rows.filter((a) => a.belumDidata).length;
 
     list.innerHTML = `
       <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 8px">
         <strong>${rows.length}</strong> jenis barang · <strong>${formatNum(totalUnit)}</strong> unit
         ${rusak ? ` · <span style="color:var(--color-danger)"><strong>${rusak}</strong> rusak</span>` : ''}
+        ${belum ? ` · <strong>${belum}</strong> belum didata di outlet ini` : ''}
       </p>
       <div class="table-scroll">
         <table class="data-table table-freeze-1 kartu-sempit">
-          <thead><tr>${isAdmin ? '<th style="width:34px"><input type="checkbox" id="as-all" title="Pilih semua yang terlihat" /></th>' : ''}<th>Nama Barang</th><th>Foto</th><th>Kategori</th><th>Jumlah</th><th>Ukuran</th><th>Kondisi</th>${isAdmin ? '<th>Outlet</th>' : ''}<th>Aksi</th></tr></thead>
+          <thead><tr>${isAdmin ? '<th style="width:34px"><input type="checkbox" id="as-all" title="Pilih semua yang terlihat" /></th>' : ''}<th>Kode</th><th>Nama Barang</th><th>Foto</th><th>Kategori</th><th>Jumlah</th><th>Ukuran</th><th>Kondisi</th>${isAdmin ? '<th>Outlet</th>' : ''}<th>Aksi</th></tr></thead>
           <tbody>
             ${
               rows
                 .map(
-                  (a) => `<tr>
-                    ${isAdmin ? `<td data-label="Pilih"><input type="checkbox" class="as-pick" data-id="${a.id}"${dipilih.has(a.id) ? ' checked' : ''} /></td>` : ''}
+                  (a) => `<tr${a.belumDidata ? ' style="opacity:.6"' : ''}>
+                    ${isAdmin ? `<td data-label="Pilih">${a.id ? `<input type="checkbox" class="as-pick" data-id="${a.id}"${dipilih.has(a.id) ? ' checked' : ''} />` : ''}</td>` : ''}
+                    <td style="font-family:monospace;font-size:0.78rem" data-label="Kode">${esc(a.kode ?? '-')}</td>
                     <td data-label="Nama Barang"><strong>${esc(a.name)}</strong>${a.notes ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${esc(a.notes)}</div>` : ''}</td>
-                    <td data-label="Foto">${fotoSel(a, fotoUrl)}</td>
+                    <td data-label="Foto">${a.belumDidata ? '-' : fotoSel(a, fotoUrl)}</td>
                     <td style="font-size:0.85rem" data-label="Kategori">${esc(a.category ?? '-')}</td>
-                    <td style="text-align:right" data-label="Jumlah">${formatNum(a.qty)}</td>
+                    <td style="text-align:right" data-label="Jumlah">${
+                      // "Belum didata" TIDAK ditulis sebagai 0.
+                      //
+                      // Angka 0 di kolom jumlah berarti "sudah dihitung, memang
+                      // tidak ada". Item yang belum pernah didatangi siapa pun
+                      // belum punya jawaban sama sekali, dan menuliskannya 0
+                      // membuat dua keadaan itu tidak bisa dibedakan lagi oleh
+                      // mata — termasuk oleh orang yang menyiapkan opname.
+                      a.belumDidata
+                        ? '<span style="color:var(--color-text-muted);font-size:0.78rem">belum didata</span>'
+                        : formatNum(a.qty)
+                    }</td>
                     <td style="font-size:0.85rem" data-label="Ukuran">${esc(a.size ?? '-')}</td>
-                    <td data-label="Kondisi"><span class="badge ${ASSET_CONDITION_BADGE[a.condition] ?? ''}">${esc(conditionText(a))}</span></td>
+                    <td data-label="Kondisi">${
+                      a.belumDidata
+                        ? '<span style="color:var(--color-text-muted)">-</span>'
+                        : `<span class="badge ${ASSET_CONDITION_BADGE[a.condition] ?? ''}">${esc(conditionText(a))}</span>`
+                    }</td>
                     ${isAdmin ? `<td style="font-size:0.82rem" data-label="Outlet">${esc(a.outlets?.name ?? '-')}</td>` : ''}
                     <td data-label="Aksi">
-                      <button class="as-edit" data-id="${a.id}">Edit</button>
-                      <button class="as-del" data-id="${a.id}">Hapus</button>
+                      <button class="as-edit" data-item="${a.itemId}"${a.id ? ` data-id="${a.id}"` : ''}>${a.belumDidata ? 'Data' : 'Edit'}</button>
+                      ${a.id ? `<button class="as-del" data-id="${a.id}">Hapus</button>` : ''}
                     </td>
                   </tr>`
                 )
                 .join('') ||
-                `<tr><td colspan="${isAdmin ? 9 : 7}">${
+                `<tr><td colspan="${isAdmin ? 10 : 8}">${
                   adaSaringan(state)
                     ? 'Tidak ada aset yang cocok dengan saringan ini.'
                     : 'Belum ada aset tercatat.'
@@ -266,7 +289,12 @@ async function render(container, { businessUnitId }, isAdmin) {
     };
     list.querySelectorAll('.as-thumb').forEach((img) => img.addEventListener('click', () => bukaFoto(img.dataset.path)));
     list.querySelectorAll('.as-photo').forEach((b) => b.addEventListener('click', () => bukaFoto(b.dataset.path)));
-    list.querySelectorAll('.as-edit').forEach((b) => b.addEventListener('click', () => openForm(rows.find((a) => a.id === b.dataset.id))));
+    // Dicari lewat `itemId`, bukan `id`: baris yang belum didata TIDAK punya
+    // baris stok, jadi `id`-nya null dan pencarian lewat `id` akan membuka
+    // form kosong untuk barang yang namanya sudah jelas.
+    list.querySelectorAll('.as-edit').forEach((b) =>
+      b.addEventListener('click', () => openForm(rows.find((a) => a.itemId === b.dataset.item)))
+    );
     list.querySelectorAll('.as-del').forEach((b) =>
       b.addEventListener('click', sekaliJalan(async () => {
         const a = rows.find((x) => x.id === b.dataset.id);
@@ -501,9 +529,40 @@ async function render(container, { businessUnitId }, isAdmin) {
       return toast('Isi keterangan kondisinya dulu.', 'warning');
     }
 
+    // ============ NAMA BERLAKU DI SELURUH OUTLET ============
+    //
+    // Nama & kategori milik ITEM, bukan baris outlet ini. Membetulkannya di
+    // sini membetulkannya di mana-mana — itu memang gunanya daftar se-BU, tapi
+    // orangnya harus tahu sebelum menekan Simpan, bukan sesudah.
+    if (existing?.itemId) {
+      const berubah =
+        (values.name ?? '').trim() !== (existing.name ?? '') ||
+        ((values.category ?? '').trim() || null) !== (existing.category ?? null);
+      if (berubah) {
+        const lanjut = await confirmDialog({
+          title: 'Nama ini dipakai semua outlet',
+          message:
+            `"${existing.name}" akan berubah jadi "${(values.name ?? '').trim()}" di SELURUH outlet BU ini, ` +
+            'beserta kodenya yang tetap sama. Jumlah di tiap outlet tidak berubah.',
+          confirmText: 'Ya, ubah di semua outlet'
+        });
+        if (!lanjut) return;
+        try {
+          await ubahItemAset({
+            itemId: existing.itemId,
+            name: values.name,
+            category: values.category,
+            size: values.size
+          });
+        } catch (error) {
+          return toast(error.message ?? 'Gagal mengubah nama item.', 'error');
+        }
+      }
+    }
+
     try {
       await saveAsset({
-        id: existing?.id,
+        itemId: existing?.itemId,
         businessUnitId,
         outletId: values.outlet_id,
         name: values.name,
@@ -550,6 +609,7 @@ async function render(container, { businessUnitId }, isAdmin) {
         subtitle: `${nama}${ringkasSaringan(state, ASSET_CONDITION)} · ${rows.length} jenis barang`,
         columns: [
           { header: 'Foto', width: 0.9 },
+          { header: 'Kode', width: 0.8 },
           { header: 'Nama Barang', width: 1.8 },
           { header: 'Kategori', width: 1.1 },
           { header: 'Jumlah', width: 0.7 },
@@ -560,6 +620,7 @@ async function render(container, { businessUnitId }, isAdmin) {
         ],
         rows: rows.map((a) => [
           fotoPdf.has(a.id) ? { image: fotoPdf.get(a.id), w: 46, h: 34 } : '-',
+          a.kode ?? '-',
           a.name,
           a.category ?? '-',
           formatNum(a.qty),
@@ -617,6 +678,7 @@ async function render(container, { businessUnitId }, isAdmin) {
         subtitle: `${nama}${ringkasSaringan(state, ASSET_CONDITION)} · ${rows.length} jenis barang · diunduh ${new Date().toLocaleString('id-ID')}`,
         columns: [
           { header: 'Foto', foto: true },
+          { header: 'Kode', width: 12 },
           { header: 'Nama Barang', width: 28 },
           { header: 'Kategori', width: 18 },
           { header: 'Jumlah', numeric: true, width: 10 },
@@ -627,6 +689,7 @@ async function render(container, { businessUnitId }, isAdmin) {
         ],
         rows: rows.map((a) => [
           a.photo_path ? fotoSel.get(a.id) ?? 'GAGAL' : null,
+          a.kode ?? '-',
           a.name,
           a.category ?? '-',
           // Angka mentah, bukan hasil format. Kolom Jumlah harus bisa
@@ -687,6 +750,13 @@ async function render(container, { businessUnitId }, isAdmin) {
         columns: [
           { header: 'Foto', foto: true },
           { header: 'ID (jangan diubah)', width: 38 },
+          // TANPA kolom Kode, dengan sengaja.
+          //
+          // Kode dibuat database dan tidak bisa diisi orang, jadi kolomnya di
+          // template cuma mengundang orang mengetiknya — lalu hasilnya
+          // diabaikan diam-diam. Lebih buruk lagi: `barisTemplateAset()`
+          // menyusun barisnya menurut POSISI, jadi satu kolom tambahan di sini
+          // menggeser seluruh isinya satu langkah ke kanan tanpa satu pun galat.
           { header: 'Nama Barang', width: 28 },
           { header: 'Kategori', width: 18 },
           { header: 'Jumlah', numeric: true, width: 10 },
@@ -849,7 +919,7 @@ async function render(container, { businessUnitId }, isAdmin) {
       const nilai = nilaiSimpan(b);
       try {
         await saveAsset({
-          id: nilai.id,
+          itemId: nilai.itemId,
           businessUnitId,
           outletId: nilai.outlet_id,
           name: nilai.name,

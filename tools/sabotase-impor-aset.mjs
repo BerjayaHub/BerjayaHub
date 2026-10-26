@@ -337,15 +337,25 @@ console.log('\nSABOTASE FILTER CATATAN:');
 sabotase(
   'kotak Cari catatan digambar tapi tidak menyaring apa pun',
   SVC,
-  "  if (catatan) query = query.ilike('notes', `%${catatan}%`);",
+  "    rows = rows.filter((r) => String(r.notes ?? '').toLowerCase().includes(k));",
   '',
   AUDIT
 );
 sabotase(
-  '`listAssets` membuang `catatan` sebelum sampai ke query',
+  '`listAssets` membuang `catatan` sebelum sampai ke penyaring',
   SVC,
-  'export async function listAssets({ businessUnitId, outletId, condition, category, q, catatan, limit = 500 }) {',
-  'export async function listAssets({ businessUnitId, outletId, condition, category, q, limit = 500 }) {',
+  'export async function listAssets({ businessUnitId, outletId, condition, category, q, catatan, limit = 5000 }) {',
+  'export async function listAssets({ businessUnitId, outletId, condition, category, q, limit = 5000 }) {',
+  AUDIT
+);
+// Baris yang BELUM DIDATA belum punya kondisi sama sekali. Membiarkannya lolos
+// saringan "Normal" membuatnya terhitung sebagai barang yang sudah diperiksa
+// dan ditemukan baik-baik saja — padahal belum ada yang melihatnya.
+sabotase(
+  'saringan Kondisi ikut memuat barang yang belum didata',
+  SVC,
+  '  if (condition) rows = rows.filter((r) => !r.belumDidata && r.condition === condition);',
+  '  if (condition) rows = rows.filter((r) => r.condition === condition);',
   AUDIT
 );
 sabotase(

@@ -9,6 +9,7 @@ import { UMUR_TAUTAN_KETUK, UMUR_TAUTAN_THUMBNAIL } from '../../core/tautan-foto
 // komunitas tidak bisa membaca gambar sama sekali — dan memakai dua pustaka
 // untuk satu berkas berarti dua anggapan tentang bentuknya.
 import { loadExcelJS } from '../../core/xlsx-foto.js';
+import { gabungItemDenganStok, urutKode } from './aturan-aset-bu.js';
 
 export const ASSET_CONDITION = { normal: 'Normal', rusak: 'Rusak', lainnya: 'Lain-lain' };
 export const ASSET_CONDITION_BADGE = { normal: 'badge-approved', rusak: 'badge-rejected', lainnya: 'badge-pending' };
@@ -20,33 +21,88 @@ export function conditionText(a) {
   return a.condition === 'lainnya' && a.condition_note ? `${base} — ${a.condition_note}` : base;
 }
 
-export async function listAssets({ businessUnitId, outletId, condition, category, q, catatan, limit = 500 }) {
-  let query = supabase
-    .from('assets')
-    // Tanpa embed nama pendaftar: layar aset tidak menggambarnya, dan embed
-    // yang gagal membatalkan SELURUH query (lihat 0086).
-    .select('*, outlets!outlet_id(name)')
+/**
+ * Daftar aset satu outlet — ATAU seluruh outlet BU.
+ *
+ * ============ DAFTARNYA SELALU SELURUH ITEM BU ============
+ *
+ * Sejak 0168, daftar item milik BU dan jumlahnya milik outlet. Saat satu
+ * outlet dipilih, fungsi ini mengembalikan SETIAP item BU — termasuk yang
+ * outlet itu belum pernah mendatanya, dengan `belumDidata: true` dan qty 0.
+ *
+ * Itulah yang diminta: nama & kode sama di semua outlet, yang berbeda cuma
+ * jumlahnya. Dan `belumDidata` ada supaya "belum ada yang melihat" tidak
+ * tertukar dengan "sudah dicek, memang tidak ada" — keduanya menampilkan 0.
+ */
+export async function listAssets({ businessUnitId, outletId, condition, category, q, catatan, limit = 5000 }) {
+  // Master item: selalu seluruhnya, tidak disaring server-side selain kategori.
+  let qItem = supabase
+    .from('asset_items')
+    .select('id, kode, name, category, size')
     .eq('business_unit_id', businessUnitId)
-    .order('name')
     .limit(limit);
-  if (outletId) query = query.eq('outlet_id', outletId);
-  if (condition) query = query.eq('condition', condition);
-  if (category) query = query.eq('category', category);
-  if (q) query = query.ilike('name', `%${q}%`);
-  // CATATAN dicari TERPISAH dari nama, dan keduanya menyempit bersama.
-  //
-  // Menggabungkannya jadi satu kotak (`or(name.ilike,notes.ilike)`) terdengar
-  // lebih ramah, tapi ia menjawab pertanyaan yang berbeda: "kursi" akan
-  // memunculkan barang yang CATATANNYA menyebut kursi. Dua kotak menjawab dua
-  // pertanyaan, dan bisa dipakai bersamaan — "kursi" yang catatannya "pecah".
-  //
-  // `notes` boleh NULL, dan `ilike` pada NULL tidak pernah cocok. Itu memang
-  // yang benar: barang tanpa catatan bukan jawaban untuk pencarian catatan.
-  if (catatan) query = query.ilike('notes', `%${catatan}%`);
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  if (category) qItem = qItem.eq('category', category);
+  if (q) qItem = qItem.ilike('name', `%${q}%`);
+  const { data: items, error: eItem } = await qItem;
+  if (eItem) throw eItem;
+
+  const ids = (items ?? []).map((i) => i.id);
+  if (!ids.length) return [];
+
+  let qStok = supabase
+    .from('asset_stock')
+    .select('id, asset_item_id, outlet_id, qty, condition, condition_note, size, notes, photo_path, updated_at, outlets!outlet_id(name)')
+    .in('asset_item_id', ids);
+  if (outletId) qStok = qStok.eq('outlet_id', outletId);
+  const { data: stok, error: eStok } = await qStok;
+  if (eStok) throw eStok;
+
+  let rows;
+  if (outletId) {
+    rows = gabungItemDenganStok({ items, stok }).map((r) => ({ ...r, id: r.stokId, outlet_id: outletId }));
+  } else {
+    // ============ TANPA OUTLET: HANYA BARIS YANG BENAR-BENAR ADA ============
+    //
+    // Menampilkan "seluruh item × seluruh outlet" di sini akan menghasilkan
+    // ribuan baris yang hampir semuanya nol, dan ekspor PDF-nya jadi ratusan
+    // halaman kosong. Keadaan "belum didata" cuma berarti saat ada satu outlet
+    // yang sedang dilihat.
+    const peta = new Map((items ?? []).map((i) => [i.id, i]));
+    rows = (stok ?? []).map((s) => {
+      const i = peta.get(s.asset_item_id) ?? {};
+      return {
+        itemId: s.asset_item_id,
+        stokId: s.id,
+        id: s.id,
+        kode: i.kode ?? '',
+        name: i.name ?? '',
+        category: i.category ?? null,
+        size: s.size ?? i.size ?? null,
+        qty: Number(s.qty) || 0,
+        condition: s.condition,
+        condition_note: s.condition_note,
+        notes: s.notes,
+        photo_path: s.photo_path,
+        outlet_id: s.outlet_id,
+        outlets: s.outlets,
+        belumDidata: false,
+        updated_at: s.updated_at
+      };
+    });
+  }
+
+  // Saringan sisanya dikerjakan di sini, BUKAN di server — karena baris
+  // "belum didata" tidak punya baris di server untuk disaring.
+  if (condition) rows = rows.filter((r) => !r.belumDidata && r.condition === condition);
+  if (catatan) {
+    const k = String(catatan).toLowerCase();
+    rows = rows.filter((r) => String(r.notes ?? '').toLowerCase().includes(k));
+  }
+
+  return rows.sort((a, b) => urutKode(a.kode, b.kode) || String(a.name).localeCompare(String(b.name), 'id'));
 }
+
+
 
 /**
  * Daftar kategori yang SUDAH dipakai di BU ini.
@@ -119,7 +175,7 @@ export async function bacaBerkasImporAset(file) {
 export async function listKategoriAset(businessUnitId) {
   const rows = await ambilSemua((dari, sampai) =>
     supabase
-      .from('assets')
+      .from('asset_items')
       .select('category', { count: 'exact' })
       .eq('business_unit_id', businessUnitId)
       .not('category', 'is', null)
@@ -178,14 +234,12 @@ export async function pindahFotoAset(daftar) {
       const { error } = await supabase.storage.from('asset-photos').move(dariPath, tujuan);
       if (error) throw error;
 
-      // `.select()`: penolakan RLS pada UPDATE membalas sukses dengan 0 baris.
-      const { data, error: upErr } = await supabase
-        .from('assets')
-        .update({ photo_path: tujuan })
-        .eq('id', assetId)
-        .select('id');
+      // Lewat RPC, bukan `update` biasa: penolakan RLS pada UPDATE membalas
+      // sukses dengan 0 baris, jadi foto yang sudah telanjur dipindahkan akan
+      // terlihat tercatat padahal barisnya masih menunjuk path lama yang
+      // sekarang kosong. RPC-nya melempar kalau wewenangnya kurang.
+      const { error: upErr } = await supabase.rpc('set_foto_stok_aset', { p_stok: assetId, p_path: tujuan });
       if (upErr) throw upErr;
-      if (!data?.length) throw new Error('path foto tidak tercatat');
 
       berhasil++;
     } catch (error) {
@@ -209,43 +263,76 @@ async function currentUserId() {
  * begitu satu aset selalu punya paling banyak satu foto dan tidak ada file
  * yatim saat penyimpanan gagal.
  */
-export async function saveAsset({ id, businessUnitId, outletId, name, category, qty, size, condition, conditionNote, notes, file }) {
+/**
+ * Ubah nama / kategori / ukuran acuan sebuah ITEM — berlaku di SELURUH outlet.
+ *
+ * ============ KENAPA INI HARUS ADA ============
+ *
+ * Sejak 0168, nama milik item dan jumlah milik outlet. `catat_stok_aset()`
+ * tidak menyentuh nama sama sekali.
+ *
+ * Jadi tanpa fungsi ini, orang yang membetulkan salah ketik di form Edit akan
+ * melihat "Aset diperbarui", lalu menemukan namanya tidak berubah — dan tidak
+ * ada galat di mana pun yang menjelaskan kenapa. Itu bentuk kegagalan yang
+ * paling membingungkan: aplikasi mengaku berhasil mengerjakan hal yang tidak
+ * pernah ia kerjakan.
+ */
+export async function ubahItemAset({ itemId, name, category, size }) {
+  const uid = await currentUserId();
+  const { data, error } = await supabase
+    .from('asset_items')
+    .update({
+      name: String(name ?? '').trim(),
+      category: String(category ?? '').trim() || null,
+      size: String(size ?? '').trim() || null,
+      updated_by: uid,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', itemId)
+    .select('id');
+  if (error) throw error;
+  // `.select()`: penolakan RLS pada UPDATE membalas sukses dengan 0 baris.
+  if (!data?.length) throw new Error('Nama item tidak tersimpan — item ini di luar BU yang bisa kamu kelola.');
+}
+
+export async function saveAsset({ itemId, businessUnitId, outletId, name, category, qty, size, condition, conditionNote, notes, file }) {
   const uid = await currentUserId();
   if (!uid) throw new Error('Sesi tidak ditemukan, silakan login ulang.');
 
-  const payload = {
-    business_unit_id: businessUnitId,
-    outlet_id: outletId,
-    name: name.trim(),
-    category: category?.trim() || null,
-    qty: Number(qty) || 0,
-    size: size?.trim() || null,
-    condition,
-    // Catatan hanya relevan untuk "Lain-lain" — dibersihkan supaya tidak
-    // menyisakan keterangan lama yang menyesatkan saat kondisi diubah.
-    condition_note: condition === 'lainnya' ? conditionNote?.trim() || null : null,
-    notes: notes?.trim() || null,
-    updated_by: uid,
-    updated_at: new Date().toISOString()
-  };
-
-  let assetId = id;
-  if (id) {
-    // `.select()`: penolakan RLS pada UPDATE membalas sukses dengan 0 baris.
-    // Tanpa ini, mengubah aset outlet lain terlihat berhasil dan datanya tidak
-    // berubah sedikit pun.
-    const { data, error } = await supabase.from('assets').update(payload).eq('id', id).select('id');
+  // ============ ITEMNYA DULU, BARU JUMLAHNYA ============
+  //
+  // Sejak 0168, nama & kategori milik ITEM (se-BU) dan jumlah milik OUTLET.
+  // Menyimpan nama ke baris stok akan membuat outlet A dan outlet B punya nama
+  // berbeda untuk item yang sama — persis yang perubahan ini hapus.
+  //
+  // Kodenya dibuat database di dalam RPC, bukan di sini. Dan RPC itu
+  // mengembalikan item yang SUDAH ADA kalau nama+kategorinya sama persis, jadi
+  // dua staff yang mendata barang yang sama di hari yang sama tidak
+  // menghasilkan dua kode untuk satu barang.
+  let item = itemId;
+  if (!item) {
+    const { data, error } = await supabase.rpc('tambah_item_aset', {
+      p_bu: businessUnitId,
+      p_nama: name,
+      p_kategori: category ?? null,
+      p_size: size ?? null
+    });
     if (error) throw error;
-    if (!data?.length) throw new Error('Tidak tersimpan — aset ini di luar outlet yang bisa kamu kelola.');
-  } else {
-    const { data, error } = await supabase
-      .from('assets')
-      .insert({ ...payload, created_by: uid })
-      .select('id')
-      .single();
-    if (error) throw error;
-    assetId = data.id;
+    item = data?.id;
+    if (!item) throw new Error('Item asetnya tidak terbentuk — coba lagi.');
   }
+
+  const { data: stokId, error: eStok } = await supabase.rpc('catat_stok_aset', {
+    p_item: item,
+    p_outlet: outletId,
+    p_qty: Number(qty) || 0,
+    p_condition: condition,
+    p_condition_note: conditionNote ?? null,
+    p_size: size ?? null,
+    p_notes: notes ?? null
+  });
+  if (eStok) throw eStok;
+  const assetId = stokId;
 
   if (file) {
     // Dikompres SEBELUM path dihitung, karena ekstensinya ikut berubah
@@ -260,13 +347,8 @@ export async function saveAsset({ id, businessUnitId, outletId, name, category, 
     // Fotonya sudah terlanjur terunggah; kalau penyimpanan path-nya ditolak,
     // aset akan punya foto yang tidak pernah bisa ditemukan lagi. Lebih baik
     // gagal dengan lantang di sini.
-    const { data: updRow, error: updErr } = await supabase
-      .from('assets')
-      .update({ photo_path: path })
-      .eq('id', assetId)
-      .select('id');
+    const { error: updErr } = await supabase.rpc('set_foto_stok_aset', { p_stok: assetId, p_path: path });
     if (updErr) throw updErr;
-    if (!updRow?.length) throw new Error('Foto terunggah tapi tidak tercatat — aset ini di luar outlet yang bisa kamu kelola.');
     await hapusFotoSisa(`${outletId}/${assetId}`, path);
   }
   return assetId;
@@ -305,11 +387,18 @@ async function hapusFotoSisa(basePath, pathTerpakai) {
  * buruk daripada pesan penolakan yang jujur.
  */
 export async function deleteAsset(id) {
+  // Yang dihapus BARIS STOK, bukan itemnya.
+  //
+  // Menghapus item berarti menghapusnya dari SELURUH outlet — tindakan yang
+  // jauh lebih besar daripada yang diminta tombol "Hapus" di daftar satu
+  // outlet. Sesudah ini item itu kembali tampil sebagai "belum didata" di
+  // outlet tersebut, dan jumlahnya di outlet lain tidak tersentuh.
+  //
   // Path fotonya dibaca DULU: setelah barisnya hilang, tidak ada lagi cara
   // menemukan file itu dan ia jadi sampah permanen di storage.
-  const { data: aset } = await supabase.from('assets').select('photo_path').eq('id', id).maybeSingle();
+  const { data: aset } = await supabase.from('asset_stock').select('photo_path').eq('id', id).maybeSingle();
 
-  const { data, error } = await supabase.from('assets').delete().eq('id', id).select('id');
+  const { data, error } = await supabase.from('asset_stock').delete().eq('id', id).select('id');
   if (error) throw error;
   if (!data?.length) {
     throw new Error('Tidak bisa dihapus — hanya admin outlet yang boleh menghapus aset.');
