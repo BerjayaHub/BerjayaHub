@@ -1,5 +1,5 @@
 /**
- * ATURAN IMPOR MASTER SPAREPART dari berkas "Product List" ESB.
+ * ATURAN IMPOR MASTER SPAREPART dari berkas "Product List" Turboly.
  *
  * Murni: tidak menyentuh DOM, tidak menyentuh Supabase. Ia menerima isi sheet
  * sebagai array-of-array dan menghasilkan RENCANA — apa yang akan ditambah,
@@ -38,9 +38,23 @@ export const KOLOM_PRODUCT_LIST = {
   aktif: 'Active'
 };
 
-/** Kolom harga yang boleh dipilih. Default: Store Retail — harga jual outlet. */
-export const KOLOM_HARGA = ['Store Retail', 'Retail (Inc Tax)', 'Store Supply', 'Company Supply', 'Company Wholesale'];
-export const KOLOM_HARGA_DEFAULT = 'Store Retail';
+/**
+ * KEDUA harga diambil sekaligus — tidak ada yang perlu dipilih.
+ *
+ * ============ KENAPA BUKAN DROPDOWN ============
+ *
+ * Versi pertama menyuruh orang memilih satu kolom harga. Itu keliru dari
+ * dasarnya: berkasnya memuat harga beli DAN harga jual, dan Berjaya Hub
+ * memerlukan keduanya. Memilih berarti membuang setengah datanya setiap kali
+ * impor — dan yang terbuang tidak terlihat hilang, karena kolomnya tetap
+ * terisi angka yang masuk akal.
+ *
+ * Salah pilih sekali pun menimpa SELURUH harga jual dengan harga beli: 1.926
+ * baris, tanpa galat, dan tidak ada apa pun di dalam datanya yang bisa
+ * dipakai membedakan mana yang benar sesudahnya.
+ */
+export const KOLOM_HARGA_BELI = 'Store Supply';
+export const KOLOM_HARGA_JUAL = 'Store Retail';
 
 const teks = (v) => (v === null || v === undefined ? '' : String(v));
 
@@ -80,7 +94,7 @@ const normalJudul = (v) => teks(v).replace(/\s+/g, ' ').trim().toLowerCase();
  * memang murah, bukan seperti kesalahan baca. Yang ragu dilaporkan supaya
  * orangnya memutuskan, bukan diam-diam dipilihkan.
  *
- * Yang TIDAK ragu: angka sungguhan dari xlsx (ESB mengirim 455000.0), dan
+ * Yang TIDAK ragu: angka sungguhan dari xlsx (Turboly mengirim 455000.0), dan
  * teks yang bentuknya cuma bisa dibaca satu cara.
  */
 export function angkaHarga(v) {
@@ -115,7 +129,7 @@ const PETUNJUK_JASA = ['jasa', 'service', 'servis', 'labour', 'labor', 'ongkos']
  *
  * ============ INI TEBAKAN, DAN HARUS DIPERLAKUKAN SEBAGAI TEBAKAN ============
  *
- * Berkas ESB tidak punya kolom "ini jasa atau barang". Satu-satunya petunjuk
+ * Berkas Turboly tidak punya kolom "ini jasa atau barang". Satu-satunya petunjuk
  * adalah kata di nama/kategori/tags — dan itu salah ke DUA arah:
  *
  *   - "SERVICE KIT", "POWER STEERING SEAL KIT" adalah BARANG yang namanya
@@ -142,7 +156,7 @@ export function jenisBaris({ kategori, tags, nama } = {}) {
  * Cari baris header, lalu petakan kolom LEWAT JUDULNYA — bukan lewat nomor.
  *
  * Indeks tetap (kolom B, kolom W) akan membaca kolom yang salah tanpa satu pun
- * galat begitu ESB menambah satu kolom di tengah: nama masuk ke kolom SKU, dan
+ * galat begitu Turboly menambah satu kolom di tengah: nama masuk ke kolom SKU, dan
  * seluruh impornya tetap terlihat berhasil.
  *
  * @returns {{barisHeader: number, kolom: Record<string, number>, judul: string[]}|null}
@@ -164,7 +178,7 @@ export function cariHeaderProductList(aoa) {
       const i = sel.indexOf(normalJudul(judul));
       if (i >= 0) kolom[kunci] = i;
     }
-    for (const judul of KOLOM_HARGA) {
+    for (const judul of [KOLOM_HARGA_BELI, KOLOM_HARGA_JUAL]) {
       const i = sel.indexOf(normalJudul(judul));
       if (i >= 0) kolom[judul] = i;
     }
@@ -178,31 +192,32 @@ export function cariHeaderProductList(aoa) {
  *
  * @param {object} o
  * @param {Array[]} o.aoa isi sheet
- * @param {Array<{sku:string,name:string,harga_dasar:any,jenis:string}>} o.sparepartSekarang
+ * @param {Array<{sku:string,name:string,harga_beli:any,harga_jual:any,jenis:string}>} o.sparepartSekarang
  *   master yang sudah ada di BU ini — untuk memisahkan BARU dari DITIMPA
- * @param {string} [o.kolomHarga] judul kolom harga yang dipakai
  * @returns {{
- *   ok: boolean, sebab?: string, barisHeader?: number, kolomHarga?: string,
+ *   ok: boolean, sebab?: string, barisHeader?: number,
  *   kirim?: Array, baru?: Array, ditimpa?: Array, ditolak?: Array,
  *   kembar?: Array, hargaRagu?: Array, hargaKosong?: Array, nonaktif?: Array,
- *   tidakDiBerkas?: Array
+ *   tidakDiBerkas?: Array, dugaanJasa?: Array, jenisBeda?: Array
  * }}
  */
-export function susunRencanaImpor({ aoa, sparepartSekarang = [], kolomHarga = KOLOM_HARGA_DEFAULT } = {}) {
+export function susunRencanaImpor({ aoa, sparepartSekarang = [] } = {}) {
   const h = cariHeaderProductList(aoa);
   if (!h) {
     return {
       ok: false,
-      sebab: `Kolom "${KOLOM_PRODUCT_LIST.sku}" dan "${KOLOM_PRODUCT_LIST.nama}" tidak ditemukan — berkasnya bukan ekspor Product List dari ESB?`
+      sebab: `Kolom "${KOLOM_PRODUCT_LIST.sku}" dan "${KOLOM_PRODUCT_LIST.nama}" tidak ditemukan — berkasnya bukan ekspor Product List dari Turboly?`
     };
   }
-  const iHarga = h.kolom[kolomHarga];
-  if (iHarga === undefined) {
+  const iBeli = h.kolom[KOLOM_HARGA_BELI];
+  const iJual = h.kolom[KOLOM_HARGA_JUAL];
+
+  // Satu saja boleh hilang — tapi tidak keduanya, karena berkas tanpa harga
+  // sama sekali hampir pasti bukan berkas yang dimaksud orangnya.
+  if (iBeli === undefined && iJual === undefined) {
     return {
       ok: false,
-      sebab: `Kolom harga "${kolomHarga}" tidak ada di berkas ini. Yang tersedia: ${KOLOM_HARGA.filter(
-        (k) => h.kolom[k] !== undefined
-      ).join(', ') || '(tidak satu pun)'}.`
+      sebab: `Kolom "${KOLOM_HARGA_BELI}" maupun "${KOLOM_HARGA_JUAL}" tidak ada di berkas ini — berkasnya bukan Product List dari Turboly?`
     };
   }
 
@@ -244,8 +259,8 @@ export function susunRencanaImpor({ aoa, sparepartSekarang = [], kolomHarga = KO
       continue;
     }
 
-    // Baris NONAKTIF di ESB tidak ikut. Memasukkannya berarti menawarkan
-    // barang yang ESB sendiri sudah tidak mau menerima — dan kegagalannya
+    // Baris NONAKTIF di Turboly tidak ikut. Memasukkannya berarti menawarkan
+    // barang yang Turboly sendiri sudah tidak mau menerima — dan kegagalannya
     // baru terbaca berminggu kemudian, saat nota diekspor.
     if (h.kolom.aktif !== undefined) {
       const a = teks(sel(row, h.kolom.aktif)).trim().toLowerCase();
@@ -258,17 +273,28 @@ export function susunRencanaImpor({ aoa, sparepartSekarang = [], kolomHarga = KO
     const kategori = teks(sel(row, h.kolom.kategori)).trim();
     const merek = teks(sel(row, h.kolom.merek)).trim();
     const tags = teks(sel(row, h.kolom.tags)).trim();
-    const { nilai, ragu } = angkaHarga(sel(row, iHarga));
-
-    if (ragu) hargaRagu.push({ baris: noBaris, sku, nama, isi: teks(sel(row, iHarga)) });
-    // Harga NOL dikirim sebagai kosong, bukan sebagai nol.
+    // Harga NOL dikirim sebagai KOSONG, bukan sebagai nol.
     //
-    // "Store Retail 0" di ekspor ESB berarti harganya belum ditetapkan, bukan
-    // barangnya gratis. Mengirimkan 0 akan menimpa harga yang sudah benar di
-    // Berjaya Hub dengan nol — dan nol tidak terlihat seperti kesalahan, ia
-    // terlihat seperti barang yang memang belum dijual.
-    const harga = nilai === null || nilai === 0 ? null : nilai;
-    if (harga === null && !ragu) hargaKosong.push({ baris: noBaris, sku, nama });
+    // "Store Retail 0" di ekspor Turboly berarti harganya belum ditetapkan,
+    // bukan barangnya gratis. Mengirimkan 0 akan menimpa harga yang sudah
+    // benar di Berjaya Hub dengan nol — dan nol tidak terlihat seperti
+    // kesalahan, ia terlihat seperti barang yang memang belum dijual.
+    const bacaHarga = (i, label) => {
+      if (i === undefined) return null;
+      const { nilai, ragu } = angkaHarga(sel(row, i));
+      if (ragu) {
+        hargaRagu.push({ baris: noBaris, sku, nama, kolom: label, isi: teks(sel(row, i)) });
+        return null;
+      }
+      return nilai === null || nilai === 0 ? null : nilai;
+    };
+    const hargaBeli = bacaHarga(iBeli, KOLOM_HARGA_BELI);
+    const hargaJual = bacaHarga(iJual, KOLOM_HARGA_JUAL);
+
+    // Dilaporkan hanya kalau KEDUANYA kosong. Barang yang punya harga jual
+    // tapi belum punya harga beli adalah keadaan biasa, dan melaporkannya
+    // sebagai masalah akan mengubur baris yang benar-benar tidak berharga.
+    if (hargaBeli === null && hargaJual === null) hargaKosong.push({ baris: noBaris, sku, nama });
 
     const siap = {
       baris: noBaris,
@@ -277,7 +303,8 @@ export function susunRencanaImpor({ aoa, sparepartSekarang = [], kolomHarga = KO
       jenis: jenisBaris({ kategori, tags, nama }),
       kategori: kategori || null,
       merek: merek || null,
-      harga
+      harga_beli: hargaBeli,
+      harga_jual: hargaJual
     };
 
     // SKU kembar DI DALAM berkas. Mengirim keduanya membuat yang pertama
@@ -299,7 +326,8 @@ export function susunRencanaImpor({ aoa, sparepartSekarang = [], kolomHarga = KO
         ...b,
         namaLama: teks(s?.name),
         jenisLama: teks(s?.jenis) || 'sparepart',
-        hargaLama: s?.harga_dasar === null || s?.harga_dasar === undefined ? null : Number(s.harga_dasar),
+        hargaBeliLama: s?.harga_beli === null || s?.harga_beli === undefined ? null : Number(s.harga_beli),
+        hargaJualLama: s?.harga_jual === null || s?.harga_jual === undefined ? null : Number(s.harga_jual),
         namaBerubah: teks(s?.name) !== b.name
       };
     });
@@ -320,7 +348,7 @@ export function susunRencanaImpor({ aoa, sparepartSekarang = [], kolomHarga = KO
 
   // Yang ADA di Berjaya Hub tapi TIDAK di berkas. Dilaporkan, TIDAK disentuh.
   //
-  // Berkas ESB tidak memuat satu pun jasa, jadi "bersihkan yang tidak ada di
+  // Berkas Turboly tidak memuat satu pun jasa, jadi "bersihkan yang tidak ada di
   // berkas" akan menghapus seluruh daftar jasa yang diketik admin sendiri.
   // Daftar ini ada supaya orangnya TAHU, bukan supaya sistemnya bertindak.
   const diBerkas = new Set(kirim.map((b) => b.sku));
@@ -331,7 +359,8 @@ export function susunRencanaImpor({ aoa, sparepartSekarang = [], kolomHarga = KO
   return {
     ok: true,
     barisHeader: h.barisHeader,
-    kolomHarga,
+    adaKolomBeli: iBeli !== undefined,
+    adaKolomJual: iJual !== undefined,
     kirim,
     baru,
     ditimpa,
@@ -363,7 +392,7 @@ export function peringatanRencana(r) {
   if (n(r.hargaRagu)) {
     out.push({
       tingkat: 'bahaya',
-      teks: `${n(r.hargaRagu)} baris harganya TIDAK BISA DIPASTIKAN (misalnya ada koma atau huruf). Baris itu akan masuk TANPA harga — harga lamanya tidak diubah. Perbaiki di berkas kalau harganya memang mau diperbarui.`
+      teks: `${n(r.hargaRagu)} sel harga TIDAK BISA DIPASTIKAN (misalnya ada koma atau huruf). Harga itu akan masuk kosong — harga lamanya tidak diubah. Perbaiki di berkas kalau memang mau diperbarui.`
     });
   }
   if (n(r.kembar)) {
@@ -385,7 +414,7 @@ export function peringatanRencana(r) {
   if (n(r.hargaKosong)) {
     out.push({
       tingkat: 'awas',
-      teks: `${n(r.hargaKosong)} baris kolom "${r.kolomHarga}"-nya kosong atau nol. Baris itu masuk tanpa harga; harga lamanya di Berjaya Hub TIDAK dihapus.`
+      teks: `${n(r.hargaKosong)} baris tidak punya harga beli MAUPUN harga jual (kosong atau nol). Baris itu tetap masuk; harga lamanya di Berjaya Hub TIDAK dihapus.`
     });
   }
   if (n(r.jenisBeda)) {
@@ -410,8 +439,18 @@ export function peringatanRencana(r) {
     });
   }
   if (n(r.nonaktif)) {
-    out.push({ tingkat: 'kabar', teks: `${n(r.nonaktif)} baris nonaktif di ESB dilewati.` });
+    out.push({ tingkat: 'kabar', teks: `${n(r.nonaktif)} baris nonaktif di Turboly dilewati.` });
   }
-  out.push({ tingkat: 'kabar', teks: `${n(r.baru)} baru, ${n(r.ditimpa)} ditimpa — ${n(r.kirim)} baris akan dikirim.` });
+  if (!r.adaKolomBeli || !r.adaKolomJual) {
+    const hilang = !r.adaKolomBeli ? KOLOM_HARGA_BELI : KOLOM_HARGA_JUAL;
+    out.push({
+      tingkat: 'awas',
+      teks: `Kolom "${hilang}" tidak ada di berkas ini, jadi harga itu tidak ikut diperbarui. Yang sudah tersimpan di Berjaya Hub dibiarkan.`
+    });
+  }
+  out.push({
+    tingkat: 'kabar',
+    teks: `${n(r.baru)} baru, ${n(r.ditimpa)} ditimpa — ${n(r.kirim)} baris akan dikirim (harga beli & harga jual sekaligus).`
+  });
   return out;
 }

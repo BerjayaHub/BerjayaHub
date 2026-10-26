@@ -1,16 +1,18 @@
-import { toast } from '../../core/ui.js';
+import { toast, shareDialog, escapeHtml } from '../../core/ui.js';
 import { formatRupiah, attachRupiahInput, bacaRupiah } from '../../core/format.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { supabase } from '../../config/supabase-client.js';
 import { omzetHari, simpanOmzetHari, omzetRentang, todayWIB } from './sparepart.service.js';
+import { pesanPenjualanHarian, pesanRekapPeriode } from './pesan-penjualan-bengkel.js';
 
 /**
  * PENJUALAN BENGKEL — Staff App.
  *
- * Bengkel tidak melaporkan barang. Staff melaporkan DUA nominal untuk hari
- * ini: berapa rupiah Sparepart yang terjual, dan berapa rupiah Jasa. Tidak ada
- * stok, tidak ada baris barang, tidak ada resep.
+ * Bengkel tidak melaporkan barang. Staff melaporkan DUA nominal untuk satu
+ * hari: berapa rupiah Sparepart yang terjual, dan berapa rupiah Jasa. Tidak
+ * ada stok, tidak ada baris barang, tidak ada resep — penjualan dan stok
+ * ditangani Turboly; yang dicatat di sini cuma pemasukannya.
  *
  * ============ KENAPA MENIMPA, BUKAN MENAMBAH ============
  *
@@ -42,23 +44,30 @@ export async function renderPenjualanBengkelPage(container, { businessUnitId, ou
   const {
     data: { user }
   } = await supabase.auth.getUser();
+  const { data: profil } = await supabase.from('user_profiles').select('full_name').eq('id', user?.id ?? '').maybeSingle();
+  const namaSaya = profil?.full_name ?? '';
 
+  const hariIni = todayWIB();
   const state = {
     outletId: myOutlets.some((o) => o.id === outletId) ? outletId : myOutlets[0].id,
-    tanggal: todayWIB(),
+    tanggal: hariIni,
+    // Riwayat punya rentangnya SENDIRI, lepas dari tanggal yang sedang diisi.
+    // Menyatukannya berarti memeriksa bulan lalu ikut memindahkan tanggal yang
+    // sedang diketik — dan isian yang sudah diketik hilang tanpa peringatan.
+    dari: hariIni.slice(0, 8) + '01',
+    sampai: hariIni,
     sudahAda: null,
     riwayat: []
   };
 
-  await muat();
+  const outletNama = (id) => myOutlets.find((o) => o.id === id)?.name ?? '';
 
   async function muat() {
     container.innerHTML = loadingHtml('Memuat…');
     try {
-      const sejak = new Date(Date.now() + 7 * 3600 * 1000 - 13 * 86400000).toISOString().slice(0, 10);
       const [ada, riwayat] = await Promise.all([
         omzetHari(state.outletId, state.tanggal),
-        omzetRentang(businessUnitId, sejak, state.tanggal)
+        omzetRentang(businessUnitId, state.dari, state.sampai)
       ]);
       state.sudahAda = ada;
       state.riwayat = riwayat.filter((r) => r.outlet_id === state.outletId);
@@ -69,9 +78,25 @@ export async function renderPenjualanBengkelPage(container, { businessUnitId, ou
     gambar();
   }
 
+  function bagikanHari(b) {
+    const pesan = pesanPenjualanHarian({
+      outlet: outletNama(b.outlet_id ?? state.outletId),
+      tanggal: b.sale_date,
+      sparepart: b.omzet_sparepart,
+      jasa: b.omzet_jasa,
+      catatan: b.catatan,
+      oleh: namaSaya
+    });
+    return shareDialog({
+      title: `Bagikan laporan ${b.sale_date}`,
+      helper: 'Teks ini bisa langsung dikirim ke grup WhatsApp.',
+      defaultMessage: pesan
+    });
+  }
+
   function gambar() {
     const ada = state.sudahAda;
-    const outletNama = myOutlets.find((o) => o.id === state.outletId)?.name ?? '';
+    const nilaiRp = (v) => (v === null || v === undefined ? '' : formatRupiah(v).replace(/^Rp\s*/, ''));
 
     container.innerHTML = `
       <h1>Penjualan Bengkel</h1>
@@ -80,19 +105,19 @@ export async function renderPenjualanBengkelPage(container, { businessUnitId, ou
         <div class="field">
           <label for="pb-outlet">Outlet</label>
           <select id="pb-outlet">
-            ${myOutlets.map((o) => `<option value="${o.id}" ${o.id === state.outletId ? 'selected' : ''}>${esc(o.name)}</option>`).join('')}
+            ${myOutlets.map((o) => `<option value="${o.id}" ${o.id === state.outletId ? 'selected' : ''}>${escapeHtml(o.name)}</option>`).join('')}
           </select>
         </div>
 
         <div class="field">
           <label for="pb-tanggal">Tanggal</label>
-          <input id="pb-tanggal" type="date" value="${state.tanggal}" max="${todayWIB()}">
+          <input id="pb-tanggal" type="date" value="${state.tanggal}" max="${hariIni}">
         </div>
 
         ${
           ada
             ? `<p class="badge badge-pending" style="display:block;padding:8px;line-height:1.45">
-                 Hari ini SUDAH dilaporkan: Sparepart ${formatRupiah(ada.omzet_sparepart)},
+                 Tanggal ini SUDAH dilaporkan: Sparepart ${formatRupiah(ada.omzet_sparepart)},
                  Jasa ${formatRupiah(ada.omzet_jasa)}.<br>
                  Menekan Simpan akan <strong>mengganti</strong> angka di atas, bukan menambahkannya.
                </p>`
@@ -101,31 +126,40 @@ export async function renderPenjualanBengkelPage(container, { businessUnitId, ou
 
         <div class="field">
           <label for="pb-sparepart">Omzet Sparepart (Rp)</label>
-          <input id="pb-sparepart" type="text" inputmode="numeric" placeholder="0" value="${ada ? formatRupiah(ada.omzet_sparepart).replace(/^Rp\s*/, '') : ''}">
+          <input id="pb-sparepart" type="text" inputmode="numeric" placeholder="0" value="${nilaiRp(ada?.omzet_sparepart)}">
         </div>
 
         <div class="field">
           <label for="pb-jasa">Omzet Jasa (Rp)</label>
-          <input id="pb-jasa" type="text" inputmode="numeric" placeholder="0" value="${ada ? formatRupiah(ada.omzet_jasa).replace(/^Rp\s*/, '') : ''}">
+          <input id="pb-jasa" type="text" inputmode="numeric" placeholder="0" value="${nilaiRp(ada?.omzet_jasa)}">
         </div>
 
         <div class="field">
           <label for="pb-catatan">Catatan (opsional)</label>
-          <input id="pb-catatan" type="text" value="${esc(ada?.catatan ?? '')}" placeholder="mis. ada 2 unit servis besar">
+          <input id="pb-catatan" type="text" value="${escapeHtml(ada?.catatan ?? '')}" placeholder="mis. ada 2 unit servis besar">
         </div>
 
         <p style="margin:4px 0 10px;font-size:0.95rem">
-          Total hari ini: <strong id="pb-total">${formatRupiah(Number(ada?.omzet_sparepart ?? 0) + Number(ada?.omzet_jasa ?? 0))}</strong>
+          Total: <strong id="pb-total">${formatRupiah(Number(ada?.omzet_sparepart ?? 0) + Number(ada?.omzet_jasa ?? 0))}</strong>
         </p>
 
-        <button id="pb-simpan" class="btn-primary">${ada ? 'Ganti laporan hari ini' : 'Simpan'}</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button id="pb-simpan" class="btn-primary">${ada ? 'Ganti laporan tanggal ini' : 'Simpan'}</button>
+          ${ada ? '<button id="pb-bagikan-ini">Bagikan ke WhatsApp</button>' : ''}
+        </div>
       </div>
 
-      <h2 style="margin-top:22px">14 hari terakhir — ${esc(outletNama)}</h2>
+      <h2 style="margin-top:22px">Riwayat — ${escapeHtml(outletNama(state.outletId))}</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+        <div class="field" style="margin:0"><label for="pb-dari">Dari</label><input id="pb-dari" type="date" value="${state.dari}"></div>
+        <div class="field" style="margin:0"><label for="pb-sampai">Sampai</label><input id="pb-sampai" type="date" value="${state.sampai}"></div>
+        <button id="pb-bagikan-rekap">Bagikan rekap</button>
+      </div>
+
       ${
         state.riwayat.length
           ? `<table class="data-table">
-               <thead><tr><th>Tanggal</th><th>Sparepart</th><th>Jasa</th><th>Total</th><th>Catatan</th></tr></thead>
+               <thead><tr><th>Tanggal</th><th>Sparepart</th><th>Jasa</th><th>Total</th><th>Catatan</th><th>Bagikan</th></tr></thead>
                <tbody>
                  ${state.riwayat
                    .map(
@@ -134,13 +168,14 @@ export async function renderPenjualanBengkelPage(container, { businessUnitId, ou
                        <td>${formatRupiah(r.omzet_sparepart)}</td>
                        <td>${formatRupiah(r.omzet_jasa)}</td>
                        <td><strong>${formatRupiah(Number(r.omzet_sparepart) + Number(r.omzet_jasa))}</strong></td>
-                       <td>${esc(r.catatan ?? '')}</td>
+                       <td>${escapeHtml(r.catatan ?? '')}</td>
+                       <td><button class="pb-bagikan" data-id="${r.id}" title="Kirim ulang laporan tanggal ini">Bagikan</button></td>
                      </tr>`
                    )
                    .join('')}
                </tbody>
              </table>`
-          : '<p style="color:var(--color-text-muted)">Belum ada laporan 14 hari terakhir.</p>'
+          : '<p style="color:var(--color-text-muted)">Belum ada laporan di rentang ini.</p>'
       }
     `;
 
@@ -161,8 +196,47 @@ export async function renderPenjualanBengkelPage(container, { businessUnitId, ou
       muat();
     });
     container.querySelector('#pb-tanggal').addEventListener('change', (e) => {
-      state.tanggal = e.target.value || todayWIB();
+      state.tanggal = e.target.value || hariIni;
       muat();
+    });
+    container.querySelector('#pb-dari').addEventListener('change', (e) => {
+      state.dari = e.target.value;
+      muat();
+    });
+    container.querySelector('#pb-sampai').addEventListener('change', (e) => {
+      state.sampai = e.target.value;
+      muat();
+    });
+
+    container.querySelector('#pb-bagikan-ini')?.addEventListener('click', () =>
+      bagikanHari({ ...state.sudahAda, outlet_id: state.outletId })
+    );
+
+    container.querySelectorAll('.pb-bagikan').forEach((b) =>
+      b.addEventListener('click', () => {
+        const r = state.riwayat.find((x) => x.id === b.dataset.id);
+        // Dibagikan dari BARIS YANG TERSIMPAN, bukan dari kotak isian di atas.
+        //
+        // Kotak isian bisa sedang memuat tanggal lain, atau angka yang belum
+        // ditekan Simpan. Mengirim isinya berarti mengirim angka yang tidak
+        // ada di database — dan di grup WhatsApp angka itu terlihat sama
+        // resminya dengan yang benar.
+        if (r) bagikanHari(r);
+      })
+    );
+
+    container.querySelector('#pb-bagikan-rekap').addEventListener('click', () => {
+      if (!state.riwayat.length) return toast('Belum ada laporan di rentang ini.', 'warning');
+      shareDialog({
+        title: 'Bagikan rekap',
+        helper: 'Rekap seluruh tanggal yang sedang tampil.',
+        defaultMessage: pesanRekapPeriode({
+          outlet: outletNama(state.outletId),
+          dari: state.dari,
+          sampai: state.sampai,
+          baris: state.riwayat
+        })
+      });
     });
 
     container.querySelector('#pb-simpan').addEventListener(
@@ -180,26 +254,40 @@ export async function renderPenjualanBengkelPage(container, { businessUnitId, ou
           return;
         }
 
+        const catatan = container.querySelector('#pb-catatan').value;
+        const tanggal = state.tanggal;
         try {
           await simpanOmzetHari({
             businessUnitId,
             outletId: state.outletId,
-            tanggal: state.tanggal,
+            tanggal,
             sparepart,
             jasa,
-            catatan: container.querySelector('#pb-catatan').value,
+            catatan,
             userId: user?.id ?? null
           });
-          toast('Penjualan tersimpan.', 'success');
-          await muat();
         } catch (error) {
           toast(error.message ?? 'Gagal menyimpan.', 'error');
+          return;
         }
+
+        toast('Penjualan tersimpan.', 'success');
+
+        // Dialog bagikan dibuka SESUDAH tersimpan, dan hanya kalau tersimpan.
+        // Menawarkannya lebih dulu berarti ada kemungkinan laporan terkirim ke
+        // grup sementara datanya gagal masuk — dan yang di grup itu yang akan
+        // dipercaya orang.
+        await bagikanHari({
+          outlet_id: state.outletId,
+          sale_date: tanggal,
+          omzet_sparepart: sparepart,
+          omzet_jasa: jasa,
+          catatan
+        });
+        await muat();
       })
     );
   }
-}
 
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  await muat();
 }

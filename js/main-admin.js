@@ -595,11 +595,31 @@ function openModule(code, businessUnitId, activeModules = [], isSuperAdmin = fal
 
   const renderer = getModuleRenderer(code);
   if (renderer) {
-    Promise.resolve(renderer(content, ctx)).finally(() => {
-      pulihkanGulir(gulirSimpanan);
-      // Ditawarkan sesudah modulnya menggambar — sebelum itu isiannya belum ada.
-      tawarkanDraf(`${code}|${layarSimpanan ?? ''}`);
-    });
+    // ============ KEGAGALAN MEMUAT HARUS TERLIHAT ============
+    //
+    // `.finally()` berjalan untuk janji yang DITOLAK juga, tapi ia tidak
+    // mengubah apa pun di layar — jadi modul yang melempar saat menggambar
+    // meninggalkan spinner "Memuat…" berputar selamanya. Tidak ada pesan,
+    // tidak ada tabel kosong, tidak ada apa pun yang bisa dibaca sebagai
+    // kerusakan; satu-satunya jejaknya baris merah di console, tempat yang
+    // tidak dibuka orang yang sedang memakai aplikasinya.
+    //
+    // Itu persis yang terjadi pada Penjualan Bengkel: satu ReferenceError
+    // karena `const` dipanggil sebelum dibuat, dan layarnya "memuat terus".
+    // Satu `.catch` di sini menutup seluruh KELAS kegagalan itu untuk SEMUA
+    // modul — yang sudah ada maupun yang belum ditulis.
+    Promise.resolve(renderer(content, ctx))
+      .catch((e) => {
+        console.error(`Modul admin "${code}" gagal digambar:`, e);
+        content.innerHTML =
+          `<p class="error-text">Layar ini gagal dimuat: ${escapeHtml(e?.message ?? String(e))}</p>` +
+          `<p style="color:var(--color-text-muted);font-size:0.85rem">Coba muat ulang halaman. Kalau terus begini, kabari admin beserta pesan di atas.</p>`;
+      })
+      .finally(() => {
+        pulihkanGulir(gulirSimpanan);
+        // Ditawarkan sesudah modulnya menggambar — sebelum itu isiannya belum ada.
+        tawarkanDraf(`${code}|${layarSimpanan ?? ''}`);
+      });
   } else {
     content.innerHTML = `<p>Modul admin "${code}" belum dibangun.</p>`;
   }

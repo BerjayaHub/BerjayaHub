@@ -33,6 +33,7 @@ import { loadingHtml, sekaliJalan } from './core/loading.js';
 import { pasangPenandaKoneksi } from './core/koneksi.js';
 import { pasangTabelResponsif } from './core/tabel-responsif.js';
 import { renderPenjualanBengkelPage } from './modules/sparepart/penjualan-bengkel.page.js';
+import { renderSparepartPage } from './modules/sparepart/sparepart.page.js';
 
 registerModule('attendance', renderAttendancePage);
 registerModule('leave', renderLeavePage);
@@ -65,6 +66,10 @@ registerModule('shift', renderShiftPage);
 // berarti setiap pembaca layar itu harus tahu BU-nya bertipe apa — dan yang
 // lupa akan menampilkan kotak jumlah menu di bengkel.
 registerModule('penjualan_bengkel', renderPenjualanBengkelPage);
+// Sparepart di Staff App HANYA MELIHAT: mencari kode SKU dan menyebut harga.
+// Yang mengubah masternya cuma Admin BU — seluruh alasan master ini ada
+// adalah supaya namanya sama di semua outlet.
+registerModule('sparepart', renderSparepartPage);
 
 const app = document.getElementById('app');
 
@@ -757,12 +762,30 @@ function openModule(code, context, modules, moduleCtx, { pulihkan = false } = {}
   if (renderer) {
     // `layarAwal` diteruskan ke modulnya. Modul yang tidak mengenalnya cukup
     // mengabaikannya — tidak ada modul yang perlu diubah supaya tetap jalan.
-    Promise.resolve(renderer(body, { ...moduleCtx, layarAwal: layarSimpanan, konteksAwal: konteksSimpanan })).finally(() => {
-      pulihkanGulir(gulirSimpanan);
-      // Ditawarkan SESUDAH modulnya selesai menggambar — sebelum itu, isian
-      // yang mau diisi belum ada di layar dan tidak ada yang bisa dicocokkan.
-      tawarkanDraf(`${code}|${layarSimpanan ?? ''}`);
-    });
+    // ============ KEGAGALAN MEMUAT HARUS TERLIHAT ============
+    //
+    // `.finally()` berjalan untuk janji yang DITOLAK juga, tapi ia tidak
+    // mengubah apa pun di layar — jadi modul yang melempar saat menggambar
+    // meninggalkan spinner "Memuat…" berputar selamanya. Tidak ada pesan,
+    // tidak ada daftar kosong, tidak ada apa pun yang bisa dibaca staff
+    // sebagai kerusakan; satu-satunya jejaknya baris merah di console HP,
+    // tempat yang tidak akan dibuka siapa pun.
+    //
+    // Satu `.catch` di sini menutup seluruh KELAS kegagalan itu untuk SEMUA
+    // modul — yang sudah ada maupun yang belum ditulis.
+    Promise.resolve(renderer(body, { ...moduleCtx, layarAwal: layarSimpanan, konteksAwal: konteksSimpanan }))
+      .catch((e) => {
+        console.error(`Modul "${code}" gagal digambar:`, e);
+        body.innerHTML =
+          `<p class="error-text">Layar ini gagal dimuat: ${escapeHtml(e?.message ?? String(e))}</p>` +
+          `<p style="color:var(--color-text-muted);font-size:0.85rem">Coba tutup lalu buka lagi. Kalau terus begini, tunjukkan pesan di atas ke admin.</p>`;
+      })
+      .finally(() => {
+        pulihkanGulir(gulirSimpanan);
+        // Ditawarkan SESUDAH modulnya selesai menggambar — sebelum itu, isian
+        // yang mau diisi belum ada di layar dan tidak ada yang bisa dicocokkan.
+        tawarkanDraf(`${code}|${layarSimpanan ?? ''}`);
+      });
   } else {
     body.innerHTML = `<p>Modul "${code}" belum dibangun.</p>`;
   }

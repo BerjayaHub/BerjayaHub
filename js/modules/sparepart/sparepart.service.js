@@ -28,7 +28,7 @@ export async function listSpareparts(businessUnitId, { hanyaAktif = false } = {}
   return ambilSemua((dari, sampai) => {
     let q = supabase
       .from('spareparts')
-      .select('id, sku, name, jenis, kategori, merek, harga_dasar, is_active, dari_impor, diimpor_at, diperbarui_at')
+      .select('id, sku, name, jenis, kategori, merek, harga_beli, harga_jual, is_active, dari_impor, diimpor_at, diperbarui_at')
       .eq('business_unit_id', businessUnitId);
     if (hanyaAktif) q = q.eq('is_active', true);
     return q.order('name').range(dari, sampai);
@@ -39,18 +39,27 @@ export async function listSpareparts(businessUnitId, { hanyaAktif = false } = {}
 export async function listHargaOutlet(businessUnitId) {
   const { data, error } = await supabase
     .from('sparepart_outlet_prices')
-    .select('id, sparepart_id, outlet_id, harga, spareparts!inner(business_unit_id)')
+    .select('id, sparepart_id, outlet_id, harga_beli, harga_jual, spareparts!inner(business_unit_id)')
     .eq('spareparts.business_unit_id', businessUnitId);
   if (error) throw error;
   const peta = new Map();
   for (const r of data ?? []) {
     if (!peta.has(r.sparepart_id)) peta.set(r.sparepart_id, new Map());
-    peta.get(r.sparepart_id).set(r.outlet_id, Number(r.harga));
+    // `null` DIPERTAHANKAN sebagai null, bukan diubah jadi 0 oleh Number().
+    //
+    // Baris yang memuat harga jual khusus tapi tidak harga beli berarti
+    // "harga belinya ikut BU". `Number(null)` adalah 0, dan 0 di layar
+    // terbaca sebagai barang yang dibeli gratis.
+    peta.get(r.sparepart_id).set(r.outlet_id, {
+      beli: r.harga_beli === null || r.harga_beli === undefined ? null : Number(r.harga_beli),
+      jual: r.harga_jual === null || r.harga_jual === undefined ? null : Number(r.harga_jual)
+    });
   }
   return peta;
 }
 
-export async function simpanSparepart({ id, business_unit_id, sku, name, jenis, kategori, merek, harga_dasar, is_active }) {
+export async function simpanSparepart({ id, business_unit_id, sku, name, jenis, kategori, merek, harga_beli, harga_jual, is_active }) {
+  const angka = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
   const baris = {
     business_unit_id,
     // Dibakukan DI SINI juga, bukan hanya di jalur impor. Sparepart yang
@@ -62,7 +71,10 @@ export async function simpanSparepart({ id, business_unit_id, sku, name, jenis, 
     jenis: jenis === 'jasa' ? 'jasa' : 'sparepart',
     kategori: teks(kategori).trim() || null,
     merek: teks(merek).trim() || null,
-    harga_dasar: harga_dasar === '' || harga_dasar === null || harga_dasar === undefined ? null : Number(harga_dasar),
+    // Kosong tetap kosong, bukan nol. Nol adalah harga; kosong berarti belum
+    // ditetapkan — dan laporan yang menghitung nol sebagai harga akan diam.
+    harga_beli: angka(harga_beli),
+    harga_jual: angka(harga_jual),
     is_active: is_active !== false
   };
   if (!baris.sku) throw new Error('Kode SKU wajib diisi — SKU yang menyamakan barang antar outlet.');
@@ -87,10 +99,16 @@ export async function hapusSparepart(id) {
 }
 
 /** Tetapkan (atau hapus) harga khusus satu outlet. */
-export async function aturHargaOutlet({ sparepartId, outletId, harga }) {
-  // Harga kosong berarti "pakai harga dasar BU" — barisnya DIHAPUS, bukan
-  // disimpan sebagai nol. Nol adalah harga; ketiadaan baris adalah pewarisan.
-  if (harga === '' || harga === null || harga === undefined) {
+export async function aturHargaOutlet({ sparepartId, outletId, hargaBeli, hargaJual }) {
+  const angka = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
+  const beli = angka(hargaBeli);
+  const jual = angka(hargaJual);
+
+  // KEDUANYA kosong berarti "ikut harga BU sepenuhnya" — barisnya DIHAPUS,
+  // bukan disimpan dengan dua null. Baris kosong yang tertinggal akan terhitung
+  // sebagai "outlet ini punya harga khusus" di layar mana pun yang memeriksa
+  // keberadaan barisnya, bukan isinya.
+  if (beli === null && jual === null) {
     const { error } = await supabase
       .from('sparepart_outlet_prices')
       .delete()
@@ -100,7 +118,13 @@ export async function aturHargaOutlet({ sparepartId, outletId, harga }) {
     return;
   }
   const { error } = await supabase.from('sparepart_outlet_prices').upsert(
-    { sparepart_id: sparepartId, outlet_id: outletId, harga: Number(harga), diperbarui_at: new Date().toISOString() },
+    {
+      sparepart_id: sparepartId,
+      outlet_id: outletId,
+      harga_beli: beli,
+      harga_jual: jual,
+      diperbarui_at: new Date().toISOString()
+    },
     { onConflict: 'sparepart_id,outlet_id' }
   );
   if (error) throw error;
@@ -121,7 +145,8 @@ export async function imporSparepart(businessUnitId, baris) {
       jenis: b.jenis,
       kategori: b.kategori,
       merek: b.merek,
-      harga: b.harga
+      harga_beli: b.harga_beli,
+      harga_jual: b.harga_jual
     }))
   });
   if (error) throw error;

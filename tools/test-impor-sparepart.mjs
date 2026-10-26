@@ -1,7 +1,7 @@
 /**
  * ATURAN IMPOR MASTER SPAREPART — tes murni.
  *
- *   §1 Berkas .xlsx SUNGGUHAN dari ESB (1.926 baris).
+ *   §1 Berkas .xlsx SUNGGUHAN dari Turboly (1.926 baris).
  *   §2 Header dicari lewat judul, bukan lewat nomor kolom.
  *   §3 Bentuk baku SKU — dan kenapa harus sama dengan `upper(btrim())`.
  *   §4 Harga: yang pasti dibaca, yang ragu DITOLAK.
@@ -13,11 +13,11 @@
  * ============ DIUJI TERHADAP BERKAS SUNGGUHAN, BUKAN FIXTURE KARANGAN ============
  *
  * `tools/fixtures/contoh-product-list-esb.xlsx` adalah berkas yang diekspor
- * ESB untuk CV Awal Berjaya Bengkel pada 26 Okt 2026 — 1.926 baris, 36 kolom.
+ * Turboly untuk CV Awal Berjaya Bengkel pada 26 Okt 2026 — 1.926 baris, 36 kolom.
  *
  * Fixture yang saya tulis sendiri sebagai JSON akan memantulkan kembali
  * anggapan yang sedang diuji. Kalau saya salah mengira headernya di baris 6
- * (seperti ekspor ESB yang lain), saya akan menulis fixture-nya di baris 6
+ * (seperti ekspor Turboly yang lain), saya akan menulis fixture-nya di baris 6
  * juga, dan tesnya hijau untuk kode yang tidak bisa membaca berkas aslinya.
  *
  * Yang ditemukan justru begitu: header berkas ini di baris 15, BUKAN 6; dan
@@ -28,7 +28,8 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  KOLOM_HARGA_DEFAULT,
+  KOLOM_HARGA_BELI,
+  KOLOM_HARGA_JUAL,
   angkaHarga,
   cariHeaderProductList,
   jenisBaris,
@@ -59,14 +60,14 @@ const benar = (nama, syarat, ket = '') => {
 };
 
 // ===============================================================
-console.log('§1 Berkas .xlsx sungguhan dari ESB');
+console.log('§1 Berkas .xlsx sungguhan dari Turboly');
 // ===============================================================
 const { aoa } = bacaXlsx(path.join(AKAR, 'tools/fixtures/contoh-product-list-esb.xlsx'));
 cek('§1 jumlah baris sheet', aoa.length, 1941);
 
 const h = cariHeaderProductList(aoa);
 benar('§1 header ketemu', !!h);
-// 14 = 0-based, artinya baris ke-15 di Excel. BUKAN baris 6 seperti ekspor ESB
+// 14 = 0-based, artinya baris ke-15 di Excel. BUKAN baris 6 seperti ekspor Turboly
 // yang lain (Master Supplier, Master Purpose) — perbedaan yang hanya kelihatan
 // dari berkas aslinya, dan yang akan membuat pembaca berindeks tetap memuat
 // baris keterangan sebagai data.
@@ -87,16 +88,27 @@ cek('§1 tidak ada harga yang ragu', r.hargaRagu.length, 0);
 // adanya, 100 harga di Berjaya Hub tertimpa jadi nol setiap kali berkas ini
 // diimpor — dan nol tidak terlihat seperti kesalahan, ia terlihat seperti
 // barang yang memang belum dijual.
-cek('§1 100 baris harganya kosong/nol', r.hargaKosong.length, 100);
 benar(
-  '§1 baris berharga nol dikirim sebagai harga kosong, bukan nol',
-  r.kirim.filter((b) => b.harga === 0).length === 0,
-  `${r.kirim.filter((b) => b.harga === 0).length} baris masih berharga 0`
+  '§1 tidak ada harga nol yang lolos — nol selalu jadi kosong',
+  r.kirim.every((b) => b.harga_beli !== 0 && b.harga_jual !== 0),
+  'masih ada baris berharga 0'
 );
 benar(
   '§1 semua harga yang terisi positif',
-  r.kirim.every((b) => b.harga === null || b.harga > 0)
+  r.kirim.every((b) => (b.harga_beli === null || b.harga_beli > 0) && (b.harga_jual === null || b.harga_jual > 0))
 );
+// Dilaporkan hanya kalau KEDUANYA kosong. Barang yang punya harga jual tapi
+// belum punya harga beli adalah keadaan biasa; melaporkannya sebagai masalah
+// akan mengubur baris yang benar-benar tidak berharga.
+benar(
+  '§1 "harga kosong" berarti kedua-duanya kosong',
+  r.hargaKosong.every((h) => {
+    const b = r.kirim.find((x) => x.sku === h.sku);
+    return b && b.harga_beli === null && b.harga_jual === null;
+  }),
+  JSON.stringify(r.hargaKosong.slice(0, 2))
+);
+benar('§1 kedua kolom harga ditemukan di berkas', r.adaKolomBeli && r.adaKolomJual);
 
 const pertama = r.kirim[0];
 cek('§1 baris pertama: nomor baris Excel', pertama.baris, 16);
@@ -107,13 +119,19 @@ cek('§1 baris pertama: merek dari kolom Brand', pertama.merek, '555 JP');
 // 455000 = Store Retail (kolom W). Kalau pembacanya tergeser satu kolom ke
 // kiri ia akan membaca 350000 (Store Supply) — angka yang sama-sama masuk akal
 // dan tidak akan dicurigai siapa pun.
-cek('§1 baris pertama: harga dari Store Retail, bukan Store Supply', pertama.harga, 455000);
+// KEDUANYA masuk sekali impor. Tidak ada yang perlu dipilih — dan itu yang
+// membuat 350000 di bawah penting: kalau pembacanya tergeser satu kolom, ia
+// akan menaruh harga BELI ke dalam harga jual. Dua angka yang sama-sama masuk
+// akal, dan tidak akan dicurigai siapa pun.
+cek('§1 baris pertama: harga jual dari Store Retail', pertama.harga_jual, 455000);
+cek('§1 baris pertama: harga beli dari Store Supply', pertama.harga_beli, 350000);
+benar('§1 keduanya ada di kolomnya masing-masing', pertama.harga_jual !== pertama.harga_beli);
 
 // ===============================================================
 console.log('§2 Header dicari lewat judul, bukan lewat nomor kolom');
 // ===============================================================
 
-// Satu kolom disisipkan di depan, seperti yang terjadi kalau ESB menambah
+// Satu kolom disisipkan di depan, seperti yang terjadi kalau Turboly menambah
 // kolom atau orang menempel kolom catatan sendiri. Pembaca berindeks tetap
 // akan membaca SKU dari kolom nama dan sebaliknya — tanpa satu pun galat.
 const digeser = aoa.map((row) => ['', ...row]);
@@ -121,13 +139,14 @@ const hGeser = cariHeaderProductList(digeser);
 cek('§2 kolom SKU ikut bergeser', hGeser.kolom.sku, 2);
 const rGeser = susunRencanaImpor({ aoa: digeser, sparepartSekarang: [] });
 cek('§2 isinya tetap terbaca benar sesudah digeser', rGeser.kirim[0].sku, '555.LTR.BZ120');
-cek('§2 harganya juga', rGeser.kirim[0].harga, 455000);
+cek('§2 harga jualnya juga', rGeser.kirim[0].harga_jual, 455000);
+cek('§2 dan harga belinya', rGeser.kirim[0].harga_beli, 350000);
 cek('§2 jumlah barisnya tidak berubah', rGeser.kirim.length, 1926);
 
 // ============ BARIS KETERANGAN YANG MENYAMAR JADI HEADER ============
 //
 // Berkas ini menaruh saringannya sebagai "Supplier: All Suppliers" di satu
-// sel, jadi tidak ada yang persis berbunyi "SKU". Tapi ESB juga mengekspor
+// sel, jadi tidak ada yang persis berbunyi "SKU". Tapi Turboly juga mengekspor
 // saringan sebagai DUA sel di berkas lain, dan baris seperti `['SKU','All']`
 // akan dikenali sebagai header kalau yang dicari hanya kolom SKU.
 //
@@ -139,7 +158,7 @@ const palsu = [
   ['Product List'],
   ['SKU', 'All'],
   [],
-  ['SKU', 'Product', 'Store Retail'],
+  ['SKU', 'Product', KOLOM_HARGA_JUAL],
   ['A1', 'Barang A', 1000]
 ];
 cek('§2 baris saringan ber-sel "SKU" bukan header', cariHeaderProductList(palsu).barisHeader, 3);
@@ -152,13 +171,28 @@ const bukanEsb = susunRencanaImpor({ aoa: [['Nama', 'Harga'], ['A', 1]] });
 benar('§2 rencananya tidak ok', bukanEsb.ok === false);
 benar('§2 sebabnya menyebut nama kolom yang dicari', /SKU/.test(bukanEsb.sebab), bukanEsb.sebab);
 
-const tanpaHarga = susunRencanaImpor({ aoa, kolomHarga: 'Harga Khusus' });
-benar('§2 kolom harga yang tidak ada ditolak', tanpaHarga.ok === false);
+// Satu kolom harga boleh hilang — yang ada tetap masuk, yang hilang
+// DIKATAKAN. Menolak seluruh berkas karena satu kolom tidak ada akan membuang
+// 1.926 baris yang benar.
+const cumaJual = susunRencanaImpor({
+  aoa: [['SKU', 'Product', KOLOM_HARGA_JUAL], ['A1', 'Barang A', 1000]],
+  sparepartSekarang: []
+});
+benar('§2 berkas tanpa kolom harga beli tetap dipakai', cumaJual.ok === true, cumaJual.sebab);
+cek('§2 harga jualnya masuk', cumaJual.kirim[0].harga_jual, 1000);
+cek('§2 harga belinya kosong, bukan disalin dari harga jual', cumaJual.kirim[0].harga_beli, null);
+benar('§2 dan kolom yang hilang dicatat', cumaJual.adaKolomBeli === false);
 benar(
-  '§2 sebabnya menyebut kolom harga yang TERSEDIA, bukan cuma yang hilang',
-  /Store Retail/.test(tanpaHarga.sebab),
-  tanpaHarga.sebab
+  '§2 peringatannya menyebut kolom yang hilang',
+  peringatanRencana(cumaJual).some((p) => p.teks.includes(KOLOM_HARGA_BELI)),
+  JSON.stringify(peringatanRencana(cumaJual))
 );
+
+// Tapi berkas TANPA kolom harga sama sekali hampir pasti bukan berkas yang
+// dimaksud orangnya.
+const tanpaHarga = susunRencanaImpor({ aoa: [['SKU', 'Product'], ['A1', 'Barang A']] });
+benar('§2 berkas tanpa kedua kolom harga ditolak', tanpaHarga.ok === false);
+benar('§2 sebabnya menyebut kedua kolomnya', /Store Supply/.test(tanpaHarga.sebab), tanpaHarga.sebab);
 
 // ===============================================================
 console.log('§3 Bentuk baku SKU');
@@ -186,7 +220,7 @@ cek('§3 tab di pinggir dibuang (btrim tidak membuangnya)', normalSku('A1\t'), '
 cek('§3 baris baru dibuang', normalSku('A1\n'), 'A1');
 cek('§3 spasi tak-putus dibuang', normalSku('A1 '), 'A1');
 const rTab = susunRencanaImpor({
-  aoa: [['SKU', 'Product', 'Store Retail'], ['a1\t', 'Barang A', 1000]],
+  aoa: [['SKU', 'Product', KOLOM_HARGA_JUAL], ['a1\t', 'Barang A', 1000]],
   sparepartSekarang: []
 });
 cek('§3 yang DIKIRIM sudah baku, bukan isi sel apa adanya', rTab.kirim[0].sku, 'A1');
@@ -199,7 +233,7 @@ benar('§3 "A 1" dan "A  1" tetap berbeda', normalSku('A 1') !== normalSku('A  1
 console.log('§4 Harga: yang pasti dibaca, yang ragu DITOLAK');
 // ===============================================================
 cek('§4 angka xlsx sungguhan', angkaHarga(455000), { nilai: 455000, ragu: false });
-cek('§4 angka berdesimal (bentuk ESB)', angkaHarga(350000.0), { nilai: 350000, ragu: false });
+cek('§4 angka berdesimal (bentuk Turboly)', angkaHarga(350000.0), { nilai: 350000, ragu: false });
 cek('§4 teks angka bulat', angkaHarga('455000'), { nilai: 455000, ragu: false });
 cek('§4 teks "350000.0" = desimal Inggris', angkaHarga('350000.0'), { nilai: 350000, ragu: false });
 cek('§4 "1.234.567" = pemisah ribuan', angkaHarga('1.234.567'), { nilai: 1234567, ragu: false });
@@ -221,39 +255,37 @@ cek('§4 campur = RAGU', angkaHarga('455rb'), { nilai: null, ragu: true });
 
 const rRagu = susunRencanaImpor({
   aoa: [
-    ['SKU', 'Product', 'Store Retail'],
-    ['A1', 'Barang A', '455,50'],
-    ['A2', 'Barang B', 0],
-    ['A3', 'Barang C', 1000]
+    ['SKU', 'Product', KOLOM_HARGA_BELI, KOLOM_HARGA_JUAL],
+    ['A1', 'Barang A', 300, '455,50'],
+    ['A2', 'Barang B', 0, 0],
+    ['A3', 'Barang C', 700, 1000]
   ],
   sparepartSekarang: []
 });
-cek('§4 baris ragu TETAP masuk, tanpa harga', rRagu.kirim.length, 3);
-cek('§4 harganya kosong, bukan tebakan', rRagu.kirim[0].harga, null);
-cek('§4 satu baris dilaporkan ragu', rRagu.hargaRagu.length, 1);
+cek('§4 baris ragu TETAP masuk', rRagu.kirim.length, 3);
+cek('§4 harga jualnya kosong, bukan tebakan', rRagu.kirim[0].harga_jual, null);
+// Harga BELI baris yang sama terbaca baik-baik saja. Membuang seluruh baris
+// karena satu selnya ragu akan ikut membuang harga yang benar di sebelahnya.
+cek('§4 harga beli di baris yang sama tetap masuk', rRagu.kirim[0].harga_beli, 300);
+cek('§4 satu sel dilaporkan ragu', rRagu.hargaRagu.length, 1);
 cek('§4 nomor barisnya seperti di Excel', rRagu.hargaRagu[0].baris, 2);
+cek('§4 kolom mana yang ragu ikut disebut', rRagu.hargaRagu[0].kolom, KOLOM_HARGA_JUAL);
 benar('§4 isi selnya ikut dilaporkan, supaya bisa dicari', rRagu.hargaRagu[0].isi === '455,50');
 // Nol masuk ke hargaKosong; yang ragu TIDAK — dua sebab berbeda, dua daftar
 // berbeda. Menggabungkannya membuat "100 harga kosong" tidak bisa dibedakan
 // dari "100 harga tidak terbaca", padahal yang kedua perlu dibereskan.
-cek('§4 nol masuk daftar harga kosong', rRagu.hargaKosong.length, 1);
-cek('§4 yang ragu TIDAK ikut daftar harga kosong', rRagu.hargaKosong[0].sku, 'A2');
-
-// Kolom harga lain bisa dipilih, dan hasilnya memang beda.
-const rSupply = susunRencanaImpor({ aoa, kolomHarga: 'Store Supply' });
-cek('§4 Store Supply memberi angka yang lain', rSupply.kirim[0].harga, 350000);
-cek('§4 dan dicatat kolom mana yang dipakai', rSupply.kolomHarga, 'Store Supply');
-cek('§4 default-nya Store Retail', r.kolomHarga, KOLOM_HARGA_DEFAULT);
+cek('§4 baris yang kedua harganya nol masuk daftar harga kosong', rRagu.hargaKosong.length, 1);
+cek('§4 dan itu baris A2', rRagu.hargaKosong[0].sku, 'A2');
 
 // ===============================================================
 console.log('§5 Baris cacat, nonaktif, dan kembar di dalam berkas');
 // ===============================================================
 const rCacat = susunRencanaImpor({
   aoa: [
-    ['SKU', 'Product', 'Type', 'Active', 'Store Retail'],
+    ['SKU', 'Product', 'Type', 'Active', KOLOM_HARGA_JUAL],
     ['', 'Tanpa SKU', 'PART', 1, 1000],
     ['A2', '', 'PART', 1, 1000],
-    ['A3', 'Nonaktif di ESB', 'PART', 0, 1000],
+    ['A3', 'Nonaktif di Turboly', 'PART', 0, 1000],
     ['A4', 'Nonaktif tertulis', 'PART', 'Inactive', 1000],
     ['', '', '', '', ''],
     ['A5', 'Kembar — yang ini diabaikan', 'PART', 1, 1000],
@@ -287,8 +319,8 @@ cek('§5 hanya satu baris per SKU yang dikirim', rCacat.kirim.filter((b) => b.sk
 console.log('§6 Baru vs ditimpa, dan yang tidak ada di berkas');
 // ===============================================================
 const sudahAda = [
-  { sku: '555.ltr.bz120 ', name: 'RACK END NAMA LAMA', harga_dasar: 400000, jenis: 'sparepart' },
-  { sku: 'JASA.TUNE', name: 'Tune Up Mesin', harga_dasar: 350000, jenis: 'jasa' }
+  { sku: '555.ltr.bz120 ', name: 'RACK END NAMA LAMA', harga_beli: 300000, harga_jual: 400000, jenis: 'sparepart' },
+  { sku: 'JASA.TUNE', name: 'Tune Up Mesin', harga_beli: null, harga_jual: 350000, jenis: 'jasa' }
 ];
 const rAda = susunRencanaImpor({ aoa, sparepartSekarang: sudahAda });
 
@@ -298,10 +330,11 @@ const rAda = susunRencanaImpor({ aoa, sparepartSekarang: sudahAda });
 cek('§6 SKU lama berhuruf kecil tetap dikenali sebagai sudah ada', rAda.ditimpa.length, 1);
 cek('§6 sisanya baru', rAda.baru.length, 1925);
 cek('§6 yang ditimpa menyebut nama lamanya', rAda.ditimpa[0].namaLama, 'RACK END NAMA LAMA');
-cek('§6 dan harga lamanya', rAda.ditimpa[0].hargaLama, 400000);
+cek('§6 dan harga jual lamanya', rAda.ditimpa[0].hargaJualLama, 400000);
+cek('§6 dan harga beli lamanya', rAda.ditimpa[0].hargaBeliLama, 300000);
 benar('§6 ditandai namanya berubah', rAda.ditimpa[0].namaBerubah === true);
 
-// Jasa yang diketik admin tidak ada di berkas ESB — DILAPORKAN, tidak disentuh.
+// Jasa yang diketik admin tidak ada di berkas Turboly — DILAPORKAN, tidak disentuh.
 // Impor yang "membersihkan yang tidak ada di berkas" akan menghapus seluruh
 // daftar jasa, dan berkas ini membuktikan kenapa: 1.926 barisnya hampir
 // seluruhnya barang.
@@ -316,8 +349,8 @@ benar(
 // Nama yang sama persis bukan "berubah" — kalau tidak, laporannya bilang 1.926
 // nama berubah setiap impor dan tidak ada lagi yang membacanya.
 const rSama = susunRencanaImpor({
-  aoa: [['SKU', 'Product', 'Store Retail'], ['A1', 'Barang A', 1000]],
-  sparepartSekarang: [{ sku: 'A1', name: 'Barang A', harga_dasar: 1000, jenis: 'sparepart' }]
+  aoa: [['SKU', 'Product', KOLOM_HARGA_JUAL], ['A1', 'Barang A', 1000]],
+  sparepartSekarang: [{ sku: 'A1', name: 'Barang A', harga_jual: 1000, jenis: 'sparepart' }]
 });
 benar('§6 nama yang sama tidak dicap berubah', rSama.ditimpa[0].namaBerubah === false);
 
@@ -350,8 +383,8 @@ cek('§7 barang bernama "SERVICE KIT" salah tertebak jasa', jenisBaris({ nama: '
 // Itu sebabnya database TIDAK menimpa jenis baris yang sudah ada, dan sebabnya
 // selisihnya dilaporkan:
 const rBeda = susunRencanaImpor({
-  aoa: [['SKU', 'Product', 'Store Retail'], ['A1', 'SERVICE KIT 04479', 1000]],
-  sparepartSekarang: [{ sku: 'A1', name: 'SERVICE KIT 04479', harga_dasar: 900, jenis: 'sparepart' }]
+  aoa: [['SKU', 'Product', KOLOM_HARGA_JUAL], ['A1', 'SERVICE KIT 04479', 1000]],
+  sparepartSekarang: [{ sku: 'A1', name: 'SERVICE KIT 04479', harga_jual: 900, jenis: 'sparepart' }]
 });
 cek('§7 selisih jenis dilaporkan', rBeda.jenisBeda.length, 1);
 cek('§7 menyebut kedua sisinya', [rBeda.jenisBeda[0].diBerkas, rBeda.jenisBeda[0].tersimpan], ['jasa', 'sparepart']);
@@ -394,8 +427,8 @@ benar(
 );
 cek('§8 ringkasan jumlah selalu paling akhir', /akan dikirim/.test(pWarn[pWarn.length - 1].teks), true);
 
-const pGagal = peringatanRencana({ ok: false, sebab: 'Bukan berkas ESB.' });
-cek('§8 rencana gagal cuma memberi satu peringatan bahaya', pGagal, [{ tingkat: 'bahaya', teks: 'Bukan berkas ESB.' }]);
+const pGagal = peringatanRencana({ ok: false, sebab: 'Bukan berkas Turboly.' });
+cek('§8 rencana gagal cuma memberi satu peringatan bahaya', pGagal, [{ tingkat: 'bahaya', teks: 'Bukan berkas Turboly.' }]);
 cek('§8 rencana kosong pun tidak melempar', peringatanRencana(null)[0].tingkat, 'bahaya');
 
 const pBersih = peringatanRencana(r);
@@ -405,8 +438,13 @@ benar(
   JSON.stringify(pBersih.filter((p) => p.tingkat === 'bahaya'))
 );
 benar(
-  '§8 tapi 100 harga kosong tetap diperingatkan',
-  pBersih.some((p) => /100 baris/.test(p.teks)),
+  '§8 ringkasan akhirnya menyebut kedua harga sekaligus',
+  pBersih.some((p) => /harga beli & harga jual sekaligus/.test(p.teks)),
+  JSON.stringify(pBersih)
+);
+benar(
+  '§8 tidak ada peringatan "kolom hilang" untuk berkas yang lengkap',
+  !pBersih.some((p) => /tidak ada di berkas ini, jadi harga/.test(p.teks)),
   JSON.stringify(pBersih)
 );
 

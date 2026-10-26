@@ -12,12 +12,7 @@ import {
   aturHargaOutlet,
   imporSparepart
 } from './sparepart.service.js';
-import {
-  KOLOM_HARGA,
-  KOLOM_HARGA_DEFAULT,
-  susunRencanaImpor,
-  peringatanRencana
-} from './impor-sparepart.js';
+import { KOLOM_HARGA_BELI, KOLOM_HARGA_JUAL, susunRencanaImpor, peringatanRencana } from './impor-sparepart.js';
 
 /**
  * MASTER SPAREPART & JASA — Admin Portal (BU bengkel).
@@ -30,6 +25,7 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
   container.innerHTML = loadingHtml('Memuat master sparepart…');
 
   const state = { q: '', jenis: '', kategori: '', outletHarga: '', hanyaAktif: false };
+  const rp = (v) => (v === null || v === undefined ? '<span style="color:var(--color-text-muted)">—</span>' : formatRupiah(v));
   let daftar = [];
   let hargaOutlet = new Map();
   let outlets = [];
@@ -50,13 +46,28 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
     gambar();
   }
 
-  /** Harga yang BERLAKU di satu outlet: harga khusus kalau ada, kalau tidak harga dasar. */
-  function hargaBerlaku(s, outletId) {
-    if (!outletId) return s.harga_dasar;
+  /**
+   * Harga yang BERLAKU di satu outlet, untuk salah satu sisi ('beli'/'jual').
+   *
+   * `??` bukan `||` — harga khusus Rp0 adalah harga, dan `||` akan
+   * membuangnya kembali ke harga BU tanpa ada yang menyadarinya.
+   *
+   * Kedua sisi dinilai SENDIRI-SENDIRI: outlet boleh menimpa harga jualnya
+   * saja dan tetap memakai harga beli BU. Menilainya sebagai satu paket akan
+   * membuat harga beli ikut hilang begitu harga jualnya ditimpa.
+   */
+  function hargaBerlaku(s, outletId, sisi) {
+    const dasar = sisi === 'beli' ? s.harga_beli : s.harga_jual;
+    if (!outletId) return dasar ?? null;
     const khusus = hargaOutlet.get(s.id)?.get(outletId);
-    // `?? ` bukan `||` — harga khusus Rp0 adalah harga, dan `||` akan
-    // membuangnya kembali ke harga dasar tanpa ada yang menyadarinya.
-    return khusus ?? s.harga_dasar;
+    return (sisi === 'beli' ? khusus?.beli : khusus?.jual) ?? dasar ?? null;
+  }
+
+  /** Apakah outlet ini menimpa sisi harga itu? */
+  function adaKhusus(s, outletId, sisi) {
+    if (!outletId) return false;
+    const k = hargaOutlet.get(s.id)?.get(outletId);
+    return (sisi === 'beli' ? k?.beli : k?.jual) !== null && (sisi === 'beli' ? k?.beli : k?.jual) !== undefined;
   }
 
   function tersaring() {
@@ -82,7 +93,7 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
         <h1>Sparepart &amp; Jasa</h1>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button id="sp-tambah" class="btn-primary">+ Tambah</button>
-          <button id="sp-impor">Impor Excel (ESB)</button>
+          <button id="sp-impor">Impor Excel (Turboly)</button>
           <button id="sp-xlsx">Export Excel</button>
           <button id="sp-pdf">Export PDF</button>
         </div>
@@ -132,7 +143,7 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
         <thead>
           <tr>
             <th>SKU</th><th>Nama</th><th>Jenis</th><th>Kategori</th><th>Merek</th>
-            <th>${state.outletHarga ? 'Harga outlet' : 'Harga dasar'}</th>
+            <th>Harga beli</th><th>Harga jual</th>
             <th>Status</th><th>Aksi</th>
           </tr>
         </thead>
@@ -143,7 +154,7 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
                   .slice(0, 500)
                   .map((s) => barisHtml(s))
                   .join('')
-              : '<tr><td colspan="8" style="color:var(--color-text-muted)">Tidak ada yang cocok.</td></tr>'
+              : '<tr><td colspan="9" style="color:var(--color-text-muted)">Tidak ada yang cocok.</td></tr>'
           }
         </tbody>
       </table>
@@ -161,8 +172,12 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
   }
 
   function barisHtml(s) {
-    const harga = hargaBerlaku(s, state.outletHarga);
-    const khusus = state.outletHarga && hargaOutlet.get(s.id)?.has(state.outletHarga);
+    const sel = (sisi) =>
+      `<td>${rp(hargaBerlaku(s, state.outletHarga, sisi))}${
+        adaKhusus(s, state.outletHarga, sisi)
+          ? ' <span class="badge badge-pending" style="font-size:0.6rem">khusus</span>'
+          : ''
+      }</td>`;
     return `
       <tr${s.is_active === false ? ' style="opacity:.55"' : ''}>
         <td style="font-family:monospace;font-size:0.8rem">${escapeHtml(s.sku)}</td>
@@ -170,10 +185,8 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
         <td>${s.jenis === 'jasa' ? '<span class="badge badge-pending">Jasa</span>' : 'Sparepart'}</td>
         <td>${escapeHtml(s.kategori ?? '')}</td>
         <td>${escapeHtml(s.merek ?? '')}</td>
-        <td>
-          ${harga === null || harga === undefined ? '<span style="color:var(--color-text-muted)">—</span>' : formatRupiah(harga)}
-          ${khusus ? ' <span class="badge badge-pending" style="font-size:0.6rem">khusus</span>' : ''}
-        </td>
+        ${sel('beli')}
+        ${sel('jual')}
         <td>${s.is_active === false ? 'Nonaktif' : 'Aktif'}</td>
         <td>
           <button class="sp-edit" data-id="${s.id}">Edit</button>
@@ -265,11 +278,18 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
         { name: 'kategori', label: 'Kategori (opsional)', type: 'text', value: existing?.kategori ?? '' },
         { name: 'merek', label: 'Merek (opsional)', type: 'text', value: existing?.merek ?? '' },
         {
-          name: 'harga_dasar',
-          label: 'Harga dasar BU (opsional)',
+          name: 'harga_beli',
+          label: 'Harga beli BU (opsional)',
           type: 'number',
-          value: existing?.harga_dasar ?? '',
-          help: 'Dikosongkan = belum ada harga. Outlet bisa menimpanya lewat "Harga outlet".'
+          value: existing?.harga_beli ?? '',
+          help: 'Dikosongkan = belum ada harga. Bukan berarti gratis.'
+        },
+        {
+          name: 'harga_jual',
+          label: 'Harga jual BU (opsional)',
+          type: 'number',
+          value: existing?.harga_jual ?? '',
+          help: 'Outlet bisa menimpanya lewat "Harga outlet".'
         },
         { name: 'is_active', label: 'Aktif', type: 'checkbox', value: existing ? existing.is_active !== false : true }
       ],
@@ -287,25 +307,38 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
 
   async function dialogHargaOutlet(s) {
     const outletNama = outlets.find((o) => o.id === state.outletHarga)?.name ?? '';
-    const sekarang = hargaOutlet.get(s.id)?.get(state.outletHarga);
+    const k = hargaOutlet.get(s.id)?.get(state.outletHarga);
+    const ketBu = (v) => (v === null || v === undefined ? 'belum diisi' : formatRupiah(v));
     const values = await formDialog({
       title: `Harga ${outletNama}`,
       fields: [
         {
-          name: 'harga',
-          label: `Harga di ${outletNama}`,
+          name: 'hargaBeli',
+          label: `Harga beli di ${outletNama}`,
           type: 'number',
-          value: sekarang ?? '',
+          value: k?.beli ?? '',
           // Kosong dan nol adalah dua hal berbeda, dan layarnya harus
-          // mengatakannya: kosong = ikut harga dasar, nol = memang gratis.
-          help: `Kosongkan untuk mengikuti harga dasar BU (${s.harga_dasar === null || s.harga_dasar === undefined ? 'belum diisi' : formatRupiah(s.harga_dasar)}). Isi 0 kalau memang gratis di outlet ini.`
+          // mengatakannya: kosong = ikut harga BU, nol = memang gratis.
+          help: `Kosongkan untuk mengikuti harga BU (${ketBu(s.harga_beli)}). Isi 0 kalau memang gratis di outlet ini.`
+        },
+        {
+          name: 'hargaJual',
+          label: `Harga jual di ${outletNama}`,
+          type: 'number',
+          value: k?.jual ?? '',
+          help: `Kosongkan untuk mengikuti harga BU (${ketBu(s.harga_jual)}).`
         }
       ],
       submitText: 'Simpan'
     });
     if (!values) return;
     try {
-      await aturHargaOutlet({ sparepartId: s.id, outletId: state.outletHarga, harga: values.harga });
+      await aturHargaOutlet({
+        sparepartId: s.id,
+        outletId: state.outletHarga,
+        hargaBeli: values.hargaBeli,
+        hargaJual: values.hargaJual
+      });
       toast('Harga outlet disimpan.', 'success');
       await muat();
     } catch (error) {
@@ -318,16 +351,21 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
   // -------------------------------------------------------------
   async function dialogImpor() {
     const pilih = await formDialog({
-      title: 'Impor master dari Excel ESB',
+      title: 'Impor master dari Excel Turboly',
       fields: [
-        { name: 'file', label: 'Berkas Product List (.xlsx) dari ESB', type: 'file', required: true, accept: '.xlsx,.xls' },
         {
-          name: 'kolomHarga',
-          label: 'Kolom harga yang dipakai',
-          type: 'select',
-          value: KOLOM_HARGA_DEFAULT,
-          options: KOLOM_HARGA.map((k) => ({ value: k, label: k })),
-          help: 'Store Retail = harga jual ke pelanggan. Store Supply = harga beli — salah pilih di sini membuat seluruh harga jual turun tanpa ada yang menyadarinya.'
+          name: 'file',
+          label: 'Berkas Product List (.xlsx) dari Turboly',
+          type: 'file',
+          required: true,
+          accept: '.xlsx,.xls',
+          // TIDAK ADA LAGI YANG PERLU DIPILIH.
+          //
+          // Versi sebelumnya menyuruh memilih satu kolom harga. Itu keliru:
+          // berkasnya memuat keduanya, dan memilih berarti membuang setengah
+          // datanya tiap impor — tanpa terlihat hilang, karena kolomnya tetap
+          // terisi angka yang masuk akal.
+          help: `Harga beli ("${KOLOM_HARGA_BELI}") dan harga jual ("${KOLOM_HARGA_JUAL}") masuk sekaligus.`
         }
       ],
       submitText: 'Baca berkas'
@@ -340,7 +378,7 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
       const wb = XLSX.read(await pilih.file.arrayBuffer(), { type: 'array' });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-      rencana = susunRencanaImpor({ aoa, sparepartSekarang: daftar, kolomHarga: pilih.kolomHarga });
+      rencana = susunRencanaImpor({ aoa, sparepartSekarang: daftar });
     } catch (error) {
       toast(`Gagal membaca berkas: ${error.message ?? error}`, 'error');
       return;
@@ -367,13 +405,21 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
       title: 'Periksa dulu sebelum mengimpor',
       messageHtml: `
         <div style="max-height:52vh;overflow:auto">
-          <p style="margin:0 0 8px">Kolom harga: <strong>${escapeHtml(rencana.kolomHarga)}</strong></p>
+          <p style="margin:0 0 8px">Harga beli &amp; harga jual diambil sekaligus dari kolom
+            <strong>${escapeHtml(KOLOM_HARGA_BELI)}</strong> dan <strong>${escapeHtml(KOLOM_HARGA_JUAL)}</strong>.</p>
           <ul style="margin:0 0 10px;padding-left:18px">
             ${peringatan.map((p) => `<li style="color:${warna[p.tingkat]};margin-bottom:4px">${escapeHtml(p.teks)}</li>`).join('')}
           </ul>
-          ${contoh('Harga tidak bisa dipastikan', rencana.hargaRagu, (b) => `<li>baris ${b.baris} — ${escapeHtml(b.sku)}: "${escapeHtml(b.isi)}"</li>`)}
+          ${contoh('Harga tidak bisa dipastikan', rencana.hargaRagu, (b) => `<li>baris ${b.baris} — ${escapeHtml(b.sku)}, kolom ${escapeHtml(b.kolom)}: "${escapeHtml(b.isi)}"</li>`)}
           ${contoh('SKU kembar di berkas', rencana.kembar, (b) => `<li>baris ${b.baris} diabaikan, dipakai baris ${b.digantiBaris} — ${escapeHtml(b.sku)}</li>`)}
-          ${contoh('Akan ditimpa', rencana.ditimpa, (b) => `<li>${escapeHtml(b.sku)}: "${escapeHtml(b.namaLama)}" → "${escapeHtml(b.name)}"</li>`)}
+          ${contoh(
+            'Akan ditimpa',
+            rencana.ditimpa,
+            (b) =>
+              `<li>${escapeHtml(b.sku)}: "${escapeHtml(b.namaLama)}" → "${escapeHtml(b.name)}" ` +
+              `<span style="color:var(--color-text-muted)">(beli ${b.hargaBeliLama ?? '—'} → ${b.harga_beli ?? '—'}, ` +
+              `jual ${b.hargaJualLama ?? '—'} → ${b.harga_jual ?? '—'})</span></li>`
+          )}
           ${contoh('Ditolak', rencana.ditolak, (b) => `<li>baris ${b.baris} — ${escapeHtml(b.sebab)}</li>`)}
           ${contoh('Ditebak sebagai Jasa', rencana.dugaanJasa, (b) => `<li>${escapeHtml(b.sku)} — ${escapeHtml(b.name)}</li>`)}
           ${contoh('Jenisnya beda dari yang tersimpan', rencana.jenisBeda, (b) => `<li>${escapeHtml(b.sku)}: berkas "${b.diBerkas}", tersimpan "${b.tersimpan}" (yang tersimpan dipakai)</li>`)}
@@ -395,17 +441,17 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
 
   // -------------------------------------------------------------
   function kolomEkspor() {
-    const judulHarga = state.outletHarga
-      ? `Harga ${outlets.find((o) => o.id === state.outletHarga)?.name ?? ''}`
-      : 'Harga dasar';
     return [
       { key: 'sku', label: 'SKU', width: 1.2 },
       { key: 'name', label: 'Nama', width: 3 },
       { key: 'jenis', label: 'Jenis', width: 0.8 },
       { key: 'kategori', label: 'Kategori', width: 1.2 },
       { key: 'merek', label: 'Merek', width: 1.2 },
-      { key: 'harga', label: judulHarga, width: 1.2, align: 'right' },
-      { key: 'sumberHarga', label: 'Sumber harga', width: 1 },
+      { key: 'hargaBeli', label: 'Harga beli', width: 1.2, align: 'right' },
+      { key: 'hargaJual', label: 'Harga jual', width: 1.2, align: 'right' },
+      // Tanpa kolom ini, berkas ekspor tidak bisa menjawab "ini harga outlet
+      // mana" — dan dua ekspor dari dua outlet jadi tidak bisa dibedakan isinya.
+      { key: 'sumberHarga', label: 'Sumber harga', width: 1.4 },
       { key: 'status', label: 'Status', width: 0.8 }
     ];
   }
@@ -419,16 +465,20 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
    */
   function barisEkspor() {
     return tersaring().map((s) => {
-      const harga = hargaBerlaku(s, state.outletHarga);
-      const khusus = state.outletHarga && hargaOutlet.get(s.id)?.has(state.outletHarga);
+      const beli = hargaBerlaku(s, state.outletHarga, 'beli');
+      const jual = hargaBerlaku(s, state.outletHarga, 'jual');
+      const sumber = [];
+      if (adaKhusus(s, state.outletHarga, 'beli')) sumber.push('beli: khusus outlet');
+      if (adaKhusus(s, state.outletHarga, 'jual')) sumber.push('jual: khusus outlet');
       return {
         sku: s.sku,
         name: s.name,
         jenis: s.jenis === 'jasa' ? 'Jasa' : 'Sparepart',
         kategori: s.kategori ?? '',
         merek: s.merek ?? '',
-        harga: harga === null || harga === undefined ? '' : Number(harga),
-        sumberHarga: harga === null || harga === undefined ? 'belum diisi' : khusus ? 'khusus outlet' : 'harga dasar BU',
+        hargaBeli: beli === null ? '' : Number(beli),
+        hargaJual: jual === null ? '' : Number(jual),
+        sumberHarga: sumber.length ? sumber.join(', ') : 'harga BU',
         status: s.is_active === false ? 'Nonaktif' : 'Aktif'
       };
     });
@@ -466,7 +516,11 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
       title: 'Master Sparepart & Jasa',
       subtitle: `${rows.length} baris — ${keteranganSaringan()}`,
       columns: kolomEkspor(),
-      rows: rows.map((r) => ({ ...r, harga: r.harga === '' ? '—' : formatRupiah(r.harga) }))
+      rows: rows.map((r) => ({
+        ...r,
+        hargaBeli: r.hargaBeli === '' ? '—' : formatRupiah(r.hargaBeli),
+        hargaJual: r.hargaJual === '' ? '—' : formatRupiah(r.hargaJual)
+      }))
     });
   }
 }

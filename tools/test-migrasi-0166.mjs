@@ -102,7 +102,16 @@ await db.exec(`
 
 const SQL = fs.readFileSync(path.join(AKAR, 'supabase/migrations/0166_sparepart_dan_penjualan_bengkel.sql'), 'utf8');
 await db.exec(SQL.replace(/notify pgrst[^;]*;/g, ''));
-console.log('  0166 terpasang.');
+
+// 0167 DIPASANG DI ATAS 0166, bukan menggantikannya.
+//
+// Itu bentuk yang sebenarnya dijalankan di Supabase: 0166 sudah terlanjur
+// jalan di database sungguhan. Menguji 0167 sendirian akan menguji migrasi
+// yang tidak pernah ada — dan melewatkan satu-satunya bagian yang berisiko,
+// yaitu perpindahan `harga_jual` jadi `harga_jual`.
+const SQL167 = fs.readFileSync(path.join(AKAR, 'supabase/migrations/0167_sparepart_harga_beli_dan_jual.sql'), 'utf8');
+await db.exec(SQL167.replace(/notify pgrst[^;]*;/g, ''));
+console.log('  0166 + 0167 terpasang.');
 
 // ---------------------------------------------------------------
 const BENGKEL = (await satu(`insert into business_units (name, type) values ('Otonix Bengkel','workshop') returning id`)).id;
@@ -140,7 +149,7 @@ const ambilSku = (bu, sku) =>
 console.log('\n§1 SKU unik per BU, dan dinormalkan');
 // ===============================================================
 await q(
-  `insert into spareparts (business_unit_id, sku, name, harga_dasar) values ($1,'555.LTR.BZ120','RACK END 555',455000)`,
+  `insert into spareparts (business_unit_id, sku, name, harga_jual) values ($1,'555.LTR.BZ120','RACK END 555',455000)`,
   [BENGKEL]
 );
 
@@ -170,7 +179,7 @@ const eJenis = await galat(() =>
 benar('§1 jenis selain sparepart/jasa ditolak', /check|violat/i.test(eJenis ?? ''), eJenis ?? 'malah masuk');
 
 const eHarga = await galat(() =>
-  q(`insert into spareparts (business_unit_id, sku, name, harga_dasar) values ($1,'X2','X',-1)`, [BENGKEL])
+  q(`insert into spareparts (business_unit_id, sku, name, harga_jual) values ($1,'X2','X',-1)`, [BENGKEL])
 );
 benar('§1 harga negatif ditolak', /check|violat/i.test(eHarga ?? ''), eHarga ?? 'malah masuk');
 
@@ -208,8 +217,8 @@ console.log('\n§3 Impor: mana yang baru, mana yang ditimpa');
 // ===============================================================
 const h1 = (
   await impor(BENGKEL, [
-    { sku: '555.LTR.BZ120', name: 'RACK END 555 45503-BZ120 L/R', kategori: 'PART RODA', merek: '555 JP', harga: 455000 },
-    { sku: 'OLI.SHELL.10W40', name: 'SHELL HELIX HX5 10W-40', kategori: 'OLI', merek: 'SHELL', harga: 95000 }
+    { sku: '555.LTR.BZ120', name: 'RACK END 555 45503-BZ120 L/R', kategori: 'PART RODA', merek: '555 JP', harga_jual: 455000, harga_beli: 350000 },
+    { sku: 'OLI.SHELL.10W40', name: 'SHELL HELIX HX5 10W-40', kategori: 'OLI', merek: 'SHELL', harga_jual: 95000, harga_beli: 70000 }
   ])
 ).h;
 cek('§3 impor pertama semuanya baru [baru,diperbarui,dilewati]', hitungan(h1), [2, 0, 0]);
@@ -219,8 +228,8 @@ cek('§3 impor pertama semuanya baru [baru,diperbarui,dilewati]', hitungan(h1), 
 // tidak dinormalkan, ini jadi baris KEDUA, dan dua harga hidup bersamaan.
 const h2 = (
   await impor(BENGKEL, [
-    { sku: ' 555.ltr.bz120 ', name: 'RACK END 555 (NAMA BARU)', kategori: 'PART KAKI-KAKI', merek: '555 JP', harga: 475000 },
-    { sku: 'BAN.GT.18565', name: 'GT RADIAL 185/65 R15', kategori: 'BAN', merek: 'GT', harga: 720000 }
+    { sku: ' 555.ltr.bz120 ', name: 'RACK END 555 (NAMA BARU)', kategori: 'PART KAKI-KAKI', merek: '555 JP', harga_jual: 475000 },
+    { sku: 'BAN.GT.18565', name: 'GT RADIAL 185/65 R15', kategori: 'BAN', merek: 'GT', harga_jual: 720000 }
   ])
 ).h;
 cek('§3 impor kedua: satu ditimpa, satu baru', hitungan(h2), [1, 1, 0]);
@@ -229,7 +238,7 @@ cek('§3 total baris tetap 3, tidak ada double SKU', Number((await satu(`select 
 const rack = await ambilSku(BENGKEL, '555.LTR.BZ120');
 cek('§3 nama lama tertimpa nama baru', rack.name, 'RACK END 555 (NAMA BARU)');
 cek('§3 kategori ikut tertimpa', rack.kategori, 'PART KAKI-KAKI');
-cek('§3 harga ikut tertimpa', Number(rack.harga_dasar), 475000);
+cek('§3 harga ikut tertimpa', Number(rack.harga_jual), 475000);
 cek('§3 SKU disimpan sudah ternormalkan', rack.sku, '555.LTR.BZ120');
 benar('§3 penanda asal impor terpasang', rack.dari_impor === true);
 benar('§3 jejak siapa yang memperbarui tersimpan', rack.diperbarui_by === ADMIN, String(rack.diperbarui_by));
@@ -241,40 +250,40 @@ console.log('\n§4 Impor TIDAK boleh merusak yang sudah benar');
 // (a) Kolom harga KOSONG di berkas. "Tidak disebut", bukan "gratis".
 await impor(BENGKEL, [{ sku: 'OLI.SHELL.10W40', name: 'SHELL HELIX HX5 10W-40', kategori: 'OLI' }]);
 const oli = await ambilSku(BENGKEL, 'OLI.SHELL.10W40');
-cek('§4a harga kosong TIDAK menghapus harga lama', Number(oli.harga_dasar), 95000);
+cek('§4a harga kosong TIDAK menghapus harga lama', Number(oli.harga_jual), 95000);
 
-await impor(BENGKEL, [{ sku: 'OLI.SHELL.10W40', name: 'SHELL HELIX HX5 10W-40', harga: '' }]);
+await impor(BENGKEL, [{ sku: 'OLI.SHELL.10W40', name: 'SHELL HELIX HX5 10W-40', harga_jual: '' }]);
 cek(
   '§4a harga string kosong juga TIDAK menghapus',
-  Number((await ambilSku(BENGKEL, 'OLI.SHELL.10W40')).harga_dasar),
+  Number((await ambilSku(BENGKEL, 'OLI.SHELL.10W40')).harga_jual),
   95000
 );
 
 // (b) Sparepart yang SENGAJA dinonaktifkan admin. Berkas ESB masih memuatnya
 //     karena ESB tidak tahu keputusan itu.
 await q(`update spareparts set is_active = false where business_unit_id = $1 and sku = 'BAN.GT.18565'`, [BENGKEL]);
-await impor(BENGKEL, [{ sku: 'BAN.GT.18565', name: 'GT RADIAL 185/65 R15', harga: 740000 }]);
+await impor(BENGKEL, [{ sku: 'BAN.GT.18565', name: 'GT RADIAL 185/65 R15', harga_jual: 740000 }]);
 const ban = await ambilSku(BENGKEL, 'BAN.GT.18565');
 benar('§4b yang dinonaktifkan tetap nonaktif sesudah impor', ban.is_active === false);
-cek('§4b tapi harganya tetap ikut diperbarui', Number(ban.harga_dasar), 740000);
+cek('§4b tapi harganya tetap ikut diperbarui', Number(ban.harga_jual), 740000);
 
 // (c) Jasa yang diketik admin sendiri. Berkas ESB TIDAK memuat satu pun jasa
 //     (dibuktikan dari berkas sungguhan: 0 baris jasa), jadi impor yang
 //     "membersihkan yang tidak ada di berkas" akan menghapus seluruh daftar
 //     jasa tanpa ada yang menyadarinya.
 await q(
-  `insert into spareparts (business_unit_id, sku, name, jenis, harga_dasar, dibuat_by)
+  `insert into spareparts (business_unit_id, sku, name, jenis, harga_jual, dibuat_by)
    values ($1,'JASA.TUNE','Tune Up Mesin','jasa',350000,$2)`,
   [BENGKEL, ADMIN]
 );
 await impor(BENGKEL, [
-  { sku: '555.LTR.BZ120', name: 'RACK END 555', harga: 480000 },
-  { sku: 'OLI.SHELL.10W40', name: 'SHELL HELIX HX5 10W-40', harga: 99000 }
+  { sku: '555.LTR.BZ120', name: 'RACK END 555', harga_jual: 480000 },
+  { sku: 'OLI.SHELL.10W40', name: 'SHELL HELIX HX5 10W-40', harga_jual: 99000 }
 ]);
 const jasa = await ambilSku(BENGKEL, 'JASA.TUNE');
 benar('§4c jasa manual TIDAK hilang sesudah impor', !!jasa, 'jasa terhapus oleh impor');
 cek('§4c jasa manual tetap jenis jasa', jasa?.jenis, 'jasa');
-cek('§4c harga jasa manual utuh', Number(jasa?.harga_dasar), 350000);
+cek('§4c harga jasa manual utuh', Number(jasa?.harga_jual), 350000);
 benar('§4c jasa manual tidak dicap sebagai hasil impor', jasa?.dari_impor === false);
 
 // (d) JENIS yang sudah dibetulkan admin tidak dikembalikan oleh impor.
@@ -285,20 +294,20 @@ benar('§4c jasa manual tidak dicap sebagai hasil impor', jasa?.dari_impor === f
 // atasnya, karena yang dibetulkan akan kembali salah tanpa galat dan tanpa
 // jejak, dan orang yang membetulkannya tidak akan tahu.
 await q(`update spareparts set jenis = 'jasa' where business_unit_id = $1 and sku = '555.LTR.BZ120'`, [BENGKEL]);
-await impor(BENGKEL, [{ sku: '555.LTR.BZ120', name: 'RACK END 555', jenis: 'sparepart', harga: 480000 }]);
+await impor(BENGKEL, [{ sku: '555.LTR.BZ120', name: 'RACK END 555', jenis: 'sparepart', harga_jual: 480000 }]);
 cek('§4d jenis yang dibetulkan admin TIDAK ditimpa impor', (await ambilSku(BENGKEL, '555.LTR.BZ120')).jenis, 'jasa');
 cek(
   '§4d tapi harga & nama tetap ikut diperbarui',
-  Number((await ambilSku(BENGKEL, '555.LTR.BZ120')).harga_dasar),
+  Number((await ambilSku(BENGKEL, '555.LTR.BZ120')).harga_jual),
   480000
 );
 await q(`update spareparts set jenis = 'sparepart' where business_unit_id = $1 and sku = '555.LTR.BZ120'`, [BENGKEL]);
 
 // (e) Impor tidak merembes ke BU lain.
-await impor(BENGKEL2, [{ sku: '555.LTR.BZ120', name: 'PUNYA BENGKEL DUA', harga: 1 }], ORANG_LUAR);
+await impor(BENGKEL2, [{ sku: '555.LTR.BZ120', name: 'PUNYA BENGKEL DUA', harga_jual: 1 }], ORANG_LUAR);
 cek(
   '§4e impor BU lain tidak mengubah BU pertama',
-  Number((await ambilSku(BENGKEL, '555.LTR.BZ120')).harga_dasar),
+  Number((await ambilSku(BENGKEL, '555.LTR.BZ120')).harga_jual),
   480000
 );
 
@@ -311,18 +320,18 @@ console.log('\n§5 Baris cacat dilewati, bukan menggagalkan seluruh berkas');
 // DILAPORKAN jumlahnya, supaya orang tahu ada yang tidak masuk.
 const h5 = (
   await impor(BENGKEL, [
-    { sku: 'BARU.1', name: 'Barang Baru Satu', harga: 10000 },
-    { sku: '', name: 'Tanpa SKU', harga: 5000 },
-    { sku: '   ', name: 'SKU cuma spasi', harga: 5000 },
-    { sku: 'BARU.2', name: '', harga: 5000 },
-    { sku: 'BARU.3', name: '   ', harga: 5000 },
-    { sku: 'BARU.4', name: 'Barang Baru Empat', harga: -99 },
-    { sku: 'BARU.5', name: 'Jenis ngawur', jenis: 'bahan', harga: 1000 }
+    { sku: 'BARU.1', name: 'Barang Baru Satu', harga_jual: 10000 },
+    { sku: '', name: 'Tanpa SKU', harga_jual: 5000 },
+    { sku: '   ', name: 'SKU cuma spasi', harga_jual: 5000 },
+    { sku: 'BARU.2', name: '', harga_jual: 5000 },
+    { sku: 'BARU.3', name: '   ', harga_jual: 5000 },
+    { sku: 'BARU.4', name: 'Barang Baru Empat', harga_jual: -99 },
+    { sku: 'BARU.5', name: 'Jenis ngawur', jenis: 'bahan', harga_jual: 1000 }
   ])
 ).h;
 cek('§5 cacat dilewati dan dilaporkan', hitungan(h5), [3, 0, 4]);
 benar('§5 baris tanpa SKU tidak masuk', !(await ambilSku(BENGKEL, 'BARU.2')));
-cek('§5 harga negatif jadi kosong, bukan negatif', (await ambilSku(BENGKEL, 'BARU.4')).harga_dasar, null);
+cek('§5 harga negatif jadi kosong, bukan negatif', (await ambilSku(BENGKEL, 'BARU.4')).harga_jual, null);
 cek('§5 jenis ngawur jadi sparepart, bukan gagal', (await ambilSku(BENGKEL, 'BARU.5')).jenis, 'sparepart');
 
 // ===============================================================
@@ -455,27 +464,27 @@ benar('§7 hapus oleh admin tanpa galat', eAdminHapus === null, String(eAdminHap
 console.log('\n§8 Harga per outlet');
 // ===============================================================
 const idOli = (await ambilSku(BENGKEL, 'OLI.SHELL.10W40')).id;
-await q(`insert into sparepart_outlet_prices (sparepart_id, outlet_id, harga) values ($1,$2,110000)`, [idOli, DEPOK]);
+await q(`insert into sparepart_outlet_prices (sparepart_id, outlet_id, harga_jual) values ($1,$2,110000)`, [idOli, DEPOK]);
 
 const ePasangan = await galat(() =>
-  q(`insert into sparepart_outlet_prices (sparepart_id, outlet_id, harga) values ($1,$2,120000)`, [idOli, DEPOK])
+  q(`insert into sparepart_outlet_prices (sparepart_id, outlet_id, harga_jual) values ($1,$2,120000)`, [idOli, DEPOK])
 );
 benar('§8 dua harga untuk satu pasangan ditolak', /unique|duplicate/i.test(ePasangan ?? ''), ePasangan ?? 'malah masuk');
 
 const eOutletKedua = await galat(() =>
-  q(`insert into sparepart_outlet_prices (sparepart_id, outlet_id, harga) values ($1,$2,105000)`, [idOli, BOGOR])
+  q(`insert into sparepart_outlet_prices (sparepart_id, outlet_id, harga_jual) values ($1,$2,105000)`, [idOli, BOGOR])
 );
 cek('§8 outlet kedua boleh harga sendiri', eOutletKedua, null);
 
 // Impor memperbarui harga DASAR; harga outlet yang sudah ditetapkan tidak
 // boleh ikut tergeser, karena itu keputusan outlet, bukan isi berkas.
-await impor(BENGKEL, [{ sku: 'OLI.SHELL.10W40', name: 'SHELL HELIX HX5 10W-40', harga: 130000 }]);
+await impor(BENGKEL, [{ sku: 'OLI.SHELL.10W40', name: 'SHELL HELIX HX5 10W-40', harga_jual: 130000 }]);
 cek(
   '§8 impor tidak menggeser harga outlet',
-  Number((await satu(`select harga from sparepart_outlet_prices where sparepart_id=$1 and outlet_id=$2`, [idOli, DEPOK])).harga),
+  Number((await satu(`select harga_jual from sparepart_outlet_prices where sparepart_id=$1 and outlet_id=$2`, [idOli, DEPOK])).harga_jual),
   110000
 );
-cek('§8 tapi harga dasar ikut diperbarui', Number((await ambilSku(BENGKEL, 'OLI.SHELL.10W40')).harga_dasar), 130000);
+cek('§8 tapi harga dasar ikut diperbarui', Number((await ambilSku(BENGKEL, 'OLI.SHELL.10W40')).harga_jual), 130000);
 
 // Sparepart dihapus → harga outletnya ikut, tidak jadi baris menggantung.
 await q(`delete from spareparts where id = $1`, [idOli]);
@@ -486,14 +495,74 @@ cek(
 );
 
 // ===============================================================
-console.log('\n§9 Dijalankan ulang');
+console.log('\n§9 0167: DUA harga, sekali impor');
+// ===============================================================
+
+// ============ YANG DIPERBAIKI 0167 ============
+//
+// 0166 menyimpan SATU harga dan menyuruh orang memilih kolomnya. Salah pilih
+// sekali menimpa seluruh harga jual dengan harga beli — 1.926 baris, tanpa
+// galat, dan tidak ada apa pun di dalam datanya yang bisa dipakai membedakan
+// mana yang benar sesudahnya.
+const h9 = (
+  await impor(BENGKEL, [
+    { sku: 'DUA.HARGA', name: 'Kampas Rem Depan', kategori: 'PART REM', harga_beli: 120000, harga_jual: 185000 }
+  ])
+).h;
+cek('§9 satu baris baru', hitungan(h9), [1, 0, 0]);
+const dua = await ambilSku(BENGKEL, 'DUA.HARGA');
+cek('§9 harga beli masuk', Number(dua.harga_beli), 120000);
+cek('§9 harga jual masuk', Number(dua.harga_jual), 185000);
+benar('§9 dan keduanya tidak tertukar', Number(dua.harga_beli) < Number(dua.harga_jual));
+
+// Impor berikutnya menyebut harga jual saja. Harga BELI yang sudah benar
+// tidak boleh ikut terhapus — sel yang tidak disebut berarti "tidak disebut".
+await impor(BENGKEL, [{ sku: 'DUA.HARGA', name: 'Kampas Rem Depan', harga_jual: 195000 }]);
+const dua2 = await ambilSku(BENGKEL, 'DUA.HARGA');
+cek('§9 harga jual diperbarui', Number(dua2.harga_jual), 195000);
+cek('§9 harga beli TIDAK ikut terhapus', Number(dua2.harga_beli), 120000);
+
+// Dan sebaliknya.
+await impor(BENGKEL, [{ sku: 'DUA.HARGA', name: 'Kampas Rem Depan', harga_beli: 125000 }]);
+const dua3 = await ambilSku(BENGKEL, 'DUA.HARGA');
+cek('§9 harga beli diperbarui', Number(dua3.harga_beli), 125000);
+cek('§9 harga jual TIDAK ikut terhapus', Number(dua3.harga_jual), 195000);
+
+// Harga negatif di salah satu kolom tidak boleh menjatuhkan kolom sebelahnya.
+await impor(BENGKEL, [{ sku: 'DUA.HARGA', name: 'Kampas Rem Depan', harga_beli: -1, harga_jual: 200000 }]);
+const dua4 = await ambilSku(BENGKEL, 'DUA.HARGA');
+cek('§9 harga jual tetap masuk walau harga beli ngawur', Number(dua4.harga_jual), 200000);
+cek('§9 harga beli ngawur tidak merusak yang lama', Number(dua4.harga_beli), 125000);
+
+// Harga per outlet juga dua, dan boleh salah satu saja: outlet yang cuma
+// berbeda harga jualnya tidak boleh dipaksa mengarang harga beli.
+const idDua = dua4.id;
+const eJualSaja = await galat(() =>
+  q(`insert into sparepart_outlet_prices (sparepart_id, outlet_id, harga_jual) values ($1,$2,210000)`, [idDua, BOGOR])
+);
+cek('§9 harga outlet boleh berisi harga jual saja', eJualSaja, null);
+cek(
+  '§9 harga belinya null, bukan nol',
+  (await satu(`select harga_beli from sparepart_outlet_prices where sparepart_id=$1 and outlet_id=$2`, [idDua, BOGOR]))
+    .harga_beli,
+  null
+);
+
+// ===============================================================
+console.log('\n§10 Dijalankan ulang');
 // ===============================================================
 const sebelum = Number((await satu(`select count(*) c from spareparts`)).c);
-const eUlang = await galat(() => db.exec(SQL.replace(/notify pgrst[^;]*;/g, '')));
-cek('§9 migrasi bisa dijalankan dua kali', eUlang, null);
-cek('§9 data tidak hilang saat dijalankan ulang', Number((await satu(`select count(*) c from spareparts`)).c), sebelum);
+const eUlang = await galat(async () => {
+  await db.exec(SQL.replace(/notify pgrst[^;]*;/g, ''));
+  // 0167 juga, berurutan — itu yang terjadi kalau seseorang menjalankan
+  // ulang seluruh folder migrasi. Perpindahan `harga_dasar` -> `harga_jual`
+  // harus tahan dijalankan dua kali; `rename column` tidak punya IF EXISTS.
+  await db.exec(SQL167.replace(/notify pgrst[^;]*;/g, ''));
+});
+cek('§10 migrasi bisa dijalankan dua kali', eUlang, null);
+cek('§10 data tidak hilang saat dijalankan ulang', Number((await satu(`select count(*) c from spareparts`)).c), sebelum);
 cek(
-  '§9 modul tidak terduplikasi',
+  '§10 modul tidak terduplikasi',
   Number((await satu(`select count(*) c from modules where code = 'sparepart'`)).c),
   1
 );

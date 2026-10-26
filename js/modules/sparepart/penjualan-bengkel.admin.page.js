@@ -25,7 +25,19 @@ export async function renderPenjualanBengkelAdminPage(container, { businessUnitI
     data: { user }
   } = await supabase.auth.getUser();
 
-  await muat();
+  // ============ `muat()` DIPANGGIL PALING BAWAH, BUKAN DI SINI ============
+  //
+  // `muat()` memanggil `gambar()`, yang memanggil `tersaring()` — dan
+  // `tersaring` adalah `const`, bukan `function`. `const` TIDAK terangkat:
+  // memanggilnya sebelum barisnya dijalankan melempar ReferenceError.
+  //
+  // Yang terjadi di layar persis seperti yang dilaporkan: spinner "Memuat
+  // penjualan bengkel…" berputar selamanya, TANPA pesan galat. Lemparannya
+  // keluar dari `gambar()` yang berada di luar `try`, jadi tidak ada yang
+  // menggantinya dengan teks kesalahan — satu-satunya jejaknya cuma baris
+  // merah di console yang tidak dibuka siapa pun.
+  //
+  // Lihat pemanggilan `muat()` di baris terakhir fungsi ini.
 
   async function muat() {
     container.innerHTML = loadingHtml('Memuat penjualan bengkel…');
@@ -285,4 +297,7 @@ export async function renderPenjualanBengkelAdminPage(container, { businessUnitI
       }))
     });
   }
+
+  // Semua `const` di atas sudah terinisialisasi pada titik ini.
+  await muat();
 }
