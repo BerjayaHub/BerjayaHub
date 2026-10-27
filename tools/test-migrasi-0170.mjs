@@ -132,11 +132,12 @@ for (const f of [
   '0168_aset_master_bu_dan_kode.sql',
   '0169_aset_pindah_dan_izin_hapus.sql',
   '0170_kerusakan_aset_dan_riwayat.sql',
-  '0171_foto_acuan_item_aset.sql'
+  '0171_foto_acuan_item_aset.sql',
+  '0172_kategori_wajib_dan_hapus_item_aset.sql'
 ]) {
   await db.exec(fs.readFileSync(path.join(AKAR, 'supabase/migrations', f), 'utf8').replace(/notify pgrst[^;]*;/g, ''));
 }
-console.log('  0168 + 0169 + 0170 + 0171 terpasang.');
+console.log('  0168 … 0172 terpasang.');
 
 const PIRING = (await satu(`select id from asset_items where name = 'Piring Ayam'`)).id;
 const qtyDi = async (outlet) =>
@@ -202,7 +203,7 @@ benar('§2 jenis tak dikenal ditolak', /tidak dikenal/.test(eJenis ?? ''), eJeni
 
 // Barang yang BELUM DIDATA di outlet itu tidak punya jumlah untuk dikurangi.
 const LAIN = (await satu(
-  `insert into asset_items (business_unit_id, kode, name) values ($1,'Z001','Barang Belum Didata') returning id`,
+  `insert into asset_items (business_unit_id, kode, name, category) values ($1,'Z001','Barang Belum Didata','Belum dikategorikan') returning id`,
   [BU]
 )).id;
 const eBelum = await galat(() => rusak({ item: LAIN }));
@@ -409,6 +410,121 @@ cek(
   (await satu(`select photo_path from asset_items where id=$1`, [PIRING])).photo_path,
   null
 );
+
+// ===============================================================
+console.log('§9 Kategori wajib (0172)');
+// ===============================================================
+
+// Item lama yang kategorinya kosong diberi nama yang MENGATAKAN keadaannya —
+// bukan ditebak isinya. Mengarang kategori untuknya menyembunyikan pekerjaan
+// yang belum selesai di balik data yang terlihat rapi.
+// Baris aset lama yang kategorinya KOSONG (dibuat sebelum migrasinya) ikut
+// terbawa backfill. Dibuat di sini dengan tangan karena fixture di atas
+// seluruhnya berkategori.
+cek(
+  '§9 tidak ada lagi item berkategori kosong',
+  Number((await satu(`select count(*)::int c from asset_items where btrim(coalesce(category,'')) = ''`)).c),
+  0
+);
+
+// Kolomnya sendiri menolak kosong — kalau penjaganya cuma layar, jalur lain
+// (impor, perbaikan manual, layar yang ditulis nanti) akan melewatinya.
+const eKatKosong = await galat(() =>
+  q(`insert into asset_items (business_unit_id, kode, name, category) values ($1,'QQ1','X','  ')`, [BU])
+);
+benar('§9 kategori berisi spasi ditolak kolomnya', /check|violat/i.test(eKatKosong ?? ''), eKatKosong ?? 'malah masuk');
+const eKatNull = await galat(() =>
+  q(`insert into asset_items (business_unit_id, kode, name, category) values ($1,'QQ2','X',null)`, [BU])
+);
+benar('§9 kategori null ditolak kolomnya', /null/i.test(eKatNull ?? ''), eKatNull ?? 'malah masuk');
+
+await sebagai(ADMIN);
+const eRpcKat = await galat(() => q(`select tambah_item_aset($1,'Barang Baru','   ',null)`, [BU]));
+benar('§9 RPC menolak kategori kosong dengan pesan yang bisa dikerjakan', /Kategori wajib/.test(eRpcKat ?? ''), eRpcKat ?? 'malah jalan');
+
+// Kategori tetap bisa DITAMBAH dengan mengetik nama baru — tidak ada langkah
+// "buat kategori dulu" yang harus dikerjakan admin sebelum staff mencatat.
+const itemBaru = (await satu(`select tambah_item_aset($1,'Rak Gudang','Gudang Baru',null) as h`, [BU])).h;
+benar('§9 kategori baru langsung bisa dipakai', itemBaru.baru === true);
+benar('§9 dan dapat prefixnya sendiri', /^G/.test(itemBaru.kode), itemBaru.kode);
+
+// ===============================================================
+console.log('§10 Hapus item dari seluruh BU (0172)');
+// ===============================================================
+const HAPUS = (await satu(`select tambah_item_aset($1,'Botol Kriss','Bar',null) as h`, [BU])).h;
+await q(`insert into asset_stock (asset_item_id, outlet_id, qty) values ($1,$2,3),($1,$3,2)`, [HAPUS.id, A, B]);
+
+// ============ TAHU DULU APA YANG HILANG ============
+//
+// Konfirmasi yang cuma berbunyi "yakin?" tidak memberi tahu apa pun, dan yang
+// menekannya baru tahu isinya sesudah tidak ada lagi.
+const dampak = (await satu(`select dampak_hapus_item_aset($1) as h`, [HAPUS.id])).h;
+cek('§10 total unit yang akan hilang', Number(dampak.total_unit), 5);
+cek('§10 jumlah outlet yang masih berisi', Number(dampak.outlet_berisi), 2);
+cek('§10 rincian per outlet ikut disebut', dampak.outlet.length, 2);
+
+await sebagai(STAFF);
+const eStaffHapus = await galat(() => q(`select hapus_item_aset($1,'duplikat')`, [HAPUS.id]));
+benar('§10 staff tidak boleh menghapus item', /Admin BU/.test(eStaffHapus ?? ''), eStaffHapus ?? 'malah jalan');
+
+await sebagai(ADMIN);
+const eHapusTanpaAlasan = await galat(() => q(`select hapus_item_aset($1,'   ')`, [HAPUS.id]));
+// Barang yang hilang dari daftar tanpa keterangan akan dicari orang
+// berminggu-minggu kemudian, dan satu-satunya yang tahu sudah lupa.
+benar('§10 alasan wajib diisi', /Alasan penghapusan wajib/.test(eHapusTanpaAlasan ?? ''), eHapusTanpaAlasan ?? 'malah jalan');
+
+const hasilHapus = (await satu(`select hapus_item_aset($1,'duplikat dari Botol kris') as h`, [HAPUS.id])).h;
+cek('§10 melaporkan berapa unit yang hilang', Number(hasilHapus.unit_hilang), 5);
+cek('§10 itemnya terhapus', Number((await satu(`select count(*)::int c from asset_items where id=$1`, [HAPUS.id])).c), 0);
+cek('§10 stoknya ikut terhapus', Number((await satu(`select count(*)::int c from asset_stock where asset_item_id=$1`, [HAPUS.id])).c), 0);
+
+// ============ RIWAYATNYA TIDAK IKUT HILANG ============
+//
+// 0170 memakai `on delete cascade`: menghapus item ikut menghapus SELURUH
+// riwayatnya — termasuk catatan "siapa menghapus apa", yang justru paling
+// dicari sesudah barang hilang dari daftar.
+const logHapus = await satu(`select * from asset_log where aksi='hapus-item' and item_nama='Botol Kriss'`);
+benar('§10 baris riwayatnya selamat', !!logHapus);
+cek('§10 penunjuk itemnya memang jadi null', logHapus?.asset_item_id, null);
+cek('§10 TAPI kode & namanya masih terbaca', [logHapus?.item_kode, logHapus?.item_nama], [HAPUS.kode, 'Botol Kriss']);
+cek('§10 beserta alasannya', logHapus?.catatan, 'duplikat dari Botol kris');
+cek('§10 dan siapa yang menghapus', logHapus?.oleh_nama, 'Pak Admin');
+// BU-nya ikut tersimpan — tanpa itu, baris ber-`asset_item_id` null akan
+// terbuka untuk SIAPA PUN oleh policy lama.
+cek('§10 BU-nya tersimpan supaya RLS masih punya pegangan', logHapus?.business_unit_id, BU);
+
+// ============ PENGHAPUSAN LANGSUNG JUGA HARUS TAHAN ============
+//
+// RLS mengizinkan Admin BU `delete from asset_items` tanpa lewat RPC — dan
+// cascade-nya memicu trigger yang menulis riwayat untuk item yang pada detik
+// itu sudah tidak ada. Dulu itu menggagalkan SELURUH penghapusan dengan pesan
+// tentang nama constraint, yang tidak berarti apa pun bagi yang menekannya.
+const LANGSUNG = (await satu(`select tambah_item_aset($1,'Dihapus Langsung','Bar',null) as h`, [BU])).h;
+await q(`insert into asset_stock (asset_item_id, outlet_id, qty) values ($1,$2,7)`, [LANGSUNG.id, A]);
+const eLangsungHapus = await galat(() => q(`delete from asset_items where id=$1`, [LANGSUNG.id]));
+cek('§10 hapus langsung tidak melempar galat FK', eLangsungHapus, null);
+
+// Barisnya ditulis trigger BEFORE DELETE, selagi kode & namanya masih bisa
+// dibaca — jadi penghapusan dari luar aplikasi pun tidak lenyap tanpa jejak.
+const logLangsung = await satu(`select * from asset_log where item_nama='Dihapus Langsung' and aksi='hapus-item'`);
+benar('§10 hapus langsung tetap tercatat', !!logLangsung);
+cek('§10 kode & namanya terbaca', [logLangsung?.item_kode, logLangsung?.item_nama], [LANGSUNG.kode, 'Dihapus Langsung']);
+cek('§10 jumlah yang hilang tercatat', logLangsung?.sebelum, '7');
+cek('§10 BU-nya terisi', logLangsung?.business_unit_id, BU);
+// Tidak ada alasan tertulis DIKATAKAN apa adanya — kosong terbaca seperti
+// alasan yang hilang, padahal memang tidak pernah ada.
+benar('§10 ketiadaan alasan dikatakan', /tanpa alasan tertulis/.test(logLangsung?.catatan ?? ''), logLangsung?.catatan);
+
+// Baris per-outletnya tetap ada, dengan BU dari outletnya.
+const logCascade = await satu(
+  `select * from asset_log where aksi='hapus' and outlet_id=$1 and sebelum='7'`, [A]
+);
+benar('§10 baris riwayat outletnya juga tertulis', !!logCascade);
+cek('§10 BU-nya tetap terisi dari outletnya', logCascade?.business_unit_id, BU);
+
+// Riwayat LAMA milik item yang masih hidup juga ikut terisi identitasnya.
+const logLama = await satu(`select item_kode, item_nama, business_unit_id from asset_log where asset_item_id=$1 limit 1`, [PIRING]);
+benar('§10 riwayat lama ikut diisi kode & nama itemnya', !!logLama?.item_kode && !!logLama?.business_unit_id);
 
 // ---------------------------------------------------------------
 console.log(`\n${gagal === 0 ? '✅' : '❌'} test-migrasi-0170: ${n - gagal}/${n} lulus`);

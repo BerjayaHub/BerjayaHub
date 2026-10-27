@@ -19,6 +19,9 @@
  * laporan yang diam-diam tidak lengkap — dan begitu saringan KEEMPAT
  * ditambahkan (Cari catatan), ketiganya harus diperbarui lagi, masing-masing.
  *
+ * Saringan KELIMA (Cari kode) ditambahkan di sini saja, dan ketiga tempat itu
+ * ikut benar tanpa disentuh. Itu seluruh gunanya berkas ini.
+ *
  * Tidak ada impor di berkas ini, supaya bisa diuji tanpa browser.
  */
 
@@ -33,7 +36,9 @@ const teks = (v) => (v === null || v === undefined ? '' : String(v).trim());
  * dibersihkan dulu.
  */
 export function adaSaringan(state) {
-  return Boolean(teks(state?.q) || teks(state?.catatan) || teks(state?.category) || teks(state?.condition));
+  return Boolean(
+    teks(state?.q) || teks(state?.kode) || teks(state?.catatan) || teks(state?.category) || teks(state?.condition)
+  );
 }
 
 /**
@@ -48,6 +53,7 @@ export function ringkasSaringan(state, labelKondisi = {}) {
   const kategori = teks(state?.category);
   const kondisi = teks(state?.condition);
   const q = teks(state?.q);
+  const kode = teks(state?.kode);
   const catatan = teks(state?.catatan);
 
   if (kategori) bagian.push(`Kategori: ${kategori}`);
@@ -55,6 +61,7 @@ export function ringkasSaringan(state, labelKondisi = {}) {
   // di subjudul jelek; subjudul yang diam-diam kehilangan satu saringan jauh
   // lebih buruk.
   if (kondisi) bagian.push(`Kondisi: ${labelKondisi[kondisi] ?? kondisi}`);
+  if (kode) bagian.push(`Kode: "${kode}"`);
   if (q) bagian.push(`Cari nama: "${q}"`);
   if (catatan) bagian.push(`Cari catatan: "${catatan}"`);
 

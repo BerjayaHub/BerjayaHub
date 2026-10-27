@@ -18,6 +18,8 @@ import {
   ubahItemAset,
   catatKerusakan,
   batalkanKerusakan,
+  dampakHapusItem,
+  hapusItemAset,
   listRiwayatAset,
   JENIS_KERUSAKAN_OPTIONS,
   bacaBerkasImporAset,
@@ -82,7 +84,7 @@ async function render(container, { businessUnitId }, isAdmin) {
     return;
   }
 
-  const state = { outletId: isAdmin ? '' : outlets[0].id, condition: '', category: '', q: '', catatan: '' };
+  const state = { outletId: isAdmin ? '' : outlets[0].id, condition: '', category: '', q: '', kode: '', catatan: '' };
   let rows = [];
   /** Kategori yang sudah dipakai di BU ini — sumber dropdown & pilihan form. */
   let kategori = await listKategoriAset(businessUnitId).catch(() => []);
@@ -119,6 +121,7 @@ async function render(container, { businessUnitId }, isAdmin) {
       <div class="field" style="margin:0;max-width:180px"><label>Kondisi</label>
         <select id="as-cond"><option value="">Semua</option>${ASSET_CONDITION_OPTIONS.map((c) => `<option value="${c.value}">${esc(c.label)}</option>`).join('')}</select>
       </div>
+      <div class="field" style="margin:0;max-width:150px"><label>Cari kode</label><input type="text" id="as-kode" placeholder="mis. B001 / B0" /></div>
       <div class="field" style="margin:0;max-width:220px"><label>Cari nama barang</label><input type="text" id="as-q" placeholder="mis. kursi" /></div>
       <div class="field" style="margin:0;max-width:220px"><label>Cari catatan</label><input type="text" id="as-note" placeholder="mis. pecah, hibah" /></div>
     </div>
@@ -151,6 +154,10 @@ async function render(container, { businessUnitId }, isAdmin) {
     clearTimeout(timer);
     timer = setTimeout(refresh, 300);
   };
+  container.querySelector('#as-kode').addEventListener('input', (e) => {
+    state.kode = e.target.value.trim();
+    tunda();
+  });
   container.querySelector('#as-q').addEventListener('input', (e) => {
     state.q = e.target.value.trim();
     tunda();
@@ -188,6 +195,7 @@ async function render(container, { businessUnitId }, isAdmin) {
         condition: state.condition,
         category: state.category,
         q: state.q,
+        kode: state.kode,
         catatan: state.catatan
       });
     } catch (error) {
@@ -271,6 +279,13 @@ async function render(container, { businessUnitId }, isAdmin) {
                       }
                       <button class="as-riwayat" data-item="${a.itemId}">Riwayat</button>
                       ${a.id ? `<button class="as-del" data-id="${a.id}">Hapus</button>` : ''}
+                      ${
+                        // Hapus item = hilang dari SEMUA outlet. Dipisah dari
+                        // tombol Hapus di sebelahnya — dua tindakan yang
+                        // akibatnya sejauh ini berbeda tidak boleh berbagi satu
+                        // tombol, apa pun bunyi konfirmasinya.
+                        isAdmin ? `<button class="as-del-item" data-item="${a.itemId}">Hapus item</button>` : ''
+                      }
                     </td>
                   </tr>`
                 )
@@ -341,6 +356,9 @@ async function render(container, { businessUnitId }, isAdmin) {
     // Dicari lewat `itemId`, bukan `id`: baris yang belum didata TIDAK punya
     // baris stok, jadi `id`-nya null dan pencarian lewat `id` akan membuka
     // form kosong untuk barang yang namanya sudah jelas.
+    list.querySelectorAll('.as-del-item').forEach((b) =>
+      b.addEventListener('click', sekaliJalan(() => dialogHapusItem(rows.find((a) => a.itemId === b.dataset.item))))
+    );
     list.querySelectorAll('.as-rusak').forEach((b) =>
       b.addEventListener('click', () => dialogKerusakan(rows.find((a) => a.itemId === b.dataset.item)))
     );
@@ -353,10 +371,24 @@ async function render(container, { businessUnitId }, isAdmin) {
     list.querySelectorAll('.as-del').forEach((b) =>
       b.addEventListener('click', sekaliJalan(async () => {
         const a = rows.find((x) => x.id === b.dataset.id);
+        // ============ PESANNYA DULU MENAKUTI LEBIH DARIPADA KENYATAANNYA ============
+        //
+        // Bunyinya "hilang permanen" — padahal sejak 0168 yang dihapus cuma
+        // baris outlet INI. Itemnya tetap milik BU, kodenya tetap, jumlah di
+        // outlet lain tidak tersentuh, dan barangnya muncul lagi di daftar
+        // outlet ini sebagai "belum didata".
+        //
+        // Konfirmasi yang melebih-lebihkan bukan sekadar tidak akurat: ia
+        // membuat orang takut menekan tombol yang sebenarnya aman, dan —
+        // lebih buruk — mengajari mereka bahwa peringatan di aplikasi ini
+        // boleh tidak dipercaya. Peringatan berikutnya yang BENAR-BENAR
+        // berbahaya lalu ikut dilewati.
         const ok = await confirmDialog({
-          title: `Hapus "${a.name}"?`,
-          message: 'Data aset ini akan hilang permanen beserta fotonya.',
-          confirmText: 'Hapus',
+          title: `Hapus "${a.name}" dari ${namaOutlet(a)}?`,
+          message:
+            `Jumlahnya (${formatNum(a.qty)}) dan fotonya di outlet ini dihapus, dan barangnya kembali jadi "belum didata". ` +
+            'Barang ini TETAP ada di daftar BU beserta kodenya, dan jumlah di outlet lain tidak berubah.',
+          confirmText: 'Hapus dari outlet ini',
           danger: true
         });
         if (!ok) return;
@@ -581,6 +613,83 @@ async function render(container, { businessUnitId }, isAdmin) {
     }
   }
 
+  /**
+   * Hapus item dari SELURUH BU.
+   *
+   * Dampaknya ditanyakan ke database DULU dan ditampilkan apa adanya.
+   * Konfirmasi yang cuma berbunyi "yakin?" tidak memberi tahu apa pun — dan
+   * yang menekannya baru tahu isinya sesudah tidak ada lagi.
+   */
+  async function dialogHapusItem(a) {
+    if (!a?.itemId) return;
+    let d;
+    try {
+      d = await dampakHapusItem(a.itemId);
+    } catch (error) {
+      return toast(error.message ?? 'Gagal memeriksa dampaknya.', 'error');
+    }
+
+    const perOutlet = Array.isArray(d.outlet) ? d.outlet : [];
+    const adaIsi = Number(d.total_unit) > 0;
+
+    const ok = await confirmDialog({
+      title: `Hapus item "${a.name}" dari SEMUA outlet?`,
+      messageHtml:
+        `<p style="margin:0 0 8px">Kode <strong>${esc(a.kode ?? '-')}</strong> ikut hilang dan tidak dipakai lagi.</p>` +
+        (perOutlet.length
+          ? `<p style="margin:0 0 4px">Yang tercatat sekarang:</p>
+             <ul style="margin:0 0 8px;padding-left:18px;font-size:0.85rem">
+               ${perOutlet.map((o) => `<li>${esc(o.outlet)}: <strong>${formatNum(o.qty)}</strong></li>`).join('')}
+             </ul>`
+          : '<p style="margin:0 0 8px;color:var(--color-text-muted)">Belum ada outlet yang mendatanya.</p>') +
+        (adaIsi
+          ? `<p style="margin:0 0 8px;color:var(--color-danger)"><strong>${formatNum(d.total_unit)} unit</strong> di
+             ${d.outlet_berisi} outlet akan hilang dari catatan. Barangnya mungkin MASIH ADA di gudang —
+             kalau yang kamu mau cuma menyatukan nama, batalkan dan pakai layar item kembar.</p>`
+          : '') +
+        (Number(d.kerusakan)
+          ? `<p style="margin:0 0 8px">${d.kerusakan} catatan kerusakan ikut terhapus.</p>`
+          : '') +
+        '<p style="margin:0;font-size:0.85rem;color:var(--color-text-muted)">Riwayatnya tetap tersimpan beserta kode &amp; namanya.</p>',
+      confirmText: 'Lanjut',
+      cancelText: 'Batal',
+      danger: true
+    });
+    if (!ok) return;
+
+    // Alasannya diminta TERPISAH, sesudah dampaknya dibaca.
+    //
+    // Digabung jadi satu dialog, kotak alasannya terisi sambil lalu sebelum
+    // angkanya sempat dibaca — dan alasan yang ditulis tanpa melihat apa yang
+    // hilang tidak menjelaskan apa pun bagi yang membacanya nanti.
+    const nilai = await formDialog({
+      title: 'Kenapa item ini dihapus?',
+      fields: [
+        {
+          name: 'alasan',
+          label: 'Alasan',
+          type: 'text',
+          required: true,
+          placeholder: 'mis. duplikat dari B012 Botol kris'
+        }
+      ],
+      submitText: 'Hapus item'
+    });
+    if (!nilai?.alasan?.trim()) return;
+
+    try {
+      const hasil = await hapusItemAset(a.itemId, nilai.alasan);
+      toast(
+        `"${hasil.nama}" (${hasil.kode}) dihapus dari semua outlet.` +
+          (Number(hasil.unit_hilang) ? ` ${formatNum(hasil.unit_hilang)} unit ikut hilang dari catatan.` : ''),
+        'success'
+      );
+      await refresh();
+    } catch (error) {
+      toast(error.message ?? 'Gagal menghapus item.', 'error');
+    }
+  }
+
   /** Riwayat satu barang: dari berapa jadi berapa, oleh siapa, kapan. */
   async function dialogRiwayat(a) {
     if (!a?.itemId) return;
@@ -643,11 +752,16 @@ async function render(container, { businessUnitId }, isAdmin) {
           name: 'category',
           label: 'Kategori',
           type: 'searchselect',
+          required: true,
           allowCreate: true,
           value: existing?.category ?? '',
           options: kategori.map((c) => ({ value: c, label: c })),
           placeholder: 'cari / ketik kategori baru…',
-          help: 'Ketik nama baru lalu pilih “+ Tambah …” untuk membuat kategori.'
+          // WAJIB sejak 0172: kategori menentukan huruf depan kode (Bar -> B001).
+          // Item tanpa kategori berkumpul di prefix cadangan — kodenya tetap
+          // unik, tapi berhenti memberi tahu apa pun, yang justru satu-satunya
+          // gunanya.
+          help: 'Wajib. Ketik nama baru lalu pilih “+ Tambah …” untuk membuat kategori.'
         },
         { name: 'qty', label: 'Jumlah', type: 'qty', required: true, value: existing?.qty ?? 1 },
         { name: 'size', label: 'Ukuran barang', type: 'text', value: existing?.size ?? '', placeholder: 'mis. 120x60 cm / 3 inci / L' },
@@ -690,6 +804,12 @@ async function render(container, { businessUnitId }, isAdmin) {
       }
     });
     if (!values) return;
+    // Dicegat di sini juga, bukan cuma `required` pada isiannya: `searchselect`
+    // bisa menyisakan teks yang diketik tanpa pernah dipilih, dan yang terkirim
+    // kosong — lolos tanpa satu pun peringatan.
+    if (!values.category?.trim()) {
+      return toast('Kategori wajib diisi. Pilih dari daftar, atau ketik kategori baru lalu pilih "+ Tambah".', 'warning');
+    }
     if (values.condition === 'lainnya' && !values.condition_note?.trim()) {
       return toast('Isi keterangan kondisinya dulu.', 'warning');
     }

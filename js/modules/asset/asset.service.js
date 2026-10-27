@@ -34,7 +34,7 @@ export function conditionText(a) {
  * jumlahnya. Dan `belumDidata` ada supaya "belum ada yang melihat" tidak
  * tertukar dengan "sudah dicek, memang tidak ada" — keduanya menampilkan 0.
  */
-export async function listAssets({ businessUnitId, outletId, condition, category, q, catatan, limit = 5000 }) {
+export async function listAssets({ businessUnitId, outletId, condition, category, q, kode, catatan, limit = 5000 }) {
   // Master item: selalu seluruhnya, tidak disaring server-side selain kategori.
   let qItem = supabase
     .from('asset_items')
@@ -43,6 +43,10 @@ export async function listAssets({ businessUnitId, outletId, condition, category
     .limit(limit);
   if (category) qItem = qItem.eq('category', category);
   if (q) qItem = qItem.ilike('name', `%${q}%`);
+  // Kode disaring di query ITEM, bukan di klien seperti kondisi & catatan:
+  // ia melekat pada itemnya, jadi baris "belum didata" pun ikut tersaring
+  // dengan benar — dan yang tidak cocok tidak perlu diangkut dulu.
+  if (kode) qItem = qItem.ilike('kode', `%${kode}%`);
   const { data: items, error: eItem } = await qItem;
   if (eItem) throw eItem;
 
@@ -565,4 +569,25 @@ export async function listRiwayatAset({ itemId, outletId, limit = 100 }) {
   const { data, error } = await q;
   if (error) throw error;
   return data ?? [];
+}
+
+/** Apa yang akan hilang kalau item ini dihapus — dipanggil SEBELUM menghapus. */
+export async function dampakHapusItem(itemId) {
+  const { data, error } = await supabase.rpc('dampak_hapus_item_aset', { p_item: itemId });
+  if (error) throw error;
+  return data ?? {};
+}
+
+/**
+ * Hapus item dari SELURUH outlet di BU ini.
+ *
+ * Jauh lebih besar daripada tombol Hapus di daftar satu outlet, yang cuma
+ * membuang baris outlet itu. Karena itu Admin BU saja, alasannya wajib, dan
+ * jejaknya tersimpan beserta kode + nama itemnya sebagai teks — sesudah ini
+ * itemnya tidak ada lagi di mana pun untuk dibaca.
+ */
+export async function hapusItemAset(itemId, alasan) {
+  const { data, error } = await supabase.rpc('hapus_item_aset', { p_item: itemId, p_alasan: alasan });
+  if (error) throw error;
+  return data ?? {};
 }

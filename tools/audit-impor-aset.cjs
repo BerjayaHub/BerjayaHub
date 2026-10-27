@@ -175,8 +175,17 @@ if (svc) {
   if (!/rows = rows\.filter\(\(r\) => String\(r\.notes \?\? ''\)\.toLowerCase\(\)\.includes\(k\)\);/.test(kode)) {
     salah('asset.service.js: filter Catatan tidak menyaring apa pun — kotaknya digambar, hasilnya tidak berubah.');
   }
-  if (!/listAssets\(\{ businessUnitId, outletId, condition, category, q, catatan, limit = \d+ \}\)/.test(kode)) {
-    salah('asset.service.js: `listAssets` tidak menerima `catatan` — nilainya dibuang sebelum sampai ke penyaring.');
+  if (!/listAssets\(\{ businessUnitId, outletId, condition, category, q, kode, catatan, limit = \d+ \}\)/.test(kode)) {
+    salah('asset.service.js: `listAssets` tidak menerima `catatan`/`kode` — nilainya dibuang sebelum sampai ke penyaring.');
+  }
+  // Saringan KODE sungguh sampai ke query itemnya.
+  //
+  // Kotak yang digambar tapi nilainya tidak pernah dipakai adalah kegagalan
+  // yang paling sulit dilihat: tidak ada galat, daftarnya tetap tampil, cuma
+  // tidak pernah menyempit — dan yang mengetiknya menyimpulkan barangnya tidak
+  // ada.
+  if (!/if \(kode\) qItem = qItem\.ilike\('kode', `%\$\{kode\}%`\);/.test(kode)) {
+    salah('asset.service.js: kotak Cari kode tidak menyaring apa pun — nilainya tidak pernah sampai ke query.');
   }
   // Kondisi ikut disaring di klien, dengan alasan yang sama. Baris yang belum
   // didata belum punya kondisi, dan ia TIDAK boleh ikut terhitung "normal".
@@ -255,6 +264,14 @@ if (hal) {
 const saring = baca('js/modules/asset/saringan-aset.js');
 if (saring) {
   const kode = bersih(saring, 'saringan-aset.js', ['export function ringkasSaringan']);
+  // Saringan Kode ikut dihitung & ikut disebut — kalau tidak, laporan hasil
+  // saringan terlihat lengkap bagi yang menerimanya.
+  if (!/teks\(state\?\.kode\)/.test(kode)) {
+    salah('saringan-aset.js: saringan Kode tidak dihitung sebagai saringan aktif.');
+  }
+  if (!/bagian\.push\(`Kode: "\$\{kode\}"`\)/.test(saring)) {
+    salah('saringan-aset.js: saringan Kode tidak disebut di subjudul laporan — laporan hasil saringan terlihat lengkap.');
+  }
   if (/outlet/i.test(kode.replace(/^[\s\S]*?export function adaSaringan/, ''))) {
     salah(
       'saringan-aset.js: outlet ikut dihitung sebagai saringan. Untuk staff ia SELALU terisi, jadi "Belum ada aset ' +

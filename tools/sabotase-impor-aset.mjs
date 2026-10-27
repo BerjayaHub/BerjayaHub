@@ -357,6 +357,35 @@ sabotase(
   AUDIT
 );
 
+// ============ SARINGAN YANG HILANG DARI SUBJUDUL ============
+//
+// Kegagalannya bukan galat: laporan tiga baris yang terlihat lengkap, dan
+// yang menerimanya tidak punya cara tahu ia melihat sebagian. Itu seluruh
+// alasan `saringan-aset.js` ada.
+sabotase(
+  'saringan Kode hilang dari subjudul laporan',
+  SARING,
+  '  if (kode) bagian.push(`Kode: "${kode}"`);',
+  '',
+  TES
+);
+sabotase(
+  'saringan Kode tidak dihitung sebagai saringan aktif',
+  SARING,
+  "    teks(state?.q) || teks(state?.kode) || teks(state?.catatan) || teks(state?.category) || teks(state?.condition)",
+  "    teks(state?.q) || teks(state?.catatan) || teks(state?.category) || teks(state?.condition)",
+  TES
+);
+// Dijaga AUDIT, bukan tes murni: tes murni tidak menyentuh Supabase sama
+// sekali, jadi ia tidak bisa tahu nilainya sampai ke query atau tidak.
+sabotase(
+  'kotak Cari kode digambar tapi nilainya tidak pernah dikirim',
+  SVC,
+  "  if (kode) qItem = qItem.ilike('kode', `%${kode}%`);",
+  '',
+  AUDIT
+);
+
 sabotase(
   'kotak Cari catatan digambar tapi tidak menyaring apa pun',
   SVC,
@@ -367,8 +396,8 @@ sabotase(
 sabotase(
   '`listAssets` membuang `catatan` sebelum sampai ke penyaring',
   SVC,
-  'export async function listAssets({ businessUnitId, outletId, condition, category, q, catatan, limit = 5000 }) {',
-  'export async function listAssets({ businessUnitId, outletId, condition, category, q, limit = 5000 }) {',
+  'export async function listAssets({ businessUnitId, outletId, condition, category, q, kode, catatan, limit = 5000 }) {',
+  'export async function listAssets({ businessUnitId, outletId, condition, category, q, kode, limit = 5000 }) {',
   AUDIT
 );
 // Baris yang BELUM DIDATA belum punya kondisi sama sekali. Membiarkannya lolos
@@ -405,8 +434,8 @@ sabotase(
 sabotase(
   'outlet ikut dihitung sebagai saringan — "Belum ada aset tercatat" tidak pernah muncul di Staff App',
   SARING,
-  "  return Boolean(teks(state?.q) || teks(state?.catatan) || teks(state?.category) || teks(state?.condition));",
-  '  return Boolean(teks(state?.outletId) || teks(state?.q) || teks(state?.catatan));',
+  "    teks(state?.q) || teks(state?.kode) || teks(state?.catatan) || teks(state?.category) || teks(state?.condition)",
+  '    teks(state?.outletId) || teks(state?.q) || teks(state?.catatan)',
   AUDIT
 );
 sabotase(

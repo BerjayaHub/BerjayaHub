@@ -36,6 +36,7 @@ import {
   nilaiSimpan,
   ringkasImpor
 } from '../js/modules/asset/impor-aset.js';
+import { adaSaringan, ringkasSaringan } from '../js/modules/asset/saringan-aset.js';
 
 const require = createRequire(import.meta.url);
 const { bacaXlsx } = require('./lib/baca-xlsx.cjs');
@@ -381,5 +382,34 @@ assert.deepEqual(cocokkanFoto(null, 0, 0).melayang, []);
 assert.equal(susunImporAset({ aoa: null }).galat !== null, true);
 assert.equal(susunImporAset({ aoa: [KOLOM_IMPOR_ASET], gambar: null, outlets: null }).tambah.length, 0);
 ok('masukan kosong & cacat tidak melempar');
+
+// ===============================================================
+console.log('\n§8 Saringan dikatakan sekali, dipakai di tiga tempat');
+// ===============================================================
+
+// ============ KENAPA INI DIUJI ============
+//
+// Kalimat "filter yang sedang aktif" dipakai subjudul PDF, subjudul Excel, dan
+// kalimat tabel kosong. Sebelum `saringan-aset.js` ada, ketiganya disusun
+// terpisah dan sudah menyimpang: menyaring "kursi" lalu mengunduh PDF
+// menghasilkan berkas berjudul "Semua outlet · 3 jenis barang" untuk data yang
+// sudah disaring — yang menerimanya tidak punya cara tahu ia melihat sebagian.
+//
+// Saringan KODE ditambahkan belakangan. Kalau ia lupa disebut di sini,
+// kegagalannya persis sama: laporan tiga baris yang terlihat lengkap.
+assert.equal(adaSaringan({ kode: 'B001' }), true, 'kode harus dihitung sebagai saringan aktif');
+assert.equal(adaSaringan({ kode: '   ' }), false, 'kode berisi spasi bukan saringan');
+assert.match(ringkasSaringan({ kode: 'B001' }), /Kode: "B001"/);
+assert.match(
+  ringkasSaringan({ kode: 'B0', q: 'kursi', category: 'Bar' }),
+  /Kategori: Bar.*Kode: "B0".*Cari nama: "kursi"/,
+  'ketiganya disebut sekaligus, berurutan'
+);
+assert.equal(ringkasSaringan({}), '', 'tanpa saringan: tidak menambah apa pun');
+
+// Outlet TETAP tidak dihitung — untuk staff ia selalu terisi, dan
+// menghitungnya membuat "Belum ada aset tercatat" tidak pernah muncul.
+assert.equal(adaSaringan({ outletId: 'o-1' }), false);
+ok('INTI: saringan Kode ikut terhitung & ikut disebut di subjudul laporan');
 
 console.log(`\n${n} pemeriksaan impor aset lolos. ✅`);
