@@ -5,6 +5,8 @@ import { exportTablePDF } from '../../core/pdf.js';
 import { listMyOutlets } from '../../core/my-outlets.js';
 import {
   listAssets,
+  getAssetPhotoUrl,
+  getAssetPhotoUrls,
   listOutletTujuan,
   kirimTransferAset,
   batalkanTransferAset,
@@ -12,6 +14,8 @@ import {
   listTransferAset
 } from './asset.service.js';
 import { barisPdfTransfer, ringkasTransfer, tanggalSurat, transferWaText } from './pesan-transfer-aset.js';
+import { createAssetPicker } from './pemilih-aset.js';
+import { pesanGagalFoto, PESAN_GAGAL_UMUM } from '../../core/tautan-foto.js';
 
 /**
  * TRANSFER ASET — Staff App & Admin Portal.
@@ -215,6 +219,70 @@ export async function renderTransferAsetPage(container, { businessUnitId, outlet
   }
 
   // -------------------------------------------------------------
+  /** Buka foto ukuran penuh — tautannya dibuat SAAT DIKETUK, bukan sebelumnya. */
+  async function bukaFoto(path) {
+    if (!path) return;
+    try {
+      const url = await getAssetPhotoUrl(path);
+      if (url) window.open(url, '_blank');
+      else toast(PESAN_GAGAL_UMUM, 'warning');
+    } catch (error) {
+      toast(pesanGagalFoto(error), 'error');
+    }
+  }
+
+  /** Nama outlet pemilik foto acuan, supaya fotonya tidak menyamar jadi milik sendiri. */
+  const namaOutletAcuan = (a) =>
+    a?.photo_acuan_outlet ? (outletTujuan.find((o) => o.id === a.photo_acuan_outlet)?.name ?? null) : null;
+
+  /**
+   * Dialog pemilihan barang — dipakai Kirim MAUPUN Revisi.
+   *
+   * Satu jalur untuk keduanya dengan sengaja: dua dialog terpisah berarti
+   * foto, pencarian, dan penjaga "jangan sembunyikan yang sudah dipilih"
+   * harus benar dua kali — dan yang kedua biasanya tertinggal diam-diam.
+   */
+  async function pilihBarang({ judul, deskripsi, daftar, awal = null, submitText }) {
+    // Tautan thumbnail dibuat sekali untuk SEMUA foto. Satu permintaan per
+    // baris membuat 80 permintaan berbarengan, dan sebagian tertolak —
+    // daftarnya lalu tampak "sebagian fotonya rusak" padahal cuma kena antrean.
+    const fotoUrl = await getAssetPhotoUrls(daftar.flatMap((a) => [a.photo_path, a.photo_acuan]));
+
+    let picker = null;
+    const hasil = await formDialog({
+      title: judul,
+      description: deskripsi,
+      fields: [{ name: 'barang', label: 'Barang', type: 'html', html: '<div class="tr-picker"></div>' }],
+      submitText,
+      onReady: (form, { kumpulkan, setError }) => {
+        // TITIK TANAMNYA DIPERIKSA DULU. Kalau `ui.js` di perangkat ini masih
+        // versi lama, `type: 'html'` tidak dikenal dan wadahnya tidak pernah
+        // ada — dialognya tetap berdiri dan tombol Simpan tetap bisa ditekan,
+        // mengirim daftar kosong tanpa satu pun tanda.
+        const wadah = form.querySelector('.tr-picker');
+        if (!wadah || typeof kumpulkan !== 'function') {
+          setError?.(
+            'Aplikasi di perangkat ini masih versi lama, jadi daftar barangnya tidak bisa ditampilkan. ' +
+              'Tutup lalu buka lagi aplikasinya, atau muat ulang halamannya.'
+          );
+          return;
+        }
+        picker = createAssetPicker(wadah, { daftar, awal, fotoUrl, onFoto: bukaFoto });
+
+        // Dibaca SAAT Simpan ditekan, selagi dialognya masih berdiri.
+        // Membacanya sesudah `await` kebetulan masih berhasil karena animasi
+        // keluarnya menunda pembongkaran DOM — ketergantungan yang tidak
+        // terlihat di kode mana pun.
+        kumpulkan(() => {
+          const items = picker.getItems();
+          if (!items.length) return 'Belum ada barang yang diisi jumlahnya.';
+          return { items };
+        });
+      }
+    });
+    return hasil?.items ?? null;
+  }
+
   async function dialogTransfer() {
     let stok;
     try {
@@ -290,25 +358,22 @@ export async function renderTransferAsetPage(container, { businessUnitId, outlet
       return toast('Kamu memilih outlet TAPI juga mengisi tujuan lain-lain. Kosongkan salah satunya.', 'warning');
     }
 
-    // Pemilihan barang: satu dialog berisi seluruh barang yang ADA di outlet,
-    // dengan kotak jumlah masing-masing. Dikosongkan = tidak ikut dikirim.
-    const isian = await formDialog({
-      title: 'Barang yang dikirim',
-      fields: stok.map((a) => ({
-        name: `q_${a.itemId}`,
-        label: `${a.kode} — ${a.name} (ada ${formatNum(a.qty)})`,
-        type: 'number',
-        min: 0,
-        max: a.qty,
-        placeholder: '0'
-      })),
+    // Pemilihan barang: satu daftar berfoto dengan kotak cari, dan kotak
+    // jumlah di tiap baris. Dikosongkan = tidak ikut dikirim.
+    const dipilih = await pilihBarang({
+      judul: 'Barang yang dikirim',
+      deskripsi:
+        'Cari nama, kode, kategori, atau catatannya. Fotonya bisa diketuk untuk diperbesar — ' +
+        'nama barang di sini banyak yang mirip, dan tidak ada yang akan menghitung ulang di outlet tujuan.',
+      daftar: stok.map((a) => ({ ...a, batas: a.qty, outletAcuan: namaOutletAcuan(a) })),
       submitText: 'Kirim'
     });
-    if (!isian) return;
+    if (!dipilih) return;
 
-    const items = stok
-      .map((a) => ({ itemId: a.itemId, nama: a.name, kode: a.kode, ada: a.qty, qty: Number(isian[`q_${a.itemId}`]) || 0 }))
-      .filter((i) => i.qty > 0);
+    const items = dipilih.map((d) => {
+      const a = stok.find((x) => x.itemId === d.itemId);
+      return { itemId: d.itemId, nama: a?.name ?? '-', kode: a?.kode ?? '-', ada: a?.qty ?? 0, qty: d.qty };
+    });
 
     if (!items.length) return toast('Belum ada barang yang diisi jumlahnya.', 'warning');
     const kelebihan = items.find((i) => i.qty > i.ada);
@@ -479,25 +544,22 @@ export async function renderTransferAsetPage(container, { businessUnitId, outlet
       return toast('Kamu memilih outlet TAPI juga mengisi tujuan lain-lain. Kosongkan salah satunya.', 'warning');
     }
 
-    const isian = await formDialog({
-      title: `Barang di ${t.kode}`,
-      description:
-        'Kotak di bawah sudah terisi jumlah yang berlaku sekarang. Yang dikosongkan atau dinolkan akan DIKELUARKAN dari surat jalan ini dan jumlahnya kembali ke outlet asal.',
-      fields: kandidat.map((a) => ({
-        name: `q_${a.itemId}`,
-        label: `${a.kode} — ${a.name} (maksimal ${formatNum(a.batas)})`,
-        type: 'number',
-        min: 0,
-        max: a.batas,
-        value: a.sudah > 0 ? String(a.sudah) : ''
-      })),
+    const dipilih = await pilihBarang({
+      judul: `Barang di ${t.kode}`,
+      deskripsi:
+        'Kotak jumlahnya sudah terisi angka yang berlaku sekarang. Yang dinolkan atau dikosongkan akan ' +
+        'DIKELUARKAN dari surat jalan ini dan jumlahnya kembali ke outlet asal. Barang yang sudah terisi ' +
+        'tetap terlihat walau sedang dicari kata lain.',
+      daftar: kandidat.map((a) => ({ ...a, outletAcuan: namaOutletAcuan(a) })),
+      awal: new Map(kandidat.filter((a) => a.sudah > 0).map((a) => [a.itemId, a.sudah])),
       submitText: 'Simpan revisi'
     });
-    if (!isian) return;
+    if (!dipilih) return;
 
-    const items = kandidat
-      .map((a) => ({ itemId: a.itemId, nama: a.name, kode: a.kode, batas: a.batas, sudah: a.sudah, qty: Number(isian[`q_${a.itemId}`]) || 0 }))
-      .filter((i) => i.qty > 0);
+    const items = dipilih.map((d) => {
+      const a = kandidat.find((x) => x.itemId === d.itemId);
+      return { itemId: d.itemId, nama: a?.name ?? '-', kode: a?.kode ?? '-', batas: a?.batas ?? 0, sudah: a?.sudah ?? 0, qty: d.qty };
+    });
 
     if (!items.length) {
       return toast('Surat jalan tidak boleh kosong. Kalau seluruh kirimannya batal, pakai Batalkan.', 'warning');

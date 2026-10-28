@@ -171,9 +171,9 @@ if (page) {
   if (!blokEdit) {
     salah(`${PAGE}: \`dialogEdit\` tidak ada.`);
   } else {
-    if (!/value:\s*a\.sudah\s*>\s*0/.test(blokEdit)) {
+    if (!/awal:\s*new Map\([\s\S]{0,120}a\.sudah/.test(blokEdit)) {
       salah(
-        `${PAGE}: kotak jumlah di dialog Revisi tidak terisi jumlah yang berlaku. ` +
+        `${PAGE}: dialog Revisi tidak membawa jumlah yang berlaku sebagai nilai awal. ` +
           'Yang dibiarkan kosong akan DIKELUARKAN dari surat jalan — satu baris dibetulkan, sisanya hilang.'
       );
     }
@@ -232,6 +232,77 @@ if (svc) {
         salah(`${SVC}: argumen \`${p}\` tidak dikirim — PostgREST akan memilih fungsi lain atau menolak diam-diam.`);
       }
     }
+  }
+}
+
+// =====================================================================
+// 4. Pemilih barang — foto, pencarian, dan jumlah yang tidak boleh hilang
+// =====================================================================
+const PICKER = 'js/modules/asset/pemilih-aset.js';
+const picker = baca(PICKER);
+if (picker) {
+  // ============ JUMLAHNYA TIDAK BOLEH HIDUP DI DOM SAJA ============
+  //
+  // Daftarnya digambar ulang tiap kali kata pencariannya berubah. Kalau
+  // angkanya cuma ada di kotak input, mencari "botol" sesudah mengisi "gelas"
+  // menghapus angka gelas tanpa satu pun tanda — pola kegagalan yang sama
+  // dengan centang yang terlepas saat saringan berganti di pemindahan aset.
+  if (!/const pilihan = new Map\(\)/.test(picker)) {
+    salah(`${PICKER}: jumlah pilihan tidak disimpan di luar DOM — menyaring ulang akan menghapus angka yang sudah diisi.`);
+  }
+  // Nilai awal (revisi) harus benar-benar dipakai, bukan cuma diterima.
+  if (!/awal instanceof Map/.test(picker)) {
+    salah(`${PICKER}: \`awal\` tidak pernah dibaca — dialog Revisi akan terbuka kosong walau pemanggilnya mengirim jumlahnya.`);
+  }
+  // Yang sudah dipilih tidak boleh tersaring keluar.
+  if (!/saringBarang\(daftar,\s*cari,\s*terpilih\)/.test(picker)) {
+    salah(
+      `${PICKER}: barang yang sudah diisi jumlahnya ikut tersaring keluar. ` +
+        'Yang mengisinya akan mengira pilihannya hilang, lalu mengisi ulang — atau mengira yang terkirim hanya yang terlihat.'
+    );
+  }
+  if (!/ap-foto/.test(picker) || !/fotoUrl/.test(picker)) {
+    salah(`${PICKER}: tidak ada foto di daftar pilihan — nama barang aset banyak yang mirip, dan salah pilih langsung memindahkan barang.`);
+  }
+  // Thumbnail 60px tidak cukup untuk membedakan "Gelas Cocktail" dari "Gelas
+  // Coctail kaki pendek". Yang membuatnya berguna adalah bisa diperbesar —
+  // dan tautannya dibuat saat diketuk, bukan dibiarkan kedaluwarsa.
+  if (!/querySelectorAll\('\.ap-foto'\)/.test(picker)) {
+    salah(`${PICKER}: foto tidak bisa diketuk untuk diperbesar — thumbnail sekecil itu tidak memutuskan apa pun.`);
+  }
+  // Foto dari outlet lain WAJIB terlihat berbeda; disamarkan, ia akan dipakai
+  // sebagai bukti kondisi barang di outlet ini.
+  if (!/photo_acuan/.test(picker) || !/foto outlet lain/.test(picker)) {
+    salah(`${PICKER}: foto acuan dari outlet lain tidak ditandai.`);
+  }
+}
+
+const cari = baca('js/modules/asset/cari-barang-aset.js');
+if (cari) {
+  // Pencarian harus menjangkau keempat ladangnya. Satu yang tertinggal membuat
+  // orang menyimpulkan barangnya belum terdaftar, lalu menambahkan item kembar.
+  for (const ladang of ['kode', 'name', 'category', 'notes']) {
+    if (!new RegExp(`a\\?\\.${ladang}`).test(cari)) {
+      salah(`js/modules/asset/cari-barang-aset.js: \`${ladang}\` tidak ikut dicari.`);
+    }
+  }
+  if (!/kata\.every/.test(cari)) {
+    salah('js/modules/asset/cari-barang-aset.js: kata pencarian tidak digabung dengan DAN — daftarnya nyaris tidak menyusut.');
+  }
+}
+
+// Layar transfer harus benar-benar memakai pemilih itu, bukan deretan kotak
+// angka lama di salah satu dari dua dialognya.
+if (page) {
+  if (!/createAssetPicker/.test(page)) {
+    salah(`${PAGE}: pemilih barang berfoto tidak dipakai.`);
+  }
+  const pakai = (page.match(/await pilihBarang\(/g) ?? []).length;
+  if (pakai < 2) {
+    salah(
+      `${PAGE}: hanya ${pakai} dari 2 dialog (Kirim & Revisi) memakai pemilih barang yang sama. ` +
+        'Yang tertinggal akan kehilangan foto dan pencariannya diam-diam.'
+    );
   }
 }
 

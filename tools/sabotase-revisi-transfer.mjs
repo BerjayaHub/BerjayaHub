@@ -23,8 +23,10 @@ const MIG = 'supabase/migrations/0174_revisi_transfer_aset.sql';
 const PESAN = 'js/modules/asset/pesan-transfer-aset.js';
 const SVC = 'js/modules/asset/asset.service.js';
 const PAGE = 'js/modules/asset/transfer-aset.page.js';
+const PICKER = 'js/modules/asset/pemilih-aset.js';
+const CARI = 'js/modules/asset/cari-barang-aset.js';
 
-const BERKAS = [MIG, PESAN, SVC, PAGE];
+const BERKAS = [MIG, PESAN, SVC, PAGE, PICKER, CARI];
 const asli = new Map();
 for (const rel of BERKAS) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
 
@@ -94,6 +96,7 @@ const sabotase = (nama, rel, dari, ke, pemeriksa) => {
 const AUDIT = 'tools/audit-revisi-transfer.cjs';
 const PG = 'tools/test-migrasi-0173.mjs';
 const MURNI = 'tools/test-pesan-transfer-aset.mjs';
+const MURNI_CARI = 'tools/test-cari-barang-aset.mjs';
 
 // =====================================================================
 console.log('SABOTASE STOK — pembalikan yang berhenti di tengah:');
@@ -254,8 +257,16 @@ sabotase(
 sabotase(
   'kotak jumlah dibuka kosong — membetulkan satu baris menghapus sisanya',
   PAGE,
-  "value: a.sudah > 0 ? String(a.sudah) : ''",
-  "value: ''",
+  'awal: new Map(kandidat.filter((a) => a.sudah > 0).map((a) => [a.itemId, a.sudah])),',
+  '',
+  AUDIT
+);
+
+sabotase(
+  'nilai awal diterima tapi tidak pernah dipakai — dialog Revisi terbuka kosong',
+  PICKER,
+  'awal instanceof Map',
+  '[]',
   AUDIT
 );
 
@@ -282,6 +293,90 @@ sabotase(
   'p_alasan: alasan,',
   '',
   AUDIT
+);
+
+// =====================================================================
+console.log('\nSABOTASE PEMILIH BARANG — foto & pencarian:');
+// =====================================================================
+
+// ============ JUMLAH YANG HILANG SAAT MENYARING ULANG ============
+//
+// Daftarnya digambar ulang tiap kali kata pencariannya berubah. Kalau
+// angkanya cuma hidup di kotak input, mencari "botol" sesudah mengisi "gelas"
+// menghapus angka gelas tanpa satu pun tanda.
+sabotase(
+  'jumlah pilihan disimpan di DOM saja — menyaring ulang menghapusnya',
+  PICKER,
+  'const pilihan = new Map();',
+  'const pilihan = new Map(/* dibuang */);'.replace('new Map(/* dibuang */)', '{ set() {}, get() {}, delete() {}, keys: () => [], entries: () => [], values: () => [] }'),
+  AUDIT
+);
+
+sabotase(
+  'yang sudah diisi ikut tersaring keluar — pilihannya tampak hilang',
+  PICKER,
+  'saringBarang(daftar, cari, terpilih)',
+  'saringBarang(daftar, cari)',
+  AUDIT
+);
+
+sabotase(
+  'foto tidak bisa diperbesar — thumbnail 60px tidak membedakan nama yang mirip',
+  PICKER,
+  "elList.querySelectorAll('.ap-foto')",
+  "elList.querySelectorAll('.ap-tanpa-foto')",
+  AUDIT
+);
+
+sabotase(
+  'foto acuan tidak lagi ditandai — foto gudang lain dipakai sebagai bukti kondisi di sini',
+  PICKER,
+  'foto outlet lain',
+  'foto',
+  AUDIT
+);
+
+sabotase(
+  'catatan tidak ikut dicari — barang ketemu di layar utama tapi tidak di sini',
+  CARI,
+  'a?.notes',
+  'null',
+  AUDIT
+);
+
+sabotase('kode tidak ikut dicari', CARI, 'a?.kode', 'null', AUDIT);
+
+// "gelas pendek" harus menemukan "Gelas Coctail kaki pendek".
+sabotase(
+  'kata pencarian dicocokkan utuh — barang yang ada dinyatakan tidak ada',
+  CARI,
+  'return kata.every((k) => ladang.includes(k));',
+  'return ladang.includes(teks(q).toLowerCase());',
+  MURNI_CARI
+);
+
+sabotase(
+  'kata digabung dengan ATAU — daftarnya nyaris tidak menyusut',
+  CARI,
+  'kata.every(',
+  'kata.some(',
+  MURNI_CARI
+);
+
+sabotase(
+  'nol ikut dihitung sebagai pilihan — "3 jenis" untuk dua barang',
+  CARI,
+  '.filter((q) => q > 0)',
+  '',
+  MURNI_CARI
+);
+
+sabotase(
+  'yang sudah dipilih tidak lagi dikecualikan dari saringan',
+  CARI,
+  '|| (wajibTampil && wajibTampil.has(a?.itemId))',
+  '',
+  MURNI_CARI
 );
 
 // ---------------------------------------------------------------

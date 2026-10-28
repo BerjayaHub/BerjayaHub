@@ -9528,3 +9528,61 @@ tanda.
 - [x] **Master aset per BU + kode otomatis** (`0168`–`0169`) — 54 tes PGlite, 64 tes murni
 - [x] **Catat rusak + riwayat perubahan + foto acuan + hapus item** (`0170`–`0172`) — 85 tes PGlite
 - [x] **Transfer aset antar BU/outlet + revisi & batalkan surat jalan** (`0173`–`0174`) — 77 tes PGlite, 48 tes murni, 20 sabotase
+
+### Memilih barang: foto dan satu kotak cari
+
+Bentuk pertama dialog "Barang yang dikirim" adalah deretan kotak angka, satu
+untuk tiap barang di outlet, tanpa gambar dan tanpa pencarian. Dengan 11 barang
+itu masih terbaca. Dengan 80 ia jadi gulungan panjang berisi nama yang
+mirip-mirip — **"Gelas Cocktail"** dan **"Gelas Coctail kaki pendek"**
+berselang empat baris — dan yang mengisinya sedang berdiri di dekat barangnya,
+terburu-buru.
+
+Salah ketik satu baris di situ tidak menghasilkan galat. Ia menghasilkan barang
+yang **berpindah**, tanpa penerima yang menghitung ulang dan menolak.
+
+Tiga hal ditambahkan, ketiganya untuk sebab yang sama:
+
+| | kenapa |
+|---|---|
+| foto 60px, diketuk jadi penuh | barangnya dikenali dari rupanya, bukan dari nama yang mirip |
+| **satu** kotak cari | nama, kode, kategori, dan catatan sekaligus — yang mencari tidak tahu lebih dulu kata itu ada di bagian mana |
+| baris "Dipilih: N jenis · M unit" | selalu di tempat yang sama, juga saat masih nol |
+
+Layar utama Inventaris Aset punya empat saringan terpisah karena di sana orang
+sedang **menelusuri**. Di dialog ini ia sedang **mencari satu barang** yang
+sudah ada di kepalanya; empat kotak memaksanya menebak kotak mana dulu.
+
+Kata pencariannya dipecah per kata dan digabung dengan **DAN**: `"gelas pendek"`
+harus menemukan *"Gelas Coctail kaki pendek"*. Dicocokkan utuh, ia tidak ketemu
+— dan orangnya akan menyimpulkan barangnya belum terdaftar, lalu mendaftarkan
+kembar dengan nama versinya sendiri. Itu persis asal-usul satu barang bernama
+tiga macam di tiga outlet. Digabung dengan **ATAU**, daftarnya nyaris tidak
+menyusut, yang sama saja dengan tidak menyaring.
+
+**Dua hal yang sudah pernah menggigit di layar lain, dan dijaga di sini:**
+
+1. **Jumlahnya hidup di `Map`, bukan di kotak input.** Daftarnya digambar ulang
+   tiap kali kata pencariannya berubah, dan kotak yang hidup di DOM ikut hilang.
+   Mencari "botol" sesudah mengisi "gelas" akan menghapus angka gelas tanpa satu
+   pun tanda — bentuk kegagalan yang sama persis dengan centang yang terlepas
+   saat saringan berganti di layar pemindahan aset.
+2. **Yang sudah diisi tidak pernah tersaring keluar.** Ia tetap di daftar walau
+   tidak cocok dengan kata pencarian, dan tetap bisa dinolkan kembali. Pilihan
+   yang menghilang dari layar akan dibaca sebagai pilihan yang batal.
+
+Fotonya memakai jalur yang sama dengan layar utama: tautan thumbnail dibuat
+**sekali untuk semua** (satu permintaan per baris membuat 80 permintaan
+berbarengan dan sebagian tertolak — daftarnya lalu tampak "sebagian fotonya
+rusak" padahal cuma kena antrean), tautan ukuran penuh dibuat **saat diketuk**,
+dan foto acuan dari outlet lain tetap bergaris putus-putus dengan keterangan
+*"foto outlet lain"*. Menyamarkannya sebagai milik sendiri membuat orang
+memakainya sebagai bukti kondisi barang di outlet ini — padahal ia memotret
+barang di gudang lain.
+
+Dialog Kirim dan dialog Revisi memakai **satu** pemilih yang sama. Dua dialog
+terpisah berarti foto, pencarian, dan penjaga di atas harus benar dua kali —
+dan yang kedua biasanya tertinggal diam-diam; auditnya menghitung bahwa
+keduanya memang memanggil pemilih yang sama.
+
+- [x] **Pemilih barang berfoto + pencarian di Transfer Aset** — 31 tes murni, 30 sabotase
