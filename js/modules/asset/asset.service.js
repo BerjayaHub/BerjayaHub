@@ -591,3 +591,96 @@ export async function hapusItemAset(itemId, alasan) {
   if (error) throw error;
   return data ?? {};
 }
+
+// =========================================================
+// TRANSFER ASET (0173)
+// =========================================================
+
+/**
+ * Seluruh outlet di organisasi, dikelompokkan per BU — untuk dropdown tujuan.
+ *
+ * Sengaja TIDAK dibatasi outlet milik si staff: barang memang berpindah ke BU
+ * lain, dan membatasinya berarti transfer yang sah harus dicatat sebagai
+ * "lain-lain" — yang menghilangkan penambahan stok di tujuan dan membuat
+ * barangnya tampak keluar dari sistem padahal masih di dalam.
+ *
+ * Wewenangnya dijaga di sisi ASAL (`has_outlet_scope` pada outlet pengirim),
+ * bukan dengan menyembunyikan tujuan.
+ */
+export async function listOutletTujuan() {
+  const { data, error } = await supabase
+    .from('outlets')
+    .select('id, name, is_active, business_units!inner(id, name)')
+    .order('name');
+  if (error) throw error;
+  return (data ?? [])
+    .filter((o) => o.is_active !== false)
+    .map((o) => ({ id: o.id, name: o.name, buId: o.business_units?.id, buNama: o.business_units?.name ?? '-' }));
+}
+
+/**
+ * Kirim transfer aset. Stok berpindah SAAT INI JUGA — tidak ada langkah terima.
+ *
+ * Fotonya opsional dan diunggah lebih dulu (kalau ada), dengan alasan yang
+ * sama seperti `catatKerusakan`: berkas yatim jauh lebih murah daripada
+ * dokumen yang menjanjikan bukti yang tidak pernah tersimpan.
+ */
+export async function kirimTransferAset({ dariOutletId, keOutletId, tujuanLain, pembawa, items, catatan, file }) {
+  let path = null;
+  if (file) {
+    const kecil = await compressImage(file, { preset: 'asset' });
+    const ext = (kecil.name?.split('.').pop() || 'jpg').toLowerCase();
+    path = `${dariOutletId}/transfer/${crypto.randomUUID()}.${ext}`;
+    const { error: upErr } = await supabase.storage
+      .from('asset-photos')
+      .upload(path, kecil, { upsert: false, contentType: kecil.type || 'image/jpeg' });
+    if (upErr) throw upErr;
+  }
+
+  const { data, error } = await supabase.rpc('kirim_transfer_aset', {
+    p_from_outlet: dariOutletId,
+    p_to_outlet: keOutletId || null,
+    p_tujuan_lain: tujuanLain?.trim() || null,
+    p_pembawa: pembawa,
+    p_items: (items ?? []).map((i) => ({ item_id: i.itemId, qty: Number(i.qty) })),
+    p_catatan: catatan?.trim() || null,
+    p_photo_path: path
+  });
+  if (error) {
+    if (path) {
+      try {
+        await supabase.storage.from('asset-photos').remove([path]);
+      } catch {
+        /* diabaikan dengan sengaja */
+      }
+    }
+    throw error;
+  }
+  return data ?? {};
+}
+
+export async function batalkanTransferAset(id, alasan) {
+  const { data, error } = await supabase.rpc('batalkan_transfer_aset', { p_id: id, p_alasan: alasan });
+  if (error) throw error;
+  return data ?? {};
+}
+
+/** Riwayat surat jalan transfer — yang dikirim DAN yang masuk. */
+export async function listTransferAset({ outletId, dari, sampai }) {
+  return ambilSemua((a, b) => {
+    let q = supabase
+      .from('asset_transfer')
+      .select(
+        'id, kode, created_at, from_outlet_id, to_outlet_id, tujuan_lain, pembawa, catatan, photo_path, ' +
+          'dikirim_by_nama, dibatalkan_at, dibatalkan_by_nama, alasan_batal, ' +
+          'asal:outlets!from_outlet_id(name), tujuan:outlets!to_outlet_id(name), ' +
+          'asset_transfer_item(id, item_kode, item_nama, qty)'
+      );
+    // Satu outlet terlibat sebagai PENGIRIM atau PENERIMA — keduanya perlu
+    // melihat surat jalannya.
+    if (outletId) q = q.or(`from_outlet_id.eq.${outletId},to_outlet_id.eq.${outletId}`);
+    if (dari) q = q.gte('created_at', `${dari}T00:00:00`);
+    if (sampai) q = q.lte('created_at', `${sampai}T23:59:59`);
+    return q.order('created_at', { ascending: false }).range(a, b);
+  });
+}

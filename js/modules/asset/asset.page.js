@@ -97,6 +97,7 @@ async function render(container, { businessUnitId }, isAdmin) {
     <div class="page-header">
       <h1 style="margin:0">Inventaris Aset</h1>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="as-transfer">↗ Transfer Aset</button>
         <button id="as-pdf">⇩ Export PDF</button>
         ${isAdmin ? '<button id="as-xlsx">⇩ Export Excel</button>' : ''}
         ${isAdmin ? '<button id="as-tpl">⇩ Template Impor</button>' : ''}
@@ -166,6 +167,30 @@ async function render(container, { businessUnitId }, isAdmin) {
     state.catatan = e.target.value.trim();
     tunda();
   });
+  // ============ TRANSFER DIBUKA DI LAYAR SENDIRI ============
+  //
+  // Bukan dialog di atas daftar: transfer memindahkan stok di DUA outlet tanpa
+  // langkah terima, dan ia punya riwayat surat jalan sendiri yang perlu dibaca
+  // utuh. Menumpuknya di atas daftar aset membuat keduanya setengah terlihat.
+  // `sekaliJalan`: layarnya dimuat lewat `import()` dinamis yang butuh
+  // jaringan. Ketukan kedua selagi berkasnya masih diunduh akan menggambar DUA
+  // layar transfer bertumpuk di dalam satu container — dan yang di bawah tetap
+  // menerima klik.
+  container.querySelector('#as-transfer').addEventListener('click', sekaliJalan(async () => {
+    const { renderTransferAsetPage } = await import('./transfer-aset.page.js');
+    container.innerHTML = '';
+    const kembali = document.createElement('button');
+    kembali.textContent = '← Kembali ke Inventaris';
+    kembali.style.marginBottom = '12px';
+    // `render(...)` langsung, bukan lewat `renderAssetPage`: dua pembungkus
+    // di atasnya cuma menentukan `isAdmin`, dan memanggil yang salah akan
+    // membuat admin kembali ke tampilan staff tanpa ada yang menyadarinya.
+    kembali.addEventListener('click', () => render(container, { businessUnitId }, isAdmin));
+    container.appendChild(kembali);
+    const isi = document.createElement('div');
+    container.appendChild(isi);
+    await renderTransferAsetPage(isi, { businessUnitId, outletId: state.outletId, isAdmin });
+  }, { teks: 'Membuka…' }));
   container.querySelector('#as-new').addEventListener('click', () => openForm(null));
   container.querySelector('#as-pdf').addEventListener('click', exportPdf);
   // `sekaliJalan` menahan klik kedua selagi foto masih diambil. Tanpa itu,
@@ -580,10 +605,17 @@ async function render(container, { businessUnitId }, isAdmin) {
         {
           name: 'file',
           label: 'Foto bukti (wajib)',
-          type: 'file',
+          // `type: 'photo'`, SAMA dengan form Tambah/Edit aset.
+          //
+          // Versi pertama memakai `type: 'file'` — yang di HP membuka pemilih
+          // berkas, bukan kamera. Barang yang baru saja pecah ada di depan
+          // mata orangnya, dan menyuruhnya mencari di galeri untuk foto yang
+          // belum pernah diambil adalah jalan paling cepat menuju kerusakan
+          // yang tidak jadi dicatat.
+          type: 'photo',
+          facing: 'environment',
           required: true,
-          accept: 'image/*',
-          help: 'Tanpa foto, catatan ini tidak bisa disimpan.'
+          help: 'Ambil Foto membuka kamera langsung. Tanpa foto, catatan ini tidak bisa disimpan.'
         }
       ],
       submitText: 'Catat & kurangi jumlah'
