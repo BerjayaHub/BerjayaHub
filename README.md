@@ -9399,3 +9399,132 @@ dan "keluar" bagi asalnya. Menyaringnya di server membuang sisi yang satunya,
 dan outlet yang dipilih kehilangan sisi keluarnya.
 
 - [x] **Laporan Laba Rugi Outlet + dua perbaikan COGS** — 40 tes murni, 35 sabotase
+
+## Inventaris aset: master per BU, kerusakan, dan transfer (0168–0174)
+
+Permintaannya sederhana: *"semua outlet yang tergabung dalam satu BU
+mempunyai inventaris asset yang sama, yang membedakan hanya stock nya saja."*
+Bentuk lamanya tidak bisa menampungnya — satu baris `assets` adalah satu
+barang **di satu outlet**, jadi "Kursi Bar" di Serpong dan di Sentul adalah
+dua barang yang tidak saling tahu, dan tidak ada tempat untuk menaruh kode
+yang sama.
+
+`0168` memecahnya jadi dua: `asset_items` (daftar barang **per BU**, berkode
+otomatis `B001`/`K001` dari prefix kategori) dan `asset_stock` (jumlah **per
+outlet**). `asset_stock.id` **mewarisi `assets.id` yang lama**, supaya setiap
+foto yang sudah terunggah tetap ketemu — path-nya mengandung id itu.
+
+### "Belum didata" bukan "0"
+
+Outlet yang belum pernah menghitung barangnya **tidak punya baris**
+`asset_stock`. Menyamakannya dengan nol menghilangkan satu-satunya tanda
+bahwa belum ada yang melihat ke sana. Ini juga yang membuat template impor
+menulis **sel kosong**, bukan `0`: template yang menulis nol untuk ratusan
+barang yang belum dihitung akan, begitu diunggah kembali tanpa diubah,
+menyatakan dengan percaya diri bahwa outlet itu tidak punya apa-apa.
+
+### Kodenya tidak bisa diedit, kategorinya wajib
+
+Kode dibuat `kode_aset_berikutnya()` yang mengunci baris prefix-nya
+(`for update`) sebelum menaikkan nomor. Saat prefix bentrok, cadangannya
+menambah **huruf** (`XA`, `XB`), bukan angka: `"X2" + "007"` tidak bisa dibaca
+kembali — `X2007` bisa berarti dua hal, dan setiap pembaca harus menebak.
+
+Kode **unik per BU**, jadi dua BU boleh sama-sama punya `B001`. Itu bukan bug;
+tes pertama yang saya tulis justru salah karena menuntut sebaliknya.
+
+### Foto acuan: Serpong memotret, Sentul melihat
+
+`0171` membuat `asset_items.photo_path` sebagai **penunjuk** ke foto outlet
+yang mendata lebih dulu — supaya outlet yang belum mendata mengenali barangnya
+dari gambar, bukan cuma nama. Begitu outlet itu mengunggah fotonya sendiri,
+foto itulah yang dipakai; foto Serpong tetap foto Serpong.
+
+Bagian yang menuntut kehati-hatian: penunjuk bisa menggantung. Foto yang
+terhapus akan menjadi tautan yang selalu gagal dibuka, dan di layar itu
+**terbaca sama dengan "belum difoto"**. Trigger `segarkan_foto_item_aset`
+berjalan juga pada DELETE, dan mengosongkan penunjuknya.
+
+### Hapus item: cascade menghancurkan riwayat yang seharusnya mencatatnya
+
+`asset_log` awalnya ber-FK `on delete cascade`. Artinya menghapus satu item
+menghapus **persis catatan tentang penghapusan itu**. FK-nya diganti
+`set null`, identitasnya disimpan sebagai teks (`item_kode`, `item_nama`,
+`oleh_nama`), dan pencatatannya dipindah ke trigger BEFORE DELETE — supaya
+`delete from asset_items` langsung pun tetap berjejak. Alasannya dibawa lewat
+`current_setting('app.alasan_hapus_aset', true)`.
+
+Satu jebakan lanjutannya: cascade menyalakan trigger anak **sesudah baris
+induknya hilang**, jadi trigger yang menulis acuan ke induk itu gagal.
+`hapus_item_aset` menghapus stok lebih dulu, dan triggernya menerima induk
+yang sudah tidak ada.
+
+### Transfer aset: tidak ada langkah terima (0173)
+
+Diminta begitu — *"dikirim saja, stock otomatis bertambah atau berkurang."*
+Stok berpindah pada detik Kirim ditekan, dan itu membuat layarnya lebih
+berbahaya daripada kelihatannya: **tidak ada siapa pun di seberang yang akan
+menghitung ulang dan menolak**. Karena itu ringkasan sebelum kirim menyebut
+angkanya satu per satu, dan surat jalannya menyatakan terang-terangan
+*"Stok sudah otomatis berpindah. Tidak perlu konfirmasi terima."* — tanpa itu,
+yang menerimanya mencari tombol yang tidak pernah ada.
+
+Tujuan **"lain-lain"** (di luar semua outlet) ditulis dengan penanda
+`(di luar outlet)`. Menuliskannya seperti outlet biasa membuat orang mencari
+barangnya di outlet, bukan menagihnya ke pihak yang meminjam.
+
+### Revisi surat jalan: balikkan seluruhnya, lalu terapkan yang baru (0174)
+
+Batal + kirim ulang menghasilkan **dua** surat jalan untuk satu perjalanan,
+dan rekap "berapa yang pindah bulan ini" ikut menggelembung. Jadi revisi
+memakai nomor yang sama.
+
+Implementasinya **bukan** menambal selisih baris per baris. Menghitung delta
+terdengar lebih hemat, tapi ia harus menangani baris hilang, baris bertambah,
+jumlah naik, jumlah turun, **dan** outlet tujuan berpindah — lima kasus
+bersilangan, masing-masing dengan penjaganya sendiri. Membalikkan dulu lalu
+menerapkan ulang memakai dua jalur yang sudah ada dan sudah diuji; satu-satunya
+hal baru yang perlu dipercaya adalah urutannya.
+
+Tiga hal yang urutannya menentukan benar-salahnya, dan ketiganya dijaga
+`tools/audit-revisi-transfer.cjs`:
+
+1. **Seluruh pembalikan diperiksa dulu, sebelum satu pun stok bergerak.**
+   Kalau barang ketiga sudah terpakai di outlet tujuan, revisinya harus gagal
+   **utuh**. Membalikkan dua yang pertama lalu berhenti meninggalkan surat
+   jalan yang isinya tidak cocok dengan stok outlet mana pun.
+2. **Baris SJ dihapus sesudah stoknya dibalikkan.** Dibalik urutannya, jumlah
+   lamanya hilang lebih dulu dan tidak ada lagi yang bisa dikembalikan.
+3. **`revisi_ke` naik setiap kali.** Versi lama sudah beredar di WhatsApp dan
+   tidak bisa ditarik; tanpa penanda, dua pesan berisi angka berbeda dengan
+   **nomor yang sama** beredar berdampingan, dan yang membacanya tidak punya
+   cara tahu mana yang berlaku. Penandanya dicetak di baris nomor SJ — di WA
+   maupun di subjudul PDF, karena PDF-nya disusun di layar, bukan di modul
+   pesan, jadi kertas di tangan supir bisa kehilangan penandanya sendirian.
+
+### Batas jumlah di layar Revisi bukan stok outlet asal
+
+Barang yang ada di surat jalan ini **sudah keluar** dari outlet asal. Memakai
+stok asal saja sebagai batas membuat revisi yang hanya **menurunkan** jumlah
+pun ditolak dengan *"tercatat cuma 0"* — padahal barangnya ada, hanya tercatat
+di surat jalan yang sedang direvisi. Batasnya: sisa di outlet asal **ditambah**
+yang sudah dibawa SJ ini. Asumsi itu diuji di sisi database juga
+(`test-migrasi-0173` §8), supaya layar dan RPC tidak berselisih diam-diam.
+
+Dan kotak jumlahnya **dibuka terisi**. Database membalikkan seluruh kiriman
+lalu menerapkan daftar yang dikirim layar; kotak kosong berarti admin yang
+cuma membetulkan satu baris mengirim daftar berisi satu baris — dan sisanya
+terhapus dari surat jalan tanpa satu pun peringatan.
+
+Dua dari 20 sabotase **lolos pada percobaan pertama**, keduanya karena
+auditnya yang longgar, bukan karena sabotasenya lemah:
+`direvisi_by_nama` dicabut masih tertutupi regex `direvisi_by\s*=`, dan
+`p_alasan` yang dihilangkan dari `ubahTransferAset` masih ketemu di tempat
+lain pada berkas yang sama (RPC kerusakan aset memakai nama argumen itu juga).
+Auditnya sekarang memotong blok fungsinya dulu sebelum memeriksa argumen —
+pemeriksa yang mencari pola di seluruh berkas berhenti menjaga tanpa satu pun
+tanda.
+
+- [x] **Master aset per BU + kode otomatis** (`0168`–`0169`) — 54 tes PGlite, 64 tes murni
+- [x] **Catat rusak + riwayat perubahan + foto acuan + hapus item** (`0170`–`0172`) — 85 tes PGlite
+- [x] **Transfer aset antar BU/outlet + revisi & batalkan surat jalan** (`0173`–`0174`) — 77 tes PGlite, 48 tes murni, 20 sabotase

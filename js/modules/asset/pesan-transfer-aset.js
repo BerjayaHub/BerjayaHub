@@ -106,9 +106,17 @@ export function transferWaText(t) {
     baris.push('');
   }
 
+  // ============ NOMOR REVISI IKUT DICETAK ============
+  //
+  // Surat jalan versi lama sudah beredar di WhatsApp dan tidak bisa ditarik.
+  // Tanpa penanda revisi, dua pesan berisi angka berbeda dengan nomor yang
+  // SAMA beredar berdampingan — dan yang membacanya tidak punya cara tahu
+  // mana yang berlaku.
+  const rev = Number(t?.revisiKe) || 0;
+
   baris.push(
     '*SURAT JALAN — TRANSFER ASET*',
-    `No. ${teks(t?.kode) || '-'}`,
+    `No. ${teks(t?.kode) || '-'}${rev > 0 ? `  (REVISI ke-${rev})` : ''}`,
     tanggalSurat(t?.tanggal),
     '',
     `Dari    : ${teks(t?.asal) || '-'}`,
@@ -125,6 +133,9 @@ export function transferWaText(t) {
     baris.push('(tidak ada barang)');
   }
 
+  if (rev > 0 && teks(t?.alasanRevisi).trim()) {
+    baris.push('', `_Direvisi: ${teks(t.alasanRevisi).trim()}_`);
+  }
   if (teks(t?.catatan).trim()) baris.push('', `Catatan: ${teks(t.catatan).trim()}`);
   if (teks(t?.oleh).trim()) baris.push('', `Dikirim oleh: ${teks(t.oleh).trim()}`);
 

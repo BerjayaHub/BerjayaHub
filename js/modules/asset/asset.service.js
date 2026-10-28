@@ -665,6 +665,30 @@ export async function batalkanTransferAset(id, alasan) {
   return data ?? {};
 }
 
+/**
+ * Revisi surat jalan yang sudah terbit — isinya diganti, nomornya tetap.
+ *
+ * Seluruh isi dikirim ulang (tujuan, pembawa, catatan, DAFTAR BARANG LENGKAP),
+ * bukan selisihnya: database membalikkan seluruh kiriman lama lalu menerapkan
+ * yang baru. Jadi barang yang tidak disebut di sini akan HILANG dari surat
+ * jalan dan jumlahnya kembali ke outlet asal — itu memang maksudnya, dan
+ * karena itu layar pemanggilnya harus memuat ulang seluruh barisnya terisi,
+ * bukan hanya yang mau diubah.
+ */
+export async function ubahTransferAset({ id, keOutletId, tujuanLain, pembawa, items, alasan, catatan }) {
+  const { data, error } = await supabase.rpc('ubah_transfer_aset', {
+    p_id: id,
+    p_to_outlet: keOutletId || null,
+    p_tujuan_lain: tujuanLain?.trim() || null,
+    p_pembawa: pembawa,
+    p_items: (items ?? []).map((i) => ({ item_id: i.itemId, qty: Number(i.qty) })),
+    p_alasan: alasan,
+    p_catatan: catatan?.trim() || null
+  });
+  if (error) throw error;
+  return data ?? {};
+}
+
 /** Riwayat surat jalan transfer — yang dikirim DAN yang masuk. */
 export async function listTransferAset({ outletId, dari, sampai }) {
   return ambilSemua((a, b) => {
@@ -673,8 +697,12 @@ export async function listTransferAset({ outletId, dari, sampai }) {
       .select(
         'id, kode, created_at, from_outlet_id, to_outlet_id, tujuan_lain, pembawa, catatan, photo_path, ' +
           'dikirim_by_nama, dibatalkan_at, dibatalkan_by_nama, alasan_batal, ' +
+          'revisi_ke, direvisi_at, direvisi_by_nama, alasan_revisi, ' +
           'asal:outlets!from_outlet_id(name), tujuan:outlets!to_outlet_id(name), ' +
-          'asset_transfer_item(id, item_kode, item_nama, qty)'
+          // `asset_item_id` ikut dibaca supaya layar Revisi bisa memuat ulang
+          // kotak jumlahnya TERISI. Tanpa itu, merevisi berarti mengetik ulang
+          // seluruh kiriman dari nol — dan yang terlewat ikut terhapus.
+          'asset_transfer_item(id, asset_item_id, item_kode, item_nama, qty)'
       );
     // Satu outlet terlibat sebagai PENGIRIM atau PENERIMA — keduanya perlu
     // melihat surat jalannya.

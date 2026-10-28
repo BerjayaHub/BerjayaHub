@@ -8,6 +8,7 @@ import {
   listOutletTujuan,
   kirimTransferAset,
   batalkanTransferAset,
+  ubahTransferAset,
   listTransferAset
 } from './asset.service.js';
 import { barisPdfTransfer, ringkasTransfer, tanggalSurat, transferWaText } from './pesan-transfer-aset.js';
@@ -72,6 +73,8 @@ export async function renderTransferAsetPage(container, { businessUnitId, outlet
       oleh: t.dikirim_by_nama ?? '',
       dibatalkan: Boolean(t.dibatalkan_at),
       alasanBatal: t.alasan_batal ?? '',
+      revisiKe: Number(t.revisi_ke) || 0,
+      alasanRevisi: t.alasan_revisi ?? '',
       items: (t.asset_transfer_item ?? []).map((i) => ({ kode: i.item_kode, nama: i.item_nama, qty: Number(i.qty) }))
     };
   }
@@ -114,6 +117,10 @@ export async function renderTransferAsetPage(container, { businessUnitId, outlet
                      return `<tr${t.dibatalkan_at ? ' style="opacity:.55"' : ''}>
                        <td data-label="No. SJ" style="font-family:monospace;font-size:0.78rem">${esc(t.kode)}${
                          t.dibatalkan_at ? '<br><span class="badge badge-rejected" style="font-size:0.6rem">DIBATALKAN</span>' : ''
+                       }${
+                         Number(t.revisi_ke) > 0
+                           ? `<br><span class="badge badge-pending" style="font-size:0.6rem">REVISI ke-${Number(t.revisi_ke)}</span>`
+                           : ''
                        }</td>
                        <td data-label="Tanggal" style="font-size:0.8rem">${esc(tanggalSurat(t.created_at))}</td>
                        <td data-label="Arah" style="font-size:0.82rem">${
@@ -128,7 +135,8 @@ export async function renderTransferAsetPage(container, { businessUnitId, outlet
                          <button class="tr-pdf" data-id="${t.id}">PDF</button>
                          ${
                            isAdmin && !t.dibatalkan_at && !masuk
-                             ? `<button class="tr-batal" data-id="${t.id}">Batalkan</button>`
+                             ? `<button class="tr-edit" data-id="${t.id}">Edit</button>
+                                <button class="tr-batal" data-id="${t.id}">Batalkan</button>`
                              : ''
                          }
                        </td>
@@ -180,7 +188,9 @@ export async function renderTransferAsetPage(container, { businessUnitId, outlet
           // Kertas di tangan supir dan pesan di HP harus mengatakan hal yang
           // sama; kalau keduanya disusun terpisah, yang menyimpang isinya.
           subtitle:
+            (s.revisiKe > 0 ? `REVISI ke-${s.revisiKe} · ` : '') +
             `${tanggalSurat(t.created_at)} · Dari: ${s.asal} · Ke: ${r.tujuan} · Pembawa: ${s.pembawa}` +
+            (s.revisiKe > 0 && s.alasanRevisi ? ` · Alasan revisi: ${s.alasanRevisi}` : '') +
             (s.dibatalkan ? ` · DIBATALKAN (${s.alasanBatal})` : ''),
           columns: [
             { header: 'No', width: 0.4 },
@@ -193,6 +203,10 @@ export async function renderTransferAsetPage(container, { businessUnitId, outlet
         });
         toast('PDF surat jalan terunduh.', 'success');
       }))
+    );
+
+    container.querySelectorAll('.tr-edit').forEach((b) =>
+      b.addEventListener('click', sekaliJalan(() => dialogEdit(riwayat.find((x) => x.id === b.dataset.id))))
     );
 
     container.querySelectorAll('.tr-batal').forEach((b) =>
@@ -238,7 +252,7 @@ export async function renderTransferAsetPage(container, { businessUnitId, outlet
           name: 'tujuan_lain',
           label: 'Tujuan lain-lain (wajib kalau memilih Lain-lain)',
           type: 'text',
-          placeholder: 'mis. dipinjam untuk acara CSR / diserahkan ke vendor',
+          placeholder: 'mis. Rumah Alam Sutera',
           // Barang yang keluar tanpa keterangan ke mana adalah barang yang
           // hilang dengan surat jalan.
           help: 'Tulis ke mana perginya — ini yang akan dicari orang kalau barangnya ditagih nanti.'
@@ -248,7 +262,7 @@ export async function renderTransferAsetPage(container, { businessUnitId, outlet
           label: 'Nama pembawa barang (wajib)',
           type: 'text',
           required: true,
-          placeholder: 'mis. Pak Joko — supir',
+          placeholder: 'mis. Pak Nurjen - Sopir',
           // Tanpa penerima, pembawa adalah satu-satunya orang yang bisa
           // ditanya "barangnya ke mana".
           help: 'Tidak ada konfirmasi terima, jadi ini satu-satunya orang yang bisa ditanya kalau barangnya tidak sampai.'
@@ -350,6 +364,216 @@ export async function renderTransferAsetPage(container, { businessUnitId, outlet
       await shareDialog({
         title: `Surat jalan ${hasil.kode}`,
         helper: 'Kirim ke grup WhatsApp supaya outlet tujuan tahu barangnya berangkat.',
+        defaultMessage: transferWaText(suratDari(baru))
+      });
+    }
+  }
+
+  // -------------------------------------------------------------
+  /**
+   * REVISI SURAT JALAN YANG SUDAH TERBIT.
+   *
+   * ============ SELURUH ISI DIKIRIM ULANG, BUKAN SELISIHNYA ============
+   *
+   * Database membalikkan kiriman lama lalu menerapkan yang baru. Artinya
+   * barang yang tidak disebut akan HILANG dari surat jalan dan jumlahnya
+   * kembali ke outlet asal. Karena itu kotak jumlahnya dibuka TERISI dengan
+   * jumlah yang berlaku sekarang: kalau dibiarkan kosong seperti dialog
+   * kirim, admin yang cuma mau membetulkan satu baris akan menghapus
+   * sisanya tanpa pernah menyadarinya.
+   *
+   * ============ BATAS JUMLAHNYA BUKAN STOK OUTLET ASAL ============
+   *
+   * Jumlah yang ada di surat jalan ini sudah KELUAR dari outlet asal. Jadi
+   * batas atas tiap barang adalah "yang masih di outlet asal" DITAMBAH "yang
+   * sudah dibawa surat jalan ini" — memakai stok asal saja membuat revisi
+   * yang hanya menurunkan jumlah pun ditolak.
+   */
+  async function dialogEdit(t) {
+    if (!t) return;
+    const s = suratDari(t);
+
+    let semua;
+    try {
+      semua = await listAssets({ businessUnitId, outletId: state.outletId });
+    } catch (error) {
+      return toast(error.message ?? 'Gagal memuat daftar barang.', 'error');
+    }
+
+    const diSJ = new Map(
+      (t.asset_transfer_item ?? [])
+        .filter((i) => i.asset_item_id)
+        .map((i) => [i.asset_item_id, Number(i.qty) || 0])
+    );
+    const kandidat = semua
+      .map((a) => {
+        const sudah = diSJ.get(a.itemId) ?? 0;
+        const diOutlet = a.belumDidata ? 0 : Number(a.qty) || 0;
+        return { ...a, sudah, batas: diOutlet + sudah };
+      })
+      .filter((a) => a.batas > 0 || a.sudah > 0);
+
+    if (!kandidat.length) return toast('Tidak ada barang yang bisa direvisi di outlet ini.', 'warning');
+
+    const pilihan = [
+      ...outletTujuan
+        .filter((o) => o.id !== state.outletId)
+        .map((o) => ({ value: o.id, label: `${o.name} — ${o.buNama}` })),
+      { value: '__lain__', label: '⚠️ Lain-lain (di luar outlet)' }
+    ];
+    const tujuanSekarang = t.to_outlet_id || (t.tujuan_lain ? '__lain__' : '');
+
+    const nilai = await formDialog({
+      title: `Revisi ${t.kode}`,
+      fields: [
+        {
+          name: 'tujuan',
+          label: 'Tujuan',
+          type: 'searchselect',
+          required: true,
+          options: pilihan,
+          value: tujuanSekarang,
+          placeholder: 'cari outlet…',
+          // Mengubah tujuan berarti barangnya ditarik dari outlet tujuan LAMA.
+          // Kalau di sana sudah terpakai, database menolak revisinya utuh —
+          // dan itu lebih baik diketahui sebelum mengisi daripada sesudah.
+          help: 'Boleh dipindah ke outlet lain. Barangnya akan ditarik dari outlet tujuan lama — kalau di sana sudah terpakai atau berpindah lagi, revisinya ditolak.'
+        },
+        {
+          name: 'tujuan_lain',
+          label: 'Tujuan lain-lain (wajib kalau memilih Lain-lain)',
+          type: 'text',
+          value: t.tujuan_lain ?? '',
+          placeholder: 'mis. Rumah Alam Sutera'
+        },
+        {
+          name: 'pembawa',
+          label: 'Nama pembawa barang (wajib)',
+          type: 'text',
+          required: true,
+          value: t.pembawa ?? '',
+          placeholder: 'mis. Pak Nurjen - Sopir'
+        },
+        { name: 'catatan', label: 'Catatan (opsional)', type: 'text', value: t.catatan ?? '' },
+        {
+          name: 'alasan',
+          label: 'Alasan revisi (wajib)',
+          type: 'text',
+          required: true,
+          placeholder: 'mis. jumlah kursi salah hitung',
+          // Versi lama sudah beredar di WhatsApp. Alasannya ikut tercetak di
+          // surat jalan baru supaya yang memegang versi lama tahu kenapa
+          // angkanya berbeda.
+          help: 'Ikut tercetak di surat jalan revisi — ini yang menjelaskan ke outlet tujuan kenapa angkanya berubah.'
+        }
+      ],
+      submitText: 'Lanjut ubah barang'
+    });
+    if (!nilai) return;
+
+    const keLain = nilai.tujuan === '__lain__';
+    if (keLain && !nilai.tujuan_lain?.trim()) {
+      return toast('Tujuan lain-lain wajib diisi — tulis ke mana barangnya pergi.', 'warning');
+    }
+    if (!keLain && nilai.tujuan_lain?.trim()) {
+      return toast('Kamu memilih outlet TAPI juga mengisi tujuan lain-lain. Kosongkan salah satunya.', 'warning');
+    }
+
+    const isian = await formDialog({
+      title: `Barang di ${t.kode}`,
+      description:
+        'Kotak di bawah sudah terisi jumlah yang berlaku sekarang. Yang dikosongkan atau dinolkan akan DIKELUARKAN dari surat jalan ini dan jumlahnya kembali ke outlet asal.',
+      fields: kandidat.map((a) => ({
+        name: `q_${a.itemId}`,
+        label: `${a.kode} — ${a.name} (maksimal ${formatNum(a.batas)})`,
+        type: 'number',
+        min: 0,
+        max: a.batas,
+        value: a.sudah > 0 ? String(a.sudah) : ''
+      })),
+      submitText: 'Simpan revisi'
+    });
+    if (!isian) return;
+
+    const items = kandidat
+      .map((a) => ({ itemId: a.itemId, nama: a.name, kode: a.kode, batas: a.batas, sudah: a.sudah, qty: Number(isian[`q_${a.itemId}`]) || 0 }))
+      .filter((i) => i.qty > 0);
+
+    if (!items.length) {
+      return toast('Surat jalan tidak boleh kosong. Kalau seluruh kirimannya batal, pakai Batalkan.', 'warning');
+    }
+    const kelebihan = items.find((i) => i.qty > i.batas);
+    if (kelebihan) {
+      return toast(`"${kelebihan.nama}" paling banyak ${formatNum(kelebihan.batas)} — itu sisa di outlet asal ditambah yang sudah dibawa surat jalan ini.`, 'warning');
+    }
+
+    const tujuanNama = keLain
+      ? `${nilai.tujuan_lain.trim()} (di luar outlet)`
+      : (outletTujuan.find((o) => o.id === nilai.tujuan)?.name ?? '-');
+    const dibuang = kandidat.filter((a) => a.sudah > 0 && !items.some((i) => i.itemId === a.itemId));
+
+    // ============ YANG BERUBAH DIPERLIHATKAN, BUKAN HASIL AKHIRNYA SAJA ============
+    //
+    // Revisi memindahkan stok dua kali dalam satu langkah. Daftar "semula →
+    // menjadi" adalah satu-satunya tempat angka lamanya masih terlihat.
+    const tujuanLama = ringkasTransfer(s).tujuan;
+    const tujuanBerpindah = tujuanLama !== tujuanNama;
+    const ok = await confirmDialog({
+      title: `Simpan revisi ${t.kode}?`,
+      messageHtml:
+        (tujuanBerpindah
+          ? `<p style="margin:0 0 8px">Tujuan: <strong>${esc(tujuanLama)}</strong> → <strong>${esc(tujuanNama)}</strong><br>
+               <span style="font-size:0.8rem;color:var(--color-danger)">Barangnya ditarik dari ${esc(tujuanLama)} lalu didorong ke ${esc(tujuanNama)}.</span></p>`
+          : `<p style="margin:0 0 8px">Ke <strong>${esc(tujuanNama)}</strong>, dibawa <strong>${esc(nilai.pembawa)}</strong>.</p>`) +
+        `<ul style="margin:0 0 8px;padding-left:18px;font-size:0.85rem">
+           ${items
+             .map(
+               (i) =>
+                 `<li>${esc(i.kode)} ${esc(i.nama)} — ${
+                   i.sudah === i.qty
+                     ? `<strong>${formatNum(i.qty)}</strong> (tidak berubah)`
+                     : `semula ${formatNum(i.sudah)} → <strong>${formatNum(i.qty)}</strong>`
+                 }</li>`
+             )
+             .join('')}
+           ${dibuang
+             .map(
+               (a) =>
+                 `<li style="color:var(--color-danger)">${esc(a.kode)} ${esc(a.name)} — dikeluarkan dari surat jalan (${formatNum(a.sudah)} kembali ke outlet asal)</li>`
+             )
+             .join('')}
+         </ul>` +
+        `<p style="margin:0;font-size:0.85rem;color:var(--color-text-muted)">Nomor surat jalannya tetap ${esc(t.kode)} dan ditandai REVISI ke-${s.revisiKe + 1}.</p>`,
+      confirmText: 'Simpan revisi',
+      danger: keLain || tujuanBerpindah || dibuang.length > 0
+    });
+    if (!ok) return;
+
+    let hasil;
+    try {
+      hasil = await ubahTransferAset({
+        id: t.id,
+        keOutletId: keLain ? null : nilai.tujuan,
+        tujuanLain: keLain ? nilai.tujuan_lain : null,
+        pembawa: nilai.pembawa,
+        items,
+        alasan: nilai.alasan,
+        catatan: nilai.catatan
+      });
+    } catch (error) {
+      return toast(error.message ?? 'Gagal merevisi.', 'error');
+    }
+
+    toast(`${t.kode} tersimpan sebagai REVISI ke-${hasil.revisi_ke}.`, 'success');
+    await muat();
+
+    // Versi lama sudah beredar. Dialog bagikan dibuka supaya versi barunya
+    // menyusul ke grup yang sama, bukan menunggu ditanya.
+    const baru = riwayat.find((x) => x.id === t.id);
+    if (baru) {
+      await shareDialog({
+        title: `Surat jalan ${t.kode} (revisi ke-${hasil.revisi_ke})`,
+        helper: 'Kirim ke grup yang sama — versi lamanya masih beredar di sana.',
         defaultMessage: transferWaText(suratDari(baru))
       });
     }

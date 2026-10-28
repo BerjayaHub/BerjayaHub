@@ -153,6 +153,24 @@ benar('§5 alasannya disebut', batal.includes('salah outlet tujuan'));
 benar('§5 tidak lagi bilang stok sudah berpindah', !/Stok sudah otomatis berpindah/.test(batal), batal);
 
 // ===============================================================
+console.log('§5b Nomor revisi');
+// ===============================================================
+
+// ============ VERSI LAMA SUDAH BEREDAR DAN TIDAK BISA DITARIK ============
+//
+// Tanpa penanda revisi, dua pesan berisi angka berbeda dengan nomor yang SAMA
+// beredar berdampingan di grup — dan yang membacanya tidak punya cara tahu
+// mana yang berlaku. Yang memegang versi lama akan menyerahkan jumlah lama.
+const rev1 = transferWaText({ ...SJ, revisiKe: 1, alasanRevisi: 'salah hitung' });
+benar('§5b nomor revisi dicetak di baris nomor SJ', /No\. TA-261028-9F3A\s+\(REVISI ke-1\)/.test(rev1), rev1.split('\n')[1]);
+benar('§5b alasan revisinya disebut', rev1.includes('salah hitung'));
+
+// Surat jalan yang BELUM pernah direvisi tidak boleh membawa penanda apa pun —
+// "REVISI ke-0" membuat orang mencari versi sebelumnya yang tidak pernah ada.
+benar('§5b yang belum direvisi bersih dari penanda', !/REVISI/.test(transferWaText(SJ)));
+benar('§5b revisiKe 0 juga bersih', !/REVISI/.test(transferWaText({ ...SJ, revisiKe: 0 })));
+
+// ===============================================================
 console.log('§6 Isian aneh');
 // ===============================================================
 cek('§6 tanpa argumen tidak melempar', typeof transferWaText(), 'string');

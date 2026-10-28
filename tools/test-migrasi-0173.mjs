@@ -132,11 +132,22 @@ for (const f of [
   '0170_kerusakan_aset_dan_riwayat.sql',
   '0171_foto_acuan_item_aset.sql',
   '0172_kategori_wajib_dan_hapus_item_aset.sql',
-  '0173_transfer_aset.sql'
+  '0173_transfer_aset.sql',
+  '0174_revisi_transfer_aset.sql'
 ]) {
   await db.exec(fs.readFileSync(path.join(AKAR, 'supabase/migrations', f), 'utf8').replace(/notify pgrst[^;]*;/g, ''));
 }
-console.log('  0168 … 0173 terpasang.');
+
+// ============ DIJALANKAN DUA KALI DENGAN SENGAJA ============
+//
+// iko menjalankan migrasi dengan menempelkannya ke SQL editor, dan pertanyaan
+// "apakah ini perlu di-run ulang?" muncul tiap kali ada perubahan. Jawabannya
+// hanya bisa dipercaya kalau menjalankannya ulang memang aman — jadi dua yang
+// terbaru dipasang sekali lagi di sini, di atas skema yang sudah ada.
+for (const f of ['0173_transfer_aset.sql', '0174_revisi_transfer_aset.sql']) {
+  await db.exec(fs.readFileSync(path.join(AKAR, 'supabase/migrations', f), 'utf8').replace(/notify pgrst[^;]*;/g, ''));
+}
+console.log('  0168 … 0174 terpasang (0173 & 0174 dua kali — idempoten).');
 
 const KURSI = (await satu(`select id from asset_items where name='Kursi Bar' and business_unit_id=$1`, [CAFE])).id;
 const MEJA = (await satu(`select id from asset_items where name='Meja Lipat' and business_unit_id=$1`, [CAFE])).id;
@@ -392,6 +403,160 @@ const eTulisLangsung = await (async () => {
 // Surat jalan yang dibuat tanpa lewat RPC tidak memindahkan stok sama sekali —
 // dokumen dan angka jadi berbeda, dan tidak ada yang memberi tahu.
 benar('§7 insert langsung ditolak RLS', /policy|row-level/i.test(eTulisLangsung ?? ''), eTulisLangsung ?? 'malah masuk');
+
+// ===============================================================
+console.log('§8 Revisi surat jalan (0174)');
+// ===============================================================
+
+// ============ KENAPA REVISI, BUKAN BATAL + KIRIM ULANG ============
+//
+// Batal lalu kirim ulang menghasilkan DUA surat jalan untuk SATU perjalanan,
+// dan rekap "berapa yang pindah bulan ini" ikut menggelembung. Revisi memakai
+// nomor yang sama.
+// Bagian sebelumnya sudah menghabiskan sebagian stok. Diisi ulang supaya
+// angka di bagian ini berdiri sendiri dan bisa dibaca tanpa menelusuri
+// seluruh berkas.
+await sebagai(ADMIN);
+await q(`update asset_stock set qty = 20 where asset_item_id=$1 and outlet_id=$2`, [KURSI, A]);
+
+await sebagai(STAFF);
+const T8 = await totalSemua();
+const asal8 = await qtyDi(KURSI, A);
+const h8 = (await kirim({ items: [{ item_id: KURSI, qty: 4 }] })).h;
+const id8 = (await satu(`select id from asset_transfer where kode=$1`, [h8.kode])).id;
+cek('§8 terkirim dulu', await qtyDi(KURSI, A), asal8 - 4);
+
+const ubah = (o = {}) =>
+  satu(`select ubah_transfer_aset($1,$2,$3,$4,$5::jsonb,$6,$7) as h`, [
+    o.id ?? id8,
+    o.ke === undefined ? B : o.ke,
+    o.lain ?? null,
+    o.pembawa ?? 'Pak Nurjen',
+    JSON.stringify(o.items ?? [{ item_id: KURSI, qty: 2 }]),
+    o.alasan ?? 'salah hitung',
+    o.catatan ?? null
+  ]);
+
+const eStaffUbah = await galat(() => ubah());
+benar('§8 staff tidak boleh merevisi', /Admin BU/i.test(eStaffUbah ?? ''), eStaffUbah ?? 'malah jalan');
+
+await sebagai(ADMIN);
+const eTanpaAlasan8 = await galat(() => ubah({ alasan: '  ' }));
+benar('§8 alasan revisi wajib', /Alasan revisi wajib/i.test(eTanpaAlasan8 ?? ''), eTanpaAlasan8 ?? 'malah jalan');
+
+// Jumlah diturunkan 4 -> 2.
+const h8b = (await ubah({ items: [{ item_id: KURSI, qty: 2 }] })).h;
+cek('§8 nomor SJ TETAP sama', h8b.kode, h8.kode);
+cek('§8 nomor revisinya naik', Number(h8b.revisi_ke), 1);
+cek('§8 asal menyesuaikan', await qtyDi(KURSI, A), asal8 - 2);
+cek('§8 total tetap utuh', await totalSemua(), T8);
+
+const isi8 = await semua(`select item_nama, qty from asset_transfer_item where transfer_id=$1`, [id8]);
+cek('§8 isi SJ ikut berubah', isi8.map((r) => Number(r.qty)), [2]);
+
+// ============ OUTLET TUJUAN BOLEH BERPINDAH ============
+//
+// Barang ditarik dari tujuan LAMA dan didorong ke tujuan BARU dalam satu
+// langkah — dua perpindahan di bawah satu nomor surat jalan.
+// ============ PADANAN DI BU TUJUAN DICARI LEWAT NAMA SAAT INI ============
+//
+// §6 sudah mengganti nama itemnya jadi "Kursi Bar Kayu". Jadi padanan yang
+// dicari di Bengkel adalah nama ITU, bukan nama lama — dan karena di sana
+// belum ada, item baru dibuatkan. Itu memang perilakunya: pencocokan lintas
+// BU memakai nama + kategori yang sama persis, sama seperti impor dan
+// pemindahan aset. Mengganti nama di satu BU memang memutus padanannya.
+const namaKini = (await satu(`select name from asset_items where id=$1`, [KURSI])).name;
+const padanan = async () =>
+  (await satu(`select id from asset_items where business_unit_id=$1 and name=$2`, [BENGKEL, namaKini]))?.id ?? null;
+
+const bSebelum = await qtyDi(KURSI, B);
+const padananSebelum = await padanan();
+const cSebelum = padananSebelum ? ((await qtyDi(padananSebelum, C)) ?? 0) : 0;
+await ubah({ ke: C, items: [{ item_id: KURSI, qty: 2 }] });
+const padananKini = await padanan();
+benar('§8 padanannya ada di BU tujuan', !!padananKini);
+cek('§8 tujuan lama ditarik kembali', await qtyDi(KURSI, B), bSebelum - 2);
+cek('§8 tujuan baru bertambah', await qtyDi(padananKini, C), cSebelum + 2);
+cek('§8 total tetap utuh saat tujuan berpindah', await totalSemua(), T8);
+cek('§8 revisi kedua', Number((await satu(`select revisi_ke from asset_transfer where id=$1`, [id8])).revisi_ke), 2);
+
+// Pindah ke "lain-lain": barangnya keluar dari sistem, jadi totalnya turun.
+const T8b = await totalSemua();
+await ubah({ ke: null, lain: 'Rumah Alam Sutera', items: [{ item_id: KURSI, qty: 2 }] });
+cek('§8 tujuan Bengkel ditarik kembali', await qtyDi(padananKini, C), cSebelum);
+cek('§8 total turun 2 karena keluar sistem', await totalSemua(), T8b - 2);
+const sj8 = await satu(`select * from asset_transfer where id=$1`, [id8]);
+cek('§8 tujuan lain-lain tersimpan', sj8.tujuan_lain, 'Rumah Alam Sutera');
+cek('§8 outlet tujuannya dikosongkan', sj8.to_outlet_id, null);
+cek('§8 jejak perevisi tersimpan', sj8.direvisi_by_nama, 'Pak Admin');
+cek('§8 alasannya tersimpan', sj8.alasan_revisi, 'salah hitung');
+
+// ============ GAGAL HARUS UTUH ============
+//
+// Revisi yang membalikkan dua barang lalu berhenti di barang ketiga
+// meninggalkan surat jalan yang isinya tidak cocok dengan stok mana pun.
+const sebelumGagal8 = await totalSemua();
+const eKebanyakan8 = await galat(() => ubah({ ke: B, items: [{ item_id: KURSI, qty: 999999 }] }));
+benar('§8 revisi melebihi stok ditolak', /Tercatat cuma/i.test(eKebanyakan8 ?? ''), eKebanyakan8 ?? 'malah jalan');
+cek('§8 dan TIDAK menyisakan perubahan', await totalSemua(), sebelumGagal8);
+cek('§8 nomor revisinya tidak ikut naik', Number((await satu(`select revisi_ke from asset_transfer where id=$1`, [id8])).revisi_ke), 3);
+
+// ============ BARANG DI OUTLET TUJUAN SUDAH TIDAK ADA ============
+//
+// Revisi menarik kembali kiriman dari outlet tujuan. Kalau di sana barangnya
+// sudah terpakai, dipindahkan lagi, atau dicatat rusak, penarikan itu akan
+// membuat stoknya MINUS — dan stok minus tidak terlihat seperti kesalahan
+// program, ia terlihat seperti barang yang hilang di outlet tujuan.
+await sebagai(STAFF);
+const h8t = (await kirim({ ke: B, items: [{ item_id: KURSI, qty: 2 }] })).h;
+const id8t = (await satu(`select id from asset_transfer where kode=$1`, [h8t.kode])).id;
+await sebagai(ADMIN);
+await q(`update asset_stock set qty = 0 where asset_item_id=$1 and outlet_id=$2`, [KURSI, B]);
+const sebelumTujuanKosong = await totalSemua();
+const eTujuanKosong = await galat(() => ubah({ id: id8t, items: [{ item_id: KURSI, qty: 1 }] }));
+benar(
+  '§8 revisi ditolak kalau outlet tujuan sudah tidak memegang barangnya',
+  /Tidak bisa direvisi/i.test(eTujuanKosong ?? ''),
+  eTujuanKosong ?? 'malah jalan'
+);
+cek('§8 dan tidak menyisakan perubahan apa pun', await totalSemua(), sebelumTujuanKosong);
+cek(
+  '§8 stok outlet tujuan tidak jadi minus',
+  Number((await satu(`select qty from asset_stock where asset_item_id=$1 and outlet_id=$2`, [KURSI, B])).qty),
+  0
+);
+
+// ============ MENURUNKAN JUMLAH SAAT STOK ASAL HABIS ============
+//
+// Barang yang ada di surat jalan ini SUDAH keluar dari outlet asal. Kalau
+// pemeriksaan stoknya berjalan sebelum pembalikan, revisi yang cuma
+// MENURUNKAN jumlah pun akan ditolak dengan "tercatat cuma 0" — padahal
+// barangnya memang ada, hanya saja tercatat di surat jalan yang sedang
+// direvisi. Ini juga yang menentukan batas atas kotak jumlah di layar
+// Revisi: sisa di outlet asal DITAMBAH yang sudah dibawa SJ ini.
+await sebagai(ADMIN);
+await q(`update asset_stock set qty = 0 where asset_item_id=$1 and outlet_id=$2`, [KURSI, A]);
+await sebagai(STAFF);
+await q(`update asset_stock set qty = 3 where asset_item_id=$1 and outlet_id=$2`, [KURSI, A]);
+const h8d = (await (async () => { await sebagai(STAFF); return kirim({ items: [{ item_id: KURSI, qty: 3 }] }); })()).h;
+const id8d = (await satu(`select id from asset_transfer where kode=$1`, [h8d.kode])).id;
+cek('§8 stok asal habis terpakai SJ ini', await qtyDi(KURSI, A), 0);
+await sebagai(ADMIN);
+const h8e = (await ubah({ id: id8d, items: [{ item_id: KURSI, qty: 1 }] })).h;
+cek('§8 turun jumlah tetap boleh walau stok asal 0', Number(h8e.revisi_ke), 1);
+cek('§8 sisanya kembali ke outlet asal', await qtyDi(KURSI, A), 2);
+
+const eKosong8 = await galat(() => ubah({ items: [] }));
+benar('§8 revisi tanpa barang ditolak, dan menyarankan Batalkan', /pakai Batalkan/i.test(eKosong8 ?? ''), eKosong8 ?? 'malah jalan');
+
+// SJ yang sudah dibatalkan tidak bisa direvisi — kalau bisa, stoknya bergerak
+// untuk dokumen yang sudah dinyatakan tidak berlaku.
+const h8c = (await (async () => { await sebagai(STAFF); return kirim({ items: [{ item_id: KURSI, qty: 1 }] }); })()).h;
+const id8c = (await satu(`select id from asset_transfer where kode=$1`, [h8c.kode])).id;
+await sebagai(ADMIN);
+await q(`select batalkan_transfer_aset($1,'coba')`, [id8c]);
+const eRevisiBatal = await galat(() => ubah({ id: id8c }));
+benar('§8 SJ yang dibatalkan tidak bisa direvisi', /sudah dibatalkan/i.test(eRevisiBatal ?? ''), eRevisiBatal ?? 'malah jalan');
 
 // ---------------------------------------------------------------
 console.log(`\n${gagal === 0 ? '✅' : '❌'} test-migrasi-0173: ${n - gagal}/${n} lulus`);
