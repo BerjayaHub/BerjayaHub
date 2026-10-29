@@ -1,4 +1,5 @@
 import { listAttendanceForNbm, listOutletsWithGeofence, listAttendanceOutlets, koreksiOutletBasisMassal } from './attendance.service.js';
+import { listOutletsSayaKelola, PESAN_TANPA_OUTLET_KELOLA } from '../../core/my-outlets.js';
 import { listBuStaff } from '../leave/leave.service.js';
 import {
   getNbmConfig,
@@ -11,7 +12,7 @@ import {
   removeNbmAdjustment
 } from './nbm.service.js';
 import { exportTablePDF } from '../../core/pdf.js';
-import { toast, formDialog, shareDialog, confirmDialog, fuzzyMatch } from '../../core/ui.js';
+import { toast, formDialog, shareDialog, confirmDialog, fuzzyMatch, infoDialog } from '../../core/ui.js';
 import { formatRupiah, formatThousands, parseNumber, attachThousandsInput } from '../../core/format.js';
 import { monthRangeWIB, isoFrom, isoTo } from '../../core/dates.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
@@ -427,6 +428,24 @@ async function koreksiMassal(businessUnitId, outlets) {
   if (!staff.length) return toast('Belum ada staff di BU ini.', 'warning');
   if (!outlets.length) return toast('Belum ada outlet di BU ini.', 'warning');
 
+  // ============ TUJUAN KOREKSI DIBATASI OUTLET YANG DIKELOLA ============
+  //
+  // `koreksi_outlet_basis_massal` menolak kalau `is_admin_of_outlet()` tidak
+  // terpenuhi untuk outlet TUJUAN. Mengisi dropdown ini dengan daftar "outlet
+  // yang boleh DILIHAT" membuat admin outlet bisa memilih outlet tetangga,
+  // menekan Hitung Dampaknya, lalu ditolak — dan penolakan itu baru muncul
+  // sesudah ia mengisi staff, rentang tanggal, dan alasan koreksi.
+  //
+  // Saringan laporannya tetap memakai daftar lengkap: laporan yang menyembunyikan
+  // outlet justru bolong tanpa tanda.
+  const outletTujuan = await listOutletsSayaKelola(businessUnitId);
+  if (!outletTujuan.length) {
+    return infoDialog({
+      title: 'Belum ada outlet yang kamu kelola',
+      html: PESAN_TANPA_OUTLET_KELOLA
+    });
+  }
+
   const range = monthRangeWIB();
   const values = await formDialog({
     title: 'Koreksi Outlet Basis',
@@ -437,7 +456,13 @@ async function koreksiMassal(businessUnitId, outlets) {
       { name: 'user_id', label: 'Staff', type: 'searchselect', required: true, options: staff.map((s) => ({ value: s.user_id, label: s.full_name })) },
       { name: 'from', label: 'Dari tanggal', type: 'date', required: true, value: range.from },
       { name: 'to', label: 'Sampai tanggal', type: 'date', required: true, value: range.to },
-      { name: 'outlet_id', label: 'Outlet basis yang benar', type: 'select', required: true, options: outlets.map((o) => ({ value: o.id, label: o.name })) },
+      {
+        name: 'outlet_id',
+        label: 'Outlet basis yang benar',
+        type: 'select',
+        required: true,
+        options: outletTujuan.map((o) => ({ value: o.id, label: o.name }))
+      },
       { name: 'note', label: 'Alasan koreksi', type: 'text', required: true, placeholder: 'mis. pindah ke CK sejak 2 Agu, ★ telat diperbarui' }
     ],
     submitText: 'Hitung Dampaknya'

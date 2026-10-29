@@ -26,6 +26,7 @@ import { susunRekapWaste, KOLOM_FOTO, KOLOM_PURPOSE, PURPOSE_KOSONG } from './la
 import { rekapWaste, getBiayaRataBu, urlFotoWaste, urlFotoWasteBanyak, ubahPurposeWaste } from './waste.service.js';
 import { listEsbMaster } from './esb.service.js';
 import { opsiPurpose } from './purpose-esb.js';
+import { sayaAdminBu } from '../../core/base-scope.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -33,6 +34,19 @@ const esc = (s) =>
 export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
   const { from: awal, to: akhir } = monthRangeWIB();
   const state = { outletId: '', dateFrom: awal, dateTo: akhir };
+
+  // ============ WEWENANGNYA DIPERIKSA DI LAYAR, BUKAN CUMA DI DATABASE ============
+  //
+  // Mengubah Purpose dijaga `is_bu_admin()` di dalam `ubah_purpose_waste`.
+  // Menyandarkan diri sepenuhnya pada penjaga itu menghasilkan tombol yang
+  // bisa ditekan lalu ditolak — dan penolakannya tidak berbentuk galat,
+  // melainkan `0 baris berubah`. Admin outlet lalu membuka dialog, memilih
+  // Purpose, menekan Simpan, dan mendapat "tidak ada yang berubah" tanpa
+  // pernah tahu bahwa ia memang tidak berhak.
+  //
+  // Gagal memeriksa = DIANGGAP TIDAK BERWENANG. Arah yang sebaliknya membuka
+  // tombolnya untuk semua orang justru saat jaringannya sedang bermasalah.
+  const bolehUbahPurpose = await sayaAdminBu(businessUnitId).catch(() => false);
 
   container.innerHTML = `
     <div class="page-header">
@@ -184,7 +198,7 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
       })
     );
 
-    hasil.querySelectorAll('.ws-purpose').forEach((b) =>
+    hasil.querySelectorAll('.ws-purpose:not([disabled])').forEach((b) =>
       b.addEventListener('click', sekaliJalan(() => isiPurpose(b.dataset.waste, b.dataset.kini ?? '')))
     );
   }
@@ -213,11 +227,21 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
       }</span>`;
     }
     const kosong = !meta.purpose;
+    const isi = kosong ? `<span class="nota-telat">${esc(PURPOSE_KOSONG)}</span> — isi` : esc(meta.purpose);
+
+    // Tombol yang tidak boleh ditekan TETAP DIGAMBAR, mati, dengan sebabnya di
+    // `title` — sama seperti tombol koreksi kas. Menyembunyikannya membuat
+    // orang mencari tombol yang ada di layar admin lain, tidak menemukannya,
+    // lalu menyimpulkan halamannya rusak.
+    if (!bolehUbahPurpose) {
+      const sebab = 'Hanya admin BU yang boleh mengubah Purpose.';
+      return `<button class="ws-purpose" disabled title="${esc(sebab)}" aria-label="${esc(sebab)}"` +
+        ` style="font-size:0.78rem;padding:2px 8px">${isi}</button>`;
+    }
+
     return (
       `<button class="ws-purpose" data-waste="${esc(meta.wasteId)}" data-kini="${esc(meta.purpose)}"` +
-      ` style="font-size:0.78rem;padding:2px 8px">${
-        kosong ? `<span class="nota-telat">${esc(PURPOSE_KOSONG)}</span> — isi` : esc(meta.purpose)
-      }</button>`
+      ` style="font-size:0.78rem;padding:2px 8px">${isi}</button>`
     );
   }
 

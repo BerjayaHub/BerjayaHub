@@ -27,9 +27,12 @@ const TABS = 'js/core/admin-tabs.js';
 const MAIN = 'js/main-admin.js';
 const PAGE = 'js/modules/cash/cash.page.js';
 const ADMIN = 'js/modules/cash/cash.admin.page.js';
+// `ketHtml` dulu ditulis dua kali (Staff App + Admin Portal); sekarang satu
+// modul yang dipakai keduanya.
+const KET = 'js/modules/cash/keterangan-nota-html.js';
 
 const asli = new Map();
-for (const rel of [MIG, MURNI, SVC, TABS, MAIN, PAGE, ADMIN]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
+for (const rel of [MIG, MURNI, SVC, TABS, MAIN, PAGE, ADMIN, KET]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
 
 // ============ JEJAK "SABOTASE SEDANG TERPASANG" ============
 //
@@ -464,10 +467,17 @@ sabotase(
   AUDIT
 );
 sabotase(
-  'Admin Portal meniru sendiri aturan nomor nota',
-  ADMIN,
+  'keterangan kas berhenti dipecah lewat modul murni — nomor notanya tidak lagi jadi tautan',
+  KET,
   '  const { bagian, tambahan } = pecahKeterangan(ket, notas ?? []);',
   '  const bagian = [{ teks: String(ket ?? "") }], tambahan = [];',
+  'tools/audit-nota-dari-kas.cjs'
+);
+sabotase(
+  'Admin Portal berhenti memakai modul bersama dan menggambar keterangannya sendiri',
+  ADMIN,
+  '${ketNotaHtml(r.notes, notaPerEntri.get(r.id))}',
+  '${r.notes}',
   AUDIT
 );
 sabotase(

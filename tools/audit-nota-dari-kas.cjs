@@ -230,22 +230,40 @@ if (dlg) {
 // ---------------------------------------------------------------
 const page = baca('js/modules/cash/cash.page.js');
 if (page) {
-  const kode = bersih(page, 'cash.page.js', ['function ketHtml(', 'function ukurRiwayat(', 'class="kas-header"']);
+  const kode = bersih(page, 'cash.page.js', ['ketNotaHtml(', 'function ukurRiwayat(', 'class="kas-header"']);
 
   if (!/class="kas-header"/.test(kode)) salah('cash.page.js: kepala halaman tidak dibungkus `.kas-header` — tidak ada yang bisa dibekukan.');
   if (!/class="table-scroll kas-riwayat"/.test(kode)) salah('cash.page.js: wadah riwayat tidak bertanda `.kas-riwayat` — ia tidak akan menggulir sendiri.');
 
-  // ESCAPE SESUDAH PEMECAHAN, bukan sebelum. Kalau teksnya di-escape dulu,
-  // kode nota yang memuat & atau < tidak akan pernah cocok — tautannya hilang
-  // tanpa satu pun tanda.
-  if (!/pecahKeterangan\(ket, notas \?\? \[\]\)/.test(kode)) {
-    salah('cash.page.js `ketHtml`: keterangan tidak lagi dipecah lewat modul murni `pecahKeterangan`.');
+  // ============ SASARANNYA PINDAH KE MODUL BERSAMA ============
+  //
+  // `ketHtml` dulu ditulis identik di Staff App dan Admin Portal. Sekarang
+  // satu modul: `keterangan-nota-html.js`. Jadi layar ini diperiksa MEMAKAI
+  // modul itu, dan modulnya diperiksa di tempatnya sendiri — plus tes murni
+  // `test-keterangan-nota-html.mjs` yang memasukkan keterangan bermuatan
+  // markup lalu memeriksa keluarannya.
+  if (!/ketNotaHtml\(/.test(kode)) {
+    salah('cash.page.js: keterangan tidak digambar lewat modul bersama `ketNotaHtml`.');
   }
-  if (!/escapeHtml\(b\.teks\)/.test(kode) || !/escapeHtml\(t\.teks\)/.test(kode)) {
-    salah('cash.page.js `ketHtml`: potongan keterangan tidak di-escape — kolom Keterangan jadi jalan masuk HTML.');
+
+  const modulKet = baca('js/modules/cash/keterangan-nota-html.js');
+  if (!modulKet) {
+    salah('keterangan-nota-html.js tidak ada — kedua layar kas kehilangan cara menggambar nomor notanya.');
+  } else {
+    // ESCAPE SESUDAH PEMECAHAN, bukan sebelum. Kalau teksnya di-escape dulu,
+    // kode nota yang memuat & atau < tidak akan pernah cocok — tautannya
+    // hilang tanpa satu pun tanda.
+    if (!/pecahKeterangan\(ket, notas \?\? \[\]\)/.test(modulKet)) {
+      salah('keterangan-nota-html.js: keterangan tidak lagi dipecah lewat modul murni `pecahKeterangan`.');
+    }
+    if (!/escapeHtml\(b\.teks\)/.test(modulKet) || !/escapeHtml\(t\.teks\)/.test(modulKet)) {
+      salah('keterangan-nota-html.js: potongan keterangan tidak di-escape — kolom Keterangan jadi jalan masuk HTML.');
+    }
+    if (!/escapeHtml\(t\.notaId\)/.test(modulKet)) {
+      salah('keterangan-nota-html.js: id nota tidak di-escape saat masuk atribut.');
+    }
+    if (!/class="btn-nota"/.test(modulKet)) salah('keterangan-nota-html.js: tombol nomor nota tidak digambar.');
   }
-  if (!/escapeHtml\(t\.notaId\)/.test(kode)) salah('cash.page.js `ketHtml`: id nota tidak di-escape saat masuk atribut.');
-  if (!/class="btn-nota"/.test(kode)) salah('cash.page.js: tombol nomor nota tidak digambar.');
   if (!/\.btn-nota'\)\.forEach/.test(kode)) salah('cash.page.js: tombol nomor nota digambar tapi tidak pernah dipasangi penangan klik.');
   if (!/bukaDialogNota\(/.test(kode)) salah('cash.page.js: dialog rincian nota tidak pernah dibuka.');
 

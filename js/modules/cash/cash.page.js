@@ -29,7 +29,8 @@ import { loadingHtml, tombolSibuk, sekaliJalan } from '../../core/loading.js';
 import { notaTerkaitEntriKas } from '../inventory/nota.service.js';
 import { listSuppliers } from '../inventory/esb.service.js';
 import { bukaDialogNota } from '../inventory/nota-dialog.js';
-import { pecahKeterangan, petaNotaPerEntri } from './keterangan-nota.js';
+import { petaNotaPerEntri } from './keterangan-nota.js';
+import { ketNotaHtml } from './keterangan-nota-html.js';
 import { supplierKasWajib, opsiSupplierKas, periksaSupplierKas, LABEL_PENERIMA } from './supplier-kas.js';
 import { kantongWajib, opsiKantong, periksaKantong, sumberDana, NAMA_TANPA_KANTONG } from './kantong-wajib.js';
 
@@ -159,27 +160,6 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
   // Saldo per kantong hasil refresh terakhir — termasuk baris "Kas Utama"
   // (account_id NULL) kalau memang ada uang di sana.
   let saldoKantong = [];
-
-  /**
-   * Keterangan dengan nomor notanya jadi tombol.
-   *
-   * Potongannya disusun modul murni `pecahKeterangan`; di sini tinggal
-   * meng-escape dan membungkusnya. Meng-escape di SINI, sesudah pemecahan,
-   * bukan sebelumnya: kalau teksnya di-escape lebih dulu, kode nota yang
-   * memuat `&` atau `<` tidak akan pernah cocok dengan kode aslinya.
-   */
-  function ketHtml(ket, notas) {
-    const { bagian, tambahan } = pecahKeterangan(ket, notas ?? []);
-    const tombol = (t) => `<button type="button" class="btn-nota" data-id="${escapeHtml(t.notaId)}">${escapeHtml(t.teks)}</button>`;
-    const utama = bagian.map((b) => (b.notaId ? tombol(b) : escapeHtml(b.teks))).join('');
-    // Nota yang kodenya tidak tertulis di keterangan tetap ditawarkan, supaya
-    // tidak ada nota yang mustahil dibuka hanya karena kalimatnya tidak
-    // menyebutnya.
-    const ekor = tambahan.length
-      ? `<div class="kas-nota-ekor">Nota: ${tambahan.map(tombol).join(' ')}</div>`
-      : '';
-    return (utama || escapeHtml(ket ?? '-')) + ekor;
-  }
 
   /**
    * Tombol Ubah & Hapus untuk satu baris.
@@ -396,7 +376,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
                     e.category_name ||
                     (e.counterpart_name ? `${amt >= 0 ? 'dari' : 'ke'} ${e.counterpart_name}` : '-');
                   return `<tr${k.dicoret ? ' class="kas-dicoret"' : ''}>
-                    <td data-label="Keterangan"><strong>${ketHtml(ket, notaPerEntri.get(e.id))}</strong>
+                    <td data-label="Keterangan"><strong>${ketNotaHtml(ket, notaPerEntri.get(e.id))}</strong>
                       ${e.category_name ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${escapeHtml(e.category_name)}</div>` : ''}
                       ${e.qty ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${formatNum(e.qty)} ${escapeHtml(e.unit ?? '')}</div>` : ''}
                       ${k.jejak ? `<div class="kas-jejak">${escapeHtml(k.jejak)}</div>` : ''}</td>

@@ -33,6 +33,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { tanpaKomentar, periksaKewarasan } = require('./lib/tanpa-komentar.cjs');
 
 const AKAR = path.join(__dirname, '..');
 const DIR_JS = path.join(AKAR, 'js');
@@ -92,19 +93,127 @@ for (const m of sql.matchAll(
 const temuan = [];
 let diperiksa = 0;
 
+/**
+ * Tabel asal sebuah embed pada posisi `pos` di `teks`.
+ *
+ * Dua bentuk yang dipakai di repo ini:
+ *
+ *   a. langsung di rantainya — `supabase.from('x').select('…embed…')`
+ *   b. lewat konstanta       — `const KOLOM = '…embed…'` lalu `.select(KOLOM)`
+ *
+ * Untuk (a) `.from()` dicari ke belakang TAPI tidak boleh melompati batas
+ * pernyataan (`;`). Tanpa batas itu, embed yang berdiri sendiri akan mewarisi
+ * `.from()` milik fungsi lain — yang persis bagaimana audit ini pernah
+ * melaporkan embed presensi sebagai milik `exit_task_otp_codes`.
+ *
+ * @returns {string|null} nama tabel, atau null kalau tidak bisa dipastikan
+ */
+function tabelAsal(teks, pos) {
+  const sebelum = teks.slice(0, pos);
+
+  // (a) rantai yang sama: potong di `;` terakhir sebelum embed.
+  const batas = sebelum.lastIndexOf(';');
+  const rantai = sebelum.slice(batas + 1);
+  const dari = [...rantai.matchAll(/\.from\(\s*['"](\w+)['"]\s*\)/g)].pop();
+  if (dari) return dari[1];
+
+  // (b) konstanta: cari nama konstanta yang memuat embed ini, lalu cari
+  // `.select(NAMA)` di berkas yang sama dan ambil `.from()` di rantai itu.
+  const deklarasi = [...teks.matchAll(/const\s+([A-Za-z_$][\w$]*)\s*=/g)].filter((d) => d.index < pos).pop();
+  if (!deklarasi) return null;
+  const nama = deklarasi[1];
+
+  const pakai = [...teks.matchAll(new RegExp(`\\.select\\(\\s*${nama}\\b`, 'g'))];
+  const tabelDipakai = new Set();
+  for (const u of pakai) {
+    const t = tabelAsal(teks, u.index);
+    if (t) tabelDipakai.add(t);
+  }
+
+  // ============ SATU TINGKAT PEMBUNGKUS ============
+  //
+  // Bentuk yang dipakai di dua berkas: konstantanya tidak masuk `.select()`
+  // langsung, melainkan lewat pembungkus lokal —
+  //
+  //   const ambil = (kolom) => ambilSemua(… .from('x').select(kolom) …);
+  //   return await ambil(KOLOM_REKAP_PRESENSI);
+  //
+  // Jadi pemanggilan `nama` ditelusuri satu tingkat: cari `pembungkus(nama)`,
+  // lalu `.from()` di dalam badan pembungkus itu.
+  for (const c of teks.matchAll(new RegExp(`\\b(\\w+)\\s*\\(\\s*${nama}\\b`, 'g'))) {
+    const pembungkus = c[1];
+    const def = new RegExp(`(?:const|let|function)\\s+${pembungkus}\\b`).exec(teks);
+    if (!def) continue;
+    // Dibatasi sampai `export` berikutnya supaya tidak memungut `.from()`
+    // milik fungsi lain di bawahnya — tebakan yang melebar persis bentuk
+    // kesalahan yang sedang diperbaiki di sini.
+    const akhir = teks.indexOf('\nexport ', def.index);
+    const badan = teks.slice(def.index, akhir < 0 ? teks.length : akhir);
+    for (const f of badan.matchAll(/\.from\(\s*['"](\w+)['"]\s*\)/g)) tabelDipakai.add(f[1]);
+  }
+
+  // Konstanta yang dipakai pada DUA tabel berbeda tidak bisa dinilai dengan
+  // satu jawaban — dan menebak salah satunya adalah cara audit ini berbohong.
+  return tabelDipakai.size === 1 ? [...tabelDipakai][0] : null;
+}
+
 for (const p of berkas(DIR_JS, '.js')) {
-  const teks = fs.readFileSync(p, 'utf8');
+  const asli = fs.readFileSync(p, 'utf8');
   const rel = path.relative(AKAR, p).replace(/\\/g, '/');
+
+  // ============ KOMENTARNYA DIBUANG DULU ============
+  //
+  // Pemotongan "rantai yang sama" memakai `;` sebagai batas pernyataan, dan
+  // komentar di repo ini penuh kalimat ber-titik-koma:
+  //
+  //   // … Kodenya tidak berubah; skemanya yang berubah.
+  //
+  // Titik koma itu memotong rantainya di tengah `.select()`, `.from()`-nya
+  // ikut terbuang, dan embed yang benar dilaporkan "tidak bisa dipastikan".
+  //
+  // `tanpaKomentar` mengganti komentar dengan SPASI, jadi nomor baris dan
+  // posisi karakternya tetap sama.
+  const teks = tanpaKomentar(asli);
+  const pesanWaras = periksaKewarasan(asli, teks, ['user_profiles!', '.from(']);
+  if (pesanWaras) {
+    temuan.push(`${rel} — ${pesanWaras} (pemotong komentar tertipu; audit ini tidak bisa dipercaya untuk berkas itu)`);
+    continue;
+  }
 
   for (const m of teks.matchAll(/user_profiles!(\w+)\s*\(/g)) {
     const petunjuk = m[1];
     diperiksa++;
 
-    // Tabel asalnya = argumen `.from('...')` terdekat SEBELUM embed ini.
     const sebelum = teks.slice(0, m.index);
-    const dari = [...sebelum.matchAll(/\.from\(\s*['"](\w+)['"]\s*\)/g)].pop();
-    if (!dari) continue; // embed di dalam RPC/string lepas — tidak bisa dipastikan
-    const tabel = dari[1];
+    const baris0 = sebelum.split('\n').length;
+
+    // ============ TABEL ASALNYA DICARI, BUKAN DITEBAK ============
+    //
+    // Aturan lamanya: ".from('…') terdekat SEBELUM embed ini". Itu benar untuk
+    // rantai `supabase.from('x').select('…user_profiles!y(…)')`, dan SALAH
+    // untuk embed yang hidup di konstanta:
+    //
+    //   const KOLOM_REKAP_PRESENSI = '…, user_profiles!user_id(full_name)';
+    //
+    // Konstanta itu ditulis di atas fungsinya, jadi ".from() terdekat
+    // sebelumnya" adalah milik fungsi LAIN beberapa ratus baris di atas —
+    // dan audit ini melaporkan embed presensi sebagai milik
+    // `exit_task_otp_codes`.
+    //
+    // Yang lebih berbahaya bukan temuan palsunya, melainkan kebalikannya:
+    // embed yang benar-benar rusak bisa ditimpakan ke tabel lain yang
+    // kebetulan punya FK yang pas, dan auditnya diam.
+    const tabel = tabelAsal(teks, m.index);
+    if (!tabel) {
+      // Tidak bisa dipastikan = DILAPORKAN, bukan dilewati. Melewatinya diam-
+      // diam persis sama dengan tidak punya audit untuk embed itu.
+      temuan.push(
+        `${rel}:${baris0} — embed user_profiles!${petunjuk}, tapi tabel asalnya tidak bisa dipastikan ` +
+          '(tidak ada .from() di rantai yang sama, dan konstantanya tidak dipakai di .select() mana pun). ' +
+          'Tulis embed-nya langsung di .select() tabelnya, atau pakai konstanta yang jelas pemakaiannya.'
+      );
+      continue;
+    }
 
     // PostgREST menerima DUA bentuk petunjuk: nama kolom (`!used_by`) atau
     // nama constraint (`!exit_task_otp_codes_used_by_fkey`). Bentuk kedua
@@ -115,7 +224,7 @@ for (const p of berkas(DIR_JS, '.js')) {
         ? petunjuk.slice(tabel.length + 1, -'_fkey'.length)
         : petunjuk;
 
-    const baris = sebelum.split('\n').length;
+    const baris = baris0;
     const tujuan = tujuanFk.get(`${tabel}.${kolom}`);
 
     if (!tujuan) {

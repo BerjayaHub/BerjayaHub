@@ -25,7 +25,8 @@ import { monthRangeWIB } from '../../core/dates.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { notaTerkaitEntriKas } from '../inventory/nota.service.js';
 import { bukaDialogNota } from '../inventory/nota-dialog.js';
-import { pecahKeterangan, petaNotaPerEntri } from './keterangan-nota.js';
+import { petaNotaPerEntri } from './keterangan-nota.js';
+import { ketNotaHtml } from './keterangan-nota-html.js';
 import { keadaanKoreksi, totalKas } from './koreksi-kas.js';
 import { LABEL_PENGELUARAN, saringPengeluaran, ringkasPengeluaran } from './jenis-pengeluaran.js';
 import { unduhKasExcel, unduhKasPDF } from './ekspor-kas.js';
@@ -257,7 +258,7 @@ async function loadMutasi(content) {
               }</td>
               <td data-label="Jenis">${ENTRY_LABEL[r.entry_type] ?? r.entry_type}</td>
               <td data-label="Kategori / Lawan">${esc(ket)}
-                ${r.notes ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${ketHtml(r.notes, notaPerEntri.get(r.id))}</div>` : ''}
+                ${r.notes ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${ketNotaHtml(r.notes, notaPerEntri.get(r.id))}</div>` : ''}
                 ${k.jejak ? `<div class="kas-jejak">${esc(k.jejak)}</div>` : ''}</td>
               <td style="color:${warna};font-weight:600;white-space:nowrap" data-label="Jumlah">${amt >= 0 ? '+' : '−'}${formatRupiah(Math.abs(amt))}</td>
               <td data-label="Supplier" style="font-size:0.8rem">${
@@ -475,19 +476,6 @@ async function loadMutasi(content) {
   result.querySelectorAll('.btn-kas-hapus').forEach((btn) =>
     btn.addEventListener('click', () => hapusEntriAdmin(perId.get(btn.dataset.id), content))
   );
-}
-
-/**
- * Keterangan dengan nomor notanya jadi tombol — modul murni yang SAMA dengan
- * Staff App (`pecahKeterangan`). Meniru aturannya di sini akan membuat nomor
- * nota yang sama bisa diketuk di satu layar dan tidak di layar lainnya.
- */
-function ketHtml(ket, notas) {
-  const { bagian, tambahan } = pecahKeterangan(ket, notas ?? []);
-  const tombol = (t) => `<button type="button" class="btn-nota" data-id="${esc(t.notaId)}">${esc(t.teks)}</button>`;
-  const utama = bagian.map((b) => (b.notaId ? tombol(b) : esc(b.teks))).join('');
-  const ekor = tambahan.length ? `<div class="kas-nota-ekor">Nota: ${tambahan.map(tombol).join(' ')}</div>` : '';
-  return (utama || esc(ket ?? '-')) + ekor;
 }
 
 /** Sama persis dengan Staff App: tombol yang tidak boleh ditekan tetap digambar. */

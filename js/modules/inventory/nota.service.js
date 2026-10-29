@@ -374,14 +374,25 @@ export async function notaTerkaitEntriKas(entryIds = [], notaIds = []) {
     const bersih = [...new Set((ids ?? []).filter(Boolean))];
     for (let i = 0; i < bersih.length; i += POTONG) {
       const bagian = bersih.slice(i, i + POTONG);
-      const { data, error } = await supabase.from('goods_receipts').select(KOLOM_NOTA_RINGKAS).in(kolom, bagian);
-      // Gagal SEBAGIAN tidak boleh mematikan seluruh riwayat kas. Yang hilang
-      // cuma kemampuan mengetuk nomornya; angkanya tetap benar.
-      if (error) {
-        console.warn('[kas] gagal mengambil nota terkait:', error.message);
+      // ============ DIHALAMANKAN, WALAU POTONGANNYA CUMA 100 ID ============
+      //
+      // Untuk `kolom = 'id'` hasilnya memang tidak mungkin lebih dari 100.
+      // Untuk `payment_entry_id` TIDAK: satu entri kas bisa melunasi banyak
+      // nota sekaligus, jadi 100 entri bisa menarik jauh lebih banyak baris.
+      // Lewat ~1.000, PostgREST memotongnya TANPA galat — nota yang terpotong
+      // cuma jadi nomor yang tidak bisa diketuk, dan tidak ada yang
+      // menghubungkannya dengan "datanya sudah banyak".
+      try {
+        const data = await ambilSemua((a, b) =>
+          supabase.from('goods_receipts').select(KOLOM_NOTA_RINGKAS).in(kolom, bagian).range(a, b)
+        );
+        for (const n of data ?? []) hasil.set(n.id, n);
+      } catch (error) {
+        // Gagal SEBAGIAN tidak boleh mematikan seluruh riwayat kas. Yang hilang
+        // cuma kemampuan mengetuk nomornya; angkanya tetap benar.
+        console.warn('[kas] gagal mengambil nota terkait:', error?.message ?? error);
         return;
       }
-      for (const n of data ?? []) hasil.set(n.id, n);
     }
   };
 

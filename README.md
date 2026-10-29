@@ -9586,3 +9586,100 @@ dan yang kedua biasanya tertinggal diam-diam; auditnya menghitung bahwa
 keduanya memang memanggil pemilih yang sama.
 
 - [x] **Pemilih barang berfoto + pencarian di Transfer Aset** — 31 tes murni, 30 sabotase
+
+## Empat audit merah yang lama — dan apa yang ternyata ada di baliknya
+
+Keempatnya merah sudah lama dan tidak pernah ditangani. Dikerjakan sekaligus
+hari ini, dan yang menarik: **dua di antaranya ternyata temuan palsu, dan
+justru itu yang paling berbahaya** — pemeriksa yang salah menuduh akan
+dimatikan orang, dan pemeriksa yang salah mengarah bisa diam di tempat yang
+benar-benar rusak.
+
+### 1. `ambil-terpotong` — nota terkait entri kas
+
+`notaTerkaitEntriKas()` membaca `goods_receipts` tanpa paginasi. Untuk jalur
+`id` memang tidak mungkin lebih dari 100 baris; untuk `payment_entry_id`
+**tidak** — satu entri kas bisa melunasi banyak nota, jadi 100 entri bisa
+menarik jauh lebih banyak. Lewat ~1.000, PostgREST memotongnya tanpa galat,
+dan nota yang terpotong cuma jadi nomor yang tidak bisa diketuk. Sekarang lewat
+`ambilSemua()`, dan kegagalannya tetap tidak mematikan riwayat kas.
+
+### 2. `html-escape` — temuan palsu, lalu masalah yang sebenarnya
+
+Yang dituduh adalah `${ketHtml(r.notes, …)}`, dan `ketHtml` memang sudah
+meng-escape seluruh isinya. Tapi memperbaiki auditnya dengan "fungsi
+berakhiran `Html` boleh lewat" adalah lubang selebar apa pun yang mau lewat.
+
+Jadi pengecualiannya disebut satu per satu, terbatas pada berkas tempat
+fungsinya dipakai, dan **menuntut tesnya ada**. Itu karena audit berbasis pola
+TIDAK BISA membuktikan sebuah fungsi meng-escape keluarannya: `esc(b.teks)`
+yang berubah jadi `b.teks` di tengah rantai `map().join()` tidak terlihat beda
+bagi regex mana pun. Yang membuktikannya `test-keterangan-nota-html.mjs` —
+keterangan bermuatan markup dimasukkan, keluarannya diperiksa.
+
+Yang ketahuan sambil jalan: **`ketHtml` ditulis dua kali**, identik, di Staff
+App dan Admin Portal. Keterangan kas adalah teks yang diketik orang; salinan
+yang lupa meng-escape tidak terlihat rusak sama sekali sampai ada yang menulis
+`<`. Sekarang satu modul, `keterangan-nota-html.js`.
+
+Aturan intinya juga diperketat: dulu ia memeriksa seluruh **baris** — asal ada
+kata `esc(` di mana pun, barisnya lolos, termasuk baris yang memuat dua
+interpolasi dan hanya satu yang dibungkus. Hari ini kebetulan tidak ada baris
+seperti itu; yang berbahaya adalah auditnya tetap hijau pada hari pertama ada.
+
+### 3. `fk-pelaku` — temuan palsu yang arah kebalikannya mahal
+
+Auditnya melaporkan embed presensi sebagai milik `exit_task_otp_codes`.
+Sebabnya: ia menentukan tabel asal dengan mengambil `.from()` **terdekat
+sebelum** embed — dan embed itu hidup di konstanta yang ditulis di atas
+fungsinya, jadi `.from()` terdekat adalah milik fungsi lain ratusan baris di
+atas.
+
+Temuan palsunya menjengkelkan. Kebalikannya yang mahal: embed yang
+**benar-benar** rusak bisa ditimpakan ke tabel lain yang kebetulan punya FK
+yang pas, dan auditnya diam. Sekarang tabel asalnya ditelusuri — rantai yang
+sama, konstanta yang dipakai di `.select()`, atau konstanta yang dioper ke
+pembungkus lokal — dan yang **tidak bisa dipastikan dilaporkan**, bukan
+dilewati diam-diam.
+
+Satu jebakan di tengah jalan: batas "rantai yang sama" memakai `;`, dan
+komentar di repo ini penuh kalimat ber-titik-koma (*"Kodenya tidak berubah;
+skemanya yang berubah."*). Titik koma di dalam komentar memotong rantainya.
+Komentarnya dibuang dulu dengan `tanpaKomentar` (yang mengganti komentar
+dengan spasi, jadi nomor barisnya tetap).
+
+Hasilnya: 56 embed diperiksa terhadap 295 FK, semuanya benar.
+
+### 4. `outlet-tulis` — dua layar, dan satu alasan pengecualian yang basi
+
+`dispatch.admin.page.js` memang hanya membaca: dropdown outletnya saringan,
+satu-satunya aksinya membuka & mencetak surat jalan. Didaftarkan beserta
+alasannya.
+
+`waste.admin.js` **menulis** — Edit Purpose — dan hanya dijaga `is_bu_admin()`
+di dalam RPC-nya. Penolakannya bahkan bukan galat, melainkan `0 baris berubah`:
+admin outlet membuka dialog, memilih Purpose, menekan Simpan, dan mendapat
+"tidak ada yang berubah" tanpa pernah tahu bahwa ia memang tidak berhak.
+Tombolnya sekarang digambar **mati dengan sebabnya**, dijaga `sayaAdminBu()`.
+
+Lalu auditnya disuruh membuktikan klaimnya sendiri: tiap pengecualian yang
+mengaku "hanya membaca" ditelusuri satu tingkat — fungsi yang diimpornya
+dibuka, dan kalau badannya menulis, klaimnya gugur. Dua klaim langsung rontok:
+
+| layar | klaimnya | kenyataannya |
+|---|---|---|
+| `sales.admin.page.js` | "Laporan penjualan — hanya menampilkan" | mengimpor `ubahPenjualan()`; tombol Ubah/Hapus digambar untuk semua orang padahal koreksi tanggal lampau wewenang Admin BU |
+| `nbm-report.admin.page.js` | "cuma untuk memetakan id → nama" | dropdown **tujuan** koreksi outlet basis diisi daftar "boleh dilihat", padahal RPC-nya menolak dengan `is_admin_of_outlet()` atas outlet tujuan |
+
+Keduanya diperbaiki di kodenya, bukan di daftar pengecualiannya.
+
+`.rpc()` sendiri **tidak** dianggap menulis: sebagian besar bacaan di repo ini
+juga lewat RPC karena perlu `security definer`. Yang menentukan isi fungsinya
+di migration — kalau badannya memuat insert/update/delete, ia menulis.
+
+Dan satu lubang lagi yang baru ketahuan dari sabotasenya sendiri: auditnya
+mencari **nama** penjaga, bukan **panggilan**-nya. Jadi `const boleh = true;`
+tetap lolos selama baris `import { sayaAdminBu }` dibiarkan di atas. Tiga dari
+empat sabotase lolos sebelum tanda kurungnya ditambahkan.
+
+- [x] **Empat audit merah lama diselesaikan** — 100 audit hijau, 3 harness sabotase baru (15 sabotase), 23 tes murni baru

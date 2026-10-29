@@ -355,14 +355,24 @@ if (page) {
 const admin = baca('js/modules/cash/cash.admin.page.js');
 if (admin) {
   const kode = bersih(admin, 'cash.admin.page.js', ['function tombolKoreksi(', 'async function hapusEntriAdmin(']);
-  if (!/pecahKeterangan\(ket, notas \?\? \[\]\)/.test(kode)) {
+  // ============ SASARANNYA PINDAH, BUKAN HILANG ============
+  //
+  // `ketHtml` dulu ditulis DUA KALI — sekali di sini, sekali di `cash.page.js`
+  // — dan audit ini memeriksa salinan yang ini. Keduanya sekarang satu modul,
+  // `keterangan-nota-html.js`, jadi yang diperiksa adalah: layar ini memang
+  // memakai modul itu, dan modul itu memang memecah lewat `pecahKeterangan`.
+  //
+  // Memeriksa "ada pecahKeterangan di berkas ini" sesudah pemindahan akan
+  // merah pada kode yang benar, dan yang lebih buruk: menggodanya ditulis
+  // ulang lagi di tempat lama.
+  if (!/ketNotaHtml\(/.test(kode)) {
     salah(
-      'cash.admin.page.js: nomor nota tidak dipecah lewat modul murni yang sama dengan Staff App. ' +
+      'cash.admin.page.js: keterangan tidak digambar lewat modul bersama `ketNotaHtml`. ' +
         'Aturan yang ditiru akan membuat nomor yang sama bisa diketuk di satu layar dan tidak di layar lainnya.'
     );
   }
   if (!/bukaDialogNota\(/.test(kode)) salah('cash.admin.page.js: dialog rincian nota tidak pernah dibuka.');
-  if (!/class="btn-nota"/.test(kode)) salah('cash.admin.page.js: nomor nota tidak digambar sebagai tautan.');
+  if (!/\.btn-nota'\)/.test(kode)) salah('cash.admin.page.js: nomor nota tidak digambar sebagai tautan.');
   if (!/\.btn-nota'\)\.forEach/.test(kode)) salah('cash.admin.page.js: tautan nomor nota tidak dipasangi penangan klik.');
   if (!/alasanTolakKoreksiKas\(rows\.map/.test(kode)) salah('cash.admin.page.js: izin koreksi tidak diambil — tombolnya digambar menebak-nebak.');
   if (!/btn-kas-ubah/.test(kode) || !/btn-kas-hapus/.test(kode)) salah('cash.admin.page.js: tombol Ubah/Hapus tidak digambar.');

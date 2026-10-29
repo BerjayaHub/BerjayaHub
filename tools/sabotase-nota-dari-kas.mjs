@@ -28,9 +28,12 @@ const CASH_SVC = 'js/modules/cash/cash.service.js';
 const DLG = 'js/modules/inventory/nota-dialog.js';
 const PAGE = 'js/modules/cash/cash.page.js';
 const CSS = 'css/styles.css';
+// `ketHtml` dulu ditulis identik di Staff App dan Admin Portal; sekarang satu
+// modul bersama, dan di situlah escape-nya harus dijaga.
+const KET_HTML = 'js/modules/cash/keterangan-nota-html.js';
 
 const asli = new Map();
-for (const rel of [KET, RIN, NOTA_SVC, CASH_SVC, DLG, PAGE, CSS]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
+for (const rel of [KET, RIN, NOTA_SVC, CASH_SVC, DLG, PAGE, CSS, KET_HTML]) asli.set(rel, fs.readFileSync(P(rel), 'utf8'));
 
 // ============ JEJAK "SABOTASE SEDANG TERPASANG" ============
 //
@@ -273,7 +276,7 @@ sabotase(
 sabotase(
   'kegagalan query nota dilempar — SELURUH riwayat kas ikut kosong',
   NOTA_SVC,
-  "        console.warn('[kas] gagal mengambil nota terkait:', error.message);",
+  "        console.warn('[kas] gagal mengambil nota terkait:', error?.message ?? error);",
   '        throw error;',
   AUDIT
 );
@@ -322,9 +325,9 @@ sabotase('kepala halaman tidak lagi dibungkus pembekunya', PAGE, '<div class="ka
 sabotase('wadah riwayat kehilangan penandanya', PAGE, 'class="table-scroll kas-riwayat"', 'class="table-scroll"', AUDIT);
 sabotase(
   'potongan keterangan berhenti di-escape — kolom Keterangan jadi jalan masuk HTML',
-  PAGE,
-  '    const utama = bagian.map((b) => (b.notaId ? tombol(b) : escapeHtml(b.teks))).join(\'\');',
-  "    const utama = bagian.map((b) => (b.notaId ? tombol(b) : b.teks)).join('');",
+  KET_HTML,
+  "  const utama = bagian.map((b) => (b.notaId ? tombol(b) : escapeHtml(b.teks))).join('');",
+  "  const utama = bagian.map((b) => (b.notaId ? tombol(b) : b.teks)).join('');",
   AUDIT
 );
 sabotase(

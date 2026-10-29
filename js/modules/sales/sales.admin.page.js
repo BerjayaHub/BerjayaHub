@@ -2,6 +2,7 @@ import { formatNum, formatRupiah } from '../../core/format.js';
 import { listSalesReport, listSalesTransaksi, ubahPenjualan, hapusPenjualan, todayWIB } from './sales.service.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { listMyOutlets, PESAN_TANPA_OUTLET } from '../../core/my-outlets.js';
+import { sayaAdminBu } from '../../core/base-scope.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { toast, formDialog, confirmDialog } from '../../core/ui.js';
 
@@ -23,6 +24,9 @@ import { toast, formDialog, confirmDialog } from '../../core/ui.js';
  * sedang mencari kesalahan. Tabel yang melayani keduanya sekaligus akan penuh
  * kolom yang tidak dipakai separuh pembacanya.
  */
+const SEBAB_BUKAN_ADMIN_BU =
+  'Koreksi penjualan tanggal lampau hanya boleh dilakukan Admin BU. Transaksi hari ini bisa dibetulkan pencatatnya sendiri lewat Staff App.';
+
 const TAB = [
   { key: 'rekap', label: '📊 Rekap per Menu' },
   { key: 'transaksi', label: '🧾 Transaksi & Koreksi' }
@@ -30,6 +34,17 @@ const TAB = [
 
 export async function renderSalesAdminPage(container, { businessUnitId }) {
   const outlets = (await listMyOutlets(businessUnitId).catch(() => [])).map((o) => ({ id: o.id, name: o.name }));
+
+  // ============ KOREKSI PENJUALAN LAMPAU = WEWENANG ADMIN BU ============
+  //
+  // `boleh_ubah_penjualan()` hanya mengizinkan pencatatnya sendiri pada hari
+  // yang sama, atau admin BU untuk tanggal kapan pun. Layar ini justru dipakai
+  // untuk tanggal LAMPAU, jadi bagi admin outlet tombolnya selalu berakhir
+  // dengan penolakan — sesudah ia mengisi jumlah baru dan alasan koreksinya.
+  //
+  // Gagal memeriksa = dianggap TIDAK berwenang; membuka tombolnya saat
+  // jaringan bermasalah adalah arah kegagalan yang salah.
+  const bolehKoreksi = await sayaAdminBu(businessUnitId).catch(() => false);
   if (!outlets.length) {
     container.innerHTML = `<h1>Penjualan</h1><p style="color:var(--color-text-muted)">${PESAN_TANPA_OUTLET}</p>`;
     return;
@@ -201,14 +216,19 @@ async function gambarTransaksi(hasil, businessUnitId, state, muatUlang) {
                         : ''
                     }
                   </td>
-                  <td data-label="Aksi" style="white-space:nowrap">
-                    <button class="sr-edit" data-id="${r.id}" data-qty="${r.qty}"
-                      data-menu="${esc(r.products?.name ?? '-')}" data-tgl="${esc(r.sale_date)}"
-                      data-lampau="${lampau ? '1' : ''}">Ubah</button>
-                    <button class="sr-del" data-id="${r.id}"
-                      data-menu="${esc(r.products?.name ?? '-')}" data-qty="${r.qty}" data-tgl="${esc(r.sale_date)}"
-                      data-lampau="${lampau ? '1' : ''}">Hapus</button>
-                  </td>
+                  <td data-label="Aksi" style="white-space:nowrap">${
+                    // Tombol yang tidak boleh ditekan TETAP DIGAMBAR, mati,
+                    // dengan sebabnya di `title`: yang mencarinya perlu tahu
+                    // bahwa tombolnya memang ada, hanya bukan untuk dia.
+                    bolehKoreksi
+                      ? `<button class="sr-edit" data-id="${r.id}" data-qty="${r.qty}"
+                           data-menu="${esc(r.products?.name ?? '-')}" data-tgl="${esc(r.sale_date)}"
+                           data-lampau="${lampau ? '1' : ''}">Ubah</button>
+                         <button class="sr-del" data-id="${r.id}"
+                           data-menu="${esc(r.products?.name ?? '-')}" data-qty="${r.qty}" data-tgl="${esc(r.sale_date)}"
+                           data-lampau="${lampau ? '1' : ''}">Hapus</button>`
+                      : `<button disabled title="${esc(SEBAB_BUKAN_ADMIN_BU)}" aria-label="${esc(SEBAB_BUKAN_ADMIN_BU)}">🔒</button>`
+                  }</td>
                 </tr>`;
               })
               .join('') || '<tr><td colspan="7">Tidak ada transaksi pada rentang ini.</td></tr>'
