@@ -1,6 +1,7 @@
 import { supabase } from '../../config/supabase-client.js';
 import { compressImage } from '../../core/image-compress.js';
 import { ambilSemua, ambilPerPotong } from '../../core/ambil-semua.js';
+import { argumenRpc } from '../../core/rpc-args.js';
 
 // ---- Util ----
 
@@ -293,10 +294,15 @@ export async function listLeaveRequestsForAdmin({ businessUnitId, status, dari =
       'id, start_date, end_date, day_count, reason, status, review_note, attachment_path, created_at, user_id, ' +
         // Jejak 0117: tanggal yang DIAJUKAN, kalau admin mempersempitnya.
         'start_date_awal, end_date_awal, day_count_awal, ' +
+        // Jejak 0178, dan kolom-kolom yang dituntut pesan WhatsApp/Telegram.
+        // `leave_type_id` ikut supaya dialog Revisi bisa memilihnya kembali —
+        // tanpa itu dropdown jenisnya terbuka kosong dan revisi apa pun
+        // diam-diam mengganti jenis cutinya.
+        'leave_type_id, business_unit_id, revisi_ke, direvisi_at, direvisi_by_nama, alasan_revisi, ' +
         // `reviewer` dinamai eksplisit lewat kolom FK-nya. `sales` pernah kena
         // masalah ini: begitu sebuah tabel punya DUA FK ke `user_profiles`,
         // embed polos jadi ambigu dan PostgREST menolak SELURUH query.
-        'user_profiles!user_id(full_name), reviewer:user_profiles!reviewed_by(full_name), leave_types(name, deducts_quota), outlets!outlet_id(name)'
+        'user_profiles!user_id(full_name), reviewer:user_profiles!reviewed_by(full_name), leave_types(name, deducts_quota), outlets!outlet_id(name), business_units!business_unit_id(name)'
     )
     .eq('business_unit_id', businessUnitId)
     .order('created_at', { ascending: false })
@@ -352,6 +358,30 @@ export async function reviewLeaveRequest(id, { status, reviewNote, startDate = n
     p_end: endDate || null
   });
   if (error) throw error;
+}
+
+/**
+ * Revisi cuti yang SUDAH diputuskan.
+ *
+ * Dipisah dari `reviewLeaveRequest` karena aturannya memang berbeda: jalur
+ * persetujuan hanya boleh MEMPERSEMPIT rentang yang diajukan, jalur ini tidak
+ * dibatasi — dengan ganti rugi berupa alasan wajib dan jejak perevisinya.
+ */
+export async function revisiCuti({ id, status, startDate, endDate, leaveTypeId, note, alasan }) {
+  const { data, error } = await supabase.rpc(
+    'revisi_cuti',
+    argumenRpc({
+      p_id: id,
+      p_status: status,
+      p_start: startDate,
+      p_end: endDate,
+      p_type: leaveTypeId || null,
+      p_note: note ?? '',
+      p_alasan: alasan
+    })
+  );
+  if (error) throw error;
+  return data ?? {};
 }
 
 /** Jenis cuti yang bisa dikelola admin (global + BU ini), termasuk yang nonaktif. */

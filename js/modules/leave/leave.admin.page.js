@@ -8,7 +8,7 @@ import {
   tahunBerjalanWIB,
   KEADAAN
 } from './sisa-cuti.js';
-import { pesanCutiWa, fmtRentang, diubahAdmin } from './pesan-cuti.js';
+import { pesanCutiWa, fmtRentang, fmtTanggal, diubahAdmin } from './pesan-cuti.js';
 import {
   dataSisaCutiBu,
   listLeaveRequestsForAdmin,
@@ -19,9 +19,11 @@ import {
   updateLeaveType,
   deleteLeaveType,
   listBuStaff,
+  countDaysInclusive,
   listStaffEntitlements,
   setStaffEntitlement,
-  removeStaffEntitlement
+  removeStaffEntitlement,
+  revisiCuti
 } from './leave.service.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 
@@ -289,6 +291,14 @@ function reqRowHtml(r) {
         ${r.attachment_path ? `<button class="btn-view-attach" data-path="${r.attachment_path}">Lampiran</button>` : ''}
         ${isPending ? `<button class="btn-approve" data-id="${r.id}">Setujui</button> <button class="btn-reject" data-id="${r.id}">Tolak</button>` : ''}
         ${r.status === 'approved' || r.status === 'rejected' ? `<button class="btn-share" data-msg="${escapeAttr(decisionMsg(r))}">Bagikan</button>` : ''}
+        ${
+          // Revisi hanya untuk yang SUDAH diputuskan. Yang masih menunggu
+          // punya tombol Setujui/Tolak sendiri — dan jalur itu yang menjaga
+          // batas "hanya boleh dipersempit" pada keputusan pertama.
+          r.status === 'approved' || r.status === 'rejected'
+            ? `<button class="btn-revisi-cuti" data-id="${r.id}">Revisi</button>`
+            : ''
+        }
       </td>
     </tr>
   `;
@@ -337,10 +347,170 @@ function wireReqActions(root, requests, refresh) {
   root.querySelectorAll('.btn-reject').forEach((btn) => {
     btn.addEventListener('click', () => reviewDialog(byId.get(btn.dataset.id), 'rejected', refresh));
   });
+  root.querySelectorAll('.btn-revisi-cuti').forEach((btn) =>
+    btn.addEventListener('click', sekaliJalan(() => revisiDialog(byId.get(btn.dataset.id), refresh)))
+  );
+
   root.querySelectorAll('.btn-share').forEach((btn) => {
     btn.addEventListener('click', () =>
       shareDialog({ title: 'Bagikan keputusan ke staff', helper: 'Kirim ke staff bersangkutan lewat WhatsApp/chat.', defaultMessage: btn.dataset.msg })
     );
+  });
+}
+
+/**
+ * REVISI CUTI YANG SUDAH DIPUTUSKAN.
+ *
+ * ============ KENAPA BUKAN DIALOG SETUJUI YANG DIPAKAI ULANG ============
+ *
+ * Aturannya memang berbeda, dan bedanya bukan kosmetik. Dialog Setujui hanya
+ * boleh MEMPERSEMPIT rentang yang diajukan — itu yang menjaga agar staff tidak
+ * dicatatkan cuti pada hari yang tidak pernah ia minta. Revisi melepas batas
+ * itu, dan yang menggantikannya adalah alasan wajib + jejak perevisinya.
+ *
+ * Memakai satu dialog untuk dua aturan berarti salah satu aturannya ikut
+ * longgar diam-diam.
+ */
+async function revisiDialog(record, refresh) {
+  if (!record) return;
+
+  let jenis = [];
+  try {
+    jenis = await listLeaveTypesForAdmin(record.business_unit_id);
+  } catch {
+    // Daftar jenis yang gagal dimuat TIDAK membatalkan revisinya: tanggal dan
+    // status tetap bisa dibetulkan. Yang hilang cuma kemampuan mengganti
+    // jenisnya, dan itu disebutkan di bawah.
+    jenis = [];
+  }
+  const jenisAktif = jenis.filter((t) => t.is_active !== false || t.id === record.leave_type_id);
+
+  const nilai = await formDialog({
+    title: 'Revisi Cuti',
+    description:
+      `${record.user_profiles?.full_name ?? 'Staff'} — ${fmtRentang(record.start_date, record.end_date)} ` +
+      `(${record.day_count} hari, ${STATUS_BADGE[record.status]?.label ?? record.status}).` +
+      (record.revisi_ke ? ` Sudah direvisi ${record.revisi_ke}×.` : ''),
+    fields: [
+      {
+        name: 'status',
+        label: 'Keputusan',
+        type: 'select',
+        required: true,
+        value: record.status,
+        options: [
+          { value: 'approved', label: 'Disetujui' },
+          { value: 'rejected', label: 'Ditolak' },
+          // Dipakai saat staff tidak jadi cuti. Jatahnya kembali, dan barisnya
+          // tetap ada sebagai jejak — bukan dihapus.
+          { value: 'cancelled', label: 'Dibatalkan (tidak jadi cuti)' }
+        ]
+      },
+      ...(jenisAktif.length
+        ? [
+            {
+              name: 'type',
+              label: 'Jenis cuti',
+              type: 'select',
+              value: record.leave_type_id ?? '',
+              options: jenisAktif.map((t) => ({ value: t.id, label: t.name + (t.deducts_quota ? ' (potong jatah)' : '') }))
+            }
+          ]
+        : []),
+      {
+        name: 'start',
+        label: 'Mulai',
+        type: 'date',
+        required: true,
+        value: record.start_date
+      },
+      {
+        name: 'end',
+        label: 'Sampai',
+        type: 'date',
+        required: true,
+        value: record.end_date,
+        // TIDAK ada `min`/`max` di sini, dan itu disengaja — lihat kepala
+        // fungsi. Yang diajukan staff tetap disebut sebagai acuan.
+        help: `Diajukan staff ${fmtRentang(record.start_date_awal ?? record.start_date, record.end_date_awal ?? record.end_date)}. Revisi boleh keluar dari rentang itu.`
+      },
+      { name: 'note', label: 'Catatan untuk staff (opsional)', type: 'text', value: record.review_note ?? '' },
+      {
+        name: 'alasan',
+        label: 'Alasan revisi (wajib)',
+        type: 'text',
+        required: true,
+        placeholder: 'mis. acara keluarga digeser, cuti diperpanjang 2 hari',
+        // Ikut tercetak di pesan WhatsApp/Telegram: pesan versi sebelumnya
+        // sudah beredar, dan yang membacanya perlu tahu kenapa angkanya
+        // berubah tanpa harus bertanya.
+        help: 'Ikut tercetak di pesan yang dibagikan ke staff.'
+      }
+    ],
+    submitText: 'Simpan revisi',
+    danger: true
+  });
+  if (!nilai) return;
+  if (nilai.end < nilai.start) return toast('Tanggal selesai tidak boleh sebelum tanggal mulai.', 'warning');
+
+  const hariBaru = countDaysInclusive(nilai.start, nilai.end);
+  const lewat = record.end_date < todayWIB();
+  const ok = await confirmDialog({
+    title: 'Simpan revisi cuti?',
+    messageHtml:
+      `<ul style="margin:0 0 8px;padding-left:18px;font-size:0.88rem">
+         ${record.status !== nilai.status ? `<li>Keputusan: ${escapeHtml(STATUS_BADGE[record.status]?.label ?? record.status)} → <strong>${escapeHtml(STATUS_BADGE[nilai.status]?.label ?? nilai.status)}</strong></li>` : ''}
+         ${
+           record.start_date !== nilai.start || record.end_date !== nilai.end
+             ? `<li>Tanggal: ${escapeHtml(fmtRentang(record.start_date, record.end_date))} → <strong>${escapeHtml(fmtRentang(nilai.start, nilai.end))}</strong></li>`
+             : ''
+         }
+         ${record.day_count !== hariBaru ? `<li>Jumlah hari: ${record.day_count} → <strong>${hariBaru}</strong></li>` : ''}
+       </ul>` +
+      (lewat
+        ? `<p style="margin:0 0 8px;color:var(--color-danger);font-size:0.85rem">Cuti ini tanggalnya SUDAH LEWAT (berakhir ${escapeHtml(fmtTanggal(record.end_date))}). Jatah cutinya ikut berubah surut, dan rekap bulan itu akan berbeda dari yang sudah pernah dibaca orang.</p>`
+        : '') +
+      '<p style="margin:0;font-size:0.82rem;color:var(--color-text-muted)">Namamu & alasannya tersimpan, dan ikut tercetak di pesan untuk staff.</p>',
+    confirmText: 'Simpan revisi',
+    danger: true
+  });
+  if (!ok) return;
+
+  let hasil;
+  try {
+    hasil = await revisiCuti({
+      id: record.id,
+      status: nilai.status,
+      startDate: nilai.start,
+      endDate: nilai.end,
+      leaveTypeId: nilai.type || record.leave_type_id,
+      note: nilai.note,
+      alasan: nilai.alasan
+    });
+  } catch (error) {
+    return toast(error.message ?? 'Gagal merevisi cuti.', 'error');
+  }
+
+  toast(`Cuti direvisi (revisi ke-${hasil.revisi_ke ?? 1}).`, 'success');
+  await refresh();
+
+  // Pesan versi sebelumnya sudah beredar di chat dan tidak bisa ditarik, jadi
+  // dialog bagikan dibuka langsung — versi barunya menyusul ke tempat yang
+  // sama, membawa penanda REVISI-nya.
+  await shareDialog({
+    title: 'Bagikan revisi ke staff',
+    helper: 'Versi sebelumnya sudah terkirim; kirim yang ini ke chat yang sama.',
+    defaultMessage: pesanCutiWa({
+      ...record,
+      status: nilai.status,
+      start_date: nilai.start,
+      end_date: nilai.end,
+      day_count: hariBaru,
+      review_note: nilai.note,
+      revisi_ke: hasil.revisi_ke ?? (Number(record.revisi_ke) || 0) + 1,
+      alasan_revisi: nilai.alasan,
+      leave_types: jenisAktif.find((t) => t.id === (nilai.type || record.leave_type_id)) ?? record.leave_types
+    })
   });
 }
 

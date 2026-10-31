@@ -166,10 +166,26 @@ async function pesanCutiDireview(r: any) {
     r.end_date_awal &&
     (r.start_date_awal !== r.start_date || r.end_date_awal !== r.end_date);
 
+  // SELURUH ISI FORMNYA, bukan cuma hasilnya — sama dengan `pesan-cuti.js`.
+  // Lokasi, alasan yang ditulis staff, dan keberadaan lampiran dulu hanya ada
+  // di pesan "Pengajuan Baru"; pesan keputusan — yang paling penting — justru
+  // yang paling miskin.
+  const [bu, outlet] = await Promise.all([namaBu(r.business_unit_id), namaOutlet(r.outlet_id)]);
+  const lokasi = [bu, outlet].filter(Boolean).join(' · ');
+
+  const revisiKe = Number(r.revisi_ke) || 0;
+  const judul =
+    r.status === 'cancelled'
+      ? '🚫 <b>Cuti Dibatalkan</b>'
+      : disetujui
+        ? '✅ <b>Cuti Disetujui</b>'
+        : '❌ <b>Cuti Ditolak</b>';
+
   return [
-    disetujui ? '✅ <b>Cuti Disetujui</b>' : '❌ <b>Cuti Ditolak</b>',
+    revisiKe > 0 ? `${judul} — <b>REVISI ke-${revisiKe}</b>` : judul,
     '',
     `👤 <b>${esc(nama)}</b>`,
+    lokasi ? `🏢 ${esc(lokasi)}` : '',
     `🗂 Jenis: ${esc(jenis)}`,
     `📅 ${fmtDate(r.start_date)} – ${fmtDate(r.end_date)} (<b>${r.day_count} hari</b>)`,
     dipersempit
@@ -177,8 +193,16 @@ async function pesanCutiDireview(r: any) {
         (r.day_count_awal ? ` (${r.day_count_awal} hari)` : '') +
         ' — dipersempit oleh admin'
       : '',
+    // Ikon ALASAN STAFF & CATATAN ADMIN dibedakan: begitu keduanya muncul di
+    // satu pesan, 💬 untuk dua-duanya membuat kalimat staff terbaca sebagai
+    // keputusan atasannya.
+    r.reason ? `💬 Alasan: ${esc(r.reason)}` : '',
+    r.attachment_path ? '📎 Ada lampiran' : '',
     `🧑‍💼 Diputuskan oleh: ${esc(reviewer)}`,
-    r.review_note ? `💬 ${esc(r.review_note)}` : ''
+    r.review_note ? `🗒 Catatan admin: ${esc(r.review_note)}` : '',
+    revisiKe > 0 && r.alasan_revisi
+      ? `✏️ Direvisi${r.direvisi_by_nama ? ` oleh ${esc(r.direvisi_by_nama)}` : ''}: ${esc(r.alasan_revisi)}`
+      : ''
   ]
     .filter(Boolean)
     .join('\n');
@@ -323,6 +347,22 @@ async function buildMessage(payload: any): Promise<Built | null> {
       // (mis. melengkapi lampiran) tidak perlu mengganggu grup.
       const berubah = old_record && old_record.status !== record.status;
       if (berubah && (record.status === 'approved' || record.status === 'rejected')) {
+        return { text: await pesanCutiDireview(record), eventKey: 'leave_reviewed', buId };
+      }
+
+      // ============ REVISI JUGA DIKABARKAN ============
+      //
+      // Revisi (0178) bisa TIDAK mengubah status — cuti yang disetujui 4–8
+      // lalu direvisi jadi 6–12 tetap `approved`. Dengan syarat lama, grup
+      // tidak pernah tahu tanggalnya berubah, sementara pesan keputusan yang
+      // lama masih tertinggal di atas sebagai satu-satunya rujukan.
+      //
+      // Dipicu `revisi_ke` yang NAIK, bukan sekadar `direvisi_at` yang terisi:
+      // `direvisi_at` juga berubah pada revisi kedua, tapi perbandingan angka
+      // tidak bisa salah arah kalau suatu saat ada jalur yang menyentuh
+      // kolomnya tanpa benar-benar merevisi.
+      const direvisi = old_record && (Number(record.revisi_ke) || 0) > (Number(old_record.revisi_ke) || 0);
+      if (direvisi) {
         return { text: await pesanCutiDireview(record), eventKey: 'leave_reviewed', buId };
       }
     }

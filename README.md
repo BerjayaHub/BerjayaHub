@@ -10049,3 +10049,86 @@ komentar CSS dibuang dulu supaya teks komentar di atas sebuah aturan tidak
 ikut terbaca sebagai bagian selektornya.
 
 - [x] **Bilah bawah mobile + tampilan & suara presensi** — 45 tes murni, 18 sabotase
+
+## Revisi cuti & pesan keputusan yang lengkap (0178)
+
+Dua permintaan: cuti yang sudah disetujui harus bisa direvisi admin, dan teks
+WhatsApp-nya harus membawa **seluruh isi form, termasuk alasan cuti**.
+
+### Pesan keputusan dulu justru yang paling miskin
+
+`pesan-cuti.js` sudah menyatukan WhatsApp & Telegram sejak permintaan
+sebelumnya — tapi yang disatukan adalah bentuk yang memang sudah kurang.
+Pesan **"Pengajuan Baru"** di Telegram membawa lokasi, alasan staff, dan
+keberadaan lampiran; pesan **keputusannya** tidak. Jadi pesan yang paling
+penting — yang dikirim ke orang yang paling berkepentingan — justru yang
+paling sedikit isinya, dan penerimanya harus membuka aplikasi untuk tahu cuti
+yang mana yang sedang dibicarakan.
+
+Sekarang keduanya membawa: nama, **lokasi BU · outlet**, jenis, rentang +
+jumlah hari, jejak persempitan, **alasan yang ditulis staff**, **keberadaan
+lampiran**, pemutus, catatan admin, dan penanda revisi.
+
+Satu detail kecil yang menentukan: **ikon alasan staff dan catatan admin
+dibedakan**. Keduanya dulu `💬` — di pesan "Pengajuan Baru" untuk alasan
+staff, di pesan keputusan untuk catatan admin. Begitu keduanya muncul dalam
+satu pesan, ikon yang sama membuat kalimat staff terbaca sebagai keputusan
+atasannya.
+
+### Revisi: pembatasan dilepas, jejaknya diperketat
+
+`setujui_cuti` (0117) menolak pengajuan yang sudah diproses, dan hanya
+mengizinkan tanggal **dipersempit** ke dalam rentang yang diajukan. Keduanya
+benar untuk keputusan PERTAMA — admin sedang menjawab permintaan staff, dan
+jawaban yang melebar berarti staff dicatatkan cuti pada hari yang tidak pernah
+ia minta.
+
+Revisi lain soalnya: acaranya digeser, staff ternyata masuk, cutinya
+diperpanjang — dan itu baru diketahui **sesudah** keputusannya keluar. Semua
+batas dilepas sesuai permintaan:
+
+| | |
+|---|---|
+| tanggal | boleh keluar dari rentang yang diajukan |
+| keputusan | boleh diubah, termasuk **dibatalkan** |
+| cuti lampau | boleh direvisi, dengan peringatan bahwa jatahnya berubah **surut** |
+
+Yang menyeimbangkannya: **alasan wajib**, nama perevisi disimpan sebagai teks
+(FK-nya `set null` saat akun dihapus — tanpa nama tekstual, jejaknya hilang
+persis saat orangnya keluar), dan `revisi_ke` yang naik lalu **dicetak di
+pesannya**. Versi sebelumnya sudah beredar di chat dan tidak bisa ditarik.
+
+Kolom `*_awal` **tidak** disentuh: ia permintaan asli staff, bukan "nilai
+sebelum perubahan terakhir". Menimpanya menghapus satu-satunya jejak apa yang
+sebenarnya diminta orangnya.
+
+Telegram ikut mengabarkan revisi walau statusnya **tidak** berubah — cuti 4–8
+yang direvisi jadi 6–12 tetap `approved`, dan dengan syarat lama grup tidak
+pernah tahu tanggalnya berubah. Dipicu `revisi_ke` yang naik, bukan
+`direvisi_at` yang terisi.
+
+### Delapan sabotase lolos, dan empat di antaranya satu bug
+
+**Empat tes PGlite lolos karena `gagalkan()` mengabaikan argumennya.** Bentuk
+warisannya mengembalikan pesan galat dan membiarkan pemanggilnya memeriksa;
+berkas tes ini memanggilnya dengan pola & nama sebagai argumen ke-2 dan ke-3 —
+yang **diabaikan**. Jadi empat pemeriksaan "harus ditolak" (alasan wajib,
+pending, wewenang, jenis BU lain) lulus **tanpa memeriksa apa pun**. Sabotase
+mencabut keempat penjaganya satu per satu dan tesnya tetap hijau.
+
+Dan begitu `gagalkan` benar-benar memeriksa, ia langsung menemukan cacat
+desain saya sendiri: cuti yang sudah **dibatalkan** terkunci selamanya, karena
+penjaganya berbunyi `status not in ('approved','rejected')`. Pembatalan adalah
+keputusan seperti yang lain, dan keputusan yang keliru harus bisa dibetulkan —
+penjaganya sekarang hanya menolak `pending`.
+
+Empat sisanya pola yang sudah berulang di repo ini:
+
+| sabotase | kenapa lolos |
+|---|---|
+| alasan staff dicabut dari Telegram | `r.reason` juga ada di `pesanCutiBaru` — auditnya memeriksa seluruh berkas |
+| tombol Revisi dicabut | nama kelasnya masih ada di baris `querySelectorAll` yang menganggur |
+| batas rentang dialog Setujui dicabut | kotak tanggalnya **dua**; audit mencari satu kemunculan |
+| kolom jejak tidak diambil service | tidak ada yang memeriksanya sama sekali |
+
+- [x] **Revisi cuti + pesan keputusan selengkap formnya** (`0178`) — tes PGlite, 21 tes murni, 20 sabotase

@@ -181,6 +181,155 @@ if (adminCuti) {
   }
 }
 
+// ---------------------------------------------------------------
+// 5. Pesan keputusan membawa SELURUH isi form (diminta 0178).
+//
+// Dulu ia cuma membawa nama, jenis, rentang, pemutus, catatan admin. Lokasi,
+// ALASAN YANG DITULIS STAFF, dan lampiran hanya ada di pesan "Pengajuan
+// Baru" — jadi pesan yang paling penting justru yang paling miskin.
+// ---------------------------------------------------------------
+const murni = baca('js/modules/leave/pesan-cuti.js');
+const edgeTs = baca('supabase/functions/notify-telegram/index.ts');
+if (murni && edgeTs) {
+  const kodeMurni = tanpaKomentar(murni);
+
+  for (const [pola, apa] of [
+    [/r\?\.reason/, 'alasan yang ditulis staff'],
+    [/attachment_path/, 'keberadaan lampiran'],
+    [/business_units\?\./, 'nama BU'],
+    [/outlets\?\./, 'nama outlet'],
+    [/revisi_ke/, 'penanda revisi']
+  ]) {
+    if (!pola.test(kodeMurni)) {
+      salah(`js/modules/leave/pesan-cuti.js: pesan keputusan tidak membawa ${apa}.`);
+    }
+  }
+
+  // ALASAN STAFF vs CATATAN ADMIN — ikonnya harus berbeda.
+  //
+  // Keduanya dulu 💬. Begitu muncul bersamaan di satu pesan, kalimat staff
+  // terbaca sebagai keputusan atasannya, atau sebaliknya.
+  if (!/Alasan: /.test(kodeMurni) || !/Catatan admin: /.test(kodeMurni)) {
+    salah('js/modules/leave/pesan-cuti.js: alasan staff & catatan admin tidak diberi label yang membedakannya.');
+  }
+
+  // Edge Function menyusun barisnya sendiri (ia berjalan di Deno, tidak bisa
+  // mengimpor modul browser). Jadi yang dijaga: ia membawa potongan yang SAMA.
+  //
+  // DIPOTONG ke fungsi KEPUTUSANNYA dulu. `r.reason` juga muncul di
+  // `pesanCutiBaru`, jadi memeriksa seluruh berkas membuat alasan staff bisa
+  // dicabut dari pesan keputusan sementara auditnya tetap hijau — persis yang
+  // ditunjukkan sabotasenya.
+  const iKeputusan = edgeTs.indexOf('async function pesanCutiDireview');
+  const edgeKeputusan = iKeputusan >= 0 ? edgeTs.slice(iKeputusan, edgeTs.indexOf('\n}', iKeputusan)) : '';
+  if (!edgeKeputusan) salah('supabase/functions/notify-telegram/index.ts: `pesanCutiDireview` tidak ada.');
+  for (const [pola, apa] of [
+    [/r\.reason/, 'alasan staff'],
+    [/r\.attachment_path/, 'lampiran'],
+    [/lokasi \? /, 'lokasi BU/outlet'],
+    [/REVISI ke-/, 'penanda revisi'],
+    [/Catatan admin/, 'label catatan admin']
+  ]) {
+    if (!pola.test(edgeKeputusan)) {
+      salah(`supabase/functions/notify-telegram/index.ts: pesan keputusan Telegram tidak membawa ${apa} — dua saluran bercerita berbeda.`);
+    }
+  }
+
+  // Revisi yang TIDAK mengubah status tetap harus dikabarkan: cuti 4–8 yang
+  // direvisi jadi 6–12 tetap `approved`, dan tanpa ini grup tidak pernah tahu
+  // tanggalnya berubah.
+  if (!/revisi_ke\) \|\| 0\) > \(Number\(old_record\.revisi_ke\)/.test(edgeTs)) {
+    salah(
+      'supabase/functions/notify-telegram/index.ts: revisi yang tidak mengubah status tidak dikabarkan. ' +
+        'Pesan keputusan lama tertinggal di grup sebagai satu-satunya rujukan.'
+    );
+  }
+}
+
+// ---------------------------------------------------------------
+// 6. Jalur revisi di Admin Portal.
+// ---------------------------------------------------------------
+const adminKode = baca('js/modules/leave/leave.admin.page.js');
+if (adminKode) {
+  const kode = tanpaKomentar(adminKode);
+  // Markupnya, bukan nama kelasnya di mana pun: baris `querySelectorAll` yang
+  // menganggur tetap memuat namanya dan tetap menghijaukan audit.
+  if (!/class="btn-revisi-cuti"/.test(kode)) {
+    salah('js/modules/leave/leave.admin.page.js: tidak ada tombol Revisi untuk cuti yang sudah diputuskan.');
+  }
+  if (!/querySelectorAll\('\.btn-revisi-cuti'\)/.test(kode)) {
+    salah('js/modules/leave/leave.admin.page.js: tombol Revisi digambar tapi tidak pernah dipasangi penangan klik.');
+  }
+  // Alasan wajib DI LAYAR, bukan cuma di database: galat server untuk hal yang
+  // bisa dicegat di form adalah dialog yang diisi dua kali.
+  const iDlg = kode.indexOf('async function revisiDialog');
+  const dlg = iDlg >= 0 ? kode.slice(iDlg, kode.indexOf('async function reviewDialog')) : '';
+  if (!/name: 'alasan'[\s\S]{0,160}required: true/.test(dlg)) {
+    salah('js/modules/leave/leave.admin.page.js: alasan revisi tidak diwajibkan di formnya.');
+  }
+  // Cuti lampau: jatahnya berubah SURUT, dan rekap bulan itu jadi berbeda dari
+  // yang sudah pernah dibaca orang.
+  if (!/SUDAH LEWAT/.test(dlg)) {
+    salah('js/modules/leave/leave.admin.page.js: revisi cuti yang tanggalnya sudah lewat tidak diperingatkan.');
+  }
+  // Dialog Setujui TIDAK boleh ikut longgar: batas "hanya boleh dipersempit"
+  // itu yang menjaga keputusan pertama.
+  const iRev = kode.indexOf('async function reviewDialog');
+  const rev = iRev >= 0 ? kode.slice(iRev, iRev + 2000) : '';
+  // DIHITUNG, bukan sekadar dicari. Kotak tanggalnya ada DUA (mulai &
+  // selesai); mencari satu kemunculan membuat batas pada salah satunya bisa
+  // dicabut sementara auditnya tetap hijau.
+  const batasMin = (rev.match(/min: record\.start_date/g) ?? []).length;
+  const batasMax = (rev.match(/max: record\.end_date/g) ?? []).length;
+  if (batasMin < 2 || batasMax < 2) {
+    salah(
+      `js/modules/leave/leave.admin.page.js: dialog Setujui kehilangan batas rentang pengajuannya ` +
+        `(min ${batasMin}/2, max ${batasMax}/2).`
+    );
+  }
+}
+
+const svcCuti = baca('js/modules/leave/leave.service.js');
+if (svcCuti) {
+  // Kolom yang tidak diambil selalu `undefined`, dan penanda REVISI-nya
+  // diam-diam tidak pernah muncul — pesan versi lama dan versi baru jadi
+  // terlihat sama persis.
+  for (const kolom of ['revisi_ke', 'alasan_revisi', 'direvisi_by_nama', 'leave_type_id']) {
+    if (!svcCuti.includes(kolom)) {
+      salah(`js/modules/leave/leave.service.js: kolom \`${kolom}\` tidak diambil — layar & pesannya kehilangan jejak revisinya.`);
+    }
+  }
+  if (!/rpc\(\s*'revisi_cuti'/.test(svcCuti)) {
+    salah('js/modules/leave/leave.service.js: `revisiCuti` tidak memanggil RPC-nya.');
+  }
+}
+
+const mig = baca('supabase/migrations/0178_revisi_cuti.sql');
+if (mig) {
+  const sql = mig
+    .split('\n')
+    .map((b) => (b.trim().startsWith('--') ? '' : b))
+    .join('\n');
+  if (!/Alasan revisi wajib/.test(sql)) salah('0178: alasan revisi tidak diwajibkan di database.');
+  if (!/is_admin_of_outlet\(v_uid, v_r\.outlet_id\)/.test(sql)) {
+    salah('0178: wewenangnya tidak sama dengan `setujui_cuti` — dua definisi "siapa admin" akan menyimpang.');
+  }
+  if (!/v_r\.status = 'pending'/.test(sql)) {
+    salah('0178: pengajuan yang masih pending tidak ditolak jalur ini — batas "hanya boleh dipersempit" jadi bisa dilewati.');
+  }
+  if (!/day_count = \(p_end - p_start\) \+ 1/.test(sql)) {
+    salah('0178: `day_count` tidak dihitung ulang — jatah cuti terpotong sebesar yang tidak dipakai.');
+  }
+  // `*_awal` adalah PERMINTAAN ASLI staff. Menimpanya menghapus satu-satunya
+  // jejak apa yang sebenarnya diminta orangnya.
+  if (/start_date_awal\s*=/.test(sql)) {
+    salah('0178: kolom `*_awal` ikut ditimpa — jejak permintaan asli staff hilang.');
+  }
+  if (!/direvisi_by_nama = v_nama/.test(sql)) {
+    salah('0178: nama perevisi tidak disimpan sebagai teks — jejaknya hilang saat akunnya dihapus.');
+  }
+}
+
 if (gagal === 0) {
   console.log('Pesan cuti: WhatsApp seisi Telegram, dan persempitan tanggal terlihat di semua layar. ✅');
 }

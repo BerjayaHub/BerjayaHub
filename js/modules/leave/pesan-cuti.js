@@ -40,6 +40,11 @@
  * Tidak ada impor di file ini, dan sebaiknya tetap begitu.
  */
 
+/** Teks yang sudah dirapikan; kosong berarti tidak usah ditulis barisnya. */
+function teksBersih(v) {
+  return v === null || v === undefined ? '' : String(v).trim();
+}
+
 /** Tanggal `YYYY-MM-DD` -> `4 Sep 2026`. */
 export function fmtTanggal(v) {
   if (!v) return '-';
@@ -77,13 +82,43 @@ export function barisKeputusanCuti(r) {
   // dan yang perlu diketahui staff untuk merencanakan harinya adalah yang
   // BERLAKU. Yang diajukan tetap disebut, tapi sebagai keterangan, bukan
   // sebagai jawaban.
+  // ============ SELURUH ISI FORMNYA, BUKAN CUMA HASILNYA ============
+  //
+  //   "saya ingin semua informasi di form cuti itu, termasuk alasan cuti"
+  //
+  // Sebelumnya pesan keputusan cuma membawa nama, jenis, rentang, pemutus, dan
+  // catatan admin. Lokasi, ALASAN YANG DITULIS STAFF, dan keberadaan lampiran
+  // hilang — padahal ketiganya ada di pesan "Pengajuan Baru" di Telegram.
+  // Akibatnya pesan yang paling penting (keputusannya) justru yang paling
+  // miskin, dan yang membacanya harus membuka aplikasi untuk tahu cuti yang
+  // mana yang sedang dibicarakan.
+  const lokasi = [r?.business_units?.name ?? r?.bu ?? null, r?.outlets?.name ?? r?.outlet ?? null]
+    .map((x) => (x === null || x === undefined ? '' : String(x).trim()))
+    .filter(Boolean)
+    .join(' · ');
+
+  const status = (r?.status ?? '').toLowerCase();
+  const judul =
+    status === 'cancelled'
+      ? '🚫 **Cuti Dibatalkan**'
+      : disetujui
+        ? '✅ **Cuti Disetujui**'
+        : '❌ **Cuti Ditolak**';
+
+  const revisiKe = Number(r?.revisi_ke) || 0;
+
   const baris = [
-    disetujui ? '✅ **Cuti Disetujui**' : '❌ **Cuti Ditolak**',
+    // Penanda revisi di PALING ATAS, sebaris dengan judulnya. Pesan versi
+    // sebelumnya sudah beredar di chat dan tidak bisa ditarik; tanpa penanda,
+    // dua pesan berisi tanggal berbeda tentang orang yang sama beredar
+    // berdampingan tanpa cara tahu mana yang berlaku.
+    revisiKe > 0 ? `${judul} — **REVISI ke-${revisiKe}**` : judul,
     '',
-    `👤 **${nama}**`,
-    `🗂 Jenis: ${jenis}`,
-    `📅 ${fmtRentang(r?.start_date, r?.end_date)} (**${r?.day_count ?? '-'} hari**)`
+    `👤 **${nama}**`
   ];
+
+  if (lokasi) baris.push(`🏢 ${lokasi}`);
+  baris.push(`🗂 Jenis: ${jenis}`, `📅 ${fmtRentang(r?.start_date, r?.end_date)} (**${r?.day_count ?? '-'} hari**)`);
 
   if (disetujui && diubahAdmin(r)) {
     // DISEBUT TERANG-TERANGAN.
@@ -100,8 +135,26 @@ export function barisKeputusanCuti(r) {
     );
   }
 
+  // ALASAN STAFF dan CATATAN ADMIN dibedakan ikonnya.
+  //
+  // Dulu keduanya memakai 💬 — di pesan "Pengajuan Baru" untuk alasan staff,
+  // di pesan keputusan untuk catatan admin. Begitu keduanya muncul di satu
+  // pesan, ikon yang sama membuat kalimat staff terbaca sebagai keputusan
+  // atasannya, atau sebaliknya.
+  const alasan = teksBersih(r?.reason ?? r?.alasan);
+  if (alasan) baris.push(`💬 Alasan: ${alasan}`);
+  if (r?.attachment_path) baris.push('📎 Ada lampiran');
+
   if (pemutus) baris.push(`🧑‍💼 Diputuskan oleh: ${pemutus}`);
-  if (r?.review_note) baris.push(`💬 ${r.review_note}`);
+
+  const catatan = teksBersih(r?.review_note);
+  if (catatan) baris.push(`🗒 Catatan admin: ${catatan}`);
+
+  const alasanRevisi = teksBersih(r?.alasan_revisi);
+  if (revisiKe > 0 && alasanRevisi) {
+    const perevisi = teksBersih(r?.direvisi_by_nama);
+    baris.push(`✏️ Direvisi${perevisi ? ` oleh ${perevisi}` : ''}: ${alasanRevisi}`);
+  }
 
   return baris.filter((b) => b !== null && b !== undefined);
 }
