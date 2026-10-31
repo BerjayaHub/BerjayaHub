@@ -23,6 +23,8 @@ import {
 } from './attendance.service.js';
 import { tanggalWIB, akhirRentangCuti, cutiPada, peringatanCuti, CATATAN_LANJUT } from './cuti-presensi.js';
 import { setelanEfektif, bolehMulaiIstirahat, totalMenitIstirahat, BATAS_ISTIRAHAT_JAM } from './istirahat.js';
+import { keadaanPresensi, tampilanPresensi, bunyiUntuk } from './tampilan-presensi.js';
+import { bunyiPresensi } from '../../core/suara-presensi.js';
 import { cariOutletArea, bolehAksiPresensi, berkoordinat, AKURASI_MAKS_TOLERANSI } from './area-outlet.js';
 import {
   getShiftSettings,
@@ -207,9 +209,9 @@ export async function renderAttendancePage(container, ctx) {
   // ---- Sudah selesai hari ini ----
   if (doneToday) {
     main.innerHTML = `
-      <div class="att-card att-done fade-in">
-        <div class="att-emoji">✅</div>
-        <h3>Presensi hari ini sudah lengkap</h3>
+      <div class="att-card att-done att-state-selesai fade-in">
+        <div class="att-emoji att-lencana" style="width:56px;height:56px;font-size:1.6rem">${tampilanPresensi('selesai').lencana}</div>
+        <h3 class="att-judul-status">Presensi hari ini sudah lengkap</h3>
         <p>Clock In <strong>${formatTime(doneToday.clock_in_at)}</strong> · Clock Out <strong>${formatTime(doneToday.clock_out_at)}</strong></p>
         <p class="att-hint">Clock in &amp; clock out hanya sekali sehari. Sampai jumpa besok!</p>
       </div>`;
@@ -263,8 +265,18 @@ export async function renderAttendancePage(container, ctx) {
       sudahIstirahat: istirahat.length > 0
     });
 
+    // Keadaan & rupanya dari modul yang SAMA dengan kartu Beranda — dua layar
+    // yang mewarnai keadaan yang sama dengan warna berbeda adalah dua jawaban
+    // untuk satu pertanyaan.
+    const keadaanKini = keadaanPresensi(openSession, berjalan);
+    const rupaKini = tampilanPresensi(keadaanKini);
+
     main.innerHTML = `
-      <div class="att-card fade-in">
+      <div class="att-card fade-in ${rupaKini.kelas}">
+        <div class="att-mini-head-row" style="margin-bottom:8px">
+          <span class="att-lencana" aria-hidden="true">${rupaKini.lencana}</span>
+          <span class="att-judul-status">${esc(rupaKini.judul)}</span>
+        </div>
         <div class="att-status-line"><span class="att-dot"></span> Sedang bekerja sejak <strong>${formatTime(openSession.clock_in_at)}</strong>${
           // Tanggal disebut HANYA kalau clock in-nya bukan hari ini. Tanpa itu,
           // "sejak 22.00" pada pukul 7 pagi terbaca seperti kekeliruan.
@@ -296,7 +308,7 @@ export async function renderAttendancePage(container, ctx) {
                  <p class="att-hint">
                    Kelalaian absen kembali tercatat di rekap dan ditandai untuk atasanmu.
                  </p>`
-              : `<button id="btn-istirahat-mulai"${bolehMulai.boleh ? '' : ' disabled'}>☕ Ambil Istirahat</button>
+              : `<button class="btn-att-break" id="btn-istirahat-mulai"${bolehMulai.boleh ? '' : ' disabled'}>☕ Ambil Istirahat</button>
                  ${
                    // SEBABNYA DIKATAKAN. Tombol yang mati tanpa keterangan akan
                    // ditekan berulang kali lalu dilaporkan sebagai aplikasi rusak.
@@ -327,8 +339,8 @@ export async function renderAttendancePage(container, ctx) {
           // bekerja. Tombol Kembali mengambil tempat dan sorotan yang sama
           // supaya tidak ada yang perlu dibaca dua kali.
           berjalan
-            ? `<button class="primary" id="btn-istirahat-selesai" disabled>↩️ Kembali dari Istirahat</button>`
-            : `<button class="primary" id="btn-clock-out" disabled>Clock Out</button>`
+            ? `<button class="primary btn-att-back" id="btn-istirahat-selesai" disabled>↩️ Kembali dari Istirahat</button>`
+            : `<button class="primary btn-att-out" id="btn-clock-out" disabled>🏁 Clock Out</button>`
         }
         <p class="error-text" id="att-error"></p>
       </div>`;
@@ -380,6 +392,7 @@ export async function renderAttendancePage(container, ctx) {
         if (berjalan) {
           const path = await uploadAttendanceSelfie({ outletId: openSession.outlet_id, kind: 'break_in', file: capturedOut.blob });
           await selesaiIstirahat(openSession.id, { photoPath: path, faceMatch: true });
+          bunyiPresensi(bunyiUntuk('istirahat_selesai'));
           await infoDialog({
             title: '👋 Selamat bekerja kembali',
             bodyHtml:
@@ -390,6 +403,12 @@ export async function renderAttendancePage(container, ctx) {
         } else {
           const photoPath = await uploadAttendanceSelfie({ outletId: openSession.outlet_id, kind: 'out', file: capturedOut.blob });
           await clockOut(openSession.id, { photoPath, faceMatch: true });
+          // BUNYI SESUDAH TERSIMPAN, bukan saat tombolnya ditekan.
+          //
+          // Bunyi pada ketukan terdengar seperti "berhasil" padahal unggahan
+          // fotonya bisa gagal sedetik kemudian — dan di HP yang dipegang
+          // sambil berjalan, bunyi itulah yang dipercaya, bukan layarnya.
+          bunyiPresensi(bunyiUntuk('clock_out'));
           await infoDialog({
             title: '🙌 Kamu sudah Clock Out',
             bodyHtml:
@@ -428,6 +447,7 @@ export async function renderAttendancePage(container, ctx) {
 
           const path = await uploadAttendanceSelfie({ outletId: openSession.outlet_id, kind: 'break_out', file: capturedOut.blob });
           await mulaiIstirahat(openSession.id, { photoPath: path, faceMatch: true });
+          bunyiPresensi(bunyiUntuk('istirahat_mulai'));
           await infoDialog({
             title: '☕ Istirahatmu dimulai',
             bodyHtml:
@@ -485,7 +505,7 @@ export async function renderAttendancePage(container, ctx) {
         <button type="button" class="att-shoot" id="btn-shoot-in" disabled><span>📷</span> Ambil Foto Selfie</button>
         <img id="preview-in" class="selfie-preview" style="display:none" />
       </div>
-      <button class="primary" id="btn-clock-in" disabled>Clock In</button>
+      <button class="primary btn-att-in" id="btn-clock-in" disabled>🟢 Clock In</button>
       <p class="error-text" id="att-error"></p>
     </div>`;
 
@@ -784,6 +804,11 @@ export async function renderAttendancePage(container, ctx) {
         lateMinutes: lateInfo.minutes,
         lateStatus: lateInfo.status
       });
+
+      // Nada NAIK — lihat `suara-presensi.js`. Dibunyikan sesudah tersimpan,
+      // sebelum dialognya muncul: dialog menuntut ketukan, dan bunyi sesudah
+      // ketukan itu sudah terlambat untuk orang yang HP-nya di saku.
+      bunyiPresensi(bunyiUntuk('clock_in'));
 
       // DIALOG PENEGASAN, bukan cuma toast.
       //

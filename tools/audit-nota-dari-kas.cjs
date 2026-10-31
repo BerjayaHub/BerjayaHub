@@ -276,7 +276,10 @@ if (page) {
   }
 
   // Tingginya DIUKUR, bukan dipatok.
-  if (!/window\.innerHeight - atas - 16/.test(kode)) {
+  // `tinggiBilah` ikut dikurangi sejak bilah bawah mobile ada (ia `fixed`,
+  // jadi `innerHeight` tidak berkurang karenanya). Yang dijaga tetap sama:
+  // tingginya DIUKUR dari sisa layar, bukan dipatok angka tetap.
+  if (!/window\.innerHeight - atas - tinggiBilah - 16/.test(kode)) {
     salah('cash.page.js `ukurRiwayat`: tinggi riwayat tidak lagi diukur dari sisa layar — kepalanya berubah tinggi dan angka tetap akan salah di salah satu keadaan.');
   }
   if (!/if \(window\.innerWidth <= 560\)/.test(kode)) {

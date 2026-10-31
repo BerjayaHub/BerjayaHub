@@ -341,7 +341,9 @@ if (hal) {
   // Saat istirahat, Clock Out DISEMBUNYIKAN — bukan sekadar dinonaktifkan.
   // Dua tombol utama berdampingan membuat orang menekan yang salah, dan di
   // sini "yang salah" berarti pulang padahal ia cuma mau kembali bekerja.
-  if (!/berjalan\s*\n?\s*\? `<button class="primary" id="btn-istirahat-selesai"/.test(kode)) {
+  // Kelas warnanya boleh bertambah; yang dijaga tetap tombol mana yang
+  // digambar saat istirahat berjalan.
+  if (!/berjalan\s*\n?\s*\? `<button class="primary[^"]*" id="btn-istirahat-selesai"/.test(kode)) {
     salah(
       'attendance.page.js: tombol Clock Out tidak digantikan tombol Kembali saat istirahat berjalan. ' +
         'Dua tombol utama berdampingan membuat orang pulang padahal ia cuma mau kembali bekerja.'

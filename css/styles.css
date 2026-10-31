@@ -138,9 +138,16 @@ h4 { font-size: var(--teks-sm); line-height: 1.4; }
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 16%, transparent);
 }
 
-/* Tombol sekunder (default) diseragamkan biar rapi & elegan */
+/* Tombol sekunder (default) diseragamkan biar rapi & elegan.
+
+   DAFTAR `:not()`-nya PANJANG, dan itu memang harganya: tiap `:not(.x)`
+   menaikkan kekhususan selektor ini, sehingga ia MENGALAHKAN aturan `.kelas`
+   tunggal mana pun yang ditulis belakangan. Kartu presensi (`.att-mini`) dan
+   tombol istirahat sempat tidak berwarna sama sekali karena itu — warna latar
+   yang baru ditulis kalah, dan tidak ada satu pun galat yang menyebutkannya.
+   Kalau sebuah tombol punya warnanya sendiri, ia harus didaftarkan di sini. */
 .app-content button:not(.primary):not(.tab-btn):not(.btn-ghost):not(.btn-danger):not(.btn-whatsapp):not(.btn-nota):not(.btn-samakan):not(.scope-remove):not(.scope-edit):not(.scope-primary):not(.ln-remove),
-.staff-main button:not(.primary):not(.tab-btn):not(.btn-ghost):not(.btn-danger):not(.btn-whatsapp):not(.btn-nota):not(.btn-samakan):not(.topbar-btn):not(.module-card):not(.scope-remove):not(.scope-edit):not(.scope-primary):not(.ln-remove) {
+.staff-main button:not(.primary):not(.tab-btn):not(.btn-ghost):not(.btn-danger):not(.btn-whatsapp):not(.btn-nota):not(.btn-samakan):not(.topbar-btn):not(.module-card):not(.att-mini):not(.btn-att-break):not(.scope-remove):not(.scope-edit):not(.scope-primary):not(.ln-remove) {
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
@@ -151,7 +158,7 @@ h4 { font-size: var(--teks-sm); line-height: 1.4; }
   transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
 }
 .app-content button:not(.primary):not(.tab-btn):hover,
-.staff-main button:not(.primary):not(.tab-btn):not(.module-card):hover {
+.staff-main button:not(.primary):not(.tab-btn):not(.module-card):not(.att-mini):not(.btn-att-break):hover {
   background: var(--color-bg);
   border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
 }
@@ -3766,4 +3773,236 @@ select.sc-cell.shift-w5 { border-style: solid; background-color: #fce7f3; color:
   .app-content [style*="display:flex"] > .field > select {
     max-width: none;
   }
+}
+
+/* =========================================================
+   FOOTER MOBILE — Beranda & Profil di jangkauan ibu jari
+   =========================================================
+
+   Hanya di layar HP. Di desktop tombolnya tetap di header: di sana kursornya
+   sudah berada di atas, dan bilah tetap di bawah layar lebar cuma memakan
+   ruang kerja.
+
+   `position: fixed` berarti ia MENUTUPI konten. Karena itu `.staff-main`
+   diberi ruang bawah sebesar footernya — tanpa itu, baris terakhir tabel mana
+   pun (riwayat kas, rekap presensi) berada di bawah bilah dan tidak bisa
+   digulirkan lebih jauh. Kegagalannya tidak terlihat sebagai kegagalan: orang
+   mengira datanya memang habis di situ.
+   ========================================================= */
+:root {
+  --footer-mobile-h: 56px;
+}
+
+.mobile-footer {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-footer {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border);
+    /* Lekukan layar iPhone: tanpa ini tombolnya tertimpa garis gestur. */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.06);
+  }
+
+  .mobile-footer button {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-height: var(--footer-mobile-h);
+    padding: 6px 4px;
+    border: 0;
+    background: transparent;
+    color: var(--color-text-muted);
+    font-family: inherit;
+    font-size: 0.7rem;
+    font-weight: 600;
+    cursor: pointer;
+    /* Sorotan biru bawaan peramban pada ketukan membuat bilahnya terlihat
+       rusak sekejap di Android. */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-footer button .mf-ikon {
+    font-size: 1.15rem;
+    line-height: 1;
+  }
+
+  .mobile-footer button[aria-current='page'] {
+    color: var(--color-primary);
+  }
+
+  .mobile-footer button[aria-current='page'] .mf-ikon {
+    transform: translateY(-1px);
+  }
+
+  /* Ruang supaya baris terakhir tidak tertutup bilahnya. */
+  .staff-main {
+    padding-bottom: calc(var(--footer-mobile-h) + env(safe-area-inset-bottom, 0px) + 12px);
+  }
+
+  /* Tombol yang PINDAH ke bawah tidak boleh tetap tinggal di atas: dua tempat
+     untuk satu tombol membuat orang ragu keduanya mengerjakan hal yang sama. */
+  .staff-topbar #btn-home-top,
+  .staff-topbar #btn-profile {
+    display: none;
+  }
+}
+
+/* =========================================================
+   KEADAAN PRESENSI — warnanya dibaca lebih dulu daripada tulisannya
+   =========================================================
+
+   Biru  = masih bekerja.
+   Kuning = sedang berhenti (istirahat, atau sudah pulang).
+   Netral = belum mulai.
+
+   Dipakai kartu Beranda DAN layar modulnya, lewat kelas yang sama dari
+   `tampilan-presensi.js`. Dua layar yang mewarnai keadaan yang sama dengan
+   warna berbeda adalah dua jawaban untuk satu pertanyaan.
+   ========================================================= */
+/* Nadanya DINAIKKAN setelah dilihat terrender: #eaf3ff di layar HP di bawah
+   lampu outlet nyaris tidak bisa dibedakan dari putih, dan warna yang tidak
+   terbaca dari ujung ruangan tidak mengerjakan apa pun. Masih "halus" —
+   kontrasnya cukup untuk teks gelap di atasnya. */
+.att-state-bekerja {
+  --att-bg: #dceafc;
+  --att-fg: #10457f;
+  --att-line: #a8cdf5;
+}
+.att-state-istirahat,
+.att-state-selesai {
+  --att-bg: #fdf0cf;
+  --att-fg: #7a5300;
+  --att-line: #f3d089;
+}
+.att-state-belum {
+  --att-bg: #f1f3f6;
+  --att-fg: #41474f;
+  --att-line: #dde1e7;
+}
+
+.att-mini.att-state-bekerja,
+.att-mini.att-state-istirahat,
+.att-mini.att-state-selesai,
+.att-mini.att-state-belum {
+  background: var(--att-bg);
+  border-color: var(--att-line);
+}
+.att-mini .att-mini-status { color: var(--att-fg); }
+.att-mini:hover { border-color: var(--att-fg); }
+
+/* Garis tebal di tepi kiri. Warna latar yang halus bisa hilang sama sekali di
+   layar yang tingkat kecerahannya diturunkan (HP yang dipakai sepanjang shift
+   hampir selalu begitu); garis pekat tetap terlihat. */
+.att-mini.att-state-bekerja,
+.att-mini.att-state-istirahat,
+.att-mini.att-state-selesai,
+.att-mini.att-state-belum,
+.att-card.att-state-bekerja,
+.att-card.att-state-istirahat,
+.att-card.att-state-selesai,
+.att-card.att-state-belum {
+  border-left: 4px solid var(--att-fg);
+}
+
+/* Lencana keadaan — emoji dalam lingkaran, bukan emoji telanjang.
+   Lingkarannya yang membuatnya terbaca sebagai STATUS, bukan sebagai hiasan
+   di tengah kalimat. */
+.att-lencana {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 1px solid var(--att-line, var(--color-border));
+  font-size: 1.15rem;
+  line-height: 1;
+}
+.att-mini-head-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Denyut halus HANYA saat bekerja: ia satu-satunya keadaan yang masih
+   berjalan. Mendenyutkan "selesai" membuat tanda itu kehilangan artinya. */
+.att-state-bekerja .att-lencana {
+  animation: att-denyut 2.4s ease-in-out infinite;
+}
+@keyframes att-denyut {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 69, 127, 0.22); }
+  50% { box-shadow: 0 0 0 7px rgba(16, 69, 127, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .att-state-bekerja .att-lencana { animation: none; }
+}
+
+/* Kartu besar di layar modulnya — warna yang sama dengan kartu Beranda. */
+.att-card.att-state-bekerja,
+.att-card.att-state-istirahat,
+.att-card.att-state-selesai,
+.att-card.att-state-belum {
+  background: var(--att-bg);
+  border: 1px solid var(--att-line);
+}
+.att-card .att-judul-status {
+  color: var(--att-fg);
+  font-weight: 700;
+}
+
+/* =========================================================
+   TOMBOL PRESENSI — masuk, pulang, dan istirahat tidak boleh seragam
+   =========================================================
+
+   Ketiganya ditekan dengan HP di satu tangan, sering sambil berjalan. Warna
+   yang sama untuk tiga tindakan berbeda berarti yang membedakannya cuma
+   tulisan kecil — dan "pulang" yang tertekan saat maksudnya "kembali dari
+   istirahat" mencatat hari kerja yang berakhir lebih awal.
+   ========================================================= */
+.staff-main button.btn-att-in,
+.staff-main button.btn-att-out,
+.staff-main button.btn-att-break,
+.staff-main button.btn-att-back {
+  color: #fff;
+  border: 0;
+  font-weight: 700;
+  /* Bentuknya disebut sendiri, tidak menumpang aturan tombol sekunder.
+     `.btn-att-break` sengaja DIKELUARKAN dari aturan itu supaya warnanya
+     tidak kalah — dan begitu dikeluarkan, ia ikut kehilangan padding &
+     sudutnya. Tombol presensi yang tipis sendirian di antara tombol lain
+     terlihat seperti tampilan yang rusak. */
+  width: 100%;
+  padding: 12px;
+  min-height: 44px;
+  border-radius: var(--radius);
+  font-size: 1rem;
+}
+.staff-main button.btn-att-in { background: #1f7a4d; }
+.staff-main button.btn-att-in:hover:not(:disabled) { background: #19633e; }
+.staff-main button.btn-att-out { background: #9c2b2b; }
+.staff-main button.btn-att-out:hover:not(:disabled) { background: #7f2222; }
+.staff-main button.btn-att-break { background: #b4760a; }
+.staff-main button.btn-att-break:hover:not(:disabled) { background: #966208; }
+.staff-main button.btn-att-back { background: #10457f; }
+.staff-main button.btn-att-back:hover:not(:disabled) { background: #0d3763; }
+.staff-main button.btn-att-in:disabled,
+.staff-main button.btn-att-out:disabled,
+.staff-main button.btn-att-break:disabled,
+.staff-main button.btn-att-back:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }

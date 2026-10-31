@@ -9954,3 +9954,98 @@ yang tidak pernah ada di produksi. Kolomnya ditambahkan di kelima tes yang
 memakai bentuk itu.
 
 - [x] **Kantong utama + tab kantong untuk admin BU + menu ganda** (`0177`) — tes PGlite, 15 sabotase
+
+## UI/UX: bilah bawah mobile & tampilan presensi
+
+Dua permintaan tampilan, nol perubahan alur. Yang menarik: **semua cara
+pekerjaan ini rusak tidak memunculkan galat sama sekali**, dan itu yang
+menentukan bentuk pemeriksanya.
+
+### Bilah bawah — hanya di HP
+
+Beranda & Profil pindah dari header ke bilah bawah, di jangkauan ibu jari.
+Di desktop tombolnya tetap di header: di sana kursor sudah berada di atas, dan
+bilah tetap di layar lebar cuma memakan ruang kerja.
+
+Dua hal yang mudah terlewat, keduanya berakhir sebagai layar yang "agak aneh"
+tanpa satu pun error:
+
+1. **`position: fixed` menutupi konten, tidak mendorongnya.** Tanpa
+   `padding-bottom` pada `.staff-main`, baris terakhir tabel mana pun berada di
+   balik bilahnya — dan terbaca seperti *"datanya memang habis di situ"*.
+2. **`window.innerHeight` tidak berkurang karenanya.** `ukurRiwayat()` di Cash
+   Ledger menghitung tinggi dari sisa layar; tinggi bilahnya sekarang ikut
+   dikurangi, dan **diukur dari elemennya** — bukan angka tetap, karena
+   `safe-area-inset-bottom` menambahnya di iPhone berlekuk.
+
+Penanganan tombol header dan bilah bawah **satu fungsi**. Keduanya tidak pernah
+terlihat bersamaan (CSS menyembunyikan salah satunya), jadi kalau disalin,
+penyimpangannya tidak akan pernah terlihat.
+
+### Presensi: warna, lencana, bunyi
+
+Warna di sini bukan hiasan — ia dibaca lebih dulu daripada tulisannya:
+
+| keadaan | warna | lencana |
+|---|---|---|
+| belum clock in | netral | ⏰ |
+| sedang bekerja | biru halus | 💼 (berdenyut) |
+| sedang istirahat | kuning halus | ☕ |
+| selesai hari ini | kuning halus | ✅ |
+
+Kartu Beranda dan layar modulnya membaca **modul yang sama**
+(`tampilan-presensi.js`). Keduanya sudah pernah menyimpang — tulisan berbeda
+untuk keadaan yang sama, warna yang sama untuk keadaan yang berbeda — dan
+bedanya cuma terlihat kalau dua layar dibuka berdampingan, yang tidak pernah
+terjadi di HP.
+
+Tombolnya dibedakan: **Clock In hijau, Clock Out merah, Istirahat kuning,
+Kembali biru**. Ketiganya ditekan dengan HP di satu tangan, sering sambil
+berjalan; warna yang sama untuk tindakan berbeda berarti yang membedakannya
+cuma tulisan kecil — dan "pulang" yang tertekan saat maksudnya "kembali dari
+istirahat" mencatat hari kerja yang berakhir lebih awal.
+
+Bunyinya dibangkitkan WebAudio, bukan berkas MP3: satu permintaan jaringan
+lagi tepat pada detik paling genting adalah hal terakhir yang dibutuhkan
+aplikasi yang dipakai di outlet bersinyal seadanya. **Masuk = nada NAIK,
+pulang = nada TURUN** — arahnya yang membuat keduanya bisa dibedakan tanpa
+dihafal, oleh orang yang tidak sedang menatap layar. Dua bunyi berbeda yang
+sama-sama naik cuma terdengar seperti "bunyi aplikasi".
+
+Dua aturan yang dijaga audit:
+
+- **Bunyi SESUDAH tersimpan**, bukan saat tombolnya ditekan. Bunyi pada ketukan
+  terdengar seperti "berhasil" padahal unggahan fotonya bisa gagal sedetik
+  kemudian — dan di HP yang dipegang sambil berjalan, bunyi itulah yang
+  dipercaya, bukan layarnya.
+- **Galat audio ditelan.** Presensi tetap sah dengan atau tanpa bunyi;
+  AudioContext yang tidak ada, diblokir, atau ditolak perangkat senyap tidak
+  boleh berakhir sebagai clock in yang gagal.
+
+### Satu jebakan CSS yang menelan warna tanpa bersuara
+
+Aturan tombol sekunder memakai daftar `:not()` yang panjang —
+`button:not(.primary):not(.tab-btn):not(.btn-ghost)…` — dan **tiap `:not(.x)`
+menaikkan kekhususan selektornya**. Hasilnya ia mengalahkan aturan `.kelas`
+tunggal mana pun yang ditulis belakangan.
+
+Kartu presensi dan tombol Istirahat karena itu tetap **putih** walaupun
+warnanya sudah ditulis. Tidak ada galat, tidak ada peringatan — dan kalau saya
+tidak merendernya lalu melihatnya sendiri, pekerjaan ini akan dilaporkan
+selesai dengan empat kartu yang terlihat sama persis. Keduanya sekarang
+terdaftar di `:not()`-nya, dan auditnya memeriksa pendaftaran itu.
+
+Sekalian ketahuan: tombol yang dikeluarkan dari aturan itu ikut kehilangan
+padding & sudutnya, jadi `.btn-att-*` menyebut bentuknya sendiri.
+
+### Dan sekali lagi: substring yang menghijaukan audit
+
+Mengganti nama `.att-state-bekerja` jadi `.att-state-bekerja-mati` membuat
+tidak ada lagi yang mendefinisikan warnanya — tapi `css.includes('.att-state-bekerja')`
+tetap cocok, **dua kali**: dengan nama barunya, dan dengan
+`.att-mini.att-state-bekerja` yang cuma MEMAKAI warnanya. Auditnya sekarang
+mencari blok yang benar-benar mendefinisikan `--att-bg`/`--att-fg`, dengan
+komentar CSS dibuang dulu supaya teks komentar di atas sebuah aturan tidak
+ikut terbaca sebagai bagian selektornya.
+
+- [x] **Bilah bawah mobile + tampilan & suara presensi** — 45 tes murni, 18 sabotase

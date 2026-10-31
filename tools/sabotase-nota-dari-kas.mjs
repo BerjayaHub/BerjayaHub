@@ -347,7 +347,7 @@ sabotase(
 sabotase(
   'tinggi riwayat dipatok angka tetap — ruang kosong di satu keadaan, halaman ikut menggulir di keadaan lain',
   PAGE,
-  '    kotak.style.maxHeight = `${Math.max(220, window.innerHeight - atas - 16)}px`;',
+  '    kotak.style.maxHeight = `${Math.max(220, window.innerHeight - atas - tinggiBilah - 16)}px`;',
   "    kotak.style.maxHeight = '400px';",
   AUDIT
 );

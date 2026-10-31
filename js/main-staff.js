@@ -29,6 +29,7 @@ import { renderKontenPage } from './modules/konten/konten.page.js';
 import { renderProfilePage, initials } from './modules/profile/profile.page.js';
 import { getStaffPhotoUrl } from './modules/profile/profile.service.js';
 import { getMyTodaySession } from './modules/attendance/attendance.service.js';
+import { keadaanPresensi, tampilanPresensi } from './modules/attendance/tampilan-presensi.js';
 import { loadingHtml, sekaliJalan } from './core/loading.js';
 import { pasangPenandaKoneksi } from './core/koneksi.js';
 import { pasangTabelResponsif } from './core/tabel-responsif.js';
@@ -345,6 +346,15 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
       }
     </header>
     <main class="staff-main" id="module-content"></main>
+    <!-- Bilah bawah KHUSUS HP; di desktop ia disembunyikan CSS dan tombolnya
+         tetap di header. Digambar sekali di sini, bukan di tiap layar: bilah
+         yang digambar ulang per modul akan hilang pada modul yang lupa
+         menggambarnya, dan hilangnya cuma terlihat seperti "kok tombolnya
+         tidak ada di halaman ini". -->
+    <nav class="mobile-footer" id="mobile-footer" aria-label="Navigasi utama">
+      <button type="button" id="mf-home"><span class="mf-ikon" aria-hidden="true">🏠</span>Beranda</button>
+      <button type="button" id="mf-profile"><span class="mf-ikon" aria-hidden="true">👤</span>Profil</button>
+    </nav>
   `;
 
   // Pintasan antar-aplikasi adalah `<a href>`, jadi TIDAK punya penangan klik.
@@ -374,9 +384,15 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
     renderShellForBu(context, availableBUs, e.target.value);
   });
 
-  document.getElementById('btn-home-top').addEventListener('click', () => renderHome(context, modules, moduleCtx));
-
-  document.getElementById('btn-profile').addEventListener('click', () => {
+  // ============ SATU PENANGAN UNTUK DUA TEMPAT ============
+  //
+  // Tombol header (desktop) dan bilah bawah (HP) mengerjakan hal yang SAMA.
+  // Menyalin penanganannya berarti perbaikan di salah satunya tidak sampai ke
+  // yang lain — dan karena keduanya tidak pernah terlihat bersamaan (CSS
+  // menyembunyikan salah satunya), penyimpangannya tidak akan terlihat.
+  const keBeranda = () => renderHome(context, modules, moduleCtx);
+  const keProfil = () => {
+    tandaiFooter('profil');
     const content = document.getElementById('module-content');
     content.innerHTML = `
       <div class="module-header">
@@ -396,7 +412,12 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
         }
       }
     });
-  });
+  };
+
+  document.getElementById('btn-home-top').addEventListener('click', keBeranda);
+  document.getElementById('btn-profile').addEventListener('click', keProfil);
+  document.getElementById('mf-home').addEventListener('click', keBeranda);
+  document.getElementById('mf-profile').addEventListener('click', keProfil);
 
   document.getElementById('btn-logout').addEventListener('click', async () => {
     const ok = await confirmDialog({
@@ -444,7 +465,28 @@ async function renderShellForBu(context, availableBUs, activeBuId) {
   }
 }
 
+/**
+ * Tandai tab bilah bawah yang sedang terbuka.
+ *
+ * `aria-current`, bukan kelas CSS: pembaca layar ikut mengumumkannya, dan
+ * warnanya tetap diatur CSS lewat selektor atribut itu. Satu penanda untuk dua
+ * kebutuhan — kelas tambahan hanya menambah satu hal lagi yang bisa lupa
+ * dibersihkan.
+ */
+function tandaiFooter(aktif) {
+  for (const [id, nama] of [
+    ['mf-home', 'beranda'],
+    ['mf-profile', 'profil']
+  ]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    if (aktif === nama) el.setAttribute('aria-current', 'page');
+    else el.removeAttribute('aria-current');
+  }
+}
+
 async function renderHome(context, modules, moduleCtx) {
+  tandaiFooter('beranda');
   // Kembali ke Beranda secara sengaja -> lupakan modul terakhir, supaya
   // refresh berikutnya tetap di Beranda seperti yang orangnya harapkan.
   ingatModul(null);
@@ -493,7 +535,19 @@ async function renderHome(context, modules, moduleCtx) {
           }
         </div>
       </div>
-      ${hasAttendance ? `<button class="att-mini" id="att-mini"><div class="att-mini-head">🕐 Presensi Hari Ini</div><div class="att-mini-body" id="att-mini-body">Memuat…</div></button>` : ''}
+      ${
+        hasAttendance
+          ? `<button class="att-mini" id="att-mini">
+               <div class="att-mini-head-row">
+                 <span class="att-lencana" id="att-mini-lencana" aria-hidden="true">🕐</span>
+                 <div style="min-width:0">
+                   <div class="att-mini-head">Presensi Hari Ini</div>
+                   <div class="att-mini-body" id="att-mini-body">Memuat…</div>
+                 </div>
+               </div>
+             </button>`
+          : ''
+      }
     </div>
     <div class="card-grid">
       ${
@@ -543,14 +597,38 @@ async function renderHome(context, modules, moduleCtx) {
     getMyTodaySession()
       .then((s) => {
         const body = document.getElementById('att-mini-body');
+        const kartu = document.getElementById('att-mini');
+        const lencana = document.getElementById('att-mini-lencana');
         if (!body) return;
-        if (!s) {
-          body.innerHTML = `<span class="att-mini-status att-mini-none">Belum clock in</span><span class="att-mini-cta">Ketuk untuk absen →</span>`;
-        } else if (!s.clock_out_at) {
-          body.innerHTML = `<span class="att-mini-status att-mini-active">● Sedang bekerja</span><span class="att-mini-cta">Sejak ${fmtClock(s.clock_in_at)} · ketuk untuk clock out →</span>`;
-        } else {
-          body.innerHTML = `<span class="att-mini-status att-mini-done">✓ Selesai hari ini</span><span class="att-mini-cta">${fmtClock(s.clock_in_at)} – ${fmtClock(s.clock_out_at)}</span>`;
+
+        // ============ KEADAAN & RUPANYA DARI MODUL YANG SAMA ============
+        //
+        // Kartu ini dan layar modulnya sudah pernah menyimpang — tulisan
+        // berbeda untuk keadaan yang sama, warna yang sama untuk keadaan yang
+        // berbeda. Sekarang keduanya membaca `tampilan-presensi.js`.
+        //
+        // Istirahat TIDAK terbaca dari sini: `getMyTodaySession` hanya
+        // membawa baris presensinya. Jadi kartu ini menyebut "sedang bekerja"
+        // untuk orang yang sedang istirahat — tidak ideal, tapi jujur: ia
+        // memang masih dalam hari kerja yang berjalan, dan layar modulnya
+        // yang menyebutkan bedanya.
+        const keadaan = keadaanPresensi(s);
+        const rupa = tampilanPresensi(keadaan);
+        if (kartu) {
+          kartu.classList.remove('att-state-belum', 'att-state-bekerja', 'att-state-istirahat', 'att-state-selesai');
+          kartu.classList.add(rupa.kelas);
         }
+        if (lencana) lencana.textContent = rupa.lencana;
+
+        const jam =
+          keadaan === 'bekerja'
+            ? `Sejak ${fmtClock(s.clock_in_at)} · ketuk untuk clock out →`
+            : keadaan === 'selesai'
+              ? `${fmtClock(s.clock_in_at)} – ${fmtClock(s.clock_out_at)}`
+              : `${rupa.ajakan} →`;
+        body.innerHTML =
+          `<span class="att-mini-status">${escapeHtml(rupa.judul)}</span>` +
+          `<span class="att-mini-cta">${escapeHtml(jam)}</span>`;
       })
       .catch(() => {
         const body = document.getElementById('att-mini-body');
@@ -722,6 +800,10 @@ async function gambarLencana(content, gridModules, context, moduleCtx) {
 }
 
 function openModule(code, context, modules, moduleCtx, { pulihkan = false } = {}) {
+  // Modul bukan Beranda maupun Profil: tidak ada tab yang disorot. Membiarkan
+  // sorotan Beranda menyala di dalam modul membuat bilahnya berbohong tentang
+  // di mana orangnya berada.
+  tandaiFooter('');
   // Titik biru hilang di sini — SAAT DIBUKA, sesuai artinya ("ada yang baru
   // sejak terakhir kamu lihat"). Lencana merah TIDAK ikut hilang: ia dihitung
   // ulang dari pekerjaan yang benar-benar masih tertunda, jadi ia baru lenyap

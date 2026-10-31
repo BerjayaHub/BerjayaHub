@@ -185,7 +185,10 @@ if (page) {
   }
 
   // Tombol Kembali menggantikan Clock Out saat istirahat berjalan.
-  if (!/berjalan\n\s*\? `<button class="primary" id="btn-istirahat-selesai"/.test(kode)) {
+  // Kelas warnanya boleh bertambah (`btn-att-back` sejak pembaruan UI), yang
+  // dijaga tetap: saat istirahat berjalan, tombol yang digambar adalah
+  // "Kembali" — BUKAN Clock Out.
+  if (!/berjalan\n\s*\? `<button class="primary[^"]*" id="btn-istirahat-selesai"/.test(kode)) {
     salah(
       'attendance.page.js: tombol Clock Out tidak lagi digantikan "Kembali dari Istirahat" saat istirahat berjalan. ' +
         'Dua tombol utama berdampingan membuat orang menekan yang salah — dan di sini "salah" berarti pulang padahal ' +

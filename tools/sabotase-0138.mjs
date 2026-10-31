@@ -376,8 +376,8 @@ console.log('\nSABOTASE PERINGATAN & PENEGASAN:');
 sabotase(
   'Clock Out tetap tampil berdampingan saat istirahat — orang pulang padahal cuma mau kembali',
   HAL,
-  '          berjalan\n            ? `<button class="primary" id="btn-istirahat-selesai" disabled>↩️ Kembali dari Istirahat</button>`\n            : `<button class="primary" id="btn-clock-out" disabled>Clock Out</button>`',
-  '          `<button class="primary" id="btn-clock-out" disabled>Clock Out</button>`',
+  '          berjalan\n            ? `<button class="primary btn-att-back" id="btn-istirahat-selesai" disabled>↩️ Kembali dari Istirahat</button>`\n            : `<button class="primary btn-att-out" id="btn-clock-out" disabled>🏁 Clock Out</button>`',
+  '          `<button class="primary btn-att-out" id="btn-clock-out" disabled>🏁 Clock Out</button>`',
   AUDIT
 );
 sabotase(

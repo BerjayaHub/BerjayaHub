@@ -485,9 +485,23 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       return;
     }
     const atas = kotak.getBoundingClientRect().top;
+
+    // ============ BILAH BAWAH MENUTUPI LAYAR, BUKAN MENDORONGNYA ============
+    //
+    // Footer HP ber-`position: fixed`, jadi `window.innerHeight` TIDAK
+    // berkurang karenanya. Tanpa pengurangan ini, beberapa baris terakhir
+    // riwayat berada persis di balik bilahnya dan tidak bisa digulirkan lebih
+    // jauh — dan yang membacanya mengira datanya memang habis di situ.
+    //
+    // Diukur dari elemennya, bukan dari angka tetap: tingginya bertambah oleh
+    // `safe-area-inset-bottom` di iPhone, dan angka yang ditulis tangan akan
+    // meleset persis di perangkat yang lekukannya paling besar.
+    const bilah = document.getElementById('mobile-footer');
+    const tinggiBilah = bilah && bilah.offsetParent !== null ? bilah.getBoundingClientRect().height : 0;
+
     // Minimal 220px: di layar yang sangat pendek, wadah setinggi 40px lebih
     // buruk daripada halaman yang ikut menggulir sedikit.
-    kotak.style.maxHeight = `${Math.max(220, window.innerHeight - atas - 16)}px`;
+    kotak.style.maxHeight = `${Math.max(220, window.innerHeight - atas - tinggiBilah - 16)}px`;
   }
   window.addEventListener('resize', ukurRiwayat);
 
