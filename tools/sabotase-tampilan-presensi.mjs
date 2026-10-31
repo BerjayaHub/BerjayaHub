@@ -141,6 +141,25 @@ console.log('\nSABOTASE BILAH BAWAH:');
 // =====================================================================
 
 // `fixed` MENUTUPI konten, tidak mendorongnya.
+// Kode warna yang ditulis tangan tetap sama saat tema BU diganti — dan bilah
+// bawah yang warnanya tidak cocok dengan headernya menonjol sebagai bagian
+// yang "belum jadi".
+sabotase(
+  'latar bilah bawah dipatok warna tetap — tidak ikut tema BU',
+  CSS,
+  '    background: var(--color-primary);\n    border-top: 1px solid rgba(255, 255, 255, 0.16);',
+  '    background: #ffffff;\n    border-top: 1px solid rgba(255, 255, 255, 0.16);',
+  AUDIT
+);
+
+sabotase(
+  'teks bilah bawah kembali abu-abu di atas latar berwarna',
+  CSS,
+  '    color: rgba(255, 255, 255, 0.72);',
+  '    color: var(--color-text-muted);',
+  AUDIT
+);
+
 sabotase(
   'ruang bawah dicabut — baris terakhir bersembunyi di balik bilah',
   CSS,

@@ -16,6 +16,7 @@ import { urutStokTerendah } from './urutan-stok.js';
 import { renderResepStaff } from './resep-staff.js';
 import { sesiTerbuka, catatHitungan, itemOpname } from './opname.service.js';
 import { SARING, susunDaftar, nilaiKotak, sudahDihitung, keteranganHitung, hitungBelumTersimpan, peringatanTurun } from './opname-daftar.js';
+import { labelAcuan, teksAcuanStok } from './acuan-satuan-beli.js';
 import { renderNotaStaff } from './nota-staff.js';
 import { renderMenipisStaff } from './menipis-staff.js';
 import { opsiPurpose, purposeWajib, periksaPurpose, PESAN_BELUM_ADA_DAFTAR } from './purpose-esb.js';
@@ -818,6 +819,23 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
                   <div class="opname-nama">${selesai ? '<span class="opname-centang">✓</span> ' : ''}${esc(p.name)}</div>
                   <div class="opname-meta">${esc(p.category ?? 'Tanpa kategori')} · sistem <strong>${formatNum(sys)}</strong> ${esc(p.base_unit)}</div>
                   ${
+                    // ============ SATUAN BELI SEBAGAI ACUAN ============
+                    //
+                    // Yang berdiri di depan rak melihat DUS, bukan pcs. Tanpa
+                    // baris ini, satu-satunya cara memastikan isi dus yang
+                    // belum dibuka adalah membukanya dan menghitung satu per
+                    // satu — dan yang membuka dus demi opname sering lupa
+                    // menutupnya kembali.
+                    //
+                    // Sengaja ABU-ABU dan tanpa kotak isian: ia untuk dibaca,
+                    // bukan untuk diisi. Yang diketik tetap satuan kecil.
+                    labelAcuan(p)
+                      ? `<div class="opname-acuan">📦 ${esc(labelAcuan(p))}${
+                          teksAcuanStok(sys, p) ? ` · sistem ${esc(teksAcuanStok(sys, p))}` : ''
+                        }</div>`
+                      : ''
+                  }
+                  ${
                     // ANGKA YANG SUDAH TERSIMPAN DISEBUT TERANG-TERANGAN,
                     // bukan cuma diam-diam menjadi isi kotaknya.
                     //
@@ -839,7 +857,11 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
                   <div class="opname-isi">
                     <input type="number" class="opname-input" data-p="${p.id}" data-sys="${sys}" min="0" step="any"
                       inputmode="decimal" placeholder="stok fisik" value="${esc(val)}" aria-label="Stok fisik ${esc(p.name)}" />
-                    <span class="opname-satuan">${esc(p.base_unit)}</span>
+                    <!-- SATUAN KECIL DITEBALKAN: itu satu-satunya satuan yang
+                         boleh masuk kotak di sebelahnya. Satuan beli di baris
+                         atas hanya acuan, dan dua satuan yang tampil sama
+                         menonjol adalah cara tercepat salah isi. -->
+                    <span class="opname-satuan opname-satuan-utama">${esc(p.base_unit)}</span>
                     <span class="opname-diff" data-p="${p.id}">-</span>
                   </div>
                   <div class="opname-turun" data-p="${p.id}" hidden></div>

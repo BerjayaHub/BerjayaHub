@@ -114,6 +114,28 @@ if (css) {
   }
 
   if (!/\.mobile-footer/.test(css)) salah(`${CSS}: bilah bawah tidak punya gaya.`);
+
+  // ============ WARNANYA HARUS IKUT TEMA BU ============
+  //
+  // `--color-primary` dipasang saat aplikasi memuat, per BU. Kode warna yang
+  // ditulis tangan di sini akan tetap sama saat tema BU diganti — dan bilah
+  // bawah yang warnanya tidak cocok dengan headernya justru menonjol sebagai
+  // bagian yang "belum jadi".
+  // SEMUA blok `.mobile-footer {` diperiksa, bukan yang pertama: ada dua —
+  // satu di luar media query (`display: none` untuk desktop) dan satu di
+  // dalamnya (bentuk mobilenya). Mengambil yang pertama membuat audit ini
+  // memeriksa aturan yang salah, lalu merah pada kode yang benar.
+  const blokFooter = [...css.matchAll(/\.mobile-footer \{([^}]*)\}/g)].map((m) => m[1]).join('\n');
+  if (!/background: var\(--color-primary\)/.test(blokFooter)) {
+    salah(`${CSS}: latar bilah bawah tidak memakai \`--color-primary\` — ia tidak akan ikut berubah saat tema BU diganti.`);
+  }
+  // Teks putih di atas latar berwarna. Warna teks yang tertinggal
+  // (`--color-text-muted`) jadi abu-abu kotor yang sulit dibaca.
+  const iTombolFooter = css.indexOf('.mobile-footer button {');
+  const blokTombolFooter = iTombolFooter >= 0 ? css.slice(iTombolFooter, css.indexOf('}', iTombolFooter)) : '';
+  if (!/color: rgba\(255, 255, 255/.test(blokTombolFooter)) {
+    salah(`${CSS}: teks bilah bawah tidak disesuaikan dengan latar berwarnanya.`);
+  }
   // Fixed = MENUTUPI konten. Tanpa ruang bawah, baris terakhir tabel mana pun
   // berada di baliknya dan terbaca seperti "datanya habis".
   if (!/\.staff-main \{\s*padding-bottom:/.test(css)) {

@@ -2482,6 +2482,30 @@ select.sc-cell.shift-w5 { border-style: solid; background-color: #fce7f3; color:
   margin-top: 2px;
 }
 
+/* ============ ACUAN SATUAN BELI ============
+
+   Sengaja LEBIH REDUP daripada satuan kecilnya. Baris ini menjawab "satu dus
+   isinya berapa" supaya dus yang belum dibuka tidak perlu dibongkar — tapi
+   angka yang masuk kotak tetap satuan kecil. Dua satuan yang tampil sama
+   menonjol adalah cara tercepat salah isi. */
+.opname-acuan {
+  font-size: 0.74rem;
+  color: var(--color-text-muted);
+  background: var(--color-bg);
+  border: 1px dashed var(--color-border);
+  border-radius: 7px;
+  padding: 3px 7px;
+  margin-top: 4px;
+  display: inline-block;
+}
+
+/* Satuan yang BOLEH diketik — ditebalkan & diberi warna tema, supaya terbaca
+   lebih dulu daripada acuan di atasnya. */
+.opname-satuan-utama {
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
 .opname-isi {
   display: flex;
   align-items: center;
@@ -3805,11 +3829,23 @@ select.sc-cell.shift-w5 { border-style: solid; background-color: #fce7f3; color:
     right: 0;
     bottom: 0;
     z-index: 40;
-    background: var(--color-surface);
-    border-top: 1px solid var(--color-border);
-    /* Lekukan layar iPhone: tanpa ini tombolnya tertimpa garis gestur. */
+    /* ============ WARNANYA MENGIKUTI HEADER ============
+       `--color-primary` adalah warna tema BU, dipasang saat aplikasi memuat
+       (`main-staff.js`). Memakai variabel yang SAMA dengan `.staff-topbar`,
+       bukan menyalin kode warnanya: BU yang temanya diganti akan mengubah
+       header saja, dan bilah bawah yang tertinggal putih justru menonjol
+       sebagai bagian yang "belum jadi".
+
+       Latar berwarna juga memberi bilah ini batas yang jelas terhadap konten
+       di atasnya — di layar panjang yang isinya putih, bilah putih bertepi
+       garis tipis nyaris tidak terlihat sebagai bilah. */
+    background: var(--color-primary);
+    border-top: 1px solid rgba(255, 255, 255, 0.16);
+    /* Lekukan layar iPhone: tanpa ini tombolnya tertimpa garis gestur.
+       Latarnya ikut mengisi lekukan itu, jadi warnanya menyambung sampai tepi
+       layar — bukan pita putih di bawah bilah berwarna. */
     padding-bottom: env(safe-area-inset-bottom, 0px);
-    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.18);
   }
 
   .mobile-footer button {
@@ -3823,7 +3859,9 @@ select.sc-cell.shift-w5 { border-style: solid; background-color: #fce7f3; color:
     padding: 6px 4px;
     border: 0;
     background: transparent;
-    color: var(--color-text-muted);
+    /* Putih SEBAGIAN, bukan abu-abu: di atas latar berwarna, abu-abu jadi
+       kotor dan sulit dibaca pada tema yang gelap maupun yang terang. */
+    color: rgba(255, 255, 255, 0.72);
     font-family: inherit;
     font-size: 0.7rem;
     font-weight: 600;
@@ -3838,8 +3876,12 @@ select.sc-cell.shift-w5 { border-style: solid; background-color: #fce7f3; color:
     line-height: 1;
   }
 
+  /* Yang sedang terbuka: putih penuh + garis penanda di atasnya. Di atas latar
+     berwarna, beda terang-gelap saja tidak cukup tegas pada tema yang
+     warnanya sudah terang. */
   .mobile-footer button[aria-current='page'] {
-    color: var(--color-primary);
+    color: #fff;
+    box-shadow: inset 0 3px 0 0 #fff;
   }
 
   .mobile-footer button[aria-current='page'] .mf-ikon {

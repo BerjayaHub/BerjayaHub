@@ -9967,6 +9967,14 @@ Beranda & Profil pindah dari header ke bilah bawah, di jangkauan ibu jari.
 Di desktop tombolnya tetap di header: di sana kursor sudah berada di atas, dan
 bilah tetap di layar lebar cuma memakan ruang kerja.
 
+Latarnya memakai `--color-primary` — **variabel yang sama dengan headernya**,
+bukan salinan kode warnanya. Tema BU dipasang saat aplikasi memuat, jadi bilah
+yang warnanya dipatok akan tetap sama saat temanya diganti, dan bilah putih di
+bawah header berwarna justru menonjol sebagai bagian yang "belum jadi". Teksnya
+putih sebagian (abu-abu jadi kotor di atas latar berwarna), dan yang sedang
+terbuka diberi garis putih di atasnya — beda terang-gelap saja tidak cukup
+tegas pada tema yang warnanya sudah terang.
+
 Dua hal yang mudah terlewat, keduanya berakhir sebagai layar yang "agak aneh"
 tanpa satu pun error:
 
@@ -10132,3 +10140,58 @@ Empat sisanya pola yang sudah berulang di repo ini:
 | kolom jejak tidak diambil service | tidak ada yang memeriksanya sama sekali |
 
 - [x] **Revisi cuti + pesan keputusan selengkap formnya** (`0178`) — tes PGlite, 21 tes murni, 20 sabotase
+
+## Satuan beli sebagai acuan saat opname
+
+> *"misal ada 1 dus lunch box, karena belum dibuka maka seharusnya isi satu dus
+> itu masih utuh, mereka tidak perlu bongkar lagi untuk hitung per pcs nya"*
+
+Opname diisi dalam **satuan kecil** — itu satuan yang dipakai resep, stok, dan
+seluruh laporan. Tapi yang berdiri di depan rak melihat **dus**, bukan pcs.
+Tanpa acuan, satu-satunya cara memastikan isi dus yang belum dibuka adalah
+membukanya dan menghitung satu per satu — dan yang membuka dus demi opname
+sering lupa menutupnya kembali.
+
+Tiap kartu sekarang membawa satu baris abu-abu bergaris putus-putus:
+
+```
+📦 1 dus = 50 pcs · sistem ≈ 4 dus + 40 pcs
+```
+
+**Yang sengaja TIDAK diberikan: kotak isian dalam satuan beli.** Dua kotak
+untuk satu angka berarti salah satunya akan terisi sendirian, dan tidak ada
+cara mengetahui mana yang dimaksud orangnya. Satuan kecil tetap satu-satunya
+yang diketik — karena itu ia ditebalkan dan diberi warna tema di sebelah kotak,
+sementara acuannya diredupkan. Dua satuan yang tampil sama menonjol adalah cara
+tercepat salah isi: "4" diketik untuk 4 dus, dan 200 pcs tercatat jadi 4.
+
+Tiga hal kecil yang menentukan apakah baris ini membantu atau justru
+mengganggu:
+
+| | |
+|---|---|
+| `isi = 1` atau satuan yang sama | barisnya **tidak digambar**. "1 pack = 1 pcs" tidak memberi tahu apa pun, dan daftar opname bisa dua ratus baris |
+| di bawah satu satuan beli | juga tidak digambar — "0 dus + 30 pcs" cuma menambah kata; yang terlihat di rak memang 30 pcs lepas |
+| hasilnya dibulatkan 4 desimal | `240.3 % 50` menghasilkan `40.299999999999955`. Ekor seperti itu membuat orang ragu pada hitungan yang benar, dan keraguan itu berakhir dengan dus yang dibongkar — persis yang dihindari |
+
+Tanda `≈` dipakai walau angkanya persis: yang mengikat tetap angka satuan
+kecilnya, dan tanpa tanda itu "4 dus" terbaca seperti perintah mengisi 4.
+
+### Auditnya langsung menemukan ketidaksepakatan
+
+Versi pertama modul ini memakai ambang `isi <= 1`, sementara
+`konversi-satuan.js` (yang dipakai ekspor ESB) memakai `isi <= 0 || isi === 1`.
+Bedanya kecil dan nyata: **isi pecahan** — 1 pack = 0,5 kg, kemasan 500 gram
+dengan satuan kecil kg — sah, dan `<= 1` membuangnya. Akibatnya produk yang
+sama dianggap bersatuan beli saat diekspor ke ESB tapi tidak saat opname, tanpa
+satu pun galat di mana pun. Ambangnya disamakan, dan auditnya sekarang menjaga
+**kedua** berkas supaya tidak bergeser sendiri-sendiri.
+
+Dua sabotase juga lolos pada percobaan pertama, keduanya bentuk yang sama:
+`labelAcuan(p)` dan `teksAcuanStok(sys, p)` masing-masing muncul **dua kali** —
+sekali sebagai penjaga `? :`, sekali sebagai isi templatnya. Auditnya mencari
+namanya, jadi yang di dalam templat (yang menentukan apa yang benar-benar
+TERBACA orang) bisa diganti diam-diam. Sekarang yang dituntut kemunculannya di
+dalam markup.
+
+- [x] **Acuan satuan beli di kartu opname** — 31 tes murni, 11 sabotase
