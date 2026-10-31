@@ -196,7 +196,10 @@ export async function listMyCashAccounts(onlyActive = true) {
   if (!uid) return [];
   let q = supabase
     .from('cash_accounts')
-    .select('id, name, sort_order, is_active, outlet_id, outlets!outlet_id(name)')
+    // `is_primary` IKUT: form kas memakainya sebagai bawaan, dan tanpa
+    // kolom ini bawaannya diam-diam jatuh ke kantong pertama menurut urutan
+    // tampilan — yang belum tentu kantong yang dipakai orangnya.
+    .select('id, name, sort_order, is_active, is_primary, outlet_id, outlets!outlet_id(name)')
     .eq('holder_id', uid)
     .order('sort_order')
     .order('name');
@@ -402,6 +405,35 @@ export async function saldoBerjalanKas(ids) {
   return data ?? [];
 }
 
+/**
+ * Revisi transfer antar pengguna — KEDUA kakinya sekaligus.
+ *
+ * Dipisah dari `ubahKas` karena jalur databasenya memang berbeda: `ubah_kas`
+ * hanya bisa menyentuh satu baris, dan transfer punya dua yang harus bergerak
+ * bersama atau tidak sama sekali.
+ */
+export async function ubahTransferKas({ entryId, amount, toUserId, fromAccountId, notes, alasan }) {
+  const { data, error } = await supabase.rpc(
+    'ubah_transfer_kas',
+    argumenRpc({
+      p_entry: entryId,
+      p_amount: amount,
+      p_to_user: toUserId,
+      p_from_account: fromAccountId || null,
+      p_notes: notes ?? '',
+      p_alasan: alasan
+    })
+  );
+  if (error) throw error;
+  return data ?? {};
+}
+
+/** Jadikan satu kantong sebagai kantong utama pemegangnya. */
+export async function aturKantongUtama(accountId) {
+  const { error } = await supabase.rpc('atur_kantong_utama', { p_account: accountId });
+  if (error) throw error;
+}
+
 /** Saldo per kantong milik user yang login. */
 export async function listMyCashAccountBalances() {
   const uid = await currentUserId();
@@ -427,12 +459,17 @@ export async function pindahKas({ fromAccountId, toAccountId, amount, notes }) {
 }
 
 /** Transfer kas ke user lain — boleh lintas BU (kas ikut user). */
-export async function transferCash({ toUserId, amount, notes }) {
-  const { error } = await supabase.rpc('transfer_cash', {
+export async function transferCash({ toUserId, amount, notes, fromAccountId = null }) {
+  // `argumenRpc` dipakai supaya `p_from_account` SELALU terkirim, walau null.
+  // PostgREST memilih overload lewat himpunan nama argumen, dan tanda tangan
+  // lama (tanpa kantong) sudah di-drop di 0176 — kalau kuncinya hilang,
+  // panggilannya gagal dengan 42883, bukan diam-diam memotong Kas Utama.
+  const { error } = await supabase.rpc('transfer_cash', argumenRpc({
+    p_from_account: fromAccountId || null,
     p_to_user: toUserId,
     p_amount: amount,
     p_notes: notes || null
-  });
+  }));
   if (error) throw error;
 }
 

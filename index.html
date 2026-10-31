@@ -20,6 +20,56 @@
 <body>
   <div id="app">Memuat...</div>
 
+  <!-- ============ PENJAGA LAYAR MATI ============
+
+       Modul ES (tag skrip bertipe module di bawah) yang GAGAL DIMUAT tidak
+       menampilkan apa pun. Tag-nya sengaja TIDAK ditulis utuh di komentar ini:
+       `audit-syntax` mencari pola itu untuk memeriksa skrip tertanam, dan
+       menemukannya di dalam komentar membuat ia memotong potongan kode yang
+       salah lalu melaporkan berkas yang benar sebagai rusak.
+       Satu impor bersarang yang 404 — berkas baru yang belum selesai
+       ter-deploy, misalnya — membuat seluruh grafik impornya batal, dan yang
+       tertinggal di layar cuma tulisan "Memuat..." di pojok kiri atas, tanpa
+       gaya, tanpa pesan, selamanya. Galatnya hanya ada di console, yang tidak
+       akan dibuka orang yang sedang memakai HP.
+
+       Itu sudah terjadi: Staff App tampak "cuma memuat saja" sesudah satu
+       rilis, dan tidak ada satu pun cara di layar untuk tahu kenapa.
+
+       Penjaga di bawah tidak memperbaiki sebabnya — ia membuat sebabnya
+       TERLIHAT, dan memberi satu tombol yang berguna.
+  -->
+  <script>
+    (function () {
+      var app = document.getElementById('app');
+      var AWAL = app ? app.textContent.trim() : '';
+      var galat = '';
+
+      // Galat pemuatan modul tercatat di sini kalau sempat terjadi; dipakai
+      // sebagai keterangan, bukan sebagai pemicu — sebagian kegagalan tidak
+      // memunculkan event apa pun.
+      window.addEventListener('error', function (e) {
+        if (!galat) galat = (e && (e.message || (e.target && e.target.src))) || '';
+      }, true);
+
+      // Pemicunya WAKTU, bukan jenis galatnya: 404, salah ketik, peramban
+      // lama, jaringan putus di tengah — semuanya berakhir sama di layar, dan
+      // semuanya harus berakhir dengan pesan yang sama pula.
+      setTimeout(function () {
+        if (!app || app.textContent.trim() !== AWAL) return;
+        app.innerHTML =
+          '<div style="max-width:420px;margin:48px auto;padding:20px;font-family:system-ui,sans-serif;line-height:1.55">' +
+          '<h2 style="margin:0 0 10px;font-size:1.05rem">Aplikasinya gagal dimuat</h2>' +
+          '<p style="margin:0 0 10px;color:#555">Biasanya karena pembaruan yang baru saja dirilis belum selesai tersebar, ' +
+          'atau jaringannya terputus saat memuat. Coba muat ulang — kalau masih sama sesudah beberapa menit, ' +
+          'laporkan beserta keterangan di bawah.</p>' +
+          (galat ? '<p style="margin:0 0 12px;font-size:0.78rem;color:#777;word-break:break-all">' + String(galat).slice(0, 300) + '</p>' : '') +
+          '<button onclick="location.reload(true)" style="padding:8px 14px;font-size:0.9rem">Muat ulang</button>' +
+          '</div>';
+      }, 12000);
+    })();
+  </script>
+
   <script type="module" src="js/main-staff.js"></script>
 </body>
 </html>

@@ -167,7 +167,20 @@ function buildAdminMenu(activeModules, isSuperAdmin, allowedTabs) {
   for (const [code, g] of Object.entries(GROUPS)) {
     if (visibleTabsOf(g, activeCodes, isSuperAdmin, allowedTabs).length) menu.push({ code, name: g.name });
   }
+  // ============ MODUL YANG SUDAH ADA DI MENU TIDAK DIULANG ============
+  //
+  // `cash_ledger` terdaftar DUA KALI: sekali di `CORE_ADMIN_MENU` (sebagai
+  // "Kas", karena saldonya lintas BU dan tidak ikut toggle modul), sekali lagi
+  // di sini karena ia juga baris aktif di tabel `modules` (bernama "Cash
+  // Ledger"). Hasilnya dua menu bersebelahan yang membuka layar yang sama —
+  // dan yang membacanya menyangka keduanya berbeda lalu mencari bedanya.
+  //
+  // Disaring dengan KODE, bukan nama: nama di tabel `modules` bisa diubah
+  // admin kapan saja, dan penyaring berbasis nama akan diam-diam berhenti
+  // bekerja pada hari itu.
+  const sudahAda = new Set(menu.map((m) => m.code));
   for (const mod of activeModules) {
+    if (sudahAda.has(mod.code)) continue;
     if (!GROUPED_CODES.has(mod.code) && canAccessTab(mod.code, isSuperAdmin, allowedTabs)) menu.push(mod);
   }
   return menu;

@@ -9773,3 +9773,184 @@ kutipan di komentar itu ikut menghijaukan audit — komentarnya dibuang dulu
 sebelum diperiksa.
 
 - [x] **Kolom saldo berjalan per kantong** (`0175`) — tes PGlite, 23 tes murni, 18 sabotase
+
+## Transfer kas: pilih kantong, dan bisa direvisi (0176)
+
+Dua permintaan, satu akar yang sama. `transfer_cash` ditulis di **0040** —
+sebelum kantong kas ada (0063) — dan ia menulis kedua kakinya dengan
+`account_id` NULL. Jadi staff yang uangnya ada di "Kas CK iis" tetap hanya
+bisa mengirim dari Kas Utama, dan saldo kantongnya tidak pernah cocok dengan
+uang fisiknya.
+
+### Kantong asal, beserta saldonya
+
+Saldo tiap kantong ditulis **di label pilihannya**, bukan di keterangan bawah
+kotak: yang memilih sedang memutuskan dari laci mana uangnya diambil, dan
+keputusan itu diambil sambil membaca daftarnya. Kantong bersaldo nol tetap
+ditampilkan — menyembunyikannya membuat orang mengira kantongnya hilang lalu
+membuat yang baru dengan nama sama.
+
+Di sisi penerima uangnya **selalu** masuk ke Kas Utama-nya. Kantong adalah
+urusan pemiliknya, dan pengirim tidak berhak menentukan isi laci orang lain.
+
+Satu hal yang berubah diam-diam kalau tidak dijaga: **tanda tangan lama
+`transfer_cash` dibuang**. PostgREST memilih fungsi lewat himpunan nama
+argumen, jadi dua tanda tangan yang cuma beda satu argumen berarti pemanggilan
+yang lupa mengirim kantong tetap "berhasil" — lewat jalur lama, memotong Kas
+Utama. Persis bug yang sedang diperbaiki, tapi kali ini tanpa satu pun tanda.
+
+### Revisi transfer: kedua kaki, atau tidak sama sekali
+
+Sebelumnya transfer sama sekali tidak bisa dibetulkan. Penjaganya berbunyi
+*"berpasangan dengan baris di kas lain, jadi tidak bisa dikoreksi sepotong.
+Catat transfer balik kalau memang salah"* — benar untuk `ubah_kas`, yang hanya
+menyentuh satu baris, tapi bagi yang salah pilih kantong itu berarti riwayat
+kedua pihak memuat tiga baris untuk satu kekeliruan, dan tidak satu pun
+menyebut bahwa itu kekeliruan.
+
+**`alasan_tolak_koreksi_kas` sengaja TIDAK dilonggarkan.** Ia penjaga
+`ubah_kas`; melonggarkannya berarti satu kaki transfer bisa berubah sendirian,
+dan uang hilang di satu sisi tanpa muncul di sisi lain. Revisi transfer punya
+penjaganya sendiri (`alasan_tolak_revisi_transfer`) dan jalurnya sendiri yang
+memindahkan dua baris sekaligus.
+
+Keputusan yang diambil pemakainya:
+
+| | |
+|---|---|
+| yang boleh merevisi | pengirim + admin BU-nya. **Penerima tidak** — uang itu bukan miliknya untuk dikembalikan |
+| saldo penerima | **boleh minus**. Menolaknya berarti salah alamat yang uangnya sudah terpakai tidak punya jalan keluar sama sekali |
+| bentuknya | diubah di tempat, berjejak. `transfer_id`-nya tetap, jadi satu kekeliruan tetap satu transaksi |
+
+### Yang dikatakan ke orang yang tidak sedang menatap layar
+
+Mengganti tujuan membuat barisnya **hilang dari riwayat penerima lama** dan
+saldonya turun. Keduanya memang diterima, tapi tidak boleh terjadi diam-diam,
+jadi ringkasan sebelum simpan menyebut keduanya.
+
+Angkanya tidak: **saldo penerima lama ada di kas orang lain**, dan RLS memang
+tidak mengizinkan pengirim membacanya. Percobaan pertama modul murninya
+menghitung `sisa = saldo − jumlah` dengan saldo yang tidak pernah diketahui
+layar — cabang MINUS-nya **tidak akan pernah bisa menyala**. Peringatan yang
+mustahil muncul lebih buruk daripada tidak ada: ia membuat yang membaca
+kodenya yakin keadaan itu sudah dijaga. Sekarang peringatan sebelum simpan
+menyebut yang pasti saja, dan angkanya menyusul dari jawaban server —
+*"Saldo Iis sekarang MINUS 200.000. Beri tahu dia."*
+
+### Satu aturan yang berbeda arah di dua tempat
+
+Saldo **penerima** boleh minus; saldo **pengirim** tidak. Di sisi penerima
+uangnya sudah terlanjur berpindah; di sisi pengirim tidak ada yang terlanjur,
+jadi ia cuma salah ketik yang masih bisa ditolak. Dan saat menghitung saldo
+pengirim, **kaki lama dikeluarkan dari hitungan** — kalau tidak, uang yang
+sudah keluar terhitung dua kali dan revisi yang cuma menaikkan sedikit pun
+ditolak dengan alasan yang salah. Bentuk yang sama persis dengan batas jumlah
+di layar revisi surat jalan aset (0174).
+
+### Empat sabotase lolos pada percobaan pertama
+
+Keempatnya kelemahan pemeriksa, bukan sabotase yang lemah:
+
+1. **Wewenang diukur ke baris yang diklik** — tesnya memakai penerima yang
+   mengklik kaki PENGIRIM, yang ditolak oleh aturan mana pun. Satu-satunya
+   bentuk yang membedakannya adalah penerima mengklik **kakinya sendiri**.
+2. **Jejak revisi dibuang dari satu kaki** — auditnya memeriksa "ada di berkas
+   ini", jadi satu kaki bisa kehilangan jejaknya diam-diam. Sekarang dihitung:
+   harus ada di **kedua** kaki.
+3. **`ubah_kas` dilonggarkan** — tes PGlite-nya memasang `ubah_kas` tiruan,
+   jadi merusak migration aslinya tidak terasa di sana sama sekali. Sabotase
+   yang menyasar pemeriksa yang buta selalu "tertangkap" tanpa memeriksa apa
+   pun; diarahkan ke auditnya.
+4. **Tombol revisi dicabut** — auditnya mencari nama kelasnya, yang masih ada
+   di baris `querySelectorAll` yang menganggur.
+
+- [x] **Transfer kas dari kantong pilihan + revisi transfer** (`0176`) — tes PGlite, 31 tes murni, 19 sabotase
+
+## Kantong utama, dan dua bug yang ikut ketahuan (0177)
+
+Tiga temuan dari lapangan sekaligus. Dua di antaranya bentuk kegagalan yang
+sama: **layar yang berbohong dengan tenang**.
+
+### (a) Tab Kantong Kas yang selamanya kosong
+
+> *"saya menambahkan kantong ke user lain dengan scope superadmin saya, tetapi
+> di user yang saya tambahkan kantongnya di admin portal user itu tidak ada
+> kantong"*
+
+`daftar_kantong_kas` (0153) berakhir dengan `where is_super_admin(auth.uid())`
+pada **kedua** cabangnya, sementara tabnya sendiri sudah dibuka untuk admin BU
+sejak 0141. Hasilnya: tab yang bisa dibuka, tombol **+ Tambah Kantong** yang
+bisa ditekan, dan tabel yang selamanya berbunyi *"Belum ada kantong kas"*.
+Tidak ada galat di mana pun.
+
+Cakupannya sekarang `boleh_koreksi_kas(holder_id)` — sama dengan RLS kas
+(0141): pemegangnya sendiri, admin BU tempat ia bernaung, atau super admin.
+
+### (b) Satu modul, dua baris menu
+
+`cash_ledger` terdaftar dua kali: di `CORE_ADMIN_MENU` sebagai **"Kas"**
+(karena saldonya lintas BU dan tidak ikut toggle modul per BU), dan lagi lewat
+`activeModules` sebagai **"Cash Ledger"** (namanya di tabel `modules`). Dua
+menu bersebelahan membuka layar yang sama, dan yang membacanya mencari bedanya.
+
+Disaring dengan **kode**, bukan nama: nama di tabel `modules` bisa diubah admin
+kapan saja, dan penyaring berbasis nama akan diam-diam berhenti bekerja pada
+hari itu.
+
+### (c) Kas Utama yang membingungkan
+
+> *"elsha dia hanya punya satu kantong kas sentul, maka kas utama nya diubah ke
+> nama kas sentul ... iis juga demikian"*
+
+"Kas Utama" bukan kantong. Ia nama untuk uang yang **tidak berada di kantong
+mana pun** — keadaan sebelum kantong pertama dibuat (0063), dan yang masih
+kebagian setiap kali ada jalur yang lupa bertanya kantong. Orang yang cuma
+punya satu kantong tidak punya keputusan untuk diambil, tapi tetap melihat dua
+baris dan tetap ditanya.
+
+Yang ditambahkan: **satu kantong per orang ditandai utama**.
+
+| | |
+|---|---|
+| kantong pertama seseorang | otomatis jadi utama — lewat **trigger**, bukan di dalam satu RPC: kantong dibuat dari beberapa jalur, dan aturan yang ditulis di salah satunya tertinggal di yang lain |
+| satu utama per orang | dijaga **indeks unik parsial**. Dijaga di layar saja berarti dua tab yang terbuka bersamaan bisa menandai dua kantong, dan sejak itu "kantong utama" tidak berarti apa-apa |
+| form kas | terisi kantong utama sendiri |
+| transfer dari orang lain | mendarat di kantong utama penerima |
+| Kas Utama | hanya muncul kalau **masih berisi uang** — bukan sebagai pilihan, melainkan sebagai sisa yang perlu dibereskan |
+
+Ini membalik satu keputusan di 0176 ("kaki penerima selalu Kas Utama").
+Alasannya di sana tetap benar — *kantong adalah urusan pemiliknya* — yang
+salah kesimpulannya: mendaratkannya di Kas Utama bukan berarti tidak menyentuh
+kantong orang lain, melainkan menaruhnya di tempat yang justru harus
+dibereskan penerimanya. Kantong **utama** adalah kantong yang penerimanya
+sendiri yang menentukan.
+
+### Empat sabotase lolos, dan semuanya karena komentar saya sendiri
+
+`tanpaKomentar` sudah dipakai beberapa audit lain; audit ini belum. Komentar di
+repo ini **mengutip kode yang dijelaskannya** — *"`is_primary` IKUT: form kas
+memakainya sebagai bawaan"* — jadi kolomnya bisa dicabut dari `.select()` dan
+pemeriksanya tetap diam.
+
+Tiga sisanya pola yang sama di bentuk berbeda:
+
+| sabotase | kenapa lolos |
+|---|---|
+| `const akunTampil = saldoAkun;` | audit mencari **nama variabel**, bukan penyaringannya |
+| bawaan tidak lagi `is_primary` | `a.is_primary` masih muncul di label pilihan (" · utama") |
+| `utamaKosong` → `utamaKosongX` | pemakaiannya masih ada — menunjuk variabel yang **tidak ada**, melempar saat dialog dibuka, auditnya hijau |
+
+Yang terakhir paling halus: memeriksa pemakaiannya saja membuat deklarasinya
+bisa diganti nama; memeriksa deklarasinya saja membuatnya boleh ada tanpa
+dipakai. Keduanya sekarang diperiksa.
+
+### Dan satu kolom yang hilang dari skema tiruan
+
+Backfill-nya mengurutkan dengan `created_at`, yang ADA di `cash_accounts`
+sungguhan (0063) tapi tertinggal di skema tiruan beberapa tes PGlite. Arah
+kesalahannya kebetulan aman — migrationnya gagal, dengan galat yang tidak
+menyebut sebabnya. Kalau terbalik, ia justru membuat tes **hijau** untuk skema
+yang tidak pernah ada di produksi. Kolomnya ditambahkan di kelima tes yang
+memakai bentuk itu.
+
+- [x] **Kantong utama + tab kantong untuk admin BU + menu ganda** (`0177`) — tes PGlite, 15 sabotase

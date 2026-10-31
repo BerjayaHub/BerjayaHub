@@ -69,6 +69,12 @@ await db.exec(`
     id uuid primary key default gen_random_uuid(),
     holder_id uuid, name text, sort_order int not null default 0,
     is_active boolean not null default true,
+    -- ADA DI TABEL SUNGGUHAN (0063) dan sempat tertinggal di sini. Backfill
+    -- 0177 mengurutkan dengannya; tanpa kolomnya, migrationnya gagal di tes
+    -- dengan galat yang tidak menyebut sebab sebenarnya ("column created_at
+    -- does not exist") — dan kalau arah kesalahannya terbalik, ia justru
+    -- membuat tes HIJAU untuk skema yang tidak pernah ada di produksi.
+    created_at timestamptz not null default now(),
     outlet_id uuid references outlets(id) on delete set null);
   create table goods_receipts (id uuid primary key default gen_random_uuid(), code text, payment_entry_id uuid);
 

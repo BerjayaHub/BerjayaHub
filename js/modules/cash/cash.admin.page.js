@@ -12,6 +12,7 @@ import {
   saldoBerjalanKas,
   ubahSupplierKas,
   kantongPemegang,
+  aturKantongUtama,
   ubahKantongKas,
   getCashProofUrl,
   daftarKantongKas,
@@ -700,11 +701,22 @@ async function renderAccountsTab(content) {
               }
               return `<tr>
                 <td>${esc(k.holder_name)}</td>
-                <td>${esc(k.name)}</td>
+                <td>${esc(k.name)}${
+                  // Penanda, bukan kolom baru: tabelnya sudah enam kolom dan
+                  // satu lagi membuatnya terpotong di layar sempit.
+                  k.is_primary
+                    ? ' <span class="badge badge-approved" style="font-size:0.62rem" title="Form kas memakai kantong ini sebagai bawaan, dan transfer dari orang lain mendarat di sini">UTAMA</span>'
+                    : ''
+                }</td>
                 <td>${k.outlet_name ? `🏪 ${esc(k.outlet_name)}` : '<span style="color:var(--color-text-muted)">pribadi</span>'}</td>
                 <td>${formatRupiah(k.balance)}</td>
                 <td>${k.is_active ? 'Aktif' : 'Ditutup'}</td>
-                <td><button class="btn-edit-akun" data-json='${escAttr(JSON.stringify(k))}'>Edit</button></td>
+                <td><button class="btn-edit-akun" data-json='${escAttr(JSON.stringify(k))}'>Edit</button>${
+                  k.is_primary || !k.is_active
+                    ? ''
+                    : ` <button class="btn-utama-akun" data-id="${esc(k.id)}" data-nama="${escAttr(k.name)}"
+                          data-holder="${escAttr(k.holder_name)}">Jadikan utama</button>`
+                }</td>
               </tr>`;
             })
             .join('') || '<tr><td colspan="6">Belum ada kantong kas.</td></tr>'
@@ -717,6 +729,31 @@ async function renderAccountsTab(content) {
   content
     .querySelectorAll('.btn-edit-akun')
     .forEach((btn) => btn.addEventListener('click', () => openAkunDialog(content, JSON.parse(btn.dataset.json), staff, outlets)));
+
+  content.querySelectorAll('.btn-utama-akun').forEach((btn) =>
+    btn.addEventListener(
+      'click',
+      sekaliJalan(async () => {
+        // Ditanyakan dulu: mengganti kantong utama mengubah ke mana transfer
+        // orang lain mendarat, dan itu tidak terlihat dari layar ini.
+        const ok = await confirmDialog({
+          title: 'Jadikan kantong utama?',
+          messageHtml:
+            `<p style="margin:0 0 8px">"${esc(btn.dataset.nama)}" akan jadi kantong utama ${esc(btn.dataset.holder)}.</p>` +
+            '<p style="margin:0;font-size:0.85rem;color:var(--color-text-muted)">Form kasnya akan terisi kantong ini, dan transfer dari orang lain mendarat di sini. Saldo yang sudah ada TIDAK dipindahkan.</p>',
+          confirmText: 'Jadikan utama'
+        });
+        if (!ok) return;
+        try {
+          await aturKantongUtama(btn.dataset.id);
+          toast('Kantong utama diperbarui.', 'success');
+          await renderAccountsTab(content);
+        } catch (error) {
+          toast(error.message ?? 'Gagal mengatur kantong utama.', 'error');
+        }
+      })
+    )
+  );
 }
 
 async function openAkunDialog(content, existing, staff, outlets) {

@@ -1,4 +1,4 @@
-import { toast, formDialog, confirmDialog, escapeHtml } from '../../core/ui.js';
+import { toast, formDialog, confirmDialog, infoDialog, escapeHtml } from '../../core/ui.js';
 import { formatRupiah, formatNum } from '../../core/format.js';
 import { listMyOutletsAllBu } from '../../core/my-outlets.js';
 import { exportTablePDF, imageToDataUrl } from '../../core/pdf.js';
@@ -21,12 +21,14 @@ import {
   pindahKas,
   riwayatKasSaya,
   saldoBerjalanKas,
+  ubahTransferKas,
   ubahKas,
   coretKas,
   todayWIB
 } from './cash.service.js';
 import { keadaanKoreksi, jejakKoreksi, totalKas } from './koreksi-kas.js';
 import { petaSaldo, selSaldo } from './saldo-berjalan.js';
+import { keadaanRevisiTransfer, perubahanTransfer, peringatanRevisi, pesanSesudahRevisi } from './revisi-transfer-kas.js';
 import { loadingHtml, tombolSibuk, sekaliJalan } from '../../core/loading.js';
 import { notaTerkaitEntriKas } from '../inventory/nota.service.js';
 import { listSuppliers } from '../inventory/esb.service.js';
@@ -164,6 +166,43 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
   let saldoKantong = [];
 
   /**
+   * Pilihan kantong asal, lengkap dengan saldonya.
+   *
+   * Saldonya ditulis di LABEL pilihannya, bukan di `help` di bawah kotak:
+   * yang memilih sedang memutuskan dari laci mana uangnya diambil, dan
+   * keputusan itu diambil sambil membaca daftarnya — bukan sesudah memilih.
+   *
+   * Kantong yang saldonya nol tetap ditampilkan. Menyembunyikannya membuat
+   * orang mengira kantongnya hilang, lalu membuat kantong baru bernama sama.
+   */
+  function opsiKantongAsal(nama, nilaiAwal = undefined) {
+    const saldoDari = (id) => Number(saldoKantong.find((x) => (x.account_id ?? null) === (id ?? null))?.balance ?? 0);
+    const label = (n, id) => `${n} — ${formatRupiah(saldoDari(id))}`;
+
+    // Kas Utama ditawarkan HANYA kalau ia masih berisi uang. Ia bukan kantong;
+    // menawarkannya saat kosong berarti menawarkan keadaan yang sedang
+    // dibereskan sebagai jawaban yang sah — aturan yang sama dengan
+    // `opsiKantong` di form kas masuk/keluar.
+    const utamaKosong = saldoDari(null) === 0;
+    const opsi = [
+      ...(utamaKosong ? [] : [{ value: '', label: label(NAMA_TANPA_KANTONG, null) }]),
+      ...accounts.map((a) => ({ value: a.id, label: label(a.name, a.id) + (a.is_primary ? ' · utama' : '') }))
+    ];
+
+    // Bawaannya kantong UTAMA. Yang cuma punya satu kantong jadi tidak punya
+    // keputusan untuk diambil — dan itu memang keadaannya.
+    const utama = accounts.find((a) => a.is_primary)?.id ?? accounts[0]?.id ?? '';
+    return {
+      name: nama,
+      label: 'Dari kantong',
+      type: 'select',
+      value: nilaiAwal === undefined ? utama : nilaiAwal,
+      options: opsi.length ? opsi : [{ value: '', label: label(NAMA_TANPA_KANTONG, null) }],
+      help: 'Uangnya diambil dari kantong ini. Di sisi penerima masuk ke kantong utamanya.'
+    };
+  }
+
+  /**
    * Tombol Ubah & Hapus untuk satu baris.
    *
    * TOMBOL YANG TIDAK BOLEH DITEKAN TETAP DIGAMBAR, mati, dengan sebabnya di
@@ -174,6 +213,22 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
    */
   function tombolKoreksi(e, k) {
     if (k.dicoret) return '<span style="color:var(--color-text-muted)">—</span>';
+
+    // ============ TRANSFER PUNYA TOMBOLNYA SENDIRI ============
+    //
+    // `ubah_kas` cuma bisa menyentuh satu baris, jadi transfer selalu jatuh ke
+    // cabang "terkunci" di bawah — yang terbaca sebagai "tidak ada jalan
+    // keluar sama sekali". Sejak 0176 ada jalurnya, dan jalurnya memindahkan
+    // KEDUA kaki sekaligus.
+    const rev = keadaanRevisiTransfer(e);
+    if (rev.tampil) {
+      if (!rev.boleh) {
+        const sebab = escapeHtml(rev.alasan);
+        return `<button class="btn-kas-info" disabled title="${sebab}" aria-label="${sebab}">🔒</button>`;
+      }
+      return `<button class="btn-kas-revisi" data-id="${escapeHtml(e.id)}" title="Revisi transfer ini">✎</button>`;
+    }
+
     if (!k.bolehKoreksi) {
       const sebab = escapeHtml(k.alasanTolak);
       return `<button class="btn-kas-info" disabled title="${sebab}" aria-label="${sebab}">🔒</button>`;
@@ -181,6 +236,125 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     const id = escapeHtml(e.id);
     return `<button class="btn-kas-ubah" data-id="${id}" title="Ubah entri ini">✎</button>
             <button class="btn-kas-hapus btn-danger" data-id="${id}" title="Hapus entri ini">🗑</button>`;
+  }
+
+  /**
+   * REVISI TRANSFER — kedua kakinya sekaligus.
+   *
+   * Yang bisa diubah: kantong asal, jumlah, penerima, keterangan. Yang tidak:
+   * nomor transfernya, supaya satu kekeliruan tetap satu transaksi di riwayat
+   * kedua pihak.
+   */
+  async function bukaRevisiTransfer(e) {
+    if (!e) return;
+    const rev = keadaanRevisiTransfer(e);
+    if (!rev.boleh) return toast(rev.alasan || 'Transfer ini tidak bisa direvisi.', 'warning');
+
+    const jumlahLama = Math.abs(Number(e.amount) || 0);
+    const penerimaLama = e.counterpart_name ?? '-';
+
+    const nilai = await formDialog({
+      title: 'Revisi Transfer',
+      description:
+        `Transfer ${formatRupiah(jumlahLama)} ke ${penerimaLama}. ` +
+        'Kedua sisi ikut berubah: saldomu dan saldo penerimanya.',
+      fields: [
+        opsiKantongAsal('from_account', e.account_id ?? ''),
+        {
+          name: 'to_user',
+          label: 'Kirim ke',
+          type: 'searchselect',
+          required: true,
+          value: e.counterpart_id ?? '',
+          options: others.map((o) => ({ value: o.user_id, label: o.full_name }))
+        },
+        { name: 'amount', label: 'Jumlah', type: 'money', required: true, value: jumlahLama },
+        { name: 'notes', label: 'Keterangan (opsional)', type: 'text', value: e.notes ?? '' },
+        {
+          name: 'alasan',
+          label: 'Alasan revisi (wajib)',
+          type: 'text',
+          required: true,
+          placeholder: 'mis. salah kantong, harusnya dari Kas CK',
+          // Saldo DUA orang bergeser karenanya. Tanpa keterangan, "kok saldoku
+          // berubah?" tidak bisa dijawab oleh siapa pun.
+          help: 'Ikut terbaca di riwayat kas kedua pihak.'
+        }
+      ],
+      submitText: 'Simpan revisi',
+      danger: true
+    });
+    if (!nilai) return;
+    if (!(nilai.amount > 0)) return toast('Jumlah harus lebih dari 0.', 'warning');
+
+    const penerimaBaru = others.find((o) => o.user_id === nilai.to_user)?.full_name ?? '-';
+    const ubah = perubahanTransfer(
+      { jumlah: jumlahLama, kantong: e.account_name, penerima: penerimaLama, catatan: e.notes },
+      {
+        jumlah: nilai.amount,
+        kantong: accounts.find((a) => a.id === nilai.from_account)?.name ?? NAMA_TANPA_KANTONG,
+        penerima: penerimaBaru,
+        catatan: nilai.notes
+      }
+    );
+    if (!ubah.length) return toast('Tidak ada yang berubah.', 'warning');
+
+    // ============ AKIBAT KE ORANG LAIN DIKATAKAN DULU ============
+    //
+    // Penerima lama tidak sedang memegang HP ini. Barisnya hilang dari
+    // riwayatnya dan saldonya turun — bisa sampai minus kalau uangnya sudah
+    // dipakai. Keduanya memang diterima, tapi tidak boleh terjadi diam-diam.
+    // Angkanya sengaja TIDAK disebut di sini: saldo penerima lama ada di kas
+    // orang lain dan tidak terbaca dari layar ini. Yang pasti saja yang
+    // dikatakan; angkanya menyusul dari jawaban server.
+    const peringatan = peringatanRevisi({ penerimaLama, penerimaBaru, jumlahLama });
+
+    const ok = await confirmDialog({
+      title: 'Simpan revisi transfer?',
+      messageHtml:
+        `<ul style="margin:0 0 8px;padding-left:18px;font-size:0.88rem">
+           ${ubah
+             .map(
+               (u) =>
+                 `<li>${escapeHtml(u.apa)}: ${escapeHtml(u.angka ? formatRupiah(u.semula) : String(u.semula))} → <strong>${escapeHtml(
+                   u.angka ? formatRupiah(u.menjadi) : String(u.menjadi)
+                 )}</strong></li>`
+             )
+             .join('')}
+         </ul>` +
+        peringatan.map((p) => `<p style="margin:0 0 8px;color:var(--color-danger);font-size:0.85rem">${escapeHtml(p)}</p>`).join('') +
+        `<p style="margin:0;font-size:0.82rem;color:var(--color-text-muted)">Nomor transfernya tetap sama; riwayat kedua pihak memuat catatan revisinya.</p>`,
+      confirmText: 'Simpan revisi',
+      danger: true
+    });
+    if (!ok) return;
+
+    let hasil;
+    try {
+      hasil = await ubahTransferKas({
+        entryId: e.id,
+        amount: nilai.amount,
+        toUserId: nilai.to_user,
+        fromAccountId: nilai.from_account || null,
+        notes: nilai.notes,
+        alasan: nilai.alasan
+      });
+    } catch (error) {
+      return toast(error.message ?? 'Gagal merevisi transfer.', 'error');
+    }
+
+    toast('Transfer direvisi. Saldo kedua pihak sudah menyesuaikan.', 'success');
+    await refresh();
+
+    // Saldo penerima LAMA baru diketahui di sini — dan kalau minus, satu-
+    // satunya orang yang tahu adalah yang baru saja menekan tombol ini.
+    const susulan = pesanSesudahRevisi(hasil, penerimaLama);
+    if (susulan) {
+      await infoDialog({
+        title: 'Revisi tersimpan',
+        html: `<p style="margin:0">${escapeHtml(susulan)}</p>`
+      });
+    }
   }
 
   async function bukaUbahKas(e) {
@@ -353,9 +527,18 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       if (!container.querySelector('#cash-kelola').hidden) gambarKelola();
 
       // Rincian kantong hanya ditampilkan kalau memang punya lebih dari satu.
-      container.querySelector('#cash-accounts').innerHTML = saldoAkun.length
+      // ============ KAS UTAMA YANG KOSONG TIDAK DITAMPILKAN ============
+      //
+      // Ia bukan kantong — ia nama untuk uang yang tidak berada di kantong
+      // mana pun. Menampilkannya berisi Rp0 di sebelah kantong betulan membuat
+      // orang mengira ia punya dua tempat uang, lalu ragu memilih yang mana.
+      // Kalau MASIH berisi (mis. −200.000 karena jalur lama), ia tetap tampil:
+      // itu sisa yang justru harus dibereskan.
+      const akunTampil = saldoAkun.filter((a) => a.account_id || Number(a.balance) !== 0);
+
+      container.querySelector('#cash-accounts').innerHTML = akunTampil.length
         ? `<div style="display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--color-border,#eee);padding-top:8px">
-             ${saldoAkun
+             ${akunTampil
                .map(
                  (a) => `<div style="display:flex;justify-content:space-between;font-size:0.84rem">
                    <span>${escapeHtml(a.account_name)}</span>
@@ -426,6 +609,9 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       );
       box.querySelectorAll('.btn-kas-hapus').forEach((btn) =>
         btn.addEventListener('click', () => bukaHapusKas(perId.get(btn.dataset.id)))
+      );
+      box.querySelectorAll('.btn-kas-revisi').forEach((btn) =>
+        btn.addEventListener('click', sekaliJalan(() => bukaRevisiTransfer(perId.get(btn.dataset.id))))
       );
 
       ukurRiwayat();
@@ -981,6 +1167,13 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       title: 'Transfer Kas ke Pengguna Lain',
       description: 'Saldo kamu berkurang, saldo penerima bertambah. Penerima boleh dari BU mana pun.',
       fields: [
+        // ============ KANTONG ASAL BESERTA SALDONYA ============
+        //
+        // Sebelum 0176 transfer SELALU memotong Kas Utama, apa pun kantong
+        // yang isinya dipakai. Saldonya ditulis di label pilihannya sendiri:
+        // yang memilih kantong sedang memutuskan dari laci mana uangnya
+        // diambil, dan ia tidak bisa memutuskannya tanpa tahu isinya.
+        opsiKantongAsal('from_account'),
         {
           name: 'to_user',
           label: 'Kirim ke',
@@ -996,7 +1189,12 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
     if (!values) return;
     if (!(values.amount > 0)) return toast('Jumlah harus lebih dari 0.', 'warning');
     try {
-      await transferCash({ toUserId: values.to_user, amount: values.amount, notes: values.notes });
+      await transferCash({
+        toUserId: values.to_user,
+        amount: values.amount,
+        notes: values.notes,
+        fromAccountId: values.from_account || null
+      });
       toast('Transfer berhasil.', 'success');
       await refresh();
     } catch (error) {
