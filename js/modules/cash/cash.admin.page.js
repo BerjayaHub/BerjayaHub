@@ -9,6 +9,7 @@ import {
   deleteCashCategory,
   listCashBalances,
   listCashEntriesAdmin,
+  saldoBerjalanKas,
   ubahSupplierKas,
   kantongPemegang,
   ubahKantongKas,
@@ -28,6 +29,11 @@ import { bukaDialogNota } from '../inventory/nota-dialog.js';
 import { petaNotaPerEntri } from './keterangan-nota.js';
 import { ketNotaHtml } from './keterangan-nota-html.js';
 import { keadaanKoreksi, totalKas } from './koreksi-kas.js';
+import { petaSaldo } from './saldo-berjalan.js';
+// Selnya digambar fungsi yang SAMA dengan Staff App. Dua salinan berarti
+// "kenapa saldonya beda di admin" — pertanyaan yang tidak bisa dijawab tanpa
+// membandingkan dua berkas.
+import { selSaldoHtml } from './cash.page.js';
 import { LABEL_PENGELUARAN, saringPengeluaran, ringkasPengeluaran } from './jenis-pengeluaran.js';
 import { unduhKasExcel, unduhKasPDF } from './ekspor-kas.js';
 import { kodeKas, cocokKodeKas } from './kode-kas.js';
@@ -165,13 +171,15 @@ async function loadMutasi(content) {
   // Gagal salah satunya TIDAK boleh mengosongkan tabel mutasinya: yang hilang
   // cuma tautan nomor nota dan keterangan di tombol. Angka-angkanya — satu-
   // satunya alasan orang membuka layar ini — tetap benar.
-  const [notas, tolak] = await Promise.all([
+  const [notas, tolak, saldoBaris] = await Promise.all([
     notaTerkaitEntriKas(
       rows.map((r) => r.id),
       rows.map((r) => r.penyesuaian_nota)
     ).catch(() => []),
-    alasanTolakKoreksiKas(rows.map((r) => r.id))
+    alasanTolakKoreksiKas(rows.map((r) => r.id)),
+    saldoBerjalanKas(rows.map((r) => r.id))
   ]);
+  const saldo = petaSaldo(saldoBaris);
   const notaPerEntri = petaNotaPerEntri(rows, notas);
   // `alasan_tolak` ditempelkan ke barisnya supaya `keadaanKoreksi` — modul
   // murni yang sama dengan Staff App — bisa dipakai apa adanya di sini.
@@ -219,7 +227,7 @@ async function loadMutasi(content) {
       </span>
     </div>
     <div class="table-scroll"><table class="data-table kartu-sempit">
-      <thead><tr><th style="width:30px"></th><th>No. Kas</th><th>Tanggal</th><th>Pemegang</th><th>Kantong</th><th>Jenis</th><th>Kategori / Lawan</th><th>Jumlah</th><th>Supplier</th><th>Bukti</th><th>Aksi</th></tr></thead>
+      <thead><tr><th style="width:30px"></th><th>No. Kas</th><th>Tanggal</th><th>Pemegang</th><th>Kantong</th><th>Jenis</th><th>Kategori / Lawan</th><th>Jumlah</th><th>Saldo</th><th>Supplier</th><th>Bukti</th><th>Aksi</th></tr></thead>
       <tbody>
         ${rows
           .map((r) => {
@@ -261,6 +269,7 @@ async function loadMutasi(content) {
                 ${r.notes ? `<div style="font-size:0.75rem;color:var(--color-text-muted)">${ketNotaHtml(r.notes, notaPerEntri.get(r.id))}</div>` : ''}
                 ${k.jejak ? `<div class="kas-jejak">${esc(k.jejak)}</div>` : ''}</td>
               <td style="color:${warna};font-weight:600;white-space:nowrap" data-label="Jumlah">${amt >= 0 ? '+' : '−'}${formatRupiah(Math.abs(amt))}</td>
+              ${selSaldoHtml(r, saldo)}
               <td data-label="Supplier" style="font-size:0.8rem">${
                 r.entry_type !== 'out'
                   ? '<span style="color:var(--color-text-muted)">—</span>'
@@ -276,7 +285,7 @@ async function loadMutasi(content) {
               <td data-label="Aksi">${tombolKoreksi(r, k)}</td>
             </tr>`;
           })
-          .join('') || '<tr><td colspan="11">Tidak ada data.</td></tr>'}
+          .join('') || '<tr><td colspan="12">Tidak ada data.</td></tr>'}
       </tbody>
     </table></div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">

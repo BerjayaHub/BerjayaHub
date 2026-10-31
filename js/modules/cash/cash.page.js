@@ -20,11 +20,13 @@ import {
   listMyCashAccountBalances,
   pindahKas,
   riwayatKasSaya,
+  saldoBerjalanKas,
   ubahKas,
   coretKas,
   todayWIB
 } from './cash.service.js';
 import { keadaanKoreksi, jejakKoreksi, totalKas } from './koreksi-kas.js';
+import { petaSaldo, selSaldo } from './saldo-berjalan.js';
 import { loadingHtml, tombolSibuk, sekaliJalan } from '../../core/loading.js';
 import { notaTerkaitEntriKas } from '../inventory/nota.service.js';
 import { listSuppliers } from '../inventory/esb.service.js';
@@ -342,6 +344,10 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       ).catch(() => []);
       const notaPerEntri = petaNotaPerEntri(entries, notas);
 
+      // Saldo berjalan per kantong. Sama seperti nota: kegagalannya tidak
+      // boleh mengosongkan riwayat — yang hilang cuma satu kolom.
+      const saldo = petaSaldo(await saldoBerjalanKas(entries.map((e) => e.id)));
+
       // Panel kelola ikut digambar ulang kalau sedang terbuka, supaya saldonya
       // tidak tertinggal setelah ada transaksi baru.
       if (!container.querySelector('#cash-kelola').hidden) gambarKelola();
@@ -364,7 +370,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
       box.innerHTML = entries.length
         ? `<div class="table-scroll kas-riwayat">
             <table class="data-table table-freeze-1 kartu-sempit">
-            <thead><tr><th>Keterangan</th><th>Tanggal</th><th>Jenis</th>${punyaKantong ? '<th>Kantong</th>' : ''}<th>Outlet</th><th>Jumlah</th><th>Bukti</th><th>Aksi</th></tr></thead>
+            <thead><tr><th>Keterangan</th><th>Tanggal</th><th>Jenis</th>${punyaKantong ? '<th>Kantong</th>' : ''}<th>Outlet</th><th>Jumlah</th><th>Saldo</th><th>Bukti</th><th>Aksi</th></tr></thead>
             <tbody>
               ${entries
                 .map((e) => {
@@ -385,6 +391,7 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
                     ${punyaKantong ? `<td style="font-size:0.82rem" data-label="Kantong">${escapeHtml(e.account_name ?? NAMA_TANPA_KANTONG)}</td>` : ''}
                     <td style="font-size:0.82rem" data-label="Outlet">${escapeHtml(e.outlet_name ?? '-')}</td>
                     <td style="color:${color};font-weight:600;white-space:nowrap" data-label="Jumlah">${amt >= 0 ? '+' : '−'}${formatRupiah(Math.abs(amt))}</td>
+                    ${selSaldoHtml(e, saldo)}
                     <td data-label="Bukti">${e.proof_path ? `<button class="btn-proof" data-path="${escapeHtml(e.proof_path)}">Bukti</button>` : '<span style="color:var(--color-text-muted)">—</span>'}</td>
                     <td data-label="Aksi">${tombolKoreksi(e, k)}</td>
                   </tr>`;
@@ -1002,4 +1009,27 @@ export async function renderCashPage(container, { userId, businessUnitId }) {
 
 function fmtDate(d) {
   return new Date(d + 'T00:00:00').toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+/**
+ * Sel kolom Saldo — satu bentuk untuk Staff App & Admin Portal.
+ *
+ * "Tidak ada angkanya" punya dua sebab yang berbeda jauh (entri yang memang
+ * tidak menyentuh kantong vs angka yang tidak diketahui), dan keduanya sama-
+ * sama tampil "—". Sebabnya ditaruh di `title` supaya bisa ditanyakan tanpa
+ * menambah kolom baru.
+ */
+export function selSaldoHtml(entri, peta) {
+  const sel = selSaldo(entri, peta);
+  if (!sel.ada) {
+    return `<td data-label="Saldo" style="text-align:right;white-space:nowrap"><span
+      style="color:var(--color-text-muted)" title="${escapeHtml(sel.sebab)}">—</span></td>`;
+  }
+  // Saldo kantong yang MINUS bukan sekadar angka negatif: ia berarti catatan
+  // dan uang di laci sudah tidak mungkin cocok. Diberi warna supaya tidak
+  // lewat begitu saja di antara puluhan baris.
+  const minus = sel.nilai < 0;
+  return `<td data-label="Saldo" style="text-align:right;white-space:nowrap;font-weight:600${
+    minus ? ';color:var(--color-danger)' : ''
+  }" title="Saldo kantong sesudah transaksi ini">${formatRupiah(sel.nilai)}</td>`;
 }

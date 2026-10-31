@@ -379,6 +379,29 @@ export async function hapusKantongKas(id, targetAccountId = null) {
   return Number(data) || 0;
 }
 
+/**
+ * Saldo kantong SESUDAH tiap entri, untuk kolom Saldo di riwayat kas.
+ *
+ * Dihitung server-side atas SELURUH riwayat kantongnya — bukan atas baris yang
+ * sedang tampil. Menjumlahkan baris yang lolos saringan menghasilkan angka
+ * yang terlihat persis seperti saldo dan bukan saldo, dan orang memakai kolom
+ * ini untuk mencocokkan dengan uang fisik di laci.
+ *
+ * Gagal = peta KOSONG, bukan lempar: kolom saldo adalah pelengkap, dan riwayat
+ * kas yang hilang seluruhnya karena satu query tambahan gagal jauh lebih buruk
+ * daripada satu kolom berisi "—".
+ */
+export async function saldoBerjalanKas(ids) {
+  const bersih = [...new Set((ids ?? []).filter(Boolean))];
+  if (!bersih.length) return [];
+  const { data, error } = await supabase.rpc('saldo_berjalan_kas', { p_ids: bersih });
+  if (error) {
+    console.warn('[kas] saldo berjalan tidak terbaca:', error.message);
+    return [];
+  }
+  return data ?? [];
+}
+
 /** Saldo per kantong milik user yang login. */
 export async function listMyCashAccountBalances() {
   const uid = await currentUserId();

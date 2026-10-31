@@ -9683,3 +9683,93 @@ tetap lolos selama baris `import { sayaAdminBu }` dibiarkan di atas. Tiga dari
 empat sabotase lolos sebelum tanda kurungnya ditambahkan.
 
 - [x] **Empat audit merah lama diselesaikan** — 100 audit hijau, 3 harness sabotase baru (15 sabotase), 23 tes murni baru
+
+## Kolom Saldo di riwayat kas (0175)
+
+Diminta: kolom saldo rupiah di Cash Ledger, Staff App maupun Admin Portal,
+*"untuk memudahkan membaca history dan trackingnya"*. Saldonya **per kantong**
+— itu yang dicocokkan dengan uang fisik di laci.
+
+### Kenapa dihitung di database, bukan dijumlahkan di layar
+
+Menjumlahkan baris yang sedang tampil jauh lebih murah, dan ia salah persis
+saat paling dipercaya. Kedua layar menyaring:
+
+| layar | yang menyaring |
+|---|---|
+| Staff App | cuma 50 entri terakhir |
+| Admin Portal | pemegang, jenis, rentang tanggal, bahan/selain bahan, nomor kas |
+
+Saldo yang dijumlahkan dari baris tersaring bukan saldo — ia *"jumlah baris
+yang kebetulan terlihat"*, dan tidak ada apa pun di layar yang membedakannya
+dari saldo sungguhan. Jadi tiap entri membawa saldonya sendiri, dihitung atas
+**seluruh** riwayat kantongnya, apa pun saringannya. Tesnya membuktikan itu
+langsung: meminta satu id saja memberi angka yang sama dengan meminta
+seluruhnya.
+
+### Aturannya disalin dari `cash_account_balances`, ketiganya
+
+View saldo kantong (0153) berbunyi `sum(amount) where dicoret_at is null and
+not dibayar_pusat, group by holder_id, account_id`. Ketiganya ditiru. Kalau
+satu saja menyimpang, baris terbaru menampilkan angka yang **berbeda dari
+saldo kantong di kepala halaman yang sama** — dua angka untuk satu hal, di
+satu layar, tanpa cara menebak mana yang benar. Tes PGlite-nya tidak menulis
+angka harapan sebagai konstanta; ia membandingkan langsung dengan view-nya.
+
+Satu jebakan SQL yang mahal: partisinya memakai `is not distinct from`, bukan
+`=`. **Kas Utama berkantong NULL**, dan `=` tidak pernah cocok untuk NULL —
+seluruh entri Kas Utama akan kehilangan saldonya tanpa satu pun galat, cuma
+deretan "—" yang terlihat seperti fitur yang belum jalan.
+
+### Urutannya tanggal entri, bukan waktu ketik
+
+Uang berpindah pada tanggal entrinya, jadi entri yang diketik menyusul untuk
+kemarin masuk di posisi kemarin. Daftar Staff App sendiri **tetap** urut waktu
+ketik — kalau diubah, entri mundur yang baru saja disimpan bisa terlempar ke
+luar 50 teratas dan orangnya mengira simpanannya gagal. Akibatnya, pada kasus
+entri mundur kolom saldonya bisa terlihat tidak urut. Yang dijaga adalah tiap
+angka BENAR untuk barisnya sendiri, bukan supaya kolomnya enak dipandang.
+
+### "Tidak diketahui" bukan nol
+
+Tiga keadaan, bukan dua — dan menyamakan dua yang terakhir adalah kekeliruan
+paling mahal yang bisa dibuat kolom ini:
+
+| keadaan | tampil | kenapa |
+|---|---|---|
+| ada angkanya | `Rp 650.000` | saldo kantong sesudah entri ini |
+| tidak menyentuh kantong | `—` | entri dicoret, atau Dibayar Pusat |
+| tidak diketahui | `—` | di luar wewenang, atau gagal dimuat |
+
+Keduanya "—", dengan keterangan berbeda saat disentuh. Menuliskan **0** untuk
+yang terakhir membuatnya terbaca *"kantongnya kosong"* — dan orang akan mulai
+mencari uang yang tidak hilang.
+
+Tes murninya langsung menemukan lubang itu di kode saya sendiri: `Number(null)`
+adalah `0`, dan `0` itu berhingga, jadi saldo yang **tidak ada** dari server
+tersimpan sebagai nol dan tampil "Rp 0". Penjaganya sekarang menolak
+null/undefined/`''` sebelum `Number()`, dan sabotasenya mencoba mencabutnya
+lagi.
+
+Saldo minus diberi warna merah: itu bukan sekadar angka negatif, melainkan
+tanda catatan dan uang di laci sudah tidak mungkin cocok.
+
+### Dua hal kecil yang menahan diri
+
+Sel saldonya digambar **satu** fungsi (`selSaldoHtml`) yang dipakai kedua
+layar. Dua salinan berarti pertanyaan *"kenapa saldonya beda di admin"* yang
+tidak bisa dijawab tanpa membandingkan dua berkas.
+
+Dan kegagalan mengambil saldo tidak dilempar: riwayat kas yang hilang
+seluruhnya karena satu query pelengkap gagal jauh lebih buruk daripada satu
+kolom berisi "—". Pola yang sama dengan nota terkait.
+
+Sabotasenya sendiri menemukan satu kelemahan audit: `<th>Saldo</th>` dicari
+sendirian, padahal kata itu juga ada di tabel ringkasan saldo pemegang pada
+layar yang sama — jadi kolomnya bisa dicabut dari tabel riwayat dan auditnya
+tetap hijau. Sekarang dicari berpasangan dengan kolom Jumlah. Satu lagi:
+kepala berkas migrationnya **mengutip** aturan view saldo apa adanya, dan
+kutipan di komentar itu ikut menghijaukan audit — komentarnya dibuang dulu
+sebelum diperiksa.
+
+- [x] **Kolom saldo berjalan per kantong** (`0175`) — tes PGlite, 23 tes murni, 18 sabotase
