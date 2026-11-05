@@ -134,6 +134,20 @@ export function gabungItemDenganStok({ items = [], stok = [] } = {}) {
       itemId: i?.id,
       stokId: s?.id ?? null,
       kode: teks(i?.kode),
+      // ============ KODE LAMA IKUT, DAN HANYA KALAU BEDA ============
+      //
+      // 0180 menyelaraskan kode antar BU: barang yang sama berkode sama di
+      // mana pun. Sebagian item karena itu BERGANTI kode — dan kode lamanya
+      // sudah ada di catatan owner, di surat jalan, dan di berita acara.
+      //
+      // Dibandingkan dulu, bukan diteruskan apa adanya: kolomnya bisa terisi
+      // nilai yang sama dengan kode sekarang (mis. penyelarasan yang
+      // dikembalikan), dan "dulu K004" di sebelah "K004" cuma membuat orang
+      // mengira ada yang berubah padahal tidak.
+      kode_lama:
+        teks(i?.kode_lama).trim() && teks(i?.kode_lama).trim() !== teks(i?.kode).trim()
+          ? teks(i?.kode_lama).trim()
+          : null,
       name: teks(i?.name),
       category: i?.category ?? null,
       // Ukuran outlet menang kalau ada; kalau tidak, ukuran acuan itemnya.

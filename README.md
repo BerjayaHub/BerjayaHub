@@ -10317,3 +10317,88 @@ satu pun tanda**. Karena itu yang dijaga bukan "apakah kodenya ada":
   larikannya 40 kali dan menuntut hasil yang sama persis.
 
 - [x] **Daftar aset urut isi, bukan kode** — tes murni §8 (19 pemeriksaan), 12 sabotase
+
+## Satu kode untuk satu barang, di seluruh BU (`0180`)
+
+> *"apakah ini bug? ada kode yang sama tetapi itemnya berbeda, antara BU satu
+> dengan yang lain... saya ingin semua kode di BU manapun selalu sama bila
+> itemnya sama"*
+
+Bukan bug — rancangan `0168`, yang bekerja persis seperti yang ditulis.
+
+| yang berlaku sejak 0168 | akibatnya |
+| --- | --- |
+| `asset_items` unik per `(business_unit_id, kode)` | kode milik BU, bukan milik barang |
+| prefix kategori disimpan per BU | "K" di satu BU tidak ada hubungannya dengan "K" di BU lain |
+| `kode_aset_berikutnya()` menghitung nomor tertinggi **di BU itu saja** | dua BU sama-sama punya K001 |
+| transfer lintas BU membuat item **baru** di BU tujuan | `K026 Mangkok Hitam Sup Kecil` mendarat sebagai `K004` — dan `K004` di BU asalnya adalah barang lain |
+
+Tidak ada satu pun aturan yang dilanggar di rantai itu, jadi tidak ada galat
+yang bisa muncul. Ketahuannya lewat mata orang yang membandingkan dua layar.
+
+### Kode sekarang milik barang
+
+`asset_kode_global` memetakan **nama + kategori** ke satu kode, berlaku di
+semua BU. Satu indeks unik menjaga arah sebaliknya: satu kode hanya boleh
+berarti satu barang.
+
+Yang **tidak** dilakukan: menomori ulang semuanya. *"kode kode sudah masuk
+catatan owner"* — jadi pemilik kode adalah item yang **duluan dibuat**
+(`created_at`, lalu `id` supaya hasilnya sama tiap kali dijalankan), dan yang
+menyesuaikan praktis hanyalah item hasil transfer di BU tujuan: item yang lahir
+karena transfernya, yang kodenya belum pernah ada di catatan siapa pun sebelum
+hari itu. Setiap perubahan disimpan di `asset_items.kode_lama` dan
+`asset_kode_perubahan`, ditampilkan di kolom Kode sebagai *"dulu K004"*, dan
+**ikut dicari** kotak "Cari kode" — yang memegang catatan lama mencari kode
+lama, dan pencarian yang tidak menemukannya terbaca sebagai *"barangnya sudah
+tidak ada"*.
+
+### Trigger, bukan menambal empat fungsi
+
+Ada **empat** jalur yang membuat `asset_items`: `tambah_item_aset` (0172),
+`pindah_aset_ke_outlet` (0169), `kirim_transfer_aset` dan `ubah_transfer_aset`
+(0179). Menulis ulang keempatnya untuk mengganti satu pemanggilan adalah cara
+`0179` kehilangan dua `insert into asset_log` — dan jalur kelima yang
+ditambahkan nanti tetap akan melewatkannya.
+
+`before insert` di tabelnya menutup semuanya sekaligus, termasuk yang belum
+ditulis. Ia juga satu-satunya tempat yang pasti tahu nama + kategori + BU pada
+saat kode dibutuhkan. Harganya satu perubahan kecil di `tambah_item_aset`:
+kodenya dibaca **balik** dari `returning`, karena kode yang dihitung sebelum
+insert bukan lagi kode yang tersimpan — dan kode yang salah di layar adalah
+kode yang terlanjur ditulis orang di bukunya.
+
+### Yang harus diterima
+
+**Nomor di satu BU tidak lagi rapat 001, 002, 003.** Nomor baru dihitung dari
+seluruh BU, jadi BU yang baru mulai bisa langsung mendapat K063. Itu disengaja:
+nomor yang rapat per BU adalah persis yang membuat satu kode berarti dua
+barang. Kalau tetap per BU, bentroknya kembali — kali ini pada barang yang
+tidak pernah ditransfer siapa pun, jadi tidak ada peristiwa yang bisa
+disalahkan.
+
+### Tiga hal yang baru kelihatan sesudah ditulis
+
+1. **Ganti nama memutus hubungan barang dengan kodenya.** Satu item diganti
+   namanya, dan BU lain yang kemudian mendata barang bernama baru itu mendapat
+   kode berbeda — perbedaan yang lahir dari perbaikan ketikan. Jadi nama lama
+   **tetap** menunjuk kode yang sama (`utama = false`), dan indeks uniknya
+   dibuat **parsial** (`where utama`); tanpa itu, ganti nama kedua kalinya
+   ditolak indeks di dalam trigger, dan yang terlihat orang cuma "gagal
+   menyimpan nama". Ketahuan karena §7 tesnya menuntut nama lama masih
+   menunjuk ke kode yang sama.
+2. **Penyelarasan harus lewat kode sementara.** Di satu BU, A harus jadi K004
+   sementara K004 masih dipegang B yang sendiri akan pindah ke K026.
+   Dikerjakan langsung, separuh barisnya ditolak indeks unik dan BU-nya
+   berhenti setengah jalan — sebagian berkode baru, sebagian lama, tanpa satu
+   pun catatan tentang yang mana.
+3. **Bentrok yang tidak bisa dicegah selamanya.** Kode pusat sebuah barang bisa
+   saja sudah dipakai barang lain di BU tujuan. Yang baru **mengalah** dan
+   dicatat di `asset_kode_perubahan`; merampas kode item yang sudah ada berarti
+   mengubah kode yang mungkin sudah tertempel di barangnya.
+
+Tesnya memastikan keadaan awalnya memang bentrok **sebelum** migrationnya
+dipasang (§0). Tanpa itu, seluruh §1–§3 bisa hijau untuk migration yang tidak
+mengerjakan apa pun.
+
+- [x] **Satu kode untuk satu barang di semua BU** (`0180`) — tes PGlite 9 bagian (35 pemeriksaan), 17 sabotase

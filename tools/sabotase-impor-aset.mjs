@@ -381,7 +381,7 @@ sabotase(
 sabotase(
   'kotak Cari kode digambar tapi nilainya tidak pernah dikirim',
   SVC,
-  "  if (kode) qItem = qItem.ilike('kode', `%${kode}%`);",
+  '    if (aman) qItem = qItem.or(`kode.ilike.%${aman}%,kode_lama.ilike.%${aman}%`);',
   '',
   AUDIT
 );

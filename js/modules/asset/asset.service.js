@@ -41,7 +41,10 @@ export async function listAssets({ businessUnitId, outletId, condition, category
     // `foto_asal_*` (0179): foto yang DIWARISI saat aset ditransfer dari BU
     // lain. Tanpa kolomnya, item hasil transfer tampil tanpa foto sama sekali
     // — dan yang menerimanya tidak punya cara mengenali barangnya.
-    .select('id, kode, name, category, size, photo_path, photo_outlet_id, foto_asal_path, foto_asal_outlet_id')
+    // `kode_lama` (0180): kode item ini SEBELUM diselaraskan antar BU. Hanya
+    // terisi pada item yang kodenya memang berubah — dan merekalah yang
+    // kodenya sudah terlanjur ada di catatan owner.
+    .select('id, kode, kode_lama, name, category, size, photo_path, photo_outlet_id, foto_asal_path, foto_asal_outlet_id')
     .eq('business_unit_id', businessUnitId)
     .limit(limit);
   if (category) qItem = qItem.eq('category', category);
@@ -49,7 +52,19 @@ export async function listAssets({ businessUnitId, outletId, condition, category
   // Kode disaring di query ITEM, bukan di klien seperti kondisi & catatan:
   // ia melekat pada itemnya, jadi baris "belum didata" pun ikut tersaring
   // dengan benar — dan yang tidak cocok tidak perlu diangkut dulu.
-  if (kode) qItem = qItem.ilike('kode', `%${kode}%`);
+  if (kode) {
+    // ============ KODE LAMA IKUT DICARI ============
+    //
+    // Sesudah 0180 sebagian item berganti kode. Yang memegang catatan lama
+    // mencari kode LAMA — dan pencarian yang tidak menemukannya terbaca
+    // sebagai "barangnya sudah tidak ada", bukan sebagai "kodenya berubah".
+    //
+    // Koma dan kurung dibuang dulu: keduanya memisahkan syarat di dalam
+    // `or()`, jadi kode yang memuatnya akan membentuk syarat yang tidak
+    // pernah diketik siapa pun — atau galat yang tidak bisa dijelaskan.
+    const aman = String(kode).replace(/[(),]/g, ' ').trim();
+    if (aman) qItem = qItem.or(`kode.ilike.%${aman}%,kode_lama.ilike.%${aman}%`);
+  }
   const { data: items, error: eItem } = await qItem;
   if (eItem) throw eItem;
 

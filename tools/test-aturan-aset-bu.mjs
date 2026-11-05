@@ -367,6 +367,23 @@ cek('§8 dua tanpa argumen tidak melempar', urutDaftarAset(), 0);
   benar('§8 bersambung: yang paling bawah memang yang belum didata', baris[2].belumDidata === true);
 }
 
+// ===============================================================
+console.log('§9 Kode lama ikut terbaca (0180)');
+// ===============================================================
+//
+// 0180 menyelaraskan kode antar BU, dan sebagian item karena itu BERGANTI
+// kode. Kode lamanya sudah ada di catatan owner, di surat jalan, dan di
+// berita acara — jadi ia harus tetap terbaca di layar.
+{
+  const satu = (i) => gabungItemDenganStok({ items: [i], stok: [] })[0];
+  cek('§9 kode lama diteruskan apa adanya', satu({ id: 'x', kode: 'K026', kode_lama: 'K004' }).kode_lama, 'K004');
+  // Kalau sama dengan kode sekarang, TIDAK ditampilkan: "dulu K004" di sebelah
+  // "K004" membuat orang mengira ada yang berubah padahal tidak.
+  cek('§9 kode lama yang sama dengan kode sekarang dibuang', satu({ id: 'x', kode: 'K004', kode_lama: 'K004' }).kode_lama, null);
+  cek('§9 tanpa kode lama tetap null', satu({ id: 'x', kode: 'K004' }).kode_lama, null);
+  cek('§9 kode lama kosong bukan string kosong', satu({ id: 'x', kode: 'K004', kode_lama: '  ' }).kode_lama, null);
+}
+
 // ---------------------------------------------------------------
 console.log(`\n${gagal === 0 ? '✅' : '❌'} test-aturan-aset-bu: ${n - gagal}/${n} lulus`);
 process.exit(gagal === 0 ? 0 : 1);

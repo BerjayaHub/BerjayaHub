@@ -260,7 +260,14 @@ async function render(container, { businessUnitId }, isAdmin) {
                 .map(
                   (a) => `<tr${a.belumDidata ? ' style="opacity:.6"' : ''}>
                     ${isAdmin ? `<td data-label="Pilih">${a.id ? `<input type="checkbox" class="as-pick" data-id="${a.id}"${dipilih.has(a.id) ? ' checked' : ''} />` : ''}</td>` : ''}
-                    <td style="font-family:monospace;font-size:0.78rem" data-label="Kode">${esc(a.kode ?? '-')}</td>
+                    <td style="font-family:monospace;font-size:0.78rem" data-label="Kode">${esc(a.kode ?? '-')}${
+                      // Kode lama disebut di layar, bukan cuma disimpan di
+                      // database: yang memegang catatan owner mencari "K004"
+                      // dan harus bisa menemukannya tanpa bertanya ke siapa pun.
+                      a.kode_lama
+                        ? `<div style="font-family:inherit;font-size:0.68rem;color:var(--color-text-muted)" title="Kode ini diselaraskan antar BU — barang yang sama kini berkode sama di semua BU">dulu ${esc(a.kode_lama)}</div>`
+                        : ''
+                    }</td>
                     <td data-label="Nama Barang"><strong>${esc(a.name)}</strong>${a.notes ? `<div style="font-size:0.74rem;color:var(--color-text-muted)">${esc(a.notes)}</div>` : ''}</td>
                     <td data-label="Foto">${fotoSel(a, fotoUrl, namaOutletAcuanDari(a))}</td>
                     <td style="font-size:0.85rem" data-label="Kategori">${esc(a.category ?? '-')}</td>

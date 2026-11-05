@@ -184,7 +184,9 @@ if (svc) {
   // yang paling sulit dilihat: tidak ada galat, daftarnya tetap tampil, cuma
   // tidak pernah menyempit — dan yang mengetiknya menyimpulkan barangnya tidak
   // ada.
-  if (!/if \(kode\) qItem = qItem\.ilike\('kode', `%\$\{kode\}%`\);/.test(kode)) {
+  // Sejak 0180 pencariannya `or(kode, kode_lama)` — kode lama ikut dicari
+  // karena sebagian item berganti kode saat diselaraskan antar BU.
+  if (!/qItem = qItem\.or\(`kode\.ilike\.%\$\{aman\}%,kode_lama\.ilike\.%\$\{aman\}%`\);/.test(kode)) {
     salah('asset.service.js: kotak Cari kode tidak menyaring apa pun — nilainya tidak pernah sampai ke query.');
   }
   // Kondisi ikut disaring di klien, dengan alasan yang sama. Baris yang belum
