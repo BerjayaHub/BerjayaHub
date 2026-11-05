@@ -9,7 +9,7 @@ import { UMUR_TAUTAN_KETUK, UMUR_TAUTAN_THUMBNAIL } from '../../core/tautan-foto
 // komunitas tidak bisa membaca gambar sama sekali — dan memakai dua pustaka
 // untuk satu berkas berarti dua anggapan tentang bentuknya.
 import { loadExcelJS } from '../../core/xlsx-foto.js';
-import { gabungItemDenganStok, urutKode } from './aturan-aset-bu.js';
+import { gabungItemDenganStok, urutDaftarAset } from './aturan-aset-bu.js';
 
 export const ASSET_CONDITION = { normal: 'Normal', rusak: 'Rusak', lainnya: 'Lain-lain' };
 export const ASSET_CONDITION_BADGE = { normal: 'badge-approved', rusak: 'badge-rejected', lainnya: 'badge-pending' };
@@ -120,7 +120,10 @@ export async function listAssets({ businessUnitId, outletId, condition, category
     rows = rows.filter((r) => String(r.notes ?? '').toLowerCase().includes(k));
   }
 
-  return rows.sort((a, b) => urutKode(a.kode, b.kode) || String(a.name).localeCompare(String(b.name), 'id'));
+  // Urutannya BUKAN kode saja — lihat `urutDaftarAset`. Daftar ini memuat
+  // seluruh item BU, dan yang benar-benar ada di outlet ini harus terbaca
+  // lebih dulu daripada ratusan baris yang belum pernah disentuh.
+  return rows.sort(urutDaftarAset);
 }
 
 

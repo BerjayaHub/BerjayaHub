@@ -6,6 +6,7 @@
  *   §3 Dugaan kembar.
  *   §4 Peringatan nama mirip saat menambah.
  *   §5 Ringkasan outlet.
+ *   §8 Urutan daftar: yang ada isinya di atas, belum didata paling bawah.
  *
  * ============ YANG SEBENARNYA DIUJI DI SINI ============
  *
@@ -23,7 +24,9 @@ import {
   dugaanKembar,
   gabungItemDenganStok,
   namaBaku,
+  kelompokStok,
   ringkasOutlet,
+  urutDaftarAset,
   urutKode
 } from '../js/modules/asset/aturan-aset-bu.js';
 
@@ -243,6 +246,126 @@ cek('§7 per jenis', [rk.per.pecah, rk.per.rusak, rk.per.hilang], [5, 1, 0]);
 cek('§7 jenis yang tidak terpakai tetap nol, bukan hilang', rk.per.hilang, 0);
 cek('§7 tanpa argumen tidak melempar', rekapKerusakan().unit, 0);
 cek('§7 nilai cacat tidak jadi NaN', rekapKerusakan([{ jenis: 'pecah', qty: 'x' }]).unit, 0);
+
+// ===============================================================
+console.log('§8 Urutan daftar: yang ada di outlet di baris atas');
+// ===============================================================
+//
+// Permintaannya: "item item yang stock nya 0 ada di paling bawah, dan item
+// yang ada jumlah stocknya ada di atas, agar staff tidak bingung saat melihat
+// daftar item, yang ada di outlet nya ada di baris atas atas".
+//
+// Yang diuji di sini bukan "apakah terurut" — tapi apakah urutannya TETAP
+// sama untuk data yang sama. Pengurutan yang bergantung pada urutan masuk
+// membuat barang berpindah baris setiap kali layarnya dibuka, dan yang
+// mencari barangnya tidak punya cara tahu bahwa letaknya berubah.
+
+cek('§8 ada isinya = kelompok 0', kelompokStok({ qty: 3 }), 0);
+cek('§8 nol tapi sudah dihitung = kelompok 1', kelompokStok({ qty: 0 }), 1);
+cek('§8 belum didata = kelompok 2 (paling bawah)', kelompokStok({ qty: 0, belumDidata: true }), 2);
+// "Belum didata" dengan angka > 0 tidak mungkin dari `gabungItemDenganStok`,
+// tapi kalau terjadi, yang menentukan adalah penandanya — bukan angkanya.
+cek('§8 penanda belum didata mengalahkan angka', kelompokStok({ qty: 9, belumDidata: true }), 2);
+cek('§8 qty cacat tidak jadi NaN', kelompokStok({ qty: 'x' }), 1);
+cek('§8 qty negatif bukan "ada isinya"', kelompokStok({ qty: -2 }), 1);
+cek('§8 tanpa argumen tidak melempar', kelompokStok(), 1);
+// Angka dalam bentuk teks datang apa adanya dari PostgREST untuk kolom
+// numeric — kalau dibandingkan sebagai teks, '0' dan '10' sama-sama "ada".
+cek('§8 qty teks "0" = habis', kelompokStok({ qty: '0' }), 1);
+cek('§8 qty teks "10" = ada isinya', kelompokStok({ qty: '10' }), 0);
+
+const daftar = [
+  { kode: 'AST001', name: 'Kursi', qty: 0 },
+  { kode: 'AST002', name: 'Meja', qty: 0, belumDidata: true },
+  { kode: 'AST003', name: 'Blender', qty: 2 },
+  { kode: 'AST010', name: 'Gelas', qty: 0, belumDidata: true },
+  { kode: 'AST004', name: 'Kompor', qty: 1 },
+  { kode: 'AST005', name: 'Wajan', qty: 0 }
+];
+const urut = (arr) => [...arr].sort(urutDaftarAset).map((x) => x.kode);
+cek('§8 ada isinya dulu, lalu habis, lalu belum didata', urut(daftar), [
+  'AST003',
+  'AST004',
+  'AST001',
+  'AST005',
+  'AST002',
+  'AST010'
+]);
+
+// Di dalam kelompok, urutannya tetap kode — bukan jumlah. Mengurutkan per
+// jumlah membuat barisnya berpindah tiap kali ada yang dipakai sebiji.
+cek(
+  '§8 di dalam kelompok tetap urut kode, bukan jumlah',
+  urut([
+    { kode: 'AST009', qty: 1 },
+    { kode: 'AST002', qty: 99 },
+    { kode: 'AST005', qty: 4 }
+  ]),
+  ['AST002', 'AST005', 'AST009']
+);
+
+// `AST10` vs `AST9`: pembanding kode sudah menangani angka, dan kelompoknya
+// tidak boleh merusaknya.
+cek(
+  '§8 angka di kode tetap dibaca sebagai angka',
+  urut([
+    { kode: 'AST10', qty: 1 },
+    { kode: 'AST9', qty: 1 }
+  ]),
+  ['AST9', 'AST10']
+);
+
+// Kode kembar (dua stok untuk item yang sama pernah terjadi, lihat §3):
+// jatuh ke nama, supaya urutannya tidak ditentukan urutan masuk.
+cek(
+  '§8 kode kembar jatuh ke nama',
+  [...[
+    { kode: 'AST007', name: 'Zebra', qty: 1 },
+    { kode: 'AST007', name: 'Angsa', qty: 1 }
+  ]].sort(urutDaftarAset).map((x) => x.name),
+  ['Angsa', 'Zebra']
+);
+
+// ============ URUTANNYA HARUS SAMA, DARI URUTAN MASUK APA PUN ============
+{
+  const acak = [...daftar];
+  const hasil = urut(acak);
+  let tetap = true;
+  for (let i = 0; i < 40; i++) {
+    // Acak isi larikannya, lalu urutkan lagi.
+    for (let j = acak.length - 1; j > 0; j--) {
+      const k = Math.floor(Math.random() * (j + 1));
+      [acak[j], acak[k]] = [acak[k], acak[j]];
+    }
+    if (JSON.stringify(urut(acak)) !== JSON.stringify(hasil)) tetap = false;
+  }
+  benar('§8 urutannya tidak bergantung urutan masuk', tetap, 'baris berpindah tiap kali layarnya dibuka');
+}
+
+// Pembandingnya harus ikut aturan `Array.prototype.sort`: a<b, a>b, a=b.
+benar('§8 pembanding simetris', urutDaftarAset(daftar[2], daftar[0]) < 0 && urutDaftarAset(daftar[0], daftar[2]) > 0);
+cek('§8 baris yang sama = 0', urutDaftarAset(daftar[0], { ...daftar[0] }), 0);
+cek('§8 dua tanpa argumen tidak melempar', urutDaftarAset(), 0);
+
+// ============ `gabungItemDenganStok` -> `urutDaftarAset` ============
+//
+// Diuji bersambung, bukan sendiri-sendiri: penanda `belumDidata` dibuat di
+// fungsi pertama dan dibaca di fungsi kedua, dan nama penandanya pernah
+// berubah tanpa yang kedua ikut berubah.
+{
+  const items = [
+    { id: 'i1', kode: 'AST001', name: 'Kursi' },
+    { id: 'i2', kode: 'AST002', name: 'Meja' },
+    { id: 'i3', kode: 'AST003', name: 'Blender' }
+  ];
+  const stok = [
+    { id: 's1', asset_item_id: 'i1', qty: 0 },
+    { id: 's3', asset_item_id: 'i3', qty: 5 }
+  ];
+  const baris = gabungItemDenganStok({ items, stok }).sort(urutDaftarAset);
+  cek('§8 bersambung: isi > habis > belum didata', baris.map((x) => x.kode), ['AST003', 'AST001', 'AST002']);
+  benar('§8 bersambung: yang paling bawah memang yang belum didata', baris[2].belumDidata === true);
+}
 
 // ---------------------------------------------------------------
 console.log(`\n${gagal === 0 ? '✅' : '❌'} test-aturan-aset-bu: ${n - gagal}/${n} lulus`);

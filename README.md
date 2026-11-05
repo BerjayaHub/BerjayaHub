@@ -10264,3 +10264,56 @@ yang berbeda, yang kebetulan tidak tertangkap apa pun), satu lagi karena asal
 foto disebut di **dua** tempat sementara auditnya memeriksa satu.
 
 - [x] **Foto ikut berpindah saat transfer antar BU** (`0179`) — tes PGlite 9 bagian, 14 sabotase
+
+## Daftar aset: yang ada di outlet ini di baris atas
+
+> *"saya ingin sort nya bukan by urutan kode, tetapi item item yang stock nya 0
+> ada di paling bawah, dan item yang ada jumlah stocknya ada di atas, tujuannya
+> agar staff tidak bingung saat melihat daftar item, yang ada di outlet nya ada
+> di baris atas atas"*
+
+Daftar aset satu outlet memuat **seluruh** item BU — termasuk ratusan yang
+outlet itu belum pernah menyentuhnya (lihat `gabungItemDenganStok`, dan kenapa
+"belum didata" sengaja tetap muncul). Diurutkan kode saja, delapan barang yang
+benar-benar ada di rak terselip di antara 135 baris kosong, dan yang
+membukanya menggulir melewati barang milik outlet lain untuk menemukan
+miliknya sendiri.
+
+### Tiga kelompok, bukan dua
+
+| kelompok | isinya | kenapa di situ |
+| --- | --- | --- |
+| 0 | `qty > 0` | yang benar-benar ada di outlet ini |
+| 1 | `qty = 0`, sudah dihitung | nol yang **sudah dipastikan** — keterangan nyata tentang rak outlet ini |
+| 2 | belum didata | barisnya ada cuma karena itemnya ada di BU |
+
+Kelompok 1 dan 2 **tidak digabung**, walaupun keduanya menampilkan "tidak
+ada". *"Habis"* adalah jawaban; *"belum didata"* adalah pertanyaan yang belum
+dijawab siapa pun — dan yang belum dijawab jumlahnya bisa ratusan, jadi ia yang
+paling bawah.
+
+Di dalam tiap kelompok urutannya **tetap kode**, bukan jumlah. Diurutkan
+menurut jumlah, barang berpindah baris tiap kali ada yang dipakai sebiji — dan
+yang mencarinya tidak punya cara tahu bahwa letaknya berubah.
+
+### Cara perubahan ini hilang tanpa terlihat hilang
+
+Seluruhnya tentang urutan, dan **urutan yang salah tetap terlihat seperti
+urutan**: tidak ada galat, tidak ada angka yang berubah, tidak ada yang kosong.
+Satu `rows.sort(urutKode)` yang kembali — karena ada yang merapikan import,
+atau menyalin `listAssets` dari versi lama — memulangkan keadaan lama **tanpa
+satu pun tanda**. Karena itu yang dijaga bukan "apakah kodenya ada":
+
+- `listAssets` harus mengembalikan `rows.sort(urutDaftarAset)`, diperiksa **di
+  dalam badan fungsinya** — `urutKode` memang masih dipakai di tempat lain, dan
+  mencari namanya di berkas utuh membuat pemeriksaan itu tidak pernah merah;
+- **satu** pengurutan saja di `listAssets` — dua sort berarti yang terakhir
+  menang dan yang pertama tinggal jadi bukti palsu;
+- layar & ekspornya **tidak** mengurutkan ulang — satu `rows.sort(...)` di sana
+  membatalkan semuanya tanpa menyentuh berkas mana pun yang diperiksa di atas;
+- `qty` dibaca lewat `Number(...) || 0`: kolom `numeric` datang dari PostgREST
+  sebagai **teks**, dan nilai cacat jadi `NaN` yang selalu kalah `> 0`;
+- urutannya **tidak boleh bergantung urutan masuk** — diuji dengan mengacak
+  larikannya 40 kali dan menuntut hasil yang sama persis.
+
+- [x] **Daftar aset urut isi, bukan kode** — tes murni §8 (19 pemeriksaan), 12 sabotase

@@ -58,6 +58,51 @@ export function urutKode(a, b) {
 }
 
 /**
+ * Urutan daftar aset satu outlet: YANG ADA DI SINI LEBIH DULU.
+ *
+ * ============ KENAPA BUKAN URUT KODE SAJA ============
+ *
+ *   "saya ingin item item yang stock nya 0 ada di paling bawah, dan item yang
+ *    ada jumlah stocknya ada di atas, tujuannya agar staff tidak bingung saat
+ *    melihat daftar item"
+ *
+ * Daftar ini memuat SELURUH item BU, termasuk ratusan yang outlet ini belum
+ * pernah menyentuhnya (lihat `gabungItemDenganStok`). Diurutkan kode saja,
+ * delapan barang yang benar-benar ada di rak bisa terselip di antara 135 baris
+ * kosong — dan yang membukanya menggulir melewati barang milik outlet lain
+ * untuk menemukan miliknya sendiri.
+ *
+ * ============ TIGA KELOMPOK, BUKAN DUA ============
+ *
+ *   1. ada isinya       (qty > 0)   — yang benar-benar ada di outlet ini
+ *   2. nol              (qty = 0)   — SUDAH dihitung, memang habis
+ *   3. belum didata                 — belum ada yang melihat ke sana
+ *
+ * Kelompok 2 dan 3 TIDAK digabung, walaupun keduanya menampilkan "tidak ada".
+ * "Habis" adalah jawaban; "belum didata" adalah pertanyaan yang belum dijawab
+ * siapa pun. Yang belum dijawab ditaruh PALING bawah: barisnya ada di layar
+ * cuma karena itemnya ada di BU, bukan karena ada hubungannya dengan outlet
+ * ini — dan jumlahnya bisa ratusan. Yang sudah dihitung dan memang habis
+ * tetap di atasnya, karena nol yang sudah dipastikan adalah keterangan nyata
+ * tentang rak outlet ini.
+ *
+ * Di dalam tiap kelompok urutannya tetap kode, supaya letak barang tidak
+ * berpindah-pindah tiap kali jumlahnya berubah.
+ */
+export function kelompokStok(a) {
+  if (a?.belumDidata) return 2;
+  return (Number(a?.qty) || 0) > 0 ? 0 : 1;
+}
+
+/** Pembanding daftar aset: kelompok stok dulu, baru kode, baru nama. */
+export function urutDaftarAset(a, b) {
+  const ka = kelompokStok(a);
+  const kb = kelompokStok(b);
+  if (ka !== kb) return ka - kb;
+  return urutKode(a?.kode, b?.kode) || teks(a?.name).localeCompare(teks(b?.name), 'id');
+}
+
+/**
  * Gabungkan daftar item se-BU dengan stok satu outlet.
  *
  * ============ "BELUM DIDATA" BUKAN "TIDAK PUNYA" ============
