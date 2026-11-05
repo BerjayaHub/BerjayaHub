@@ -10195,3 +10195,72 @@ TERBACA orang) bisa diganti diam-diam. Sekarang yang dituntut kemunculannya di
 dalam markup.
 
 - [x] **Acuan satuan beli di kartu opname** — 31 tes murni, 11 sabotase
+
+## Foto ikut berpindah saat aset ditransfer antar BU (0179)
+
+> *"item sudah masuk ke stock BU Admin, tetapi foto item yang ada di BU awal
+> bermula tidak tampil di BU Admin"*
+
+### Dua hal yang sama-sama menghalangi
+
+Yang penting di sini: **memperbaiki salah satunya saja menghasilkan keadaan
+yang lebih buruk daripada sekarang** — gambar yang SELALU gagal dimuat, yang
+di layar terbaca persis seperti *"barangnya belum difoto"*.
+
+1. **Penunjuknya tidak ada.** `asset_items.photo_path` (0171) dihitung ulang
+   dari `asset_stock` milik item itu sendiri. Transfer lintas BU membuat item
+   **baru** di BU tujuan, dan baris stok yang baru masuk belum punya foto —
+   jadi tidak ada yang bisa dihitung.
+2. **Berkasnya tidak boleh dibaca.** `asset_photo_select` (0154) mengizinkan
+   foto yang prefix path-nya milik outlet di BU kita. Berkas aslinya ada di
+   folder outlet BU asal.
+
+### Kolom sendiri, bukan menumpang `photo_path`
+
+Warisannya disimpan di `foto_asal_path`, bukan di `photo_path`. Kolom itu milik
+trigger 0171, yang **mengosongkannya** kalau tidak ada satu pun foto di stok
+BU-nya sendiri — jadi penunjuk warisan akan terhapus sendiri pada perubahan
+foto berikutnya, tanpa meninggalkan jejak apa pun. Dengan kolom terpisah,
+aturan 0171 tidak disentuh sama sekali: **foto BU sendiri selalu menang**,
+warisan hanya dipakai saat belum ada.
+
+Tiga lapis, urutannya: foto outlet ini → foto outlet lain se-BU (0171) → foto
+warisan dari BU asal (0179). Layarnya menyebut asalnya dengan jujur: *"foto
+outlet lain"* vs *"foto dari BU asal"* — keduanya bukan foto barang di sini,
+tapi yang dari BU lain dipotret di gudang yang bahkan beda BU.
+
+Tetap **menunjuk, bukan menyalin** — sama seperti 0171. Transfer berantai
+(A→B→C) meneruskan berkas yang **sama**, bukan rantai penunjuk yang putus
+begitu satu item di tengahnya dihapus. Dan ada backfill: kasus yang dilaporkan
+sudah terjadi sebelum migration ini ada.
+
+### Menulis ulang fungsi untuk menyisipkan satu baris
+
+0179 harus menyisipkan satu `perform` ke dalam `kirim_transfer_aset` dan
+`ubah_transfer_aset`. PL/pgSQL tidak bisa ditambal sepotong, jadi keduanya
+ditulis ulang utuh — dan percobaan pertama saya menulisnya dari ingatan lalu
+**kehilangan dua `insert into asset_log`**: riwayat aset berhenti menyebutkan
+transfer sama sekali, tanpa satu pun galat.
+
+Ketahuan karena hasilnya dibandingkan **baris demi baris** dengan aslinya,
+bukan dibaca ulang. Sesudah diperbaiki, diff-nya tepat 6 baris per fungsi — 5
+komentar + 1 `perform`. Auditnya sekarang melakukan perbandingan itu sendiri:
+setiap baris non-komentar yang ada di 0173/0174 tapi hilang di 0179 dilaporkan.
+
+### Dan harness yang dibangun lalu tidak dipakai
+
+Tes PGlite-nya membuat tiruan `storage.objects` supaya policy barunya
+benar-benar dijalankan — lalu versi pertamanya **tidak pernah memakainya**.
+Sesudah §9 ditambahkan, dua pemeriksaan pertamanya lulus padahal seharusnya
+tidak: `sebagai()` hanya memasang klaim JWT, sementara sambungannya tetap
+berjalan sebagai **pemilik tabel**, yang melewati RLS bahkan dengan `FORCE`.
+Policy-nya sendiri bertuliskan `to authenticated` — dijalankan sebagai peran
+lain, ia tidak ikut dipertimbangkan sama sekali. Perlu `set role authenticated`
+di sekeliling pembacaannya.
+
+Dua sabotase juga lolos dulu: satu polanya cocok di dua fungsi sekaligus (dan
+versi perbaikannya sempat menonaktifkan seluruh cabang lintas-BU — kerusakan
+yang berbeda, yang kebetulan tidak tertangkap apa pun), satu lagi karena asal
+foto disebut di **dua** tempat sementara auditnya memeriksa satu.
+
+- [x] **Foto ikut berpindah saat transfer antar BU** (`0179`) — tes PGlite 9 bagian, 14 sabotase

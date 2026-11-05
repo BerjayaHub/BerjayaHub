@@ -1308,13 +1308,21 @@ function fotoSel(a, fotoUrl, namaOutletAcuan = null) {
   if (!path) return '<span style="color:var(--color-text-muted)">-</span>';
 
   const acuan = !a.photo_path && a.photo_acuan;
+  // Foto WARISAN dari BU asal (0179) disebut berbeda dari foto outlet se-BU.
+  // Keduanya sama-sama "bukan foto barang di sini", tapi yang dari BU lain
+  // dipotret di gudang yang bahkan tidak satu BU — dan yang memakainya untuk
+  // memeriksa kondisi barang perlu tahu bedanya.
   const judul = acuan
-    ? `Foto acuan dari ${namaOutletAcuan || 'outlet lain'} — bukan foto barang di outlet ini`
+    ? a.photo_acuan_warisan
+      ? 'Foto bawaan dari BU asal saat aset ini ditransfer — bukan foto barang di outlet ini'
+      : `Foto acuan dari ${namaOutletAcuan || 'outlet lain'} — bukan foto barang di outlet ini`
     : '';
   const url = fotoUrl.get(path);
 
   const penanda = acuan
-    ? `<span style="display:block;font-size:0.62rem;color:var(--color-text-muted);line-height:1.2;margin-top:2px">foto outlet lain</span>`
+    ? `<span style="display:block;font-size:0.62rem;color:var(--color-text-muted);line-height:1.2;margin-top:2px">${
+        a.photo_acuan_warisan ? 'foto dari BU asal' : 'foto outlet lain'
+      }</span>`
     : '';
 
   if (!url) {

@@ -38,7 +38,10 @@ export async function listAssets({ businessUnitId, outletId, condition, category
   // Master item: selalu seluruhnya, tidak disaring server-side selain kategori.
   let qItem = supabase
     .from('asset_items')
-    .select('id, kode, name, category, size, photo_path, photo_outlet_id')
+    // `foto_asal_*` (0179): foto yang DIWARISI saat aset ditransfer dari BU
+    // lain. Tanpa kolomnya, item hasil transfer tampil tanpa foto sama sekali
+    // — dan yang menerimanya tidak punya cara mengenali barangnya.
+    .select('id, kode, name, category, size, photo_path, photo_outlet_id, foto_asal_path, foto_asal_outlet_id')
     .eq('business_unit_id', businessUnitId)
     .limit(limit);
   if (category) qItem = qItem.eq('category', category);

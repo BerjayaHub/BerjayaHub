@@ -109,8 +109,22 @@ export function gabungItemDenganStok({ items = [], stok = [] } = {}) {
       // ditimpakan, layar tidak bisa lagi membedakan "foto barang ini" dari
       // "foto barang serupa milik outlet lain" — dan staff yang mengiranya
       // foto sendiri akan memakainya sebagai bukti kondisi barangnya.
-      photo_acuan: s?.photo_path ? null : (i?.photo_path ?? null),
-      photo_acuan_outlet: s?.photo_path ? null : (i?.photo_outlet_id ?? null),
+      // ============ TIGA LAPIS, DAN URUTANNYA PENTING ============
+      //
+      //   1. foto outlet ini sendiri        (`s.photo_path`)
+      //   2. foto outlet lain se-BU         (`i.photo_path`, 0171)
+      //   3. foto WARISAN dari BU asal      (`i.foto_asal_path`, 0179)
+      //
+      // Lapis ketiga dipakai saat aset baru saja ditransfer dari BU lain dan
+      // belum ada satu pun outlet di sini yang memotretnya. Tanpa lapis itu,
+      // barang yang baru datang tampil tanpa foto — dan yang menerimanya
+      // tidak punya cara memastikan barang yang mana yang dimaksud.
+      photo_acuan: s?.photo_path ? null : (i?.photo_path ?? i?.foto_asal_path ?? null),
+      photo_acuan_outlet: s?.photo_path ? null : (i?.photo_outlet_id ?? i?.foto_asal_outlet_id ?? null),
+      // Dibedakan supaya layar bisa menyebut asalnya dengan jujur: "foto
+      // outlet lain" dan "foto dari BU asal" menuntut tingkat kepercayaan
+      // yang berbeda saat dipakai memeriksa kondisi barang.
+      photo_acuan_warisan: !s?.photo_path && !i?.photo_path && Boolean(i?.foto_asal_path),
       // Tidak adanya baris stok ADALAH penandanya. Tidak ada kolom tambahan
       // yang bisa basi atau lupa diisi.
       belumDidata: !s,
