@@ -722,6 +722,20 @@ export async function renderInventoryPage(container, { userId, businessUnitId, o
             <strong>${esc(sesi.code)}</strong> · dibuka ${esc(sesi.pembuka?.full_name ?? '-')} ·
             stok belum berubah sampai admin menutup sesi
           </p>
+          <!-- ============ ATURAN 0182, DIKATAKAN DI DEPAN ============
+               Sejak 0182, bahan yang kotaknya dibiarkan kosong stoknya
+               DINOLKAN saat admin menutup sesi. Itu kebalikan dari aturan
+               lama, dan orang yang pernah memakai aturan lama tidak punya
+               alasan untuk menduganya.
+
+               Ditaruh di kepala panel — bukan di dekat tombol Simpan —
+               karena yang menentukan bukan saat menyimpan, melainkan apa
+               yang DIISI selama menghitung. -->
+          <p class="error-text" style="margin:0 0 8px;font-size:0.8rem">
+            Opname ini <strong>menyeluruh</strong>: bahan yang tidak kamu isi akan
+            <strong>dianggap habis (0)</strong> saat admin menutup sesi. Kalau raknya masih ada isinya
+            tapi belum sempat dihitung, jangan dibiarkan kosong.
+          </p>
 
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
             <div class="field" style="margin:0;flex:1;min-width:120px"><label>Kategori</label>

@@ -74,6 +74,25 @@ export async function catatHitungan({ countId, productId, counted, notes = null 
   if (error) throw new Error(error.message ?? String(error));
 }
 
+/**
+ * Berapa yang dihitung & berapa yang akan DIANGGAP HABIS kalau sesi ini
+ * ditutup (0182). Tidak mengubah apa pun.
+ *
+ * Dipanggil sebelum dialog konfirmasi. Sejak 0182, menutup sesi menolkan
+ * seluruh bahan yang tidak dihitung — akibat yang jauh lebih besar daripada
+ * dulu, dan satu-satunya kesempatan melihatnya adalah SEBELUM tombolnya
+ * ditekan: penutupan tidak bisa dibatalkan.
+ *
+ * Gagal = `null`, dan layarnya mengatakan bahwa angkanya tidak terbaca.
+ * Menelannya jadi 0 jauh lebih berbahaya: "0 bahan akan dianggap habis"
+ * adalah kalimat yang menenangkan, dan ia akan salah.
+ */
+export async function pratinjauTutupOpname(countId) {
+  const { data, error } = await supabase.rpc('pratinjau_tutup_opname', { p_count: countId });
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? null;
+}
+
 /** ADMIN SAJA. Menutup sesi — DI SINI stok berubah. Mengembalikan jumlah penyesuaian. */
 export async function tutupOpname(countId) {
   const { data, error } = await supabase.rpc('tutup_opname', { p_count: countId });

@@ -19,6 +19,7 @@ import { susunLaporanOpname } from './laporan-opname.js';
 import {
   bukaOpname,
   tutupOpname,
+  pratinjauTutupOpname,
   batalkanOpname,
   riwayatOpname,
   itemOpname,
@@ -194,6 +195,25 @@ export async function renderOpnameAdmin(container, { businessUnitId, outlets }) 
         // yang akan terjadi harus bisa dilihat dulu, bukan sesudahnya.
         const items = await itemOpname(btn.dataset.id).catch(() => []);
         const lap = susunLaporanOpname({ sesi: { code: btn.dataset.code }, items, hpp, denganNilai: true });
+
+        // ============ YANG TIDAK DIHITUNG AKAN DIANGGAP HABIS (0182) ============
+        //
+        // Ini akibat terbesar dari menekan tombol ini, dan ia tidak terlihat di
+        // mana pun kecuali disebutkan: bahan yang tidak disentuh siapa pun
+        // stoknya menjadi NOL. Dulu kalimat di dialog ini berbunyi "Bahan yang
+        // tidak dihitung tidak disentuh" — sejak 0182 kalimat itu bohong, dan
+        // kalimat yang bohong di dialog yang tidak bisa dibatalkan lebih buruk
+        // daripada tidak ada kalimat sama sekali.
+        //
+        // Gagal dibaca TIDAK dianggap nol: "0 bahan akan dianggap habis"
+        // menenangkan, dan ia akan salah.
+        let pra = null;
+        let praGagal = '';
+        try {
+          pra = await pratinjauTutupOpname(btn.dataset.id);
+        } catch (e) {
+          praGagal = String(e?.message ?? e);
+        }
         const ok = await confirmDialog({
           title: `Tutup ${btn.dataset.code}?`,
           messageHtml:
@@ -204,7 +224,20 @@ export async function renderOpnameAdmin(container, { businessUnitId, outlets }) 
               ? `<p style="color:var(--color-danger)">⚠ ${lap.jumlahBentrok} bahan pernah dihitung dua orang dengan angka berbeda — periksa dulu sebelum menutup.</p>`
               : '') +
             (lap.adaTanpaHpp ? '<p style="font-size:0.85rem;color:var(--color-text-muted)">Sebagian bahan belum punya HPP, jadi nilainya belum lengkap.</p>' : '') +
-            '<p style="margin-top:8px">Stok akan disesuaikan sekarang, dan <strong>tidak bisa dibatalkan</strong>. Bahan yang tidak dihitung tidak disentuh.</p>',
+            (pra
+              ? pra.akan_dinolkan > 0
+                ? `<p class="error-text" style="margin:8px 0 0"><strong>${pra.akan_dinolkan}</strong> bahan tidak dihitung dan akan <strong>dianggap habis (0)</strong>` +
+                  `${
+                    Array.isArray(pra.contoh) && pra.contoh.length
+                      ? `: ${esc(pra.contoh.slice(0, 5).join(', '))}${pra.akan_dinolkan > 5 ? ', …' : ''}`
+                      : '.'
+                  }</p>`
+                : '<p style="margin:8px 0 0;font-size:0.85rem;color:var(--color-text-muted)">Tidak ada bahan berstok yang terlewat.</p>'
+              : `<p class="error-text" style="margin:8px 0 0">Tidak bisa memeriksa berapa bahan yang akan dianggap habis${
+                  praGagal ? ` (${esc(praGagal)})` : ''
+                }. Jangan tutup sesinya dulu.</p>`) +
+            '<p style="margin-top:8px">Stok akan disesuaikan sekarang, dan <strong>tidak bisa dibatalkan</strong>. ' +
+            'Bahan yang <strong>tidak dihitung dianggap habis</strong> — opname ini berlaku untuk seluruh bahan di outlet tersebut.</p>',
           confirmText: 'Tutup & sesuaikan stok',
           danger: true
         });

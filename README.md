@@ -10480,3 +10480,62 @@ berubah jadi galat database mentah, dan tesnya tetap hijau. Diperbaiki dengan
 menuntut **kalimatnya**, bukan katanya.
 
 - [x] **Revisi & pembatalan waste/spoil** (`0181`) — tes PGlite 9 bagian (60 pemeriksaan), tes murni 36, 24 sabotase
+
+## Opname menyeluruh: yang tidak diisi dianggap habis (`0182`)
+
+> *"sekarang saya ingin bila yang tidak diisi maka dianggap 0"*
+
+Sebelum ini (`0085`), hanya bahan yang **benar-benar dihitung** menghasilkan
+penyesuaian; yang tidak disentuh mempertahankan stok sistemnya. Sekarang
+kebalikannya: menutup sesi opname menolkan **seluruh bahan aktif di outlet itu**
+yang tidak dihitung. Satu sesi = pernyataan menyeluruh tentang isi gudang.
+
+### Yang harus diterima
+
+**Opname sebagian tidak mungkin lagi.** Sesi yang dibuka untuk membetulkan tiga
+bahan lalu ditutup akan menolkan semua bahan lain di outlet itu. Itu konsekuensi
+yang diminta — tapi ia tidak boleh **diam**, jadi dipasang tiga tempat yang
+mengatakannya:
+
+- layar staff, di kepala panel opname, sebelum orang mulai menghitung;
+- `pratinjau_tutup_opname` di dialog admin: *"37 bahan tidak dihitung dan akan
+  dianggap habis (0): Gula, Tomat, …"* — **sebelum** tombolnya ditekan, karena
+  penutupan tidak bisa dibatalkan;
+- tiap penolan meninggalkan baris `stock_count_items` bertanda `otomatis = true`
+  dan pergerakan stok bercatatan *"tidak dihitung, dianggap habis"*.
+
+Kalimat lama di dialog admin berbunyi *"Bahan yang tidak dihitung tidak
+disentuh"*. Sejak 0182 kalimat itu **bohong**, dan kalimat yang bohong di layar
+yang tidak bisa dibatalkan lebih berbahaya daripada tidak ada kalimat sama
+sekali — auditnya menolak kalau kalimat itu masih ada.
+
+### Empat saringan yang menentukan apa yang lenyap
+
+Ini satu-satunya tempat di aplikasi yang menghapus stok barang yang **tidak
+disebut siapa pun**, jadi tiap saringan punya sabotasenya sendiri:
+
+| saringan | kalau hilang |
+| --- | --- |
+| `sm.outlet_id = v_outlet` | stok gudang sebelah dibaca lalu "dinolkan" di sini — hasilnya minus untuk barang yang tidak pernah ada di outlet ini |
+| `p.business_unit_id = v_bu` | bahan BU lain ikut dinolkan |
+| `coalesce(p.is_active, true)` | produk arsip ikut dinolkan, padahal kotaknya tidak pernah ada di layar |
+| `p.product_type <> 'finished'` | stok menu lenyap, padahal ia tidak dihitung lewat opname bahan |
+| `not exists (… stock_count_items …)` | bahan yang **baru saja** dihitung ikut dinolkan — angkanya dibuang dan diganti nol |
+
+Empat di antaranya sempat **lolos sabotase** pada percobaan pertama, bukan
+karena penjaganya tidak ada melainkan karena data tesnya tidak punya baris yang
+bisa membedakannya: tidak ada bahan yang stoknya hanya di outlet lain, tidak ada
+menu yang punya stok, tidak ada bahan BU lain yang tercatat di outlet ini.
+Penjagaan yang benar dengan tes yang tidak bisa membuktikannya sama saja dengan
+tidak dijaga.
+
+### Yang tetap tidak berubah
+
+`batalkan_opname` tidak menyentuh stok sama sekali — termasuk tidak menolkan
+apa pun. Itu jalan keluar untuk sesi yang terlanjur dibuka tapi tidak jadi
+dikerjakan, dan satu-satunya cara membuka sesi baru tanpa akibat.
+
+Stok sistem untuk penolan dibaca **saat menutup**, bukan dari potret saat sesi
+dibuka: nota yang masuk di tengah sesi ikut dinolkan, sesuai arti "menyeluruh".
+
+- [x] **Opname menyeluruh** (`0182`) — tes PGlite 29 pemeriksaan, 17 sabotase
