@@ -10402,3 +10402,81 @@ dipasang (§0). Tanpa itu, seluruh §1–§3 bisa hijau untuk migration yang tid
 mengerjakan apa pun.
 
 - [x] **Satu kode untuk satu barang di semua BU** (`0180`) — tes PGlite 9 bagian (35 pemeriksaan), 17 sabotase
+
+## Admin merevisi & membatalkan waste/spoil (`0181`)
+
+> *"saya ingin ada edit dan hapus di bagian waste/spoil, tapi hanya disisi
+> admin portal saja, tujuannya admin bisa edit atau hapus inputan spoil/waste
+> bahan bila staff salah input jumlah atau item nya"*
+
+### Kenapa ini bukan sekadar `update waste_runs`
+
+Waste **sudah memotong stok** saat dicatat. Mengubah angkanya di `waste_runs`
+saja menghasilkan keadaan yang jauh lebih buruk daripada salah input: laporan
+waste menyebut 2 kg sementara stok berkurang 20 kg, keduanya tampil rapi, dan
+tidak ada satu pun galat yang menghubungkan keduanya. Salah input masih bisa
+dilihat orang; selisih yang tersembunyi di antara dua layar tidak.
+
+Jadi setiap revisi **membongkar** potongan stoknya lalu memasangnya kembali
+dari keadaan terbaru — dan untuk waste menu, bahan resepnya dihitung ulang
+seluruhnya. Tesnya karena itu memeriksa **angka stok**, bukan angka di
+`waste_runs`.
+
+Potongannya **dihapus**, bukan ditambahi pergerakan lawan. Pergerakan lawan
+jujur untuk kejadian yang benar-benar terjadi lalu berubah; yang ditangani di
+sini adalah salah ketik — barangnya tidak pernah berkurang 20 kg. Menyimpan
+potongan yang salah beserta pengembaliannya membuat laporan bulan itu memuat
+dua baris yang keduanya tidak pernah terjadi.
+
+### Keputusannya
+
+| | |
+| --- | --- |
+| Boleh diubah | jumlah, item, catatan |
+| Tidak boleh | foto, dan **jenis** (spoil ↔ menu) |
+| "Hapus" | dibatalkan & berjejak — stok kembali, barisnya tetap ada, bisa dipulihkan |
+| Sudah diekspor ke ESB | **boleh**, dengan peringatan |
+| Siapa | admin BU **dan** admin outlet (`is_admin_of_outlet`) |
+
+Foto tidak bisa diganti karena ia satu-satunya bukti kejadian ini dan admin
+tidak menyaksikan barangnya — mengganti bukti atas kejadian yang tidak dilihat
+sendiri bukan koreksi. Jenis tidak bisa diganti karena ia menentukan **arti**
+`product_id`: pada spoil ia bahan yang rusak, pada menu ia menu yang terbuang
+dan bahannya dihitung dari resep.
+
+Berbeda dari Purpose (`0147`) yang **menolak** kejadian yang sudah diekspor:
+Purpose adalah keterangan yang ikut berangkat, sementara ini membetulkan
+**angka**. Angka yang salah dibiarkan hanya karena sudah terlanjur dikirim akan
+salah di dua tempat selamanya. Yang dibatalkan juga berhenti ikut terekspor —
+ikut berangkat, ia jadi baris di ESB untuk kejadian yang sudah dinyatakan tidak
+pernah terjadi.
+
+### Trigger di tabel, bukan tambalan di empat fungsi — dan satu fungsi pemotong
+
+`catat_waste` (0147) dan revisi sama-sama harus menjabarkan resep lalu memotong
+stok. Dua salinan aturan itu pasti menyimpang pada perbaikan berikutnya, dan
+penyimpangannya tidak memunculkan galat — ia cuma membuat stok yang dipotong
+revisi berbeda dari stok yang dipotong pencatatan. Jadi paruh kedua
+`catat_waste` dipindahkan ke `pasang_waste`, dan fungsinya ditulis ulang.
+Auditnya **membandingkan baris demi baris** dengan 0147 untuk paruh yang
+disalin: setiap baris pemeriksaan yang hilang (foto wajib, wewenang outlet,
+jenis, jumlah) dilaporkan — kekeliruan yang persis terjadi di `0179`.
+
+### Satu kejadian, satu tombol
+
+Rekap waste adalah tabel **satu baris per bahan**, sementara yang direvisi
+adalah **kejadian**: satu waste menu "Latte ×2" menghasilkan dua baris (susu &
+gula) yang menunjuk kejadian yang sama. Tombol di setiap baris membuat admin
+yang menekan yang kedua mengira sedang merevisi "baris gula" — ia tidak.
+`barisPemegangAksi` yang memutuskan itu, dan ia diuji tanpa browser.
+
+### Satu assertion yang lolos padahal penjaganya dicabut
+
+Sabotase "alasan revisi tidak lagi wajib" awalnya **tidak tertangkap**. Tesnya
+mencari `/alasan/` di pesan galatnya — dan `waste_revisi.alasan` bertipe `not
+null`, jadi yang muncul adalah `null value in column "alasan" … violates
+not-null constraint`, yang juga memuat kata itu. Penjaganya hilang, pesannya
+berubah jadi galat database mentah, dan tesnya tetap hijau. Diperbaiki dengan
+menuntut **kalimatnya**, bukan katanya.
+
+- [x] **Revisi & pembatalan waste/spoil** (`0181`) — tes PGlite 9 bagian (60 pemeriksaan), tes murni 36, 24 sabotase

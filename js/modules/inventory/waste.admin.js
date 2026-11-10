@@ -16,17 +16,35 @@
  * kolom buktinya kosong tepat saat dibaca.
  */
 
-import { toast, infoDialog, formDialog } from '../../core/ui.js';
+import { toast, infoDialog, formDialog, confirmDialog } from '../../core/ui.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { imageToDataUrl } from '../../core/pdf.js';
 import { exportTableXLSXFoto } from '../../core/xlsx-foto.js';
 import { listProducts, listRecipesFull, computeCosts } from '../product/product.service.js';
 import { susunRekapWaste, KOLOM_FOTO, KOLOM_PURPOSE, PURPOSE_KOSONG } from './laporan-waste.js';
-import { rekapWaste, getBiayaRataBu, urlFotoWaste, urlFotoWasteBanyak, ubahPurposeWaste } from './waste.service.js';
+import {
+  rekapWaste,
+  getBiayaRataBu,
+  urlFotoWaste,
+  urlFotoWasteBanyak,
+  ubahPurposeWaste,
+  revisiWaste,
+  batalkanWaste,
+  pulihkanWaste,
+  daftarWasteDibatalkan
+} from './waste.service.js';
 import { listEsbMaster } from './esb.service.js';
 import { opsiPurpose } from './purpose-esb.js';
-import { sayaAdminBu } from '../../core/base-scope.js';
+import { sayaAdminBu, scopeAdminSaya } from '../../core/base-scope.js';
+import {
+  keadaanRevisiWaste,
+  barisPemegangAksi,
+  sahkanRevisiWaste,
+  ringkasPerubahanWaste,
+  pesanSesudahRevisi,
+  PESAN_SEBAB
+} from './aturan-revisi-waste.js';
 
 const esc = (s) =>
   String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -47,6 +65,14 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
   // Gagal memeriksa = DIANGGAP TIDAK BERWENANG. Arah yang sebaliknya membuka
   // tombolnya untuk semua orang justru saat jaringannya sedang bermasalah.
   const bolehUbahPurpose = await sayaAdminBu(businessUnitId).catch(() => false);
+
+  // ============ REVISI & PEMBATALAN (0181) ============
+  //
+  // Wewenangnya LEBIH LUAS daripada Purpose: admin outlet boleh membetulkan
+  // waste di outletnya sendiri. Memakai `sayaAdminBu` di sini akan
+  // menyembunyikan tombolnya dari orang yang database-nya justru mengizinkan.
+  const scopeAdmin = await scopeAdminSaya(businessUnitId).catch(() => ({ adminBu: false, outlets: new Set() }));
+  const bolehKelolaOutlet = (outletId) => scopeAdmin.adminBu || scopeAdmin.outlets.has(outletId);
 
   container.innerHTML = `
     <div class="page-header">
@@ -78,6 +104,10 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
   // "Tampilkan". Berkas yang isinya berbeda dari tabel di layarnya adalah
   // kegagalan yang tidak akan pernah dicurigai.
   let lapTampil = null;
+  // Baris mana yang memegang tombol aksi. Satu kejadian waste menu melahirkan
+  // beberapa baris bahan; tombol di tiap baris akan membuat admin mengira
+  // sedang merevisi "baris gula" padahal yang direvisi seluruh kejadiannya.
+  let pemegangAksi = new Set();
 
   // DUA SUMBER NILAI, dan keduanya memang perlu.
   //
@@ -101,9 +131,22 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
   } catch (e) {
     sumberGagal.push(`biaya rata-rata nota (${e.message ?? e})`);
   }
+  // Daftar produk dipakai DUA kali: menghitung HPP, dan mengisi pilihan item
+  // di dialog revisi. Diambil sekali supaya keduanya pasti melihat daftar yang
+  // sama — dua pengambilan terpisah bisa berbeda kalau ada yang menambah
+  // produk di tengahnya, dan bedanya cuma terasa saat dialognya kosong.
+  let produkBahan = [];
+  let produkMenu = [];
   try {
     const [products, recipes] = await Promise.all([listProducts(businessUnitId), listRecipesFull(businessUnitId)]);
     hpp = computeCosts(products, recipes);
+    // Pembagiannya SAMA PERSIS dengan form waste di Staff App
+    // (`inventory.page.js`): bahan = selain `finished`, menu = `finished`.
+    // Dua aturan yang menyimpang akan membuat admin bisa memilih item yang
+    // staffnya tidak akan pernah bisa pilih — dan `revisi_waste` tetap
+    // menerimanya, karena database tidak tahu soal tipe produk.
+    produkBahan = (products ?? []).filter((x) => x.is_active !== false && x.product_type !== 'finished');
+    produkMenu = (products ?? []).filter((x) => x.is_active !== false && x.product_type === 'finished');
   } catch (e) {
     sumberGagal.push(`HPP resep (${e.message ?? e})`);
   }
@@ -150,16 +193,22 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
       periode: { dari: state.dateFrom, sampai: state.dateTo, outlet: namaOutlet }
     });
     lapTampil = lap;
+    pemegangAksi = barisPemegangAksi(lap.meta);
 
     if (!lap.baris.length) {
       hasil.innerHTML = `<p style="color:var(--color-text-muted);font-size:0.88rem">Tidak ada waste/spoil pada rentang ini.</p>`;
+      // Daftar yang dibatalkan TETAP ditampilkan. Rentang yang seluruh
+      // kejadiannya dibatalkan akan tampak seperti rentang yang memang tidak
+      // punya waste — dan yang mencari kejadian yang baru saja dibatalkannya
+      // tidak akan menemukannya di mana pun.
+      await muatDibatalkan();
       return;
     }
 
     hasil.innerHTML = `
       <p style="font-size:0.82rem;color:var(--color-text-muted);margin:0 0 6px">${esc(lap.subjudul)}</p>
       <div class="table-scroll"><table class="data-table kartu-sempit">
-        <thead><tr>${lap.kolom.map((k) => `<th>${esc(k.header)}</th>`).join('')}</tr></thead>
+        <thead><tr>${lap.kolom.map((k) => `<th>${esc(k.header)}</th>`).join('')}<th>Aksi</th></tr></thead>
         <tbody>
           ${lap.baris
             .map(
@@ -181,7 +230,7 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
                       }</td>`
                     : `<td data-label="${esc(lap.kolom[j]?.header ?? '')}">${esc(sel)}</td>`
                 )
-                .join('')}</tr>`
+                .join('')}<td data-label="Aksi">${selAksi(lap.meta[i], i)}</td></tr>`
             )
             .join('')}
         </tbody>
@@ -201,6 +250,15 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
     hasil.querySelectorAll('.ws-purpose:not([disabled])').forEach((b) =>
       b.addEventListener('click', sekaliJalan(() => isiPurpose(b.dataset.waste, b.dataset.kini ?? '')))
     );
+
+    hasil.querySelectorAll('.ws-revisi:not([disabled])').forEach((b) =>
+      b.addEventListener('click', sekaliJalan(() => bukaRevisi(Number(b.dataset.i))))
+    );
+    hasil.querySelectorAll('.ws-batal:not([disabled])').forEach((b) =>
+      b.addEventListener('click', sekaliJalan(() => bukaBatal(Number(b.dataset.i))))
+    );
+
+    await muatDibatalkan();
   }
 
   /**
@@ -243,6 +301,231 @@ export async function renderWasteAdmin(container, { businessUnitId, outlets }) {
       `<button class="ws-purpose" data-waste="${esc(meta.wasteId)}" data-kini="${esc(meta.purpose)}"` +
       ` style="font-size:0.78rem;padding:2px 8px">${isi}</button>`
     );
+  }
+
+
+  /**
+   * Sel kolom Aksi.
+   *
+   * Tombolnya cuma digambar di baris PERTAMA tiap kejadian; baris sisanya
+   * menyebut dirinya bagian dari kejadian yang sama. Tombol kedua yang
+   * mengerjakan hal yang persis sama adalah cara tercepat membuat orang
+   * mengira keduanya berbeda.
+   *
+   * Yang tidak boleh ditekan TETAP DIGAMBAR, mati, dengan sebabnya di `title`
+   * — sama seperti tombol Purpose di sebelahnya. Menyembunyikannya membuat
+   * orang mencari tombol yang ada di layar admin lain lalu menyimpulkan
+   * halamannya rusak.
+   */
+  function selAksi(meta, i) {
+    if (!pemegangAksi.has(i)) {
+      return meta?.wasteId && !meta?.lama
+        ? '<span style="color:var(--color-text-muted);font-size:0.72rem">bagian kejadian di atas</span>'
+        : '';
+    }
+    const keadaan = keadaanRevisiWaste(meta, { bolehKelola: bolehKelolaOutlet(meta?.outletId) });
+    if (!keadaan.boleh) {
+      const sebab = PESAN_SEBAB[keadaan.sebab] ?? 'Tidak bisa direvisi.';
+      return `<button class="ws-revisi" disabled title="${esc(sebab)}" aria-label="${esc(sebab)}" style="font-size:0.76rem;padding:2px 8px">Revisi</button>`;
+    }
+    // `sumberId` kosong berarti 0181 belum dijalankan: viewnya belum memuat
+    // kolom itu, jadi dialognya tidak punya item untuk ditawarkan dan
+    // fungsinya belum ada di database. Tombol yang pasti gagal lebih buruk
+    // daripada tombol yang menjelaskan.
+    if (!meta?.sumberId) {
+      const sebab = 'Migration 0181 belum dijalankan di Supabase, jadi revisi waste belum tersedia.';
+      return `<button class="ws-revisi" disabled title="${esc(sebab)}" aria-label="${esc(sebab)}" style="font-size:0.76rem;padding:2px 8px">Revisi</button>`;
+    }
+    const tanda = meta.revisiKe > 0 ? `<div style="font-size:0.68rem;color:var(--color-text-muted)">revisi ke-${meta.revisiKe}</div>` : '';
+    return (
+      `<div style="display:flex;gap:4px;flex-wrap:wrap">` +
+      `<button class="ws-revisi" data-i="${i}" style="font-size:0.76rem;padding:2px 8px">Revisi</button>` +
+      `<button class="ws-batal btn-danger" data-i="${i}" style="font-size:0.76rem;padding:2px 8px">Batalkan</button>` +
+      `</div>${tanda}`
+    );
+  }
+
+  /**
+   * Dialog revisi satu kejadian.
+   *
+   * Isinya diisi dari keadaan SEKARANG (`meta`), bukan kosong: yang dibetulkan
+   * biasanya satu hal saja, dan form kosong memaksa admin mengetik ulang
+   * semuanya — termasuk yang sudah benar, yang karena itu bisa ikut salah.
+   */
+  async function bukaRevisi(i) {
+    const meta = lapTampil?.meta?.[i];
+    if (!meta?.wasteId) return;
+
+    const menu = meta.jenis === 'menu';
+    const opsi = (menu ? produkMenu : produkBahan).map((x) => ({ value: x.id, label: `${x.name} (${x.base_unit})` }));
+    if (!opsi.length) {
+      return toast(menu ? 'Belum ada produk bertipe Menu.' : 'Daftar bahan belum termuat.', 'warning');
+    }
+    // Jenis TIDAK bisa diubah — ia menentukan arti `product_id` (bahan yang
+    // rusak vs menu yang terbuang). Disebutkan supaya admin tidak mencari
+    // pilihannya.
+    const serumpun = lapTampil.meta.filter((m) => m.wasteId === meta.wasteId).length;
+
+    const v = await formDialog({
+      title: `Revisi waste ${meta.kode || ''}`.trim(),
+      description:
+        (menu ? 'Waste MENU — bahan resepnya dihitung ulang seluruhnya. ' : 'Spoil BAHAN. ') +
+        (serumpun > 1 ? `Kejadian ini punya ${serumpun} baris bahan; semuanya ikut dihitung ulang. ` : '') +
+        'Jenis & foto tidak bisa diubah — kalau itu yang salah, batalkan kejadiannya lalu minta staff mencatat ulang.',
+      fields: [
+        {
+          name: 'product',
+          label: menu ? 'Menu yang terbuang' : 'Bahan yang rusak',
+          type: 'searchselect',
+          required: true,
+          value: meta.sumberId,
+          options: opsi
+        },
+        { name: 'qty', label: 'Jumlah', type: 'number', required: true, step: 'any', value: String(meta.qtyKejadian ?? '') },
+        { name: 'notes', label: 'Catatan', type: 'text', value: meta.catatan ?? '' },
+        { name: 'alasan', label: 'Alasan revisi (wajib)', type: 'text', required: true, placeholder: 'mis. staff salah ketik 2000, aslinya 200' }
+      ],
+      submitText: 'Simpan revisi'
+    });
+    if (!v) return;
+
+    const sah = sahkanRevisiWaste({ productId: v.product, qty: v.qty, alasan: v.alasan });
+    if (!sah.ok) return toast(sah.pesan, 'warning');
+
+    const namaBaru = (menu ? produkMenu : produkBahan).find((x) => x.id === v.product)?.name ?? '';
+    const perubahan = ringkasPerubahanWaste(
+      { namaItem: meta.sumberNama, qty: meta.qtyKejadian, notes: meta.catatan },
+      { namaItem: namaBaru, qty: Number(v.qty), notes: v.notes }
+    );
+    // Revisi yang tidak mengubah apa pun tetap akan menaikkan `revisi_ke` dan
+    // menulis satu baris jejak yang isinya sama di kedua sisi — jejak yang
+    // tidak menjawab apa pun, dan yang membacanya mengira ada yang berubah.
+    if (!perubahan.length) return toast('Tidak ada yang berubah.', 'warning');
+
+    const keadaan = keadaanRevisiWaste(meta, { bolehKelola: true });
+    const ok = await confirmDialog({
+      title: 'Simpan revisi?',
+      messageHtml:
+        `<p style="margin:0 0 6px">Stok akan dihitung ulang:</p>` +
+        `<ul style="margin:0 0 8px;padding-left:18px">${perubahan.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` +
+        (keadaan.peringatan ? `<p class="error-text" style="margin:0">${esc(keadaan.peringatan)}</p>` : ''),
+      confirmText: 'Ya, simpan',
+      danger: true
+    });
+    if (!ok) return;
+
+    try {
+      const hasil = await revisiWaste({
+        wasteId: meta.wasteId,
+        productId: v.product,
+        qty: Number(v.qty),
+        notes: v.notes ?? null,
+        alasan: v.alasan
+      });
+      toast(pesanSesudahRevisi(hasil), 'success');
+    } catch (e) {
+      toast(e.message ?? 'Gagal menyimpan revisi.', 'error');
+      return;
+    }
+    await muat();
+  }
+
+  /** Batalkan satu kejadian: stoknya kembali, barisnya tetap ada berjejak. */
+  async function bukaBatal(i) {
+    const meta = lapTampil?.meta?.[i];
+    if (!meta?.wasteId) return;
+    const keadaan = keadaanRevisiWaste(meta, { bolehKelola: bolehKelolaOutlet(meta.outletId) });
+    if (!keadaan.boleh) return toast(PESAN_SEBAB[keadaan.sebab] ?? 'Tidak bisa dibatalkan.', 'warning');
+
+    const v = await formDialog({
+      title: `Batalkan waste ${meta.kode || ''}`.trim(),
+      description:
+        `${meta.sumberNama} ${meta.qtyKejadian} — stok yang dulu terpotong akan DIKEMBALIKAN. ` +
+        'Barisnya tidak hilang: ia pindah ke daftar "Dibatalkan" di bawah tabel, dan bisa dipulihkan lagi.' +
+        (keadaan.peringatan ? ` ${keadaan.peringatan}` : ''),
+      fields: [{ name: 'alasan', label: 'Alasan pembatalan (wajib)', type: 'text', required: true }],
+      submitText: 'Batalkan kejadian',
+      danger: true
+    });
+    if (!v?.alasan?.trim()) return;
+
+    try {
+      const hasil = await batalkanWaste({ wasteId: meta.wasteId, alasan: v.alasan });
+      toast(`${hasil.kode ?? 'Kejadian'} dibatalkan — stoknya sudah dikembalikan.`, 'success');
+    } catch (e) {
+      toast(e.message ?? 'Gagal membatalkan.', 'error');
+      return;
+    }
+    await muat();
+  }
+
+  /**
+   * Daftar kejadian yang DIBATALKAN pada rentang yang sama.
+   *
+   * Tanpa ini, "dibatalkan tapi tetap berjejak" cuma berlaku bagi yang bisa
+   * membuka SQL editor — dan admin yang salah membatalkan tidak punya cara
+   * menemukan barisnya kembali untuk dipulihkan.
+   */
+  async function muatDibatalkan() {
+    let baris = [];
+    try {
+      baris = await daftarWasteDibatalkan(businessUnitId, state);
+    } catch {
+      // 0181 belum dijalankan, atau fungsinya tidak bisa dipanggil. Diam di
+      // sini disengaja: tabel utamanya sudah tampil, dan menumpuk galat kedua
+      // di bawahnya tidak menolong siapa pun.
+      return;
+    }
+    if (!baris.length) return;
+
+    const html = `
+      <details style="margin-top:14px">
+        <summary style="cursor:pointer;font-size:0.86rem"><strong>${baris.length}</strong> kejadian dibatalkan pada rentang ini</summary>
+        <div class="table-scroll" style="margin-top:8px"><table class="data-table kartu-sempit">
+          <thead><tr><th>Kode</th><th>Tanggal</th><th>Outlet</th><th>Item</th><th>Jumlah</th><th>Alasan</th><th>Dibatalkan oleh</th><th>Aksi</th></tr></thead>
+          <tbody>${baris
+            .map(
+              (b) => `<tr>
+                <td data-label="Kode">${esc(b.code ?? '-')}</td>
+                <td data-label="Tanggal">${esc(b.tanggal ?? '')}</td>
+                <td data-label="Outlet">${esc(b.outlet_nama ?? '')}</td>
+                <td data-label="Item">${esc(b.sumber_nama ?? '')}</td>
+                <td data-label="Jumlah">${esc(String(b.qty ?? ''))}</td>
+                <td data-label="Alasan">${esc(b.alasan_batal ?? '')}</td>
+                <td data-label="Dibatalkan oleh">${esc(b.dibatalkan_oleh ?? '')}</td>
+                <td data-label="Aksi">${
+                  bolehKelolaOutlet(b.outlet_id)
+                    ? `<button class="ws-pulih" data-waste="${esc(b.waste_id)}" style="font-size:0.76rem;padding:2px 8px">Pulihkan</button>`
+                    : ''
+                }</td>
+              </tr>`
+            )
+            .join('')}</tbody>
+        </table></div>
+      </details>`;
+    hasil.insertAdjacentHTML('beforeend', html);
+
+    hasil.querySelectorAll('.ws-pulih').forEach((b) =>
+      b.addEventListener('click', sekaliJalan(() => pulihkan(b.dataset.waste)))
+    );
+  }
+
+  async function pulihkan(wasteId) {
+    const v = await formDialog({
+      title: 'Pulihkan kejadian waste',
+      description: 'Stok akan DIPOTONG lagi sebesar jumlah kejadian ini, dan barisnya kembali masuk rekap.',
+      fields: [{ name: 'alasan', label: 'Alasan pemulihan (wajib)', type: 'text', required: true }],
+      submitText: 'Pulihkan'
+    });
+    if (!v?.alasan?.trim()) return;
+    try {
+      const hasil = await pulihkanWaste({ wasteId, alasan: v.alasan });
+      toast(`${hasil.kode ?? 'Kejadian'} dipulihkan — stoknya terpotong lagi.`, 'success');
+    } catch (e) {
+      toast(e.message ?? 'Gagal memulihkan.', 'error');
+      return;
+    }
+    await muat();
   }
 
   /**

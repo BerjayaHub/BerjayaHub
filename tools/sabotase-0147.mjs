@@ -261,8 +261,8 @@ sabotase(
 sabotase(
   'kolom purpose tidak diambil dari database — setiap waste tertahan dengan alasan yang salah',
   ESVC,
-  "      .select('id, code, jenis, notes, purpose, outlet_id, created_at, esb_exported_at', { count: 'exact' })",
-  "      .select('id, code, jenis, notes, outlet_id, created_at, esb_exported_at', { count: 'exact' })",
+  "  const DASAR = 'id, code, jenis, notes, purpose, outlet_id, created_at, esb_exported_at';",
+  "  const DASAR = 'id, code, jenis, notes, outlet_id, created_at, esb_exported_at';",
   AUDIT
 );
 
@@ -324,8 +324,11 @@ sabotase(
 sabotase(
   'tabelnya tidak dimuat ulang — tombolnya tetap berbunyi "belum diisi" sesudah diisi',
   WADM,
-  '    await muat();\n  }',
-  '  }',
+  // Dijangkar ke fungsi `isiPurpose`: sejak 0181 ada beberapa `await muat()`
+  // di berkas ini (revisi, pembatalan, pemulihan), dan pola tanpa jangkar
+  // cuma mengenai yang pertama.
+  "      toast(`Purpose diisi \"${v.purpose}\".`, 'success');\n      }\n    } catch (e) {\n      toast(e.message ?? 'Gagal menyimpan Purpose.', 'error');\n      return;\n    }\n    await muat();",
+  "      toast(`Purpose diisi \"${v.purpose}\".`, 'success');\n      }\n    } catch (e) {\n      toast(e.message ?? 'Gagal menyimpan Purpose.', 'error');\n      return;\n    }",
   AUDIT
 );
 sabotase(

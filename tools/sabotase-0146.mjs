@@ -412,8 +412,11 @@ sabotase(
 sabotase(
   'waste yang sudah diekspor ditawarkan lagi — stoknya dipotong dua kali di ESB',
   SVC,
-  "    if (!termasukSudahEkspor) q = q.is('esb_exported_at', null);\n    return q.range(dari, sampai);\n  });\n\n  if (!runs.length) return { waste: [], itemsPerWaste: new Map() };",
-  '    return q.range(dari, sampai);\n  });\n\n  if (!runs.length) return { waste: [], itemsPerWaste: new Map() };',
+  // Sejak 0181 bentuknya berubah (`ambilRuns` dipanggil dua kali, dengan &
+  // tanpa `dibatalkan_at`), tapi yang disabotase tetap sama: saringan "yang
+  // sudah diekspor tidak ditawarkan lagi".
+  "      if (!termasukSudahEkspor) q = q.is('esb_exported_at', null);\n      return q.range(dari, sampai);",
+  '      return q.range(dari, sampai);',
   AUDIT
 );
 

@@ -218,7 +218,22 @@ export function susunRekapWaste({ baris, biaya = new Map(), hpp = new Map(), per
       keterangan: keteranganWaste(b),
       catatan: teks(b?.notes),
       oleh: teks(b?.dicatat_oleh),
-      kode: teks(b?.code)
+      kode: teks(b?.code),
+      // ============ UNTUK REVISI (0181) ============
+      //
+      // `sumberId` adalah ITEM yang tercatat: bahan yang rusak (spoil) atau
+      // menu yang terbuang (menu). Namanya saja tidak cukup untuk mengisi
+      // ulang pilihan di dialog revisi — dua produk boleh bernama mirip, dan
+      // yang dikirim ke database adalah id-nya.
+      //
+      // Kosong kalau 0181 belum dijalankan; layar memakai itu untuk tidak
+      // menawarkan tombol yang pasti gagal.
+      sumberId: teks(b?.sumber_id),
+      outletId: teks(b?.outlet_id),
+      sumberNama: teks(b?.sumber_nama),
+      jenis: teks(b?.jenis),
+      qtyKejadian: Number(b?.qty_kejadian) || 0,
+      revisiKe: Number(b?.revisi_ke) || 0
     };
   });
 
@@ -289,7 +304,18 @@ export function susunRekapWaste({ baris, biaya = new Map(), hpp = new Map(), per
       photoPath: r.photoPath,
       lama: r.lama,
       purpose: r.purpose,
-      terkunci: r.terkunci
+      terkunci: r.terkunci,
+      // Dipakai dialog revisi (0181) untuk mengisi keadaan sekarang. Tanpa
+      // ini, dialognya harus menebak dari teks selnya — dan teks sel sudah
+      // diformat untuk dibaca manusia, bukan untuk dikirim balik.
+      sumberId: r.sumberId,
+      outletId: r.outletId,
+      sumberNama: r.sumberNama,
+      jenis: r.jenis,
+      qtyKejadian: r.qtyKejadian,
+      catatan: r.catatan,
+      revisiKe: r.revisiKe,
+      kode: r.kode
     })),
     ringkas: {
       jumlahKejadian: kejadian.size,

@@ -116,6 +116,11 @@ export async function rekapWaste(businessUnitId, { outletId = null, dateFrom = n
   // belum ada", dan yang mencarinya membuka SQL Editor untuk migration yang
   // sebenarnya sudah jalan.
   const tingkat = [
+    // `sumber_id` & `revisi_ke` (0181): layar revisi perlu tahu ITEM mana yang
+    // sedang tercatat (bukan cuma namanya) dan apakah kejadiannya pernah
+    // direvisi. Ditaruh di tingkat teratas dengan alasan yang sama seperti di
+    // bawah — 0181 bisa belum dijalankan saat kodenya sudah ter-push.
+    { kolom: `${KOLOM_DASAR}, lama, purpose, esb_terkunci, sumber_id, revisi_ke`, pola: /\b(sumber_id|revisi_ke)\b/ },
     // `lama` (0136) menandai catatan sebelum foto diwajibkan. Fotonya memang
     // tidak pernah ada — bukan hilang — dan layar harus bisa mengatakan itu
     // alih-alih menampilkan sel kosong yang terbaca sebagai "staffnya lupa".
@@ -174,6 +179,72 @@ export async function ubahPurposeWaste(wasteIds, purpose) {
   );
   if (error) throw new Error(error.message ?? String(error));
   return Number(data) || 0;
+}
+
+/**
+ * Admin membetulkan jumlah / item / catatan satu kejadian waste (0181).
+ *
+ * ============ APA YANG SEBENARNYA TERJADI DI SEBERANG ============
+ *
+ * Bukan `update` satu kolom: potongan stoknya DIBONGKAR lalu dipasang lagi
+ * dari keadaan baru, dan untuk waste menu bahan resepnya dihitung ulang
+ * seluruhnya. Karena itu jawabannya menyebut berapa baris stok yang terbentuk
+ * — layar memakainya untuk mengatakan "stok sudah dihitung ulang" alih-alih
+ * "tersimpan", yang akan membuat admin mengira stoknya tidak tersentuh.
+ */
+export async function revisiWaste({ wasteId, productId, qty, notes, alasan }) {
+  const { data, error } = await supabase.rpc(
+    'revisi_waste',
+    // `argumenRpc`: `undefined` jadi `null`. PostgREST memilih overload lewat
+    // HIMPUNAN NAMA ARGUMEN, dan kunci yang hilang membuatnya mencari fungsi
+    // lain yang tidak ada.
+    argumenRpc({
+      p_waste: wasteId,
+      p_product: productId,
+      p_qty: Number(qty),
+      p_notes: notes ?? null,
+      p_alasan: alasan ?? null
+    })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? {};
+}
+
+/** Batalkan kejadian waste: stoknya kembali, barisnya tetap ada berjejak. */
+export async function batalkanWaste({ wasteId, alasan }) {
+  const { data, error } = await supabase.rpc(
+    'batalkan_waste',
+    argumenRpc({ p_waste: wasteId, p_alasan: alasan ?? null })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? {};
+}
+
+/** Pulihkan kejadian yang dibatalkan: stoknya terpotong lagi. */
+export async function pulihkanWaste({ wasteId, alasan }) {
+  const { data, error } = await supabase.rpc(
+    'pulihkan_waste',
+    argumenRpc({ p_waste: wasteId, p_alasan: alasan ?? null })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? {};
+}
+
+/**
+ * Kejadian yang dibatalkan pada satu rentang.
+ *
+ * Ada supaya "dibatalkan tapi tetap berjejak" berlaku bagi orang yang memakai
+ * aplikasinya, bukan cuma bagi yang bisa membuka SQL editor — dan supaya admin
+ * yang salah membatalkan punya cara menemukan barisnya kembali.
+ */
+export async function daftarWasteDibatalkan(businessUnitId, { outletId = null, dateFrom = null, dateTo = null } = {}) {
+  if (!businessUnitId) return [];
+  const { data, error } = await supabase.rpc(
+    'daftar_waste_dibatalkan',
+    argumenRpc({ p_bu: businessUnitId, p_outlet: outletId, p_dari: dateFrom, p_sampai: dateTo })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? [];
 }
 
 /** Satu foto untuk dilihat di layar. */

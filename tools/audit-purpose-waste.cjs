@@ -240,7 +240,10 @@ if (wsvc) {
 const esvc = baca('js/modules/inventory/esb.service.js');
 if (esvc) {
   const kode = bersih(esvc, 'esb.service.js', ['export async function wasteUntukEsb']);
-  if (!/select\('id, code, jenis, notes, purpose, outlet_id/.test(kode)) {
+  // Sejak 0181 daftar kolomnya ada di konstanta `DASAR` (dipakai dua kali:
+  // dengan dan tanpa `dibatalkan_at`). Yang diperiksa tetap sama — `purpose`
+  // ikut diambil — cuma tempatnya berpindah.
+  if (!/DASAR = 'id, code, jenis, notes, purpose, outlet_id/.test(kode)) {
     salah('esb.service.js `wasteUntukEsb`: kolom `purpose` tidak diambil — setiap waste akan tertahan dengan alasan yang salah.');
   }
 }

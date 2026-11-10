@@ -82,6 +82,45 @@ export async function sayaAdminBu(businessUnitId) {
   return (data ?? []).some((r) => r.role === 'super_admin' || r.business_unit_id === businessUnitId);
 }
 
+/**
+ * Outlet mana saja yang saya pegang sebagai ADMIN — cermin `is_admin_of_outlet()`.
+ *
+ * ============ KENAPA BUKAN `sayaAdminBu` SAJA ============
+ *
+ * Sebagian wewenang sengaja dibuka untuk admin outlet juga (mis. merevisi
+ * waste di outletnya sendiri, 0181). Memakai `sayaAdminBu` di situ akan
+ * menyembunyikan tombol dari orang yang database-nya justru mengizinkan —
+ * dan ia tidak akan pernah tahu bahwa ia sebenarnya boleh.
+ *
+ * Mengembalikan DUA hal karena keduanya memang berbeda: `adminBu` berlaku
+ * untuk seluruh outlet BU ini (termasuk yang dibuat besok), sementara
+ * `outlets` adalah daftar tertutup.
+ *
+ * Gagal = tidak berwenang. Untuk pertanyaan tentang wewenang, keraguan harus
+ * menutup — arah sebaliknya membuka tombolnya untuk semua orang justru saat
+ * jaringannya sedang bermasalah.
+ */
+export async function scopeAdminSaya(businessUnitId) {
+  const kosong = { adminBu: false, outlets: new Set() };
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+  if (!user) return kosong;
+  const { data, error } = await supabase
+    .from('membership_scopes')
+    .select('role, business_unit_id, outlet_id')
+    .eq('user_id', user.id)
+    .in('role', ['super_admin', 'bu_admin', 'outlet_admin']);
+  if (error) {
+    console.warn('[scope] peran admin tidak terbaca:', error.message);
+    return kosong;
+  }
+  const baris = data ?? [];
+  const adminBu = baris.some((r) => r.role === 'super_admin' || (r.role === 'bu_admin' && r.business_unit_id === businessUnitId));
+  const outlets = new Set(baris.filter((r) => r.role === 'outlet_admin' && r.outlet_id).map((r) => r.outlet_id));
+  return { adminBu, outlets };
+}
+
 /** Apakah basisnya benar-benar dari ★, bukan sekadar fallback konteks aktif. */
 export async function punyaBasisTertandai() {
   const {

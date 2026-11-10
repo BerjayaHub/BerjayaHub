@@ -519,21 +519,42 @@ export async function batalkanTandaKirimanEsb(kirimanIds, alasan) {
 export async function wasteUntukEsb({ businessUnitId, from, to, outletId, termasukSudahEkspor = false }) {
   if (!outletId) throw new Error('Pilih satu outlet dulu — berkas Item Journal tidak punya kolom outlet.');
 
-  const runs = await ambilSemua((dari, sampai) => {
-    let q = supabase
-      .from('waste_runs')
-      .select('id, code, jenis, notes, purpose, outlet_id, created_at, esb_exported_at', { count: 'exact' })
-      .eq('business_unit_id', businessUnitId)
-      .eq('outlet_id', outletId)
-      // `created_at` timestamptz — batas WIB eksplisit memang diperlukan, kalau
-      // tidak waste sore hari di ujung rentang akan hilang.
-      .gte('created_at', isoFrom(from))
-      .lte('created_at', isoTo(to))
-      .order('created_at')
-      .order('code');
-    if (!termasukSudahEkspor) q = q.is('esb_exported_at', null);
-    return q.range(dari, sampai);
-  });
+  // ============ YANG DIBATALKAN TIDAK IKUT BERANGKAT (0181) ============
+  //
+  // Kejadian yang dibatalkan sudah mengembalikan stoknya di sini. Ikut
+  // terekspor, ia menjadi baris di ESB untuk kejadian yang sudah dinyatakan
+  // tidak pernah terjadi — dan selisihnya baru terasa saat stok kedua sistem
+  // dibandingkan, berbulan-bulan kemudian.
+  //
+  // Kolomnya diminta BERTINGKAT, sama seperti `rekapWaste`: 0181 bisa belum
+  // dijalankan saat kodenya sudah ter-push, dan PostgREST menolak SELURUH
+  // permintaan karena satu kolom yang tidak dikenal. Yang hilang lalu bukan
+  // satu saringan, melainkan seluruh layar ekspornya.
+  const ambilRuns = (kolom) =>
+    ambilSemua((dari, sampai) => {
+      let q = supabase
+        .from('waste_runs')
+        .select(kolom, { count: 'exact' })
+        .eq('business_unit_id', businessUnitId)
+        .eq('outlet_id', outletId)
+        // `created_at` timestamptz — batas WIB eksplisit memang diperlukan, kalau
+        // tidak waste sore hari di ujung rentang akan hilang.
+        .gte('created_at', isoFrom(from))
+        .lte('created_at', isoTo(to))
+        .order('created_at')
+        .order('code');
+      if (!termasukSudahEkspor) q = q.is('esb_exported_at', null);
+      return q.range(dari, sampai);
+    });
+
+  const DASAR = 'id, code, jenis, notes, purpose, outlet_id, created_at, esb_exported_at';
+  let runs;
+  try {
+    runs = (await ambilRuns(`${DASAR}, dibatalkan_at`)).filter((w) => !w.dibatalkan_at);
+  } catch (e) {
+    if (!/dibatalkan_at/.test(String(e?.message ?? ''))) throw e;
+    runs = await ambilRuns(DASAR);
+  }
 
   if (!runs.length) return { waste: [], itemsPerWaste: new Map() };
 
