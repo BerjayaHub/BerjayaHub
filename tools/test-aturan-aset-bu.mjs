@@ -24,7 +24,10 @@ import {
   dugaanKembar,
   gabungItemDenganStok,
   namaBaku,
+  asalFoto,
+  fotoBerlaku,
   kelompokStok,
+  lapisFotoAset,
   ringkasOutlet,
   urutDaftarAset,
   urutKode
@@ -382,6 +385,67 @@ console.log('§9 Kode lama ikut terbaca (0180)');
   cek('§9 kode lama yang sama dengan kode sekarang dibuang', satu({ id: 'x', kode: 'K004', kode_lama: 'K004' }).kode_lama, null);
   cek('§9 tanpa kode lama tetap null', satu({ id: 'x', kode: 'K004' }).kode_lama, null);
   cek('§9 kode lama kosong bukan string kosong', satu({ id: 'x', kode: 'K004', kode_lama: '  ' }).kode_lama, null);
+}
+
+// ===============================================================
+console.log('§10 Foto yang berlaku & asalnya (0179 + Admin Portal)');
+// ===============================================================
+//
+// Tiga lapis: foto outlet ini → foto outlet lain se-BU → warisan dari BU asal.
+// Yang diuji di sini bukan "apakah ada fotonya", tapi apakah asalnya masih
+// bisa DISEBUT. Foto acuan yang menyamar jadi milik sendiri akan dipakai
+// sebagai bukti kondisi barang di outlet ini — padahal ia memotret barang di
+// gudang lain, yang mungkin mulus saat punya sendiri sudah gompal.
+{
+  const sendiri = { photo_path: 'o1/a.jpg', photo_acuan: null };
+  const seBu = { photo_path: null, photo_acuan: 'o2/b.jpg', photo_acuan_warisan: false };
+  const warisan = { photo_path: null, photo_acuan: 'o9/c.jpg', photo_acuan_warisan: true };
+  const kosong = { photo_path: null, photo_acuan: null };
+
+  cek('§10 foto sendiri menang', fotoBerlaku(sendiri), 'o1/a.jpg');
+  cek('§10 tanpa foto sendiri, pakai acuan', fotoBerlaku(seBu), 'o2/b.jpg');
+  cek('§10 tanpa keduanya: null, bukan string kosong', fotoBerlaku(kosong), null);
+  cek('§10 tanpa argumen tidak melempar', fotoBerlaku(), null);
+  cek('§10 path berisi spasi dianggap kosong', fotoBerlaku({ photo_path: '   ' }), null);
+
+  cek('§10 asal foto sendiri tidak disebut', asalFoto(sendiri), '');
+  cek('§10 acuan se-BU disebut "outlet lain"', asalFoto(seBu), 'outlet lain');
+  cek('§10 warisan disebut "BU asal"', asalFoto(warisan), 'BU asal');
+  cek('§10 tanpa foto sama sekali', asalFoto(kosong), '');
+  // Foto sendiri MENANG walau kolom warisannya kebetulan masih terisi —
+  // kalau tidak, barang yang sudah difoto sendiri tetap berlabel "BU asal".
+  cek('§10 foto sendiri + penanda warisan: tetap milik sendiri', asalFoto({ photo_path: 'o1/a.jpg', photo_acuan: 'o9/c.jpg', photo_acuan_warisan: true }), '');
+}
+
+// ============ SATU ATURAN, DIPAKAI DUA PENYUSUN BARIS ============
+//
+// `gabungItemDenganStok` (satu outlet) dan penyusun baris "semua outlet" di
+// `asset.service.js` harus menghasilkan lapis foto yang SAMA. Versi pertama
+// yang kedua lupa menghitungnya sama sekali: foto tampil di Staff App dan
+// kolomnya kosong di Admin Portal, tanpa galat di mana pun.
+{
+  const item = { id: 'i1', kode: 'K001', name: 'Piring', photo_path: 'oA/bu.jpg', photo_outlet_id: 'oA', foto_asal_path: 'oZ/asal.jpg', foto_asal_outlet_id: 'oZ' };
+  const stok = { id: 's1', asset_item_id: 'i1', qty: 3, photo_path: null };
+
+  const lewatGabung = gabungItemDenganStok({ items: [item], stok: [stok] })[0];
+  const lewatLapis = lapisFotoAset(item, stok);
+  cek('§10 keduanya sepakat soal foto acuan', lewatGabung.photo_acuan, lewatLapis.photo_acuan);
+  cek('§10 keduanya sepakat soal outletnya', lewatGabung.photo_acuan_outlet, lewatLapis.photo_acuan_outlet);
+  cek('§10 keduanya sepakat soal warisan', lewatGabung.photo_acuan_warisan, lewatLapis.photo_acuan_warisan);
+
+  // Foto se-BU MENANG atas warisan: barang yang sudah difoto outlet tetangga
+  // lebih dekat ke kenyataan daripada foto dari BU yang mengirimnya.
+  cek('§10 foto se-BU didahulukan atas warisan', lewatLapis.photo_acuan, 'oA/bu.jpg');
+  cek('§10 dan tidak disebut warisan', lewatLapis.photo_acuan_warisan, false);
+
+  const tanpaSeBu = lapisFotoAset({ ...item, photo_path: null, photo_outlet_id: null }, stok);
+  cek('§10 tanpa foto se-BU, warisan dipakai', tanpaSeBu.photo_acuan, 'oZ/asal.jpg');
+  cek('§10 dan disebut warisan', tanpaSeBu.photo_acuan_warisan, true);
+
+  // Outlet ini SUDAH punya fotonya sendiri: tidak ada acuan sama sekali.
+  const punyaSendiri = lapisFotoAset(item, { ...stok, photo_path: 'oB/sendiri.jpg' });
+  cek('§10 yang punya foto sendiri tidak membawa acuan', punyaSendiri.photo_acuan, null);
+  cek('§10 dan tidak menandai warisan', punyaSendiri.photo_acuan_warisan, false);
 }
 
 // ---------------------------------------------------------------

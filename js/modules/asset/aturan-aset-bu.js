@@ -178,18 +178,68 @@ export function gabungItemDenganStok({ items = [], stok = [] } = {}) {
       // belum ada satu pun outlet di sini yang memotretnya. Tanpa lapis itu,
       // barang yang baru datang tampil tanpa foto — dan yang menerimanya
       // tidak punya cara memastikan barang yang mana yang dimaksud.
-      photo_acuan: s?.photo_path ? null : (i?.photo_path ?? i?.foto_asal_path ?? null),
-      photo_acuan_outlet: s?.photo_path ? null : (i?.photo_outlet_id ?? i?.foto_asal_outlet_id ?? null),
-      // Dibedakan supaya layar bisa menyebut asalnya dengan jujur: "foto
-      // outlet lain" dan "foto dari BU asal" menuntut tingkat kepercayaan
-      // yang berbeda saat dipakai memeriksa kondisi barang.
-      photo_acuan_warisan: !s?.photo_path && !i?.photo_path && Boolean(i?.foto_asal_path),
+      // Ketiga lapis dihitung `lapisFotoAset` — SATU tempat, karena daftar
+      // "semua outlet" menyusun barisnya sendiri dan versi pertamanya lupa
+      // ikut menghitung lapis acuannya. Akibatnya: foto tampil di Staff App
+      // (yang selalu memilih satu outlet) dan kolomnya kosong di Admin Portal.
+      ...lapisFotoAset(i, s),
       // Tidak adanya baris stok ADALAH penandanya. Tidak ada kolom tambahan
       // yang bisa basi atau lupa diisi.
       belumDidata: !s,
       updated_at: s?.updated_at ?? null
     };
   });
+}
+
+/**
+ * Tiga lapis foto sebuah baris aset, dari yang paling berhak:
+ *
+ *   1. foto outlet ini sendiri    (`s.photo_path`)
+ *   2. foto outlet lain se-BU     (`i.photo_path`, 0171)
+ *   3. foto warisan dari BU asal  (`i.foto_asal_path`, 0179)
+ *
+ * Dipakai `gabungItemDenganStok` (satu outlet) DAN penyusun baris "semua
+ * outlet" di `asset.service.js`. Dua salinan aturan ini pernah ada, dan yang
+ * kedua lupa lapis 2 & 3 — fotonya tampil di satu layar dan hilang di layar
+ * sebelahnya, tanpa galat di mana pun.
+ */
+export function lapisFotoAset(i, s) {
+  return {
+    photo_acuan: s?.photo_path ? null : (i?.photo_path ?? i?.foto_asal_path ?? null),
+    photo_acuan_outlet: s?.photo_path ? null : (i?.photo_outlet_id ?? i?.foto_asal_outlet_id ?? null),
+    // Dibedakan supaya layar bisa menyebut asalnya dengan jujur: "foto outlet
+    // lain" dan "foto dari BU asal" menuntut tingkat kepercayaan yang berbeda
+    // saat dipakai memeriksa kondisi barang.
+    photo_acuan_warisan: !s?.photo_path && !i?.photo_path && Boolean(i?.foto_asal_path)
+  };
+}
+
+/**
+ * Foto yang BENAR-BENAR dipakai baris ini — miliknya sendiri, atau acuannya.
+ *
+ * Ada supaya layar, PDF, dan Excel memakai jawaban yang sama. Ketiganya
+ * sempat memakai `photo_path` saja; akibatnya foto acuan tampil di tabel tapi
+ * kolom fotonya kosong di kedua ekspor — dan berkas itulah yang dikirim ke
+ * orang yang tidak bisa membuka aplikasinya.
+ */
+export function fotoBerlaku(a) {
+  return teks(a?.photo_path).trim() || teks(a?.photo_acuan).trim() || null;
+}
+
+/**
+ * Asal foto itu, untuk DISEBUT — bukan untuk dihias.
+ *
+ * '' berarti foto barang ini sendiri. Yang lain harus tertulis di mana pun
+ * fotonya tampil, termasuk di dalam berkas ekspor: foto acuan yang menyamar
+ * jadi milik sendiri akan dipakai sebagai bukti kondisi barang, padahal ia
+ * memotret barang di gudang lain yang mungkin mulus saat punya sendiri sudah
+ * gompal.
+ */
+export function asalFoto(a) {
+  if (!a?.photo_path && teks(a?.photo_acuan).trim()) {
+    return a?.photo_acuan_warisan ? 'BU asal' : 'outlet lain';
+  }
+  return '';
 }
 
 /**

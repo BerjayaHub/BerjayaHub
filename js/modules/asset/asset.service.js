@@ -9,7 +9,7 @@ import { UMUR_TAUTAN_KETUK, UMUR_TAUTAN_THUMBNAIL } from '../../core/tautan-foto
 // komunitas tidak bisa membaca gambar sama sekali — dan memakai dua pustaka
 // untuk satu berkas berarti dua anggapan tentang bentuknya.
 import { loadExcelJS } from '../../core/xlsx-foto.js';
-import { gabungItemDenganStok, urutDaftarAset } from './aturan-aset-bu.js';
+import { gabungItemDenganStok, lapisFotoAset, urutDaftarAset } from './aturan-aset-bu.js';
 
 export const ASSET_CONDITION = { normal: 'Normal', rusak: 'Rusak', lainnya: 'Lain-lain' };
 export const ASSET_CONDITION_BADGE = { normal: 'badge-approved', rusak: 'badge-rejected', lainnya: 'badge-pending' };
@@ -118,6 +118,14 @@ export async function listAssets({ businessUnitId, outletId, condition, category
         condition_note: s.condition_note,
         notes: s.notes,
         photo_path: s.photo_path,
+        // ============ LAPIS ACUANNYA IKUT DI SINI JUGA ============
+        //
+        // Versi pertama cabang ini cuma membawa `photo_path`, dan akibatnya
+        // halus: foto acuan tampil di Staff App (yang selalu memilih satu
+        // outlet) sementara kolom Foto di Admin Portal — yang bawaannya
+        // "Semua outlet" — kosong untuk barang yang sama. Tidak ada galat,
+        // dan yang melihatnya menyimpulkan fotonya memang belum ada.
+        ...lapisFotoAset(peta.get(s.asset_item_id), s),
         outlet_id: s.outlet_id,
         outlets: s.outlets,
         diubah_oleh: s.user_profiles?.full_name ?? null,

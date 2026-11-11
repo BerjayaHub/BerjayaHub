@@ -36,7 +36,7 @@ import { pesanGagalFoto, PESAN_GAGAL_UMUM } from '../../core/tautan-foto.js';
 // Aturan impornya tinggal di modul murni — bisa diuji terhadap berkas .xlsx
 // sungguhan tanpa browser, dan layar ini cuma menggambarkannya.
 import { barisTemplateAset, susunImporAset, nilaiSimpan, ringkasImpor } from './impor-aset.js';
-import { kalimatRiwayat } from './aturan-aset-bu.js';
+import { kalimatRiwayat, fotoBerlaku, asalFoto } from './aturan-aset-bu.js';
 
 /**
  * Inventaris Aset — dipakai Staff App maupun Admin Portal.
@@ -919,20 +919,33 @@ async function render(container, { businessUnitId }, isAdmin) {
       // jadi URL jaringan menghasilkan halaman kosong tanpa error apa pun.
       // Dikerjakan berurutan (bukan Promise.all) supaya ratusan gambar tidak
       // dimuat serentak dan membuat tab menggantung.
+      // FOTO YANG BERLAKU, bukan `photo_path` saja.
+      //
+      // Barang hasil transfer antar BU fotonya ada di `photo_acuan` (0179).
+      // Versi pertama ekspor ini cuma melihat `photo_path`, jadi kolom
+      // fotonya kosong persis untuk barang yang paling butuh dikenali lewat
+      // foto — dan berkas inilah yang dikirim ke orang yang tidak bisa
+      // membuka aplikasinya.
       const fotoPdf = new Map();
       for (const a of rows) {
-        if (!a.photo_path) continue;
-        const url = fotoUrl.get(a.photo_path);
+        const path = fotoBerlaku(a);
+        if (!path) continue;
+        const url = fotoUrl.get(path);
         if (!url) continue;
         const dataUrl = await imageToDataUrl(url, 160, 0.7);
         if (dataUrl) fotoPdf.set(a.id, dataUrl);
       }
+      // Kolom "Asal foto" hanya muncul kalau memang ADA yang acuan. Foto acuan
+      // yang menyamar jadi milik sendiri akan dibaca sebagai bukti kondisi
+      // barang di outlet ini, padahal ia memotret barang di gudang lain.
+      const adaAcuan = rows.some((a) => asalFoto(a));
 
       await exportTablePDF({
         title: 'Inventaris Aset',
         subtitle: `${nama}${ringkasSaringan(state, ASSET_CONDITION)} · ${rows.length} jenis barang`,
         columns: [
           { header: 'Foto', width: 0.9 },
+          ...(adaAcuan ? [{ header: 'Asal foto', width: 0.9 }] : []),
           { header: 'Kode', width: 0.8 },
           { header: 'Nama Barang', width: 1.8 },
           { header: 'Kategori', width: 1.1 },
@@ -944,6 +957,7 @@ async function render(container, { businessUnitId }, isAdmin) {
         ],
         rows: rows.map((a) => [
           fotoPdf.has(a.id) ? { image: fotoPdf.get(a.id), w: 46, h: 34 } : '-',
+          ...(adaAcuan ? [asalFoto(a) || 'outlet ini'] : []),
           a.kode ?? '-',
           a.name,
           a.category ?? '-',
@@ -974,7 +988,7 @@ async function render(container, { businessUnitId }, isAdmin) {
   async function exportXlsx() {
     if (!rows.length) return toast('Tidak ada data untuk diexport.', 'warning');
     const nama = state.outletId ? outlets.find((o) => o.id === state.outletId)?.name ?? '-' : 'Semua outlet';
-    const berfoto = rows.filter((a) => a.photo_path).length;
+    const berfoto = rows.filter((a) => fotoBerlaku(a)).length;
 
     try {
       if (berfoto) toast(`Menyiapkan ${berfoto} foto…`, 'info');
@@ -985,8 +999,11 @@ async function render(container, { businessUnitId }, isAdmin) {
       // yang sudah dilakukan di jalur PDF.
       const fotoSel = new Map();
       for (const a of rows) {
-        if (!a.photo_path) continue;
-        const url = fotoUrl.get(a.photo_path);
+        // Sama seperti jalur PDF: foto yang BERLAKU, termasuk acuan dari
+        // outlet lain atau dari BU asal.
+        const path = fotoBerlaku(a);
+        if (!path) continue;
+        const url = fotoUrl.get(path);
         // Signed URL-nya sendiri gagal dibuat, atau gambarnya gagal dimuat.
         // Dua-duanya ditandai 'GAGAL', bukan dikosongkan: sel kosong terbaca
         // sebagai "barang ini belum difoto", dan orang akan disuruh memfoto
@@ -1002,6 +1019,7 @@ async function render(container, { businessUnitId }, isAdmin) {
         subtitle: `${nama}${ringkasSaringan(state, ASSET_CONDITION)} · ${rows.length} jenis barang · diunduh ${new Date().toLocaleString('id-ID')}`,
         columns: [
           { header: 'Foto', foto: true },
+          ...(rows.some((a) => asalFoto(a)) ? [{ header: 'Asal foto', width: 14 }] : []),
           { header: 'Kode', width: 12 },
           { header: 'Nama Barang', width: 28 },
           { header: 'Kategori', width: 18 },
@@ -1012,7 +1030,8 @@ async function render(container, { businessUnitId }, isAdmin) {
           { header: 'Catatan', width: 30 }
         ],
         rows: rows.map((a) => [
-          a.photo_path ? fotoSel.get(a.id) ?? 'GAGAL' : null,
+          fotoBerlaku(a) ? fotoSel.get(a.id) ?? 'GAGAL' : null,
+          ...(rows.some((x) => asalFoto(x)) ? [asalFoto(a) || 'outlet ini'] : []),
           a.kode ?? '-',
           a.name,
           a.category ?? '-',
@@ -1054,6 +1073,13 @@ async function render(container, { businessUnitId }, isAdmin) {
       // Berurutan, BUKAN Promise.all — alasan yang sama dengan Export Excel:
       // ratusan gambar serentak membuat sebagian permintaan tertunda lama, dan
       // hasilnya berkas yang "sebagian fotonya hilang" tanpa sebab yang jelas.
+      // ============ DI SINI SENGAJA `photo_path` SAJA ============
+      //
+      // Berbeda dari Export Excel: template ini DIUNGGAH KEMBALI, dan foto
+      // yang ada di kolomnya akan tersimpan sebagai foto OUTLET INI. Mengisinya
+      // dengan foto acuan milik outlet lain (atau warisan dari BU asal)
+      // membuat satu kali impor diam-diam mengubah foto pinjaman jadi foto
+      // sendiri — dan sesudah itu tidak ada lagi yang bisa membedakannya.
       const fotoSel = new Map();
       for (const a of rows) {
         if (!a.photo_path) continue;
@@ -1311,7 +1337,7 @@ function fotoSel(a, fotoUrl, namaOutletAcuan = null) {
   // Tapi ia WAJIB terlihat berbeda. Foto yang disamarkan sebagai milik sendiri
   // akan dipakai sebagai bukti kondisi barang outlet ini — padahal ia memotret
   // barang di gudang lain, yang mungkin mulus saat punya sendiri sudah gompal.
-  const path = a.photo_path || a.photo_acuan;
+  const path = fotoBerlaku(a);
   if (!path) return '<span style="color:var(--color-text-muted)">-</span>';
 
   const acuan = !a.photo_path && a.photo_acuan;

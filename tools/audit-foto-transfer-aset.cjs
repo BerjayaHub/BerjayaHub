@@ -158,8 +158,24 @@ if (sql) {
 // 2. Klien
 // =====================================================================
 const svc = bacaKode(SVC);
-if (svc && !/foto_asal_path, foto_asal_outlet_id/.test(svc)) {
-  salah(`${SVC}: kolom warisan tidak ikut diambil — item hasil transfer tampil tanpa foto.`);
+if (svc) {
+  if (!/foto_asal_path, foto_asal_outlet_id/.test(svc)) {
+    salah(`${SVC}: kolom warisan tidak ikut diambil — item hasil transfer tampil tanpa foto.`);
+  }
+  // ============ DUA PENYUSUN BARIS, SATU ATURAN ============
+  //
+  // `listAssets` punya DUA cabang: satu outlet (lewat `gabungItemDenganStok`)
+  // dan "semua outlet" (menyusun barisnya sendiri). Cabang kedua sempat lupa
+  // menghitung lapis fotonya — akibatnya foto tampil di Staff App, yang selalu
+  // memilih satu outlet, dan kolom Foto di Admin Portal kosong untuk barang
+  // yang sama. Tidak ada galat; yang melihatnya menyimpulkan fotonya memang
+  // belum ada.
+  const i = svc.indexOf('export async function listAssets(');
+  const badan = i < 0 ? '' : svc.slice(i, svc.indexOf('\n}', i));
+  if (!badan) salah(`${SVC}: \`listAssets\` tidak ditemukan.`);
+  else if (!/lapisFotoAset\(/.test(badan)) {
+    salah(`${SVC}: cabang "semua outlet" tidak menghitung lapis foto — kolom Foto di Admin Portal akan kosong.`);
+  }
 }
 
 const aturan = bacaKode(ATURAN);
@@ -176,6 +192,53 @@ if (aturan) {
 
 const page = bacaKode(PAGE);
 if (page) {
+  // ============ EKSPOR IKUT MEMBAWA FOTONYA ============
+  //
+  // PDF & Excel sempat memakai `photo_path` saja, jadi kolom fotonya kosong
+  // persis untuk barang hasil transfer — barang yang paling butuh dikenali
+  // lewat foto. Dan berkas itulah yang dikirim ke orang yang tidak bisa
+  // membuka aplikasinya.
+  //
+  // Diperiksa PER EKSPOR, di dalam badan fungsinya masing-masing. Mencari
+  // `fotoBerlaku(` di seluruh berkas membuat pemeriksaan ini tetap hijau
+  // selama SALAH SATU ekspor masih memakainya — dan yang satunya diam-diam
+  // kembali ke `photo_path`.
+  const badanFungsi = (nama) => {
+    const i = page.indexOf(`async function ${nama}(`);
+    if (i < 0) return '';
+    const j = page.indexOf('\n  }', i);
+    return j < 0 ? page.slice(i) : page.slice(i, j);
+  };
+  for (const [nama, sebutan] of [
+    ['exportPdf', 'PDF'],
+    ['exportXlsx', 'Excel']
+  ]) {
+    const badan = badanFungsi(nama);
+    if (!badan) {
+      salah(`${PAGE}: \`${nama}\` tidak ditemukan — audit ekspornya kehilangan sasaran.`);
+      continue;
+    }
+    if (!/fotoBerlaku\(/.test(badan)) {
+      salah(`${PAGE}: ekspor ${sebutan} memakai \`photo_path\` saja — kolom fotonya kosong untuk barang hasil transfer.`);
+    }
+    // Asal fotonya DISEBUT di dalam berkasnya juga, bukan cuma di layar: foto
+    // acuan yang menyamar jadi milik sendiri akan dibaca sebagai bukti kondisi
+    // barang di outlet ini.
+    if (!/Asal foto/.test(badan) || !/asalFoto\(/.test(badan)) {
+      salah(`${PAGE}: ekspor ${sebutan} tidak menyebut asal foto — foto acuan menyamar jadi foto barang outlet ini di dalam berkas.`);
+    }
+  }
+
+  // TEMPLATE IMPOR sengaja TIDAK memakai foto acuan: berkas itu diunggah
+  // kembali, dan fotonya akan tersimpan sebagai foto outlet ini.
+  const t = page.indexOf('async function unduhTemplate(');
+  const badanT = t < 0 ? '' : page.slice(t, page.indexOf('\n  }', t));
+  if (badanT && /fotoBerlaku\(/.test(badanT)) {
+    salah(
+      `${PAGE}: template impor memakai foto acuan. Berkas itu diunggah kembali, ` +
+        'jadi satu kali impor akan diam-diam mengubah foto pinjaman jadi foto milik outlet ini.'
+    );
+  }
   // DIHITUNG: asalnya disebut di DUA tempat — keterangan saat disentuh
   // (`title`) dan penanda kecil di bawah gambarnya. Memeriksa satu saja
   // membuat yang lain bisa diratakan jadi "Foto acuan" sementara auditnya

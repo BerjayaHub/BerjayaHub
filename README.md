@@ -10539,3 +10539,56 @@ Stok sistem untuk penolan dibaca **saat menutup**, bukan dari potret saat sesi
 dibuka: nota yang masuk di tengah sesi ikut dinolkan, sesuai arti "menyeluruh".
 
 - [x] **Opname menyeluruh** (`0182`) — tes PGlite 29 pemeriksaan, 17 sabotase
+
+## Foto acuan yang hilang di Admin Portal & ekspor
+
+> *"foto asset yang tampil di BU asal sudah tampil di staff app, tetapi di
+> admin portal tidak tampil, juga di export excel dan pdf nya foto foto itu
+> tidak keluar"*
+
+Satu gejala, **dua sebab yang berbeda** — dan keduanya bentuk kegagalan yang
+sama: fotonya ada, cuma tidak pernah ditanyakan.
+
+### 1. Admin Portal: cabangnya yang lain
+
+`listAssets` punya dua cabang. Dengan satu outlet terpilih ia memakai
+`gabungItemDenganStok`, yang menghitung tiga lapis foto (foto outlet ini → foto
+outlet lain se-BU → warisan dari BU asal). Tanpa outlet — **bawaan Admin
+Portal adalah "Semua outlet"** — ia menyusun barisnya sendiri, dan penyusun itu
+cuma membawa `photo_path`.
+
+Jadi foto yang sama tampil di Staff App (yang selalu memilih satu outlet) dan
+kosong di Admin Portal. Tidak ada galat, dan yang melihatnya menyimpulkan
+fotonya memang belum ada. Aturannya sekarang satu fungsi — `lapisFotoAset` —
+dipakai kedua cabang, dan tesnya membandingkan keduanya langsung.
+
+### 2. PDF & Excel: `photo_path` saja
+
+Kedua ekspor memilih fotonya sendiri, dan keduanya melihat `photo_path`. Kolom
+fotonya karena itu kosong **persis untuk barang hasil transfer** — barang yang
+paling butuh dikenali lewat foto, di berkas yang justru dikirim ke orang yang
+tidak bisa membuka aplikasinya. Keduanya sekarang memakai `fotoBerlaku()`.
+
+Auditnya memeriksa **per ekspor, di dalam badan fungsinya**: mencari
+`fotoBerlaku(` di seluruh berkas membuat pemeriksaannya tetap hijau selama
+salah satu ekspor masih memakainya, sementara yang lain diam-diam kembali ke
+`photo_path`. Dua sabotase pertama lolos persis karena itu.
+
+### Asal fotonya ikut tertulis di dalam berkas
+
+Kolom **"Asal foto"** muncul di PDF & Excel begitu ada satu baris yang fotonya
+acuan: *"outlet ini"*, *"outlet lain"*, atau *"BU asal"*. Foto acuan yang
+menyamar jadi milik sendiri akan dibaca sebagai bukti kondisi barang di outlet
+ini — padahal ia memotret barang di gudang lain, yang mungkin mulus saat punya
+sendiri sudah gompal. Di layar penandanya sudah ada sejak 0179; di berkas
+belum.
+
+### Yang sengaja TIDAK ikut: template impor
+
+Template Impor Excel tetap memakai `photo_path` saja. Berkas itu **diunggah
+kembali**, dan foto yang ada di kolomnya tersimpan sebagai foto outlet ini —
+jadi mengisinya dengan foto acuan membuat satu kali impor diam-diam mengubah
+foto pinjaman jadi foto sendiri, dan sesudah itu tidak ada lagi yang bisa
+membedakannya. Auditnya menjaga arah itu juga.
+
+- [x] **Foto acuan tampil di Admin Portal, PDF & Excel** — tes murni §10 (19 pemeriksaan), 4 sabotase tambahan

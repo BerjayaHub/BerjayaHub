@@ -257,6 +257,49 @@ sabotase(
 
 sabotase('penanda "foto dari BU asal" dicabut', PAGE, "'foto dari BU asal'", "'foto outlet lain'", AUDIT);
 
+// =====================================================================
+console.log('\nSABOTASE: LAYAR ADMIN & EKSPORNYA');
+// =====================================================================
+//
+// Foto yang tampil di satu layar dan hilang di layar sebelahnya adalah bentuk
+// kegagalan yang paling sering dilaporkan belakangan — dan paling sulit
+// dipercaya saat dilaporkan, karena "fotonya ada kok".
+
+sabotase(
+  'cabang "semua outlet" berhenti menghitung lapis fotonya',
+  SVC,
+  '        ...lapisFotoAset(peta.get(s.asset_item_id), s),',
+  '',
+  AUDIT
+);
+
+sabotase(
+  'ekspor kembali memakai photo_path saja',
+  PAGE,
+  '        const path = fotoBerlaku(a);\n        if (!path) continue;\n        const url = fotoUrl.get(path);\n        if (!url) continue;',
+  '        const path = a.photo_path;\n        if (!path) continue;\n        const url = fotoUrl.get(path);\n        if (!url) continue;',
+  AUDIT
+);
+
+sabotase(
+  'asal foto tidak disebut di dalam berkas ekspor',
+  PAGE,
+  "          ...(adaAcuan ? [{ header: 'Asal foto', width: 0.9 }] : []),",
+  '',
+  AUDIT
+);
+
+// Template impor DIUNGGAH KEMBALI: foto acuan di dalamnya akan tersimpan
+// sebagai foto outlet ini, dan sesudah itu tidak ada lagi yang bisa
+// membedakannya dari foto sendiri.
+sabotase(
+  'template impor ikut memakai foto acuan',
+  PAGE,
+  '      const fotoSel = new Map();\n      for (const a of rows) {\n        if (!a.photo_path) continue;\n        const url = fotoUrl.get(a.photo_path);\n        const dataUrl = url ? await imageToDataUrl(url, 220, 0.72) : null;',
+  '      const fotoSel = new Map();\n      for (const a of rows) {\n        const p = fotoBerlaku(a);\n        if (!p) continue;\n        const url = fotoUrl.get(p);\n        const dataUrl = url ? await imageToDataUrl(url, 220, 0.72) : null;',
+  AUDIT
+);
+
 // ---------------------------------------------------------------
 console.log('');
 if (gagal === 0) console.log('Semua sabotase foto transfer aset tertangkap. ✅');
