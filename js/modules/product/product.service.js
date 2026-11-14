@@ -17,13 +17,35 @@ export async function listUnits() {
   if (error) throw error;
   return data ?? [];
 }
+/**
+ * Tambah satuan — LEWAT RPC, bukan insert langsung (0183).
+ *
+ * `units` tabel GLOBAL tanpa pemilik BU, dan policy tulisnya tetap super
+ * admin saja. Jalan masuk untuk admin BU/outlet adalah fungsi ini, yang juga
+ * merapikan namanya dan mengembalikan satuan yang SUDAH ADA kalau namanya
+ * sama tanpa peduli huruf besar-kecil — supaya "Gram" dan "gram" tidak jadi
+ * dua baris di dropdown setiap BU.
+ */
 export async function createUnit(name) {
-  const { error } = await supabase.from('units').insert({ name });
-  if (error) throw error;
+  const { data, error } = await supabase.rpc('tambah_satuan', { p_nama: String(name ?? '') });
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? {};
 }
+
+/**
+ * Hapus satuan — juga lewat RPC.
+ *
+ * ============ KENAPA BUKAN `.delete()` LAGI ============
+ *
+ * Penolakan RLS pada DELETE tidak melempar galat: ia membalas sukses dengan
+ * NOL baris terhapus. Versi lamanya karena itu berkata "Satuan dihapus" ke
+ * admin BU yang sebenarnya ditolak, dan satuannya masih ada saat layar dimuat
+ * ulang. RPC-nya melempar kalimat yang menjelaskan.
+ */
 export async function deleteUnit(id) {
-  const { error } = await supabase.from('units').delete().eq('id', id);
-  if (error) throw error;
+  const { data, error } = await supabase.rpc('hapus_satuan', { p_id: id });
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? {};
 }
 
 // ---- Produk ----

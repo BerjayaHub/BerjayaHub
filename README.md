@@ -10592,3 +10592,73 @@ foto pinjaman jadi foto sendiri, dan sesudah itu tidak ada lagi yang bisa
 membedakannya. Auditnya menjaga arah itu juga.
 
 - [x] **Foto acuan tampil di Admin Portal, PDF & Excel** — tes murni §10 (19 pemeriksaan), 4 sabotase tambahan
+
+## Master Satuan untuk admin BU & admin outlet (`0183`)
+
+> *"ada case user dengan 2 BU... dia tidak bisa menambahkan master satuan di
+> modul inventory master produk... saat ini saya dengan scope super admin saja
+> yang sementara saya tahu bisa"*
+
+### Sebabnya bukan outlet basis
+
+Dugaan awalnya: *"admin BU di BU yang bukan outlet basisnya tidak bisa"*.
+Yang sebenarnya: **`units` tidak punya `business_unit_id` sama sekali.** Ia
+tabel global, dan policy-nya sejak `0019` berbunyi `is_super_admin` — jadi
+seluruh admin BU dan admin outlet ditolak, di BU mana pun, basis atau bukan.
+
+Bedanya menentukan: kalau diperbaiki sebagai masalah basis, yang disentuh
+adalah `membership_scopes`, dan satuannya **tetap** tidak bisa ditambah.
+
+### Kenapa lewat RPC, bukan sekadar melonggarkan policy
+
+Daftar ini dipakai semua BU. Membuka `insert` begitu saja membuat tiap salah
+ketik jadi milik semua orang: "Kg", "kg", "KG", "kg " hidup berdampingan di
+dropdown setiap BU, dan tidak ada galat yang menandainya.
+
+`tambah_satuan` merapikan namanya (spasi tepi & spasi ganda) dan
+mengembalikan satuan yang **sudah ada** kalau namanya sama tanpa peduli huruf
+besar-kecil — bukan menolak. Penolakan membuat orang mengetik variasi lain
+sampai lolos, dan itu persis cara daftar seperti ini jadi berantakan.
+
+### Menghapus tetap lebih ketat daripada menambah
+
+| siapa | boleh menghapus |
+| --- | --- |
+| super admin | apa pun |
+| admin yang menambahkannya | hanya miliknya, dan hanya kalau belum dipakai produk mana pun |
+| admin lain, staff | tidak |
+
+Satuan yang dihapus hilang dari dropdown **semua BU**, sementara produk
+menyimpan satuannya sebagai teks (`products.base_unit`) — barisnya tidak ikut
+hilang, ia cuma tidak bisa dipilih lagi saat produk itu disunting, dan yang
+menyuntingnya akan mengira datanya rusak. Satuan bawaan 0019 tidak punya
+pembuat, jadi hanya super admin yang bisa membuangnya.
+
+Policy tulis langsung **sengaja tidak dilonggarkan**: satu-satunya jalan masuk
+adalah kedua RPC itu. Policy `insert` yang terbuka akan dilewati justru oleh
+PWA lama — yang tidak tahu aturan barunya.
+
+### Satu bug yang ikut ketahuan
+
+`deleteUnit` memakai `.delete()` langsung, dan penolakan RLS pada DELETE
+**tidak melempar galat** — ia membalas sukses dengan nol baris. Jadi admin BU
+yang menekan Hapus melihat *"Satuan dihapus."*, lalu satuannya masih ada saat
+layar dimuat ulang. Sekarang lewat RPC yang melempar kalimat yang menjelaskan.
+
+### Master lain: mana yang masuk akal tetap dibatasi
+
+| master | siapa yang boleh | wajar? |
+| --- | --- | --- |
+| Satuan (global) | **admin BU & outlet (0183)** | diperbaiki di sini |
+| Kategori Kas | admin BU, per BU | ya — datanya milik BU |
+| Jenis Cuti | admin BU untuk jenis BU-nya; global hanya super admin | ya |
+| Supplier, Master ESB/Purpose | admin BU, per BU | ya |
+| Divisi, Shift outlet | admin BU / admin outlet | ya |
+| Modul, Organisasi, Izin tab admin | super admin | ya — mengatur aplikasinya sendiri |
+| Setelan integrasi & rute Telegram | super admin | ya — memuat token |
+| Toggle "staff boleh opname" | super admin | ya — melonggarkan siapa yang boleh mengubah stok |
+
+Yang super-admin-only sisanya menyentuh **pengaturan aplikasi atau
+kredensial**, bukan data kerja harian — jadi dibiarkan.
+
+- [x] **Master Satuan untuk admin BU & outlet** (`0183`) — tes PGlite 36 pemeriksaan, 13 sabotase

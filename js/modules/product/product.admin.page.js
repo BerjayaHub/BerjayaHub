@@ -1086,7 +1086,11 @@ async function renderUnitsTab(content) {
       <h2 style="font-size:1.05rem;margin:0">Satuan (dipakai semua BU)</h2>
       <button class="primary" id="btn-new-unit" style="max-width:180px">+ Tambah Satuan</button>
     </div>
-    <p style="color:var(--color-text-muted);font-size:0.85rem">Satuan dipilih lewat dropdown saat menambah produk, biar konsisten. Hanya Super Admin yang bisa ubah daftar ini.</p>
+    <p style="color:var(--color-text-muted);font-size:0.85rem">
+      Satuan dipilih lewat dropdown saat menambah produk, biar konsisten. Daftar ini
+      <strong>dipakai semua BU</strong>: admin BU &amp; admin outlet boleh menambah, tapi yang
+      <strong>menghapus</strong> hanya Super Admin — kecuali satuan yang kamu tambahkan sendiri dan belum dipakai produk mana pun.
+    </p>
     <table class="data-table" style="max-width:360px">
       <thead><tr><th>Satuan</th><th>Aksi</th></tr></thead>
       <tbody>
@@ -1098,11 +1102,20 @@ async function renderUnitsTab(content) {
     const v = await formDialog({ title: 'Tambah Satuan', fields: [{ name: 'name', label: 'Nama Satuan', type: 'text', required: true, placeholder: 'mis. gram' }], submitText: 'Simpan' });
     if (!v) return;
     try {
-      await createUnit(v.name.trim());
-      toast('Satuan ditambahkan.', 'success');
+      const hasil = await createUnit(v.name.trim());
+      // DIBEDAKAN: "sudah ada" bukan kegagalan, tapi juga bukan penambahan.
+      // Mengatakan "ditambahkan" untuk satuan yang sudah ada sejak dulu
+      // membuat orang mengira daftarnya bertambah, lalu mencarinya di urutan
+      // yang salah.
+      toast(
+        hasil?.baru === false
+          ? `"${hasil.nama}" sudah ada di daftar — dipakai yang itu.`
+          : `Satuan "${hasil?.nama ?? v.name.trim()}" ditambahkan.`,
+        hasil?.baru === false ? 'info' : 'success'
+      );
       await renderUnitsTab(content);
     } catch (error) {
-      toast(error.message ?? 'Gagal menambah (hanya Super Admin).', 'error');
+      toast(error.message ?? 'Gagal menambah satuan.', 'error');
     }
   }));
   content.querySelectorAll('.btn-del-unit').forEach((btn) =>
