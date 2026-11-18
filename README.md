@@ -10662,3 +10662,63 @@ Yang super-admin-only sisanya menyentuh **pengaturan aplikasi atau
 kredensial**, bukan data kerja harian — jadi dibiarkan.
 
 - [x] **Master Satuan untuk admin BU & outlet** (`0183`) — tes PGlite 36 pemeriksaan, 13 sabotase
+
+## Mengubah jumlah di draft order selalu ditolak (`0184`)
+
+> *"draft nya jeruk nipis 250 gr, lalu di draft ini di ubah menjadi 750 gr,
+> setelah tap simpan perubahan muncul peringatan jeruk nipis sudah ada jangan
+> membuat baris baru, padahal staff tidak membuat baris baru"*
+
+Staffnya benar. Ia memang tidak menambah baris apa pun.
+
+### `ON CONFLICT` tidak mendahului trigger
+
+`ubah_draft_order` (`0145`) menyimpan tiap baris dengan upsert:
+
+```sql
+insert into stock_order_items(order_id, product_id, qty) values (...)
+on conflict (order_id, product_id) do update set qty = excluded.qty;
+```
+
+Dan `0129` memasang trigger **BEFORE INSERT** `tolak_bahan_kembar_order` yang
+melempar galat kalau produk itu sudah ada di order tersebut.
+
+Di Postgres, trigger BEFORE INSERT berjalan **sebelum** bentrokan uniknya
+diperiksa — jadi `on conflict do update` **tidak pernah kebagian giliran**.
+Setiap penyimpanan baris yang sudah ada pasti melewati trigger itu lebih dulu,
+dan pasti ditolak.
+
+Yang membuatnya bertahan lama: ia hanya muncul di **satu** jalur. Menambah
+barang baru selalu berhasil, jadi layarnya tampak bekerja — dan yang
+melaporkannya terdengar seperti salah pakai, karena pesannya sendiri berkata
+*"jangan tambah baris baru"*. Pesan yang salah menuduh lebih buruk daripada
+pesan yang samar: ia membuat orang memeriksa dirinya sendiri, bukan kodenya.
+
+Perbaikannya **ubah dulu, baru sisipkan**: `update ... where order_id and
+product_id`, dan `insert` hanya kalau `not found`. UPDATE tidak menyentuh
+`product_id`, jadi trigger (yang mengawasi `insert or update of product_id`)
+memang tidak ikut berjalan — dan itu benar: baris yang jumlahnya diubah bukan
+baris kembar. Triggernya sendiri **tidak disentuh**; ia yang menahan baris
+kembar sungguhan dari enam penulis berbeda, dan melonggarkannya demi satu
+pemanggil berarti membuka kembali persoalan yang jauh lebih sulit dilihat.
+
+### Auditnya mencari POLANYA, bukan kejadian ini saja
+
+`audit-upsert-vs-trigger.cjs` membaca seluruh migration, mendaftar tabel yang
+punya trigger BEFORE INSERT (**18 tabel**), lalu memeriksa **definisi
+terakhir** tiap fungsi (**241 fungsi**) — bukan sejarahnya, karena migration
+bersifat tambah-terus dan 0145 akan selamanya memuat baris itu. Satu pun
+`insert … on conflict do update` ke tabel terjaga akan merah.
+
+Sweep pertamanya bersih selain 0145, jadi jebakan yang sama tidak sedang
+menunggu di tempat lain — dan kalau ia ditulis lagi besok, yang menangkapnya
+bukan laporan dari outlet.
+
+### Bug-nya dibuktikan dulu, baru diperbaiki
+
+§1 tesnya menjalankan `ubah_draft_order` versi **0145** di atas trigger 0129
+dan **menuntutnya gagal**, lengkap dengan kalimat yang membingungkan itu.
+Tanpa itu, seluruh §2–§8 bisa hijau untuk perbaikan yang tidak memperbaiki
+apa pun.
+
+- [x] **Ubah jumlah di draft order** (`0184`) — tes PGlite 35 pemeriksaan, audit pola 18 tabel × 241 fungsi, 9 sabotase
