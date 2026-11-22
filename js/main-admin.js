@@ -35,6 +35,7 @@ import { renderOrganizationAdminPage } from './modules/organization/organization
 import { renderDokumenAdminPage } from './modules/owner/dokumen.admin.page.js';
 import { renderSparepartAdminPage } from './modules/sparepart/sparepart.admin.page.js';
 import { renderPenjualanBengkelAdminPage } from './modules/sparepart/penjualan-bengkel.admin.page.js';
+import { renderPenjualanRinciAdminPage } from './modules/bengkel/penjualan-rinci.admin.page.js';
 import { listBusinessUnitsBasic } from './modules/organization/organization.service.js';
 import { renderGroupPage } from './core/group-page.js';
 import { canAccessTab } from './core/admin-tabs.js';
@@ -72,6 +73,7 @@ registerModule('konten_sosmed', renderKontenAdminPage);
 registerModule('dokumen_ttd', renderDokumenAdminPage);
 registerModule('sparepart', renderSparepartAdminPage);
 registerModule('penjualan_bengkel', renderPenjualanBengkelAdminPage);
+registerModule('penjualan_bengkel_rinci', renderPenjualanRinciAdminPage);
 // ---- Pengelompokan menu: beberapa modul digabung jadi satu menu bertab ----
 // Modul di dalam grup tidak tampil sebagai menu terpisah.
 const GROUPS = {
