@@ -115,5 +115,32 @@ cek('§8 tanpa masalah: tidak mengarang catatan', catatanBentukSheet({ dariHpp: 
 cek('§8 tanpa argumen tidak melempar', catatanBentukSheet(), []);
 cek('§8 larik kosong', susunLaporanJual().rows.length, 1);
 
+// ===============================================================
+console.log('§9 QTY bukan rupiah');
+// ===============================================================
+//
+// Sheet lama memformat kolom QTY sebagai mata uang — baris TOTAL-nya
+// berbunyi "Rp191" untuk 191 unit. Itu kekeliruan format, dan meniru bentuk
+// sheet TIDAK berarti ikut meniru kekeliruannya.
+{
+  const qtyJual = KOLOM_JUAL.find((k) => k.header === 'QTY');
+  const qtyBeli = KOLOM_BELI.find((k) => k.header === 'QTY');
+  cek('§9 QTY penjualan tidak ber-uang', qtyJual.uang, false);
+  cek('§9 QTY pembelian tidak ber-uang', qtyBeli.uang, false);
+  // Tetap `numeric`: di Excel ia harus tetap ANGKA supaya bisa dijumlahkan.
+  benar('§9 QTY tetap numeric', qtyJual.numeric === true && qtyBeli.numeric === true);
+  // Semua kolom rupiah memang ditandai ber-uang.
+  const uangJual = KOLOM_JUAL.filter((k) => k.numeric && k.uang).map((k) => k.header);
+  cek('§9 kolom rupiah penjualan', uangJual, [
+    'Harga Beli Satuan', 'Total Harga Beli', 'Harga Jual Satuan', 'Diskon',
+    'Total Harga Jual', 'Jasa Service', 'Rounding/Pembulatan', 'Total Penjualan'
+  ]);
+  cek('§9 kolom rupiah pembelian', KOLOM_BELI.filter((k) => k.numeric && k.uang).map((k) => k.header),
+    ['Harga Satuan', 'Diskon', 'Total']);
+  // Tidak ada kolom numeric yang lupa ditandai.
+  benar('§9 tiap kolom numeric punya penanda uang',
+    [...KOLOM_JUAL, ...KOLOM_BELI].filter((k) => k.numeric).every((k) => typeof k.uang === 'boolean'));
+}
+
 console.log(`\n${gagal === 0 ? '✅' : '❌'} test-laporan-bentuk-sheet: ${n - gagal}/${n} lulus`);
 process.exit(gagal === 0 ? 0 : 1);

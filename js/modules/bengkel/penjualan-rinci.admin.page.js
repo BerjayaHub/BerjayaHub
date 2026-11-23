@@ -784,7 +784,20 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
                 // baris itu" (mis. kolom Jasa pada baris sparepart). Mengisinya
                 // dengan 0 membuat kolomnya penuh angka nol yang harus dibaca
                 // satu per satu untuk dipastikan tidak berarti apa-apa.
-                const isiSel = sel === null || sel === undefined || sel === '' ? '' : angka ? formatRupiah(sel) : esc(sel);
+                // ============ QTY BUKAN RUPIAH ============
+                //
+                // `numeric` cuma berarti "rata kanan & tetap angka di Excel".
+                // Yang dirupiahkan hanya kolom ber-`uang`. Sheet lama
+                // memformat QTY sebagai mata uang — "Rp191" di baris TOTAL —
+                // dan itu kekeliruan format yang tidak perlu ikut ditiru.
+                const isiSel =
+                  sel === null || sel === undefined || sel === ''
+                    ? ''
+                    : kol.uang
+                      ? formatRupiah(sel)
+                      : angka
+                        ? formatNum(sel)
+                        : esc(sel);
                 return `<td data-label="${esc(kol.header ?? '')}"${angka ? ' style="text-align:right"' : ''}>${isiSel}</td>`;
               })
               .join('')}</tr>`

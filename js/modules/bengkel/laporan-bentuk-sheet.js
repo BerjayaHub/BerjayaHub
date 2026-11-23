@@ -45,15 +45,18 @@ export const KOLOM_JUAL = [
   { header: 'Tanggal', width: 12 },
   { header: 'Suplier', width: 22 },
   { header: 'Nama Barang', width: 32 },
-  { header: 'QTY', numeric: true, width: 7 },
-  { header: 'Harga Beli Satuan', numeric: true, width: 16 },
-  { header: 'Total Harga Beli', numeric: true, width: 16 },
-  { header: 'Harga Jual Satuan', numeric: true, width: 16 },
-  { header: 'Diskon', numeric: true, width: 12 },
-  { header: 'Total Harga Jual', numeric: true, width: 16 },
-  { header: 'Jasa Service', numeric: true, width: 14 },
-  { header: 'Rounding/Pembulatan', numeric: true, width: 16 },
-  { header: 'Total Penjualan', numeric: true, width: 16 },
+  // `uang: false` — QTY ANGKA BIASA, bukan rupiah. Sheet lama memformat
+  // kolom ini sebagai mata uang ("Rp191" di baris TOTAL); itu kekeliruan
+  // format yang tidak perlu ikut ditiru.
+  { header: 'QTY', numeric: true, uang: false, width: 7 },
+  { header: 'Harga Beli Satuan', numeric: true, uang: true, width: 16 },
+  { header: 'Total Harga Beli', numeric: true, uang: true, width: 16 },
+  { header: 'Harga Jual Satuan', numeric: true, uang: true, width: 16 },
+  { header: 'Diskon', numeric: true, uang: true, width: 12 },
+  { header: 'Total Harga Jual', numeric: true, uang: true, width: 16 },
+  { header: 'Jasa Service', numeric: true, uang: true, width: 14 },
+  { header: 'Rounding/Pembulatan', numeric: true, uang: true, width: 16 },
+  { header: 'Total Penjualan', numeric: true, uang: true, width: 16 },
   { header: 'Type Pembayaran', width: 18 },
   { header: 'Asal Harga Beli', width: 16 }
 ];
@@ -65,10 +68,10 @@ export const KOLOM_BELI = [
   { header: 'Nopol', width: 16 },
   { header: 'Supplier', width: 26 },
   { header: 'Nama Barang', width: 34 },
-  { header: 'QTY', numeric: true, width: 7 },
-  { header: 'Harga Satuan', numeric: true, width: 15 },
-  { header: 'Diskon', numeric: true, width: 12 },
-  { header: 'Total', numeric: true, width: 16 },
+  { header: 'QTY', numeric: true, uang: false, width: 7 },
+  { header: 'Harga Satuan', numeric: true, uang: true, width: 15 },
+  { header: 'Diskon', numeric: true, uang: true, width: 12 },
+  { header: 'Total', numeric: true, uang: true, width: 16 },
   { header: 'No. PO', width: 18 },
   { header: 'Outlet', width: 16 }
 ];
