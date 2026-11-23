@@ -145,7 +145,13 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
         daftarKirimMap(businessUnitId),
         // Riwayat gagal dimuat tidak boleh mematikan layar impornya — yang
         // hilang cuma daftarnya, dan itu dikatakan di tempatnya.
-        riwayatImpor(businessUnitId).catch(() => null)
+        // Dibedakan: `null` = gagal dimuat biasa, `'belum'` = tabelnya memang
+        // belum ada. Keduanya menghasilkan layar kosong, dan hanya satu yang
+        // bisa diperbaiki orangnya sendiri — kalau disamakan, ia akan
+        // mencari-cari tombol yang memang belum mungkin ada.
+        riwayatImpor(businessUnitId).catch((e) =>
+          /bengkel_import_runs|does not exist|schema cache/i.test(String(e?.message ?? e)) ? 'belum' : null
+        )
       ]);
     } catch (e) {
       isi.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
@@ -228,7 +234,7 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
         <button id="pr-unggah-beli" class="primary" style="max-width:220px">Pilih berkas pembelian…</button>
       </div>
 
-      <h3 style="margin:18px 0 8px;font-size:1rem">C. Riwayat impor</h3>
+      <h3 style="margin:18px 0 8px;font-size:1rem">C. Riwayat impor — hapus satu berkas yang terlanjur diunggah</h3>
       <div class="inline-card" style="max-width:860px">
         <p style="margin:0 0 8px;font-size:0.84rem;color:var(--color-text-muted)">
           Salah berkas? <strong>Tarik kembali</strong> membuang seluruh isi impor itu sekaligus. Invoice/PO yang
@@ -237,9 +243,15 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
           "siapa memasukkan ini, dan siapa yang menariknya".
         </p>
         ${
-          riwayat === null
+          riwayat === 'belum'
+            ? `<p class="error-text" style="margin:0">
+                 <strong>Migration 0187 &amp; 0188 belum dijalankan di Supabase.</strong>
+                 Riwayat impor dan tombol <strong>Tarik kembali</strong> (menghapus SELURUH isi satu berkas impor)
+                 baru muncul sesudah keduanya dijalankan.
+               </p>`
+            : riwayat === null
             ? '<p class="error-text" style="margin:0">Riwayat impor gagal dimuat.</p>'
-            : !riwayat.length
+            : !Array.isArray(riwayat) || !riwayat.length
               ? '<p style="margin:0;color:var(--color-text-muted)">Belum ada impor.</p>'
               : `<div class="table-scroll"><table class="data-table kartu-sempit">
                   <thead><tr><th>Waktu</th><th>Jenis</th><th>Berkas</th><th>Periode</th><th>Dok.</th><th>Baris</th><th>Nilai</th><th>Oleh</th><th>Aksi</th></tr></thead>
@@ -264,7 +276,10 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
                     .join('')}</tbody>
                 </table></div>`
         }
-        <button id="pr-hapus-dok" style="margin-top:10px">Hapus satu dokumen…</button>
+        <p style="margin:10px 0 4px;font-size:0.82rem;color:var(--color-text-muted)">
+          Butuh membuang <strong>satu invoice / satu PO</strong> saja, bukan seluruh berkas?
+        </p>
+        <button id="pr-hapus-dok">Hapus satu dokumen (1 invoice / 1 PO)…</button>
       </div>`;
 
     isi.querySelector('#pr-map-baru').addEventListener('click', sekaliJalan(() => dialogPetakan('')));
@@ -351,8 +366,10 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
     const v = await formDialog({
       title: 'Hapus satu dokumen hasil impor',
       description:
-        'Untuk satu invoice atau satu PO yang keliru. Ingat: kalau berkas yang sama diimpor lagi, dokumen ini ' +
-        'akan MUNCUL KEMBALI — betulkan di Turboly dulu kalau memang salah di sana.',
+        'Untuk satu invoice atau satu PO yang keliru. Kalau yang mau dibuang adalah SELURUH isi satu berkas ' +
+        'impor, tutup dialog ini dan pakai tombol "Tarik kembali" di tabel Riwayat impor. ' +
+        'Ingat: kalau berkas yang sama diimpor lagi, dokumen ini akan MUNCUL KEMBALI — betulkan di Turboly dulu ' +
+        'kalau memang salah di sana.',
       fields: [
         {
           name: 'jenis',
