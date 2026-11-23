@@ -224,8 +224,19 @@ export async function pratinjauTarikImpor(runId) {
   return data ?? {};
 }
 
-export async function tarikImpor({ runId, alasan }) {
-  const { data, error } = await supabase.rpc('tarik_impor_bengkel', argumenRpc({ p_run: runId, p_alasan: alasan }));
+/**
+ * Tarik kembali satu impor.
+ *
+ * `semua = true` ikut menghapus dokumen yang nomornya ada di berkas itu tapi
+ * sudah digantikan impor lain (0188). Kuncinya SELALU dikirim — PostgREST
+ * memilih fungsi lewat himpunan nama argumen, dan kunci yang hilang membuat
+ * pemanggilan mencari tanda tangan yang sudah sengaja dibuang.
+ */
+export async function tarikImpor({ runId, alasan, semua = false }) {
+  const { data, error } = await supabase.rpc(
+    'tarik_impor_bengkel',
+    argumenRpc({ p_run: runId, p_alasan: alasan, p_semua: Boolean(semua) })
+  );
   if (error) throw new Error(error.message ?? String(error));
   return data ?? {};
 }

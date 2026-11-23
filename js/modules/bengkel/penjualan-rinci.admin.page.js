@@ -299,22 +299,46 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
       toast(e.message ?? 'Gagal memeriksa impor.', 'error');
       return;
     }
+    const diganti = Number(pra.sudah_digantikan) || 0;
     const v = await formDialog({
       title: 'Tarik kembali impor ini?',
       description:
         `${pra.jenis === 'pembelian' ? 'Pembelian' : 'Penjualan'} · ${esc(pra.berkas || 'tanpa nama berkas')} — ` +
-        `${pra.invoice} dokumen, ${pra.baris} baris, nilai ${rupiah(pra.nilai)} akan DIHAPUS dan tidak bisa dikembalikan.` +
-        (Number(pra.sudah_digantikan)
-          ? ` ${pra.sudah_digantikan} dokumen sudah digantikan impor berikutnya dan TIDAK ikut tertarik.`
+        `berkas ini memuat ${pra.nomor_di_berkas ?? '?'} dokumen. ` +
+        `${pra.invoice} di antaranya masih milik impor ini (${pra.baris} baris, ${rupiah(pra.nilai)}) dan akan DIHAPUS.` +
+        (diganti
+          ? ` ${diganti} dokumen lainnya sudah DIGANTIKAN impor berikutnya (${pra.digantikan_baris} baris, ${rupiah(pra.digantikan_nilai)}) — ` +
+            'isinya sekarang berasal dari berkas yang lebih baru, jadi secara bawaan TIDAK ikut terhapus.'
           : ''),
-      fields: [{ name: 'alasan', label: 'Alasan penarikan (wajib)', type: 'text', required: true, placeholder: 'mis. salah periode / salah store' }],
+      fields: [
+        { name: 'alasan', label: 'Alasan penarikan (wajib)', type: 'text', required: true, placeholder: 'mis. salah periode / salah store' },
+        // Pilihan ini hanya muncul kalau memang ADA yang sudah digantikan —
+        // centang yang tidak pernah berakibat apa pun cuma melatih orang
+        // mencentang tanpa membaca.
+        ...(diganti
+          ? [
+              {
+                name: 'semua',
+                label: `Hapus juga ${diganti} dokumen yang sudah digantikan impor lain`,
+                type: 'checkbox',
+                help:
+                  'Pilih ini kalau seluruh nomor di berkas ini memang harus lenyap (mis. berkas yang sama terunggah dua kali). ' +
+                  'JANGAN pilih kalau yang menggantikannya adalah berkas yang benar — data yang sudah betul akan ikut terhapus.'
+              }
+            ]
+          : [])
+      ],
       submitText: 'Tarik kembali',
       danger: true
     });
     if (!v?.alasan?.trim()) return;
     try {
-      const h = await tarikImpor({ runId, alasan: v.alasan });
-      toast(`${h.invoice} dokumen (${h.baris} baris) ditarik.`, 'success');
+      const h = await tarikImpor({ runId, alasan: v.alasan, semua: Boolean(v.semua) });
+      toast(
+        `${h.invoice} dokumen (${h.baris} baris) ditarik` +
+          (Number(h.ikut_terhapus) ? ` · ${h.ikut_terhapus} dokumen yang sudah digantikan ikut terhapus` : ''),
+        'success'
+      );
     } catch (e) {
       toast(e.message ?? 'Gagal menarik impor.', 'error');
       return;
