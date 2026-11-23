@@ -21,12 +21,14 @@
  * SEBELUM ada tombol yang bisa ditekan.
  */
 
-import { toast, confirmDialog, formDialog, infoDialog, escapeHtml } from '../../core/ui.js';
+import { toast, confirmDialog, formDialog, infoDialog, escapeHtml, renderSearchSelect, wireSearchSelect } from '../../core/ui.js';
 import { loadingHtml, sekaliJalan } from '../../core/loading.js';
 import { formatNum, formatRupiah } from '../../core/format.js';
 import { loadXLSX, exportSheetsXLSX } from '../../core/xlsx.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { listOutletsForBu } from '../organization/organization.service.js';
+import { listSpareparts } from '../sparepart/sparepart.service.js';
+import { barisKosong, dariMaster, totalBaris, susunBarisKorporat, ringkasBarisKorporat } from './baris-korporat.js';
 import { bacaEksporTurboly, untukRpc, PESAN_MASALAH } from './baca-invoice-turboly.js';
 import { bacaEksporPo, poUntukRpc, semuaHarganyaNol, PESAN_MASALAH_PO } from './baca-po-turboly.js';
 import { susunLaporanBengkel, ringkasPenjualan, catatanLaporan, rupiah } from './laporan-penjualan-bengkel.js';
@@ -40,6 +42,10 @@ import {
   imporPenjualanTurboly,
   imporPembelianTurboly,
   barisPembelian,
+  riwayatImpor,
+  pratinjauTarikImpor,
+  tarikImpor,
+  hapusDokumenImpor,
   simpanInvoiceKorporat,
   hapusInvoiceKorporat,
   barisPenjualan,
@@ -132,8 +138,15 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
     isi.innerHTML = loadingHtml('Memuat pemetaan…', { baris: 3 });
     let peta = [];
     let petaKirim = [];
+    let riwayat = [];
     try {
-      [peta, petaKirim] = await Promise.all([daftarStoreMap(businessUnitId), daftarKirimMap(businessUnitId)]);
+      [peta, petaKirim, riwayat] = await Promise.all([
+        daftarStoreMap(businessUnitId),
+        daftarKirimMap(businessUnitId),
+        // Riwayat gagal dimuat tidak boleh mematikan layar impornya — yang
+        // hilang cuma daftarnya, dan itu dikatakan di tempatnya.
+        riwayatImpor(businessUnitId).catch(() => null)
+      ]);
     } catch (e) {
       isi.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
       return;
@@ -213,6 +226,45 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
           yang memakainya akan memuat nol yang terlihat seperti fakta.
         </p>
         <button id="pr-unggah-beli" class="primary" style="max-width:220px">Pilih berkas pembelian…</button>
+      </div>
+
+      <h3 style="margin:18px 0 8px;font-size:1rem">C. Riwayat impor</h3>
+      <div class="inline-card" style="max-width:860px">
+        <p style="margin:0 0 8px;font-size:0.84rem;color:var(--color-text-muted)">
+          Salah berkas? <strong>Tarik kembali</strong> membuang seluruh isi impor itu sekaligus. Invoice/PO yang
+          sudah <strong>digantikan impor berikutnya</strong> tidak ikut tertarik — isinya memang bukan lagi milik
+          impor ini. Baris riwayatnya tidak pernah dihapus: ia satu-satunya yang bisa menjawab
+          "siapa memasukkan ini, dan siapa yang menariknya".
+        </p>
+        ${
+          riwayat === null
+            ? '<p class="error-text" style="margin:0">Riwayat impor gagal dimuat.</p>'
+            : !riwayat.length
+              ? '<p style="margin:0;color:var(--color-text-muted)">Belum ada impor.</p>'
+              : `<div class="table-scroll"><table class="data-table kartu-sempit">
+                  <thead><tr><th>Waktu</th><th>Jenis</th><th>Berkas</th><th>Periode</th><th>Dok.</th><th>Baris</th><th>Nilai</th><th>Oleh</th><th>Aksi</th></tr></thead>
+                  <tbody>${riwayat
+                    .map(
+                      (r) => `<tr${r.ditarik_at ? ' style="opacity:.55"' : ''}>
+                        <td data-label="Waktu">${esc(String(r.dibuat_at ?? '').slice(0, 16).replace('T', ' '))}</td>
+                        <td data-label="Jenis">${r.jenis === 'pembelian' ? 'Pembelian' : 'Penjualan'}</td>
+                        <td data-label="Berkas" style="font-size:0.78rem">${esc(r.berkas || '—')}</td>
+                        <td data-label="Periode" style="font-size:0.78rem">${esc([r.periode_dari, r.periode_sampai].filter(Boolean).join(' s/d ') || '—')}</td>
+                        <td data-label="Dok." style="text-align:right">${r.invoice ?? 0}</td>
+                        <td data-label="Baris" style="text-align:right">${r.baris ?? 0}</td>
+                        <td data-label="Nilai" style="text-align:right">${formatRupiah(r.nilai ?? 0)}</td>
+                        <td data-label="Oleh">${esc(r.user_profiles?.full_name ?? '—')}</td>
+                        <td data-label="Aksi">${
+                          r.ditarik_at
+                            ? `<span style="font-size:0.76rem;color:var(--color-text-muted)">ditarik${r.alasan_tarik ? ` — ${esc(r.alasan_tarik)}` : ''}</span>`
+                            : `<button class="pr-tarik btn-danger" data-run="${r.id}">Tarik kembali</button>`
+                        }</td>
+                      </tr>`
+                    )
+                    .join('')}</tbody>
+                </table></div>`
+        }
+        <button id="pr-hapus-dok" style="margin-top:10px">Hapus satu dokumen…</button>
       </div>`;
 
     isi.querySelector('#pr-map-baru').addEventListener('click', sekaliJalan(() => dialogPetakan('')));
@@ -225,6 +277,84 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
       b.addEventListener('click', sekaliJalan(() => dialogPetakanKirim(b.dataset.alamat)))
     );
     isi.querySelector('#pr-unggah-beli').addEventListener('click', sekaliJalan(bukaImporBeli));
+    isi.querySelectorAll('.pr-tarik').forEach((b) =>
+      b.addEventListener('click', sekaliJalan(() => dialogTarik(b.dataset.run)))
+    );
+    isi.querySelector('#pr-hapus-dok').addEventListener('click', sekaliJalan(dialogHapusDokumen));
+  }
+
+  /**
+   * Tarik kembali satu impor.
+   *
+   * Angkanya diambil ULANG dari database sebelum dikonfirmasi, bukan dari
+   * baris tabel yang mungkin sudah basi: invoice yang digantikan impor lain
+   * sesudah halaman ini dibuka tidak akan ikut terhapus, dan jumlahnya harus
+   * sesuai dengan yang benar-benar terjadi.
+   */
+  async function dialogTarik(runId) {
+    let pra;
+    try {
+      pra = await pratinjauTarikImpor(runId);
+    } catch (e) {
+      toast(e.message ?? 'Gagal memeriksa impor.', 'error');
+      return;
+    }
+    const v = await formDialog({
+      title: 'Tarik kembali impor ini?',
+      description:
+        `${pra.jenis === 'pembelian' ? 'Pembelian' : 'Penjualan'} · ${esc(pra.berkas || 'tanpa nama berkas')} — ` +
+        `${pra.invoice} dokumen, ${pra.baris} baris, nilai ${rupiah(pra.nilai)} akan DIHAPUS dan tidak bisa dikembalikan.` +
+        (Number(pra.sudah_digantikan)
+          ? ` ${pra.sudah_digantikan} dokumen sudah digantikan impor berikutnya dan TIDAK ikut tertarik.`
+          : ''),
+      fields: [{ name: 'alasan', label: 'Alasan penarikan (wajib)', type: 'text', required: true, placeholder: 'mis. salah periode / salah store' }],
+      submitText: 'Tarik kembali',
+      danger: true
+    });
+    if (!v?.alasan?.trim()) return;
+    try {
+      const h = await tarikImpor({ runId, alasan: v.alasan });
+      toast(`${h.invoice} dokumen (${h.baris} baris) ditarik.`, 'success');
+    } catch (e) {
+      toast(e.message ?? 'Gagal menarik impor.', 'error');
+      return;
+    }
+    await gambarImpor();
+  }
+
+  /** Hapus SATU invoice/PO hasil impor — untuk kekeliruan yang cuma satu dokumen. */
+  async function dialogHapusDokumen() {
+    const v = await formDialog({
+      title: 'Hapus satu dokumen hasil impor',
+      description:
+        'Untuk satu invoice atau satu PO yang keliru. Ingat: kalau berkas yang sama diimpor lagi, dokumen ini ' +
+        'akan MUNCUL KEMBALI — betulkan di Turboly dulu kalau memang salah di sana.',
+      fields: [
+        {
+          name: 'jenis',
+          label: 'Jenis dokumen',
+          type: 'select',
+          required: true,
+          options: [
+            { value: 'penjualan', label: 'Invoice penjualan (Turboly)' },
+            { value: 'pembelian', label: 'PO pembelian' }
+          ]
+        },
+        { name: 'nomor', label: 'Nomor dokumen', type: 'text', required: true, placeholder: 'mis. SRI/OTXM/26110089 atau PO/HO/26110050' },
+        { name: 'alasan', label: 'Alasan (wajib)', type: 'text', required: true }
+      ],
+      submitText: 'Hapus',
+      danger: true
+    });
+    if (!v?.nomor?.trim() || !v?.alasan?.trim()) return;
+    try {
+      const h = await hapusDokumenImpor({ businessUnitId, jenis: v.jenis, nomor: v.nomor, alasan: v.alasan });
+      toast(`${h.nomor} dihapus (${h.dihapus} baris).`, 'success');
+    } catch (e) {
+      toast(e.message ?? 'Gagal menghapus dokumen.', 'error');
+      return;
+    }
+    await gambarImpor();
   }
 
   async function dialogPetakanKirim(alamat) {
@@ -621,26 +751,108 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
    * kebiasaannya daripada mengisi lima kotak per barang di layar HP. Kolom
    * modal boleh dikosongkan; yang kosong tetap kosong, bukan nol.
    */
+  /**
+   * Dialog invoice korporat.
+   *
+   * ============ SATU KOTAK PER ISIAN, BUKAN SATU KOTAK UNTUK SEMUA ============
+   *
+   * Versi pertamanya meminta seluruh baris diketik sebagai teks berpemisah
+   * `|`. Itu cepat dibuat, dan salah dipakai: satu pemisah yang hilang
+   * menggeser seluruh kolom sesudahnya — harga masuk ke kolom modal, dan
+   * labanya tetap berupa angka yang masuk akal. Tidak ada galat, dan yang
+   * menemukannya adalah orang yang membaca laporan sebulan kemudian.
+   *
+   * Sekarang: satu baris = satu deret kotak, dengan dropdown sparepart dari
+   * master yang sudah terdaftar. Memilih dari master mengisi SKU, nama, harga
+   * jual, dan modal sekaligus — dan ketiganya tetap bisa diubah, karena harga
+   * korporat sering berbeda dari harga umum.
+   */
   async function dialogKorporat(invoice) {
-    let awalBaris = '';
+    let master = [];
+    try {
+      master = await listSpareparts(businessUnitId, { hanyaAktif: true });
+    } catch (e) {
+      // Master gagal dimuat TIDAK menutup pintu: baris masih bisa diketik
+      // manual. Yang hilang cuma dropdownnya, dan itu dikatakan.
+      toast(`Daftar sparepart gagal dimuat (${e.message ?? e}) — nama barang bisa diketik manual.`, 'warning');
+    }
+    const opsiMaster = master.map((m) => ({
+      value: m.id,
+      label: `${m.sku ? m.sku + ' — ' : ''}${m.name}${m.jenis === 'jasa' ? ' (jasa)' : ''}`
+    }));
+    const petaMaster = new Map(master.map((m) => [m.id, m]));
+
+    let awalBaris = [barisKosong()];
     if (invoice) {
       try {
-        const baris = await barisInvoice(invoice.id);
-        awalBaris = baris
-          .map((b) => [b.item_type, b.sku ?? '', b.nama, b.qty, b.harga_satuan ?? '', b.modal ?? ''].join(' | '))
-          .join('\n');
+        const lama = await barisInvoice(invoice.id);
+        if (lama.length) {
+          awalBaris = lama.map((b) => ({
+            item_type: b.item_type,
+            // Dicocokkan balik ke master lewat SKU supaya dropdownnya ikut
+            // terpilih saat disunting — kalau tidak, membuka invoice lama
+            // akan menampilkan dropdown kosong di sebelah nama yang terisi.
+            sparepart_id: master.find((m) => m.sku && b.sku && m.sku.toUpperCase() === b.sku.toUpperCase())?.id ?? '',
+            sku: b.sku ?? '',
+            nama: b.nama ?? '',
+            qty: b.qty === null || b.qty === undefined ? '' : String(b.qty),
+            harga: b.harga_satuan === null || b.harga_satuan === undefined ? '' : String(b.harga_satuan),
+            modal: b.modal === null || b.modal === undefined ? '' : String(b.modal)
+          }));
+          awalBaris.push(barisKosong());
+        }
       } catch (e) {
         toast(`Baris invoice gagal dimuat: ${e.message ?? e}`, 'error');
         return;
       }
     }
 
+    const idBaris = () => `kb-${Math.random().toString(36).slice(2, 9)}`;
+    const gambarBaris = (b, key) => `
+      <tr data-baris="${key}">
+        <td data-label="Jenis">
+          <select class="kb-jenis" style="min-width:104px">
+            <option value="sparepart"${b.item_type === 'sparepart' ? ' selected' : ''}>Sparepart</option>
+            <option value="jasa"${b.item_type === 'jasa' ? ' selected' : ''}>Jasa</option>
+          </select>
+        </td>
+        <td data-label="Pilih dari master" style="min-width:230px">
+          ${renderSearchSelect({
+            name: `sp-${key}`,
+            options: opsiMaster,
+            value: b.sparepart_id,
+            placeholder: opsiMaster.length ? 'ketik SKU / nama…' : 'master tidak termuat'
+          })}
+        </td>
+        <td data-label="SKU"><input class="kb-sku" value="${esc(b.sku)}" style="min-width:96px" placeholder="opsional" /></td>
+        <td data-label="Nama barang / jasa"><input class="kb-nama" value="${esc(b.nama)}" style="min-width:160px" /></td>
+        <td data-label="Qty"><input class="kb-qty" inputmode="decimal" value="${esc(b.qty)}" style="min-width:64px;text-align:right" /></td>
+        <td data-label="Harga jual"><input class="kb-harga" inputmode="decimal" value="${esc(b.harga)}" style="min-width:104px;text-align:right" /></td>
+        <td data-label="Modal"><input class="kb-modal" inputmode="decimal" value="${esc(b.modal)}" style="min-width:104px;text-align:right" placeholder="boleh kosong" /></td>
+        <td data-label="Total" class="kb-total" style="text-align:right;white-space:nowrap">—</td>
+        <td data-label=""><button type="button" class="kb-hapus btn-ghost" title="Hapus baris">✕</button></td>
+      </tr>`;
+
+    const htmlBaris = `
+      <div class="table-scroll" style="max-height:38vh">
+        <table class="data-table kartu-sempit" id="kb-tabel" style="font-size:0.84rem">
+          <thead><tr>
+            <th>Jenis</th><th>Pilih dari master</th><th>SKU</th><th>Nama barang / jasa</th>
+            <th>Qty</th><th>Harga jual</th><th>Modal</th><th>Total</th><th></th>
+          </tr></thead>
+          <tbody>${awalBaris.map((b) => gambarBaris(b, idBaris())).join('')}</tbody>
+        </table>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap">
+        <button type="button" id="kb-tambah">+ Tambah baris</button>
+        <span id="kb-ringkas" style="font-size:0.84rem;color:var(--color-text-muted)"></span>
+      </div>`;
+
     const v = await formDialog({
       title: invoice ? `Ubah ${invoice.invoice_no}` : 'Invoice Korporat Baru',
       description:
-        'Satu baris per barang/jasa: jenis | SKU | nama | qty | harga | modal. ' +
-        'Jenis diisi "sparepart" atau "jasa". SKU & modal boleh dikosongkan — modal yang kosong TIDAK dianggap nol, ' +
-        'dan laporannya akan menyebut berapa baris yang belum bermodal.',
+        'Pilih sparepart dari master supaya SKU, nama, harga, dan modalnya ikut terisi — semuanya masih bisa diubah. ' +
+        'Modal yang dikosongkan TIDAK dianggap nol; laporannya akan menyebut berapa baris yang belum bermodal.',
       fields: [
         {
           name: 'outlet',
@@ -656,28 +868,87 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
         { name: 'nopol', label: 'Nopol', type: 'text', value: invoice?.nopol ?? '', placeholder: 'kosongkan kalau penjualan barang saja' },
         { name: 'pembayaran', label: 'Pembayaran', type: 'text', value: invoice?.pembayaran ?? '', placeholder: 'mis. Transfer / Tempo 30 hari' },
         { name: 'catatan', label: 'Catatan', type: 'text', value: invoice?.catatan ?? '' },
-        {
-          name: 'baris',
-          label: 'Baris barang / jasa',
-          type: 'textarea',
-          required: true,
-          value: awalBaris,
-          placeholder: 'sparepart | OLI.X | OLI MESIN 10W40 | 4 | 150000 | 400000\njasa | | SERVICE BERKALA | 1 | 250000 |'
-        }
+        { name: 'baris', label: 'Baris barang / jasa', type: 'html', html: htmlBaris }
       ],
-      submitText: 'Simpan'
+      submitText: 'Simpan',
+      onReady: (form, { kumpulkan, setError }) => {
+        const tbody = form.querySelector('#kb-tabel tbody');
+        const ringkasEl = form.querySelector('#kb-ringkas');
+
+        const bacaBaris = (tr) => ({
+          item_type: tr.querySelector('.kb-jenis').value,
+          sparepart_id: tr.querySelector('.search-select input[type="hidden"]')?.value ?? '',
+          sku: tr.querySelector('.kb-sku').value,
+          nama: tr.querySelector('.kb-nama').value,
+          qty: tr.querySelector('.kb-qty').value,
+          harga: tr.querySelector('.kb-harga').value,
+          modal: tr.querySelector('.kb-modal').value
+        });
+        const semua = () => [...tbody.querySelectorAll('tr')].map(bacaBaris);
+
+        const segarkan = () => {
+          for (const tr of tbody.querySelectorAll('tr')) {
+            const t = totalBaris(bacaBaris(tr));
+            tr.querySelector('.kb-total').textContent = t === null ? '—' : formatRupiah(t);
+          }
+          const r = ringkasBarisKorporat(semua());
+          ringkasEl.textContent = r.baris
+            ? `${r.baris} baris · total ${formatRupiah(r.total)}` +
+              (r.tanpaModal ? ` · ${r.tanpaModal} baris belum bermodal` : '')
+            : 'Belum ada baris terisi.';
+        };
+
+        const pasangBaris = (tr) => {
+          // Dropdown master: memilih mengisi SKU, nama, harga, modal, dan
+          // jenisnya sekaligus. Yang TIDAK diisi: qty — angka itu harus datang
+          // dari orangnya, dan bawaan "1" adalah cara tercepat menyimpan
+          // jumlah yang tidak pernah dihitung siapa pun.
+          wireSearchSelect(tr.querySelector('.search-select'), opsiMaster, (val) => {
+            const sp = petaMaster.get(val);
+            if (!sp) return;
+            const isi = dariMaster(sp);
+            tr.querySelector('.kb-jenis').value = isi.item_type;
+            tr.querySelector('.kb-sku').value = isi.sku;
+            tr.querySelector('.kb-nama').value = isi.nama;
+            if (!tr.querySelector('.kb-harga').value) tr.querySelector('.kb-harga').value = isi.harga;
+            if (!tr.querySelector('.kb-modal').value) tr.querySelector('.kb-modal').value = isi.modal;
+            segarkan();
+            tr.querySelector('.kb-qty').focus();
+          });
+          tr.querySelectorAll('input, select').forEach((el) => el.addEventListener('input', segarkan));
+          tr.querySelector('.kb-hapus').addEventListener('click', () => {
+            // Baris terakhir tidak dihapus, cuma dikosongkan — daftar yang
+            // kehabisan baris membuat orang mencari tombol Tambah untuk bisa
+            // mulai mengetik lagi.
+            if (tbody.querySelectorAll('tr').length === 1) {
+              tr.querySelectorAll('input').forEach((el) => (el.value = ''));
+            } else {
+              tr.remove();
+            }
+            segarkan();
+          });
+        };
+
+        tbody.querySelectorAll('tr').forEach(pasangBaris);
+        form.querySelector('#kb-tambah').addEventListener('click', () => {
+          tbody.insertAdjacentHTML('beforeend', gambarBaris(barisKosong(), idBaris()));
+          pasangBaris(tbody.lastElementChild);
+          segarkan();
+        });
+        segarkan();
+
+        // Nilainya dikumpulkan SAAT Simpan ditekan, selagi dialognya masih
+        // berdiri — bukan dibaca sesudah dialognya ditutup.
+        kumpulkan(() => {
+          const { baris, salah } = susunBarisKorporat(semua());
+          if (salah.length) return salah.join(' ');
+          if (!baris.length) return 'Isi minimal satu baris barang atau jasa.';
+          setError('');
+          return { barisKorporat: baris };
+        });
+      }
     });
     if (!v) return;
-
-    const { baris, salah } = bacaBarisKorporat(v.baris);
-    if (salah.length) {
-      await infoDialog({
-        title: 'Ada baris yang belum bisa dibaca',
-        bodyHtml: `<ul style="margin:0;padding-left:18px">${salah.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>`
-      });
-      return;
-    }
-    if (!baris.length) return toast('Isi minimal satu baris.', 'warning');
 
     try {
       const h = await simpanInvoiceKorporat({
@@ -691,7 +962,7 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
           nopol: v.nopol,
           pembayaran: v.pembayaran,
           catatan: v.catatan,
-          baris
+          baris: v.barisKorporat
         }
       });
       toast(`${h.invoice_no} tersimpan — ${h.baris} baris.`, 'success');
@@ -900,62 +1171,4 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
   }
 
   await gambar();
-}
-
-/**
- * Baca baris korporat dari teks.
- *
- * Diekspor supaya bisa diuji tanpa browser — dan ia memang perlu diuji:
- * salah urutan kolom di sini berarti harga masuk ke kolom modal, dan laba
- * yang dihasilkan tetap berupa angka yang masuk akal.
- */
-export function bacaBarisKorporat(teks) {
-  const baris = [];
-  const salah = [];
-  const daftar = String(teks ?? '').split('\n');
-  daftar.forEach((raw, i) => {
-    const b = raw.trim();
-    if (!b) return;
-    const k = b.split('|').map((x) => x.trim());
-    if (k.length < 4) {
-      salah.push(`Baris ${i + 1}: butuh minimal "jenis | sku | nama | qty".`);
-      return;
-    }
-    const [jenis, sku, nama, qtyT, hargaT, modalT] = k;
-    const jenisBaku = /^spare/i.test(jenis) ? 'sparepart' : /^jasa|^service/i.test(jenis) ? 'jasa' : '';
-    if (!jenisBaku) {
-      salah.push(`Baris ${i + 1}: jenis "${jenis}" tidak dikenal — tulis "sparepart" atau "jasa".`);
-      return;
-    }
-    if (!nama) {
-      salah.push(`Baris ${i + 1}: nama barang kosong.`);
-      return;
-    }
-    const num = (v) => {
-      const s = String(v ?? '').replace(/[^\d.,-]/g, '').replace(/\.(?=\d{3}\b)/g, '').replace(',', '.');
-      if (s === '') return null;
-      const x = Number(s);
-      return Number.isFinite(x) ? x : null;
-    };
-    const qty = num(qtyT);
-    if (qty === null || qty <= 0) {
-      salah.push(`Baris ${i + 1}: qty "${qtyT}" bukan angka lebih dari 0.`);
-      return;
-    }
-    const harga = num(hargaT);
-    const modal = num(modalT);
-    baris.push({
-      item_type: jenisBaku,
-      sku,
-      nama,
-      qty,
-      harga_satuan: harga,
-      // Total dihitung di sini, bukan diminta diketik: dua angka yang harus
-      // cocok satu sama lain selalu berakhir tidak cocok.
-      total: (harga ?? 0) * qty,
-      // Modal yang dikosongkan tetap kosong — bukan 0. Lihat `0185`.
-      modal: modal === null ? '' : String(modal)
-    });
-  });
-  return { baris, salah };
 }

@@ -194,3 +194,48 @@ export async function barisPembelian(businessUnitId, { dari = null, sampai = nul
     return q.range(awal, akhir);
   });
 }
+
+// =====================================================================
+// RIWAYAT IMPOR & PENARIKAN (0187)
+// =====================================================================
+
+/**
+ * Riwayat impor, terbaru dulu.
+ *
+ * Termasuk yang SUDAH ditarik — itu justru yang paling perlu terlihat: tanpa
+ * barisnya, "angkanya kok hilang" tidak punya jawaban di mana pun.
+ */
+export async function riwayatImpor(businessUnitId, { limit = 40 } = {}) {
+  if (!businessUnitId) return [];
+  const { data, error } = await supabase
+    .from('bengkel_import_runs')
+    .select('id, jenis, berkas, periode_dari, periode_sampai, invoice, baris, nilai, dibuat_at, ditarik_at, alasan_tarik, user_profiles!dibuat_by(full_name)')
+    .eq('business_unit_id', businessUnitId)
+    .order('dibuat_at', { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? [];
+}
+
+/** Berapa yang AKAN hilang kalau impor ini ditarik. Tidak mengubah apa pun. */
+export async function pratinjauTarikImpor(runId) {
+  const { data, error } = await supabase.rpc('pratinjau_tarik_impor', argumenRpc({ p_run: runId }));
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? {};
+}
+
+export async function tarikImpor({ runId, alasan }) {
+  const { data, error } = await supabase.rpc('tarik_impor_bengkel', argumenRpc({ p_run: runId, p_alasan: alasan }));
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? {};
+}
+
+/** Hapus SATU dokumen hasil impor (invoice Turboly atau PO). */
+export async function hapusDokumenImpor({ businessUnitId, jenis, nomor, alasan }) {
+  const { data, error } = await supabase.rpc(
+    'hapus_dokumen_impor_bengkel',
+    argumenRpc({ p_bu: businessUnitId, p_jenis: jenis, p_nomor: nomor, p_alasan: alasan })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? {};
+}
