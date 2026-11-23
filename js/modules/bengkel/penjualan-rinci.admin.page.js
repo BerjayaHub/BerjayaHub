@@ -28,11 +28,16 @@ import { loadXLSX, exportSheetsXLSX } from '../../core/xlsx.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { listOutletsForBu } from '../organization/organization.service.js';
 import { bacaEksporTurboly, untukRpc, PESAN_MASALAH } from './baca-invoice-turboly.js';
+import { bacaEksporPo, poUntukRpc, semuaHarganyaNol, PESAN_MASALAH_PO } from './baca-po-turboly.js';
 import { susunLaporanBengkel, ringkasPenjualan, catatanLaporan, rupiah } from './laporan-penjualan-bengkel.js';
 import {
   daftarStoreMap,
   petakanStore,
+  daftarKirimMap,
+  petakanTujuanKirim,
   imporPenjualanTurboly,
+  imporPembelianTurboly,
+  barisPembelian,
   simpanInvoiceKorporat,
   hapusInvoiceKorporat,
   barisPenjualan,
@@ -122,18 +127,25 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
   // TAB IMPOR
   // =====================================================================
   async function gambarImpor() {
-    isi.innerHTML = loadingHtml('Memuat pemetaan store…', { baris: 3 });
+    isi.innerHTML = loadingHtml('Memuat pemetaan…', { baris: 3 });
     let peta = [];
+    let petaKirim = [];
     try {
-      peta = await daftarStoreMap(businessUnitId);
+      [peta, petaKirim] = await Promise.all([daftarStoreMap(businessUnitId), daftarKirimMap(businessUnitId)]);
     } catch (e) {
       isi.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
       return;
     }
 
     isi.innerHTML = `
+      <!-- ============ DUA IMPOR, SATU TAB ============
+           Keduanya ditaruh bersebelahan dengan sengaja: pencocokan beli↔jual
+           baru bekerja kalau KEDUA sisi periode yang sama sudah masuk. Dipisah
+           ke dua tab, orang akan mengimpor satu sisi lalu bertanya kenapa
+           kolom Harga Beli kosong — dan jawabannya ada di tab sebelah. -->
+      <h3 style="margin:0 0 8px;font-size:1rem">A. Penjualan — Detailed Service Invoice</h3>
       <div class="inline-card" style="max-width:720px">
-        <h3 style="margin:0 0 6px;font-size:0.98rem">1. Pemetaan Store Turboly → Outlet</h3>
+        <h4 style="margin:0 0 6px;font-size:0.94rem">1. Pemetaan Store Turboly → Outlet</h4>
         <p style="margin:0 0 8px;font-size:0.84rem;color:var(--color-text-muted)">
           Satu berkas ekspor bisa memuat <strong>beberapa store sekaligus</strong> (contohmu: Malang &amp; Mojokerto
           dalam satu berkas). Karena itu outlet ditentukan dari kolom <code>Store</code> tiap invoice, bukan dari
@@ -157,12 +169,48 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
       </div>
 
       <div class="inline-card" style="max-width:720px;margin-top:12px">
-        <h3 style="margin:0 0 6px;font-size:0.98rem">2. Unggah berkas</h3>
+        <h4 style="margin:0 0 6px;font-size:0.94rem">2. Unggah berkas penjualan</h4>
         <p style="margin:0 0 8px;font-size:0.84rem;color:var(--color-text-muted)">
           Turboly → laporan <strong>Detailed Service Invoice</strong> → unduh Excel. Berkasnya dibaca dulu dan
           ditampilkan ringkasannya; tidak ada yang tersimpan sampai kamu menekan tombol impor di dialog itu.
         </p>
-        <button id="pr-unggah" class="primary" style="max-width:220px">Pilih berkas Excel…</button>
+        <button id="pr-unggah" class="primary" style="max-width:220px">Pilih berkas penjualan…</button>
+      </div>
+
+      <h3 style="margin:18px 0 8px;font-size:1rem">B. Pembelian — Detailed Purchase Orders</h3>
+      <div class="inline-card" style="max-width:720px">
+        <h4 style="margin:0 0 6px;font-size:0.94rem">3. Pemetaan Alamat Kirim → Outlet</h4>
+        <p style="margin:0 0 8px;font-size:0.84rem;color:var(--color-text-muted)">
+          Di ekspor pembelian, kolom <code>Warehouse</code> berisi nama gudang pusat yang SAMA untuk semua baris —
+          yang menunjuk cabang adalah <code>Deliver To</code>, berisi alamat kirim. Alamat yang belum dipetakan
+          tidak ditebak: barisnya masuk sebagai <strong>pembelian pusat</strong>, dan begitu kamu memetakannya,
+          baris yang sudah terlanjur masuk ikut dibetulkan.
+        </p>
+        <table class="data-table" style="max-width:620px">
+          <thead><tr><th>Alamat kirim (Turboly)</th><th>Outlet</th><th>Aksi</th></tr></thead>
+          <tbody>${
+            petaKirim
+              .map(
+                (p) => `<tr>
+                  <td data-label="Alamat">${esc(p.store_name)}</td>
+                  <td data-label="Outlet">${esc(p.outlets?.name ?? namaOutlet(p.outlet_id))}</td>
+                  <td data-label="Aksi"><button class="pr-kirim-ubah" data-alamat="${esc(p.store_name)}">Ubah</button></td>
+                </tr>`
+              )
+              .join('') || '<tr><td colspan="3">Belum ada pemetaan — pembelian akan masuk sebagai pembelian pusat.</td></tr>'
+          }</tbody>
+        </table>
+        <button id="pr-kirim-baru" style="margin-top:8px">+ Petakan alamat kirim</button>
+      </div>
+
+      <div class="inline-card" style="max-width:720px;margin-top:12px">
+        <h4 style="margin:0 0 6px;font-size:0.94rem">4. Unggah berkas pembelian</h4>
+        <p style="margin:0 0 8px;font-size:0.84rem;color:var(--color-text-muted)">
+          Turboly → laporan <strong>Detailed Purchase Orders</strong> → unduh Excel. Pakai ekspor
+          <strong>warehouse</strong>: ekspor <em>store</em> mengembalikan harga 0 di seluruh barisnya, dan laporan
+          yang memakainya akan memuat nol yang terlihat seperti fakta.
+        </p>
+        <button id="pr-unggah-beli" class="primary" style="max-width:220px">Pilih berkas pembelian…</button>
       </div>`;
 
     isi.querySelector('#pr-map-baru').addEventListener('click', sekaliJalan(() => dialogPetakan('')));
@@ -170,6 +218,137 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
       b.addEventListener('click', sekaliJalan(() => dialogPetakan(b.dataset.store)))
     );
     isi.querySelector('#pr-unggah').addEventListener('click', sekaliJalan(bukaImpor));
+    isi.querySelector('#pr-kirim-baru').addEventListener('click', sekaliJalan(() => dialogPetakanKirim('')));
+    isi.querySelectorAll('.pr-kirim-ubah').forEach((b) =>
+      b.addEventListener('click', sekaliJalan(() => dialogPetakanKirim(b.dataset.alamat)))
+    );
+    isi.querySelector('#pr-unggah-beli').addEventListener('click', sekaliJalan(bukaImporBeli));
+  }
+
+  async function dialogPetakanKirim(alamat) {
+    const v = await formDialog({
+      title: alamat ? 'Petakan alamat kirim' : 'Petakan alamat kirim → outlet',
+      description:
+        'Alamat ditulis PERSIS seperti di kolom Deliver To pada berkas ekspor pembelian. ' +
+        'Huruf besar-kecil dan spasi ganda tidak masalah.',
+      fields: [
+        { name: 'alamat', label: 'Alamat kirim (Deliver To)', type: 'text', required: true, value: alamat ?? '', placeholder: 'mis. Jl. Borobudur 45, Blimbing, Malang, Jawa Timur' },
+        { name: 'outlet', label: 'Outlet di Berjaya Hub', type: 'select', required: true, options: outlets.map((o) => ({ value: o.id, label: o.name })) }
+      ],
+      submitText: 'Simpan'
+    });
+    if (!v?.alamat || !v?.outlet) return;
+    try {
+      const h = await petakanTujuanKirim({ businessUnitId, alamat: v.alamat, outletId: v.outlet });
+      const n = Number(h?.baris_dibetulkan) || 0;
+      toast(
+        `Alamat dipetakan ke ${namaOutlet(v.outlet)}` + (n ? ` — ${n} baris pembelian yang sudah masuk ikut dibetulkan.` : '.'),
+        'success'
+      );
+    } catch (e) {
+      toast(e.message ?? 'Gagal memetakan alamat.', 'error');
+      return;
+    }
+    await gambarImpor();
+  }
+
+  /**
+   * Impor pembelian.
+   *
+   * Pratinjaunya menampilkan hal yang TIDAK ada di sisi penjualan: apakah
+   * seluruh berkasnya berharga nol. Itu ciri ekspor *store*, dan kalau
+   * diimpor diam-diam, seluruh kolom Harga Beli di laporan akan berisi nol
+   * yang terlihat seperti harga sungguhan.
+   */
+  async function bukaImporBeli() {
+    const pilih = await formDialog({
+      title: 'Impor Detailed Purchase Orders',
+      fields: [{ name: 'file', label: 'Berkas Excel dari Turboly', type: 'file', required: true, accept: '.xlsx,.xls' }],
+      submitText: 'Baca berkas'
+    });
+    if (!pilih?.file) return;
+
+    let hasil;
+    try {
+      const XLSX = await loadXLSX();
+      const wb = XLSX.read(await pilih.file.arrayBuffer(), { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      hasil = bacaEksporPo(XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }));
+    } catch (e) {
+      toast(`Gagal membaca berkas: ${e.message ?? e}`, 'error');
+      return;
+    }
+    if (hasil.galat) {
+      await infoDialog({ title: 'Berkas tidak bisa dipakai', bodyHtml: `<p>${esc(hasil.galat)}</p>` });
+      return;
+    }
+
+    const petaKirim = await daftarKirimMap(businessUnitId).catch(() => []);
+    const dikenal = new Set(petaKirim.map((p) => String(p.store_name).trim().toLowerCase().replace(/\s+/g, ' ')));
+    const alamat = [...new Set(hasil.baris.map((b) => String(b.kirim_ke ?? '').trim().replace(/\s+/g, ' ')).filter(Boolean))];
+    const belum = alamat.filter((a) => !dikenal.has(a.toLowerCase()));
+    const tanpaAlamat = hasil.baris.filter((b) => !String(b.kirim_ke ?? '').trim()).length;
+    const r = hasil.ringkas;
+    const nol = semuaHarganyaNol(r);
+
+    const ok = await confirmDialog({
+      title: 'Periksa dulu sebelum mengimpor',
+      messageHtml: `
+        <div style="max-height:56vh;overflow:auto;font-size:0.88rem">
+          <p style="margin:0 0 6px"><strong>Periode berkas:</strong> ${esc(r.dari || '?')} – ${esc(r.sampai || '?')}</p>
+          <p style="margin:0 0 6px">${r.po} PO · ${r.baris} baris · ${r.qty} unit ·
+            nilai <strong>${esc(rupiah(r.nilai))}</strong></p>
+          <p style="margin:0 0 8px">${r.supplier.length} supplier</p>
+          ${
+            nol
+              ? `<p class="error-text" style="margin:0 0 8px"><strong>Seluruh barisnya berharga 0.</strong>
+                   Itu ciri ekspor <em>store</em> — harganya tidak ikut keluar. Pakai ekspor <strong>warehouse</strong>,
+                   kalau tidak kolom Harga Beli di laporan akan berisi nol yang terlihat seperti harga sungguhan.</p>`
+              : ''
+          }
+          ${
+            belum.length
+              ? `<p style="margin:0 0 8px;color:var(--color-warning,#b26a00)"><strong>Alamat kirim belum dipetakan:</strong>
+                   ${esc(belum.join(' · '))}. Barisnya tetap masuk sebagai <strong>pembelian pusat</strong>, dan
+                   akan ikut dibetulkan begitu alamatnya dipetakan.</p>`
+              : ''
+          }
+          ${tanpaAlamat ? `<p style="margin:0 0 4px;color:var(--color-text-muted)">${tanpaAlamat} baris tanpa alamat kirim → pembelian pusat.</p>` : ''}
+          ${r.tanpaSku ? `<p style="margin:0 0 4px;color:var(--color-warning,#b26a00)">${r.tanpaSku} baris tanpa SKU — tetap masuk, tapi tidak bisa dicocokkan dengan penjualan.</p>` : ''}
+          ${
+            hasil.ditolak.length
+              ? `<details style="margin:4px 0"><summary style="cursor:pointer;color:var(--color-danger)">Baris ditolak (${hasil.ditolak.length})</summary>
+                   <ul style="margin:6px 0 0;padding-left:18px;font-size:0.8rem;max-height:150px;overflow:auto">
+                     ${hasil.ditolak.slice(0, 40).map((b) => `<li>baris ${b.nomor} — ${esc(PESAN_MASALAH_PO[b.sebab] ?? b.sebab)}</li>`).join('')}
+                   </ul></details>`
+              : ''
+          }
+          <p style="margin:8px 0 0">PO yang sudah ada akan <strong>diganti isinya</strong>, bukan digandakan.</p>
+        </div>`,
+      confirmText: `Impor ${r.baris} baris`,
+      cancelText: 'Batal'
+    });
+    if (!ok) return;
+
+    try {
+      const h = await imporPembelianTurboly({
+        businessUnitId,
+        baris: poUntukRpc(hasil.baris),
+        berkas: pilih.file.name
+      });
+      const catatan = [];
+      if (Number(h.ke_pusat)) catatan.push(`${h.ke_pusat} baris jadi pembelian pusat`);
+      if (Number(h.tanpa_sku)) catatan.push(`${h.tanpa_sku} tanpa SKU`);
+      if (Number(h.dilewati)) catatan.push(`${h.dilewati} dilewati`);
+      toast(
+        `${h.po_baru} PO baru, ${h.po_diganti} diganti, ${h.baris} baris` + (catatan.length ? ` · ${catatan.join('; ')}` : ''),
+        catatan.length ? 'warning' : 'success'
+      );
+    } catch (e) {
+      toast(e.message ?? 'Gagal mengimpor pembelian.', 'error');
+      return;
+    }
+    await gambarImpor();
   }
 
   async function dialogPetakan(store) {

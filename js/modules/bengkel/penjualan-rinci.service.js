@@ -120,3 +120,77 @@ export async function barisInvoice(invoiceId) {
   if (error) throw new Error(error.message ?? String(error));
   return data ?? [];
 }
+
+// =====================================================================
+// PEMBELIAN (0186)
+// =====================================================================
+
+/**
+ * Pemetaan alamat `Deliver To` -> outlet.
+ *
+ * Tabelnya SAMA dengan pemetaan Store, dibedakan kolom `jenis` — supaya satu
+ * layar mengatur keduanya dan tidak ada dua tempat yang bisa menyimpang.
+ */
+export async function daftarKirimMap(businessUnitId) {
+  if (!businessUnitId) return [];
+  const { data, error } = await supabase
+    .from('bengkel_store_map')
+    .select('id, store_name, outlet_id, jenis, outlets!outlet_id(name)')
+    .eq('business_unit_id', businessUnitId)
+    .eq('jenis', 'kirim')
+    .order('store_name');
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? [];
+}
+
+export async function petakanTujuanKirim({ businessUnitId, alamat, outletId }) {
+  const { data, error } = await supabase.rpc(
+    'petakan_tujuan_kirim',
+    argumenRpc({ p_bu: businessUnitId, p_alamat: alamat, p_outlet: outletId })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? {};
+}
+
+/**
+ * Kirim baris pembelian hasil pembacaan berkas.
+ *
+ * Jawabannya menyebut berapa PO baru, berapa diganti, berapa baris yang masuk
+ * sebagai PEMBELIAN PUSAT (alamat kirimnya belum dipetakan atau memang
+ * kosong), dan alamat mana saja yang belum dikenali. Layar wajib menampilkan
+ * keempatnya — "berhasil impor" saja menyembunyikan pembelian yang tidak
+ * terhubung ke outlet mana pun, dan itu baru terasa saat laporannya kosong.
+ */
+export async function imporPembelianTurboly({ businessUnitId, baris, berkas }) {
+  const { data, error } = await supabase.rpc(
+    'impor_pembelian_bengkel',
+    argumenRpc({ p_bu: businessUnitId, p_baris: baris, p_berkas: berkas ?? null })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? {};
+}
+
+/** Baris pembelian satu rentang — `ambilSemua`, alasannya sama dengan penjualan. */
+export async function barisPembelian(businessUnitId, { dari = null, sampai = null, outletId = null } = {}) {
+  if (!businessUnitId) return [];
+  return ambilSemua((awal, akhir) => {
+    let q = supabase
+      .from('bengkel_pembelian_rinci')
+      .select(
+        'id, outlet_id, outlet_nama, po_no, urut, tanggal, supplier, supplier_kode, status, pengirim, ' +
+          'kirim_ke, sku, nama, product_type, product_code, qty, harga, nilai',
+        { count: 'exact' }
+      )
+      .eq('business_unit_id', businessUnitId)
+      .order('tanggal', { ascending: false })
+      .order('po_no')
+      .order('urut');
+    if (dari) q = q.gte('tanggal', dari);
+    if (sampai) q = q.lte('tanggal', sampai);
+    // `outletId` kosong berarti SEMUA, termasuk pembelian pusat. Menyaring
+    // pusat keluar secara bawaan akan membuat nilai pembelian terlihat lebih
+    // kecil daripada kenyataannya tanpa ada yang memintanya.
+    if (outletId) q = q.eq('outlet_id', outletId);
+    return q.range(awal, akhir);
+  });
+}
