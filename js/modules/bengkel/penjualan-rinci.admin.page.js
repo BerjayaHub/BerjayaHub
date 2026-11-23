@@ -30,6 +30,8 @@ import { listOutletsForBu } from '../organization/organization.service.js';
 import { bacaEksporTurboly, untukRpc, PESAN_MASALAH } from './baca-invoice-turboly.js';
 import { bacaEksporPo, poUntukRpc, semuaHarganyaNol, PESAN_MASALAH_PO } from './baca-po-turboly.js';
 import { susunLaporanBengkel, ringkasPenjualan, catatanLaporan, rupiah } from './laporan-penjualan-bengkel.js';
+import { cocokkanBeliJual, catatanCocok } from './cocokkan-beli-jual.js';
+import { susunLaporanJual, susunLaporanBeli, catatanBentukSheet } from './laporan-bentuk-sheet.js';
 import {
   daftarStoreMap,
   petakanStore,
@@ -55,7 +57,7 @@ const TAB = [
 
 export async function renderPenjualanRinciAdminPage(container, { businessUnitId }) {
   const { from: awal, to: akhir } = monthRangeWIB();
-  const state = { tab: 'impor', dari: awal, sampai: akhir, outletId: '', sumber: '', q: '' };
+  const state = { tab: 'impor', sub: 'jual', dari: awal, sampai: akhir, outletId: '', sumber: '', q: '' };
 
   let outlets = [];
   try {
@@ -703,136 +705,176 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
   // =====================================================================
   // TAB LAPORAN
   // =====================================================================
+  /**
+   * TAB LAPORAN — tiga bentuk, satu data.
+   *
+   * Dua yang pertama MENIRU tata kolom sheet Otonix supaya bisa dibandingkan
+   * baris demi baris dengan yang lama; yang ketiga ringkasan untuk dibaca
+   * cepat. Ketiganya dihitung dari satu pengambilan data dan satu pencocokan
+   * — tiga perhitungan terpisah pasti menyimpang, dan tidak ada cara tahu
+   * mana yang benar.
+   */
   async function gambarLaporan() {
-    isi.innerHTML = saringanHtml() + `<div id="pr-lap">${loadingHtml('Menyusun laporan…', { baris: 5 })}</div>`;
+    isi.innerHTML =
+      saringanHtml() +
+      `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+         ${[['jual', '📄 Penjualan (bentuk sheet)'], ['beli', '🧾 Pengeluaran (bentuk sheet)'], ['ringkas', '📊 Ringkasan']]
+           .map(([k, l]) => `<button class="tab-btn pr-sub${state.sub === k ? ' active' : ''}" data-sub="${k}">${esc(l)}</button>`)
+           .join('')}
+       </div>
+       <div id="pr-lap">${loadingHtml('Menyusun laporan…', { baris: 5 })}</div>`;
     wiringSaringan(gambarLaporan);
+    isi.querySelectorAll('.pr-sub').forEach((b) =>
+      b.addEventListener('click', () => {
+        state.sub = b.dataset.sub;
+        gambarLaporan();
+      })
+    );
     const kotak = isi.querySelector('#pr-lap');
 
     let baris = [];
+    let beli = [];
     try {
-      baris = await barisPenjualan(businessUnitId, state);
+      [baris, beli] = await Promise.all([
+        barisPenjualan(businessUnitId, state),
+        // Pembelian TIDAK ikut disaring sumber (`sumber` cuma milik penjualan)
+        // dan outletnya dibiarkan apa adanya: pembelian pusat harus tetap
+        // ikut dicocokkan, kalau tidak part yang dibeli HO lalu dipakai di
+        // cabang akan selalu berbunyi "tidak ketemu".
+        barisPembelian(businessUnitId, { dari: state.dari, sampai: state.sampai })
+      ]);
     } catch (e) {
-      kotak.innerHTML = `<p class="error-text">${esc(e.message ?? e)}</p>`;
+      kotak.innerHTML = `<p class="error-text">${esc(
+        /bengkel_p/.test(String(e.message ?? e))
+          ? 'Migration 0185 & 0186 belum dijalankan di Supabase.'
+          : e.message ?? e
+      )}</p>`;
       return;
     }
-    if (!baris.length) {
+    if (!baris.length && !beli.length) {
       kotak.innerHTML = `<p style="color:var(--color-text-muted)">Tidak ada data pada rentang ini.</p>`;
       return;
     }
 
-    const lap = susunLaporanBengkel({
-      baris,
-      periode: { dari: state.dari, sampai: state.sampai, outlet: state.outletId ? namaOutlet(state.outletId) : '' }
+    // ============ SATU PENCOCOKAN UNTUK KEDUA LAPORAN ============
+    const cocokan = cocokkanBeliJual({
+      pembelian: beli.map((b) => ({ ...b, kirim_ke: b.kirim_ke })),
+      penjualan: baris.map((b) => ({ ...b, item_type: b.item_type }))
     });
-    const r = lap.ringkas;
-    const tabel = (judul, daftar, kolomKunci) => `
-      <h4 style="margin:14px 0 4px;font-size:0.92rem">${esc(judul)}</h4>
-      <div class="table-scroll"><table class="data-table kartu-sempit">
-        <thead><tr><th>${esc(kolomKunci)}</th><th>Baris</th><th>Qty</th><th>Omzet</th><th>Modal</th><th>Laba</th><th>Margin</th></tr></thead>
-        <tbody>${daftar
-          .slice(0, 100)
+    const lapJual = susunLaporanJual({ baris, cocok: cocokan.jual });
+    const lapBeli = susunLaporanBeli({ baris: beli, cocok: cocokan.beli });
+    const catatan = [...catatanCocok(cocokan.ringkas), ...catatanBentukSheet(lapJual.ringkas, lapBeli.ringkas)];
+
+    const rentang = [state.dari, state.sampai].filter(Boolean).join(' s/d ');
+    const subjudul = `${state.outletId ? namaOutlet(state.outletId) : 'Semua outlet'} · ${rentang}`;
+    const namaBerkas = `bengkel-${(rentang || 'semua').replace(/[^\w.-]+/g, '-')}`;
+
+    const tabelSheet = (lap) => `
+      <div class="table-scroll"><table class="data-table kartu-sempit" style="font-size:0.82rem">
+        <thead><tr>${lap.kolom.map((k) => `<th>${esc(k.header)}</th>`).join('')}</tr></thead>
+        <tbody>${lap.rows
           .map(
-            (k) => `<tr>
-              <td data-label="${esc(kolomKunci)}">${esc(k.label ?? k.kunci)}</td>
-              <td data-label="Baris" style="text-align:right">${k.baris}</td>
-              <td data-label="Qty" style="text-align:right">${formatNum(k.qtySparepart)}</td>
-              <td data-label="Omzet" style="text-align:right">${formatRupiah(k.omzet)}</td>
-              <td data-label="Modal" style="text-align:right">${k.tanpaModal === k.baris ? '—' : formatRupiah(k.modal)}</td>
-              <td data-label="Laba" style="text-align:right">${k.omzetBermodal ? formatRupiah(k.laba) : '—'}</td>
-              <td data-label="Margin" style="text-align:right">${k.margin === null ? '—' : k.margin + '%'}</td>
-            </tr>`
+            (r, i) => `<tr${r[0] === 'TOTAL' ? ' style="font-weight:600;background:var(--color-bg-alt,#f6f6f6)"' : ''}>${r
+              .map((sel, j) => {
+                const kol = lap.kolom[j] ?? {};
+                const angka = kol.numeric;
+                // null DIBIARKAN KOSONG, bukan jadi "0" atau "-".
+                //
+                // Di laporan ini kosong memang berarti "tidak berlaku untuk
+                // baris itu" (mis. kolom Jasa pada baris sparepart). Mengisinya
+                // dengan 0 membuat kolomnya penuh angka nol yang harus dibaca
+                // satu per satu untuk dipastikan tidak berarti apa-apa.
+                const isiSel = sel === null || sel === undefined || sel === '' ? '' : angka ? formatRupiah(sel) : esc(sel);
+                return `<td data-label="${esc(kol.header ?? '')}"${angka ? ' style="text-align:right"' : ''}>${isiSel}</td>`;
+              })
+              .join('')}</tr>`
           )
           .join('')}</tbody>
       </table></div>`;
 
-    kotak.innerHTML = `
-      <div class="inline-card" style="max-width:720px">
-        <p style="margin:0 0 4px;font-size:0.84rem;color:var(--color-text-muted)">${esc(lap.subjudul)}</p>
-        <table class="data-table" style="max-width:420px;margin-top:8px">
-          <tbody>
-            <tr><td>Omzet sparepart</td><td style="text-align:right">${formatRupiah(r.omzetSparepart)}</td></tr>
-            <tr><td>Omzet jasa</td><td style="text-align:right">${formatRupiah(r.omzetJasa)}</td></tr>
-            <tr><td><strong>Omzet total</strong></td><td style="text-align:right"><strong>${formatRupiah(r.omzet)}</strong></td></tr>
-            <tr><td>Modal sparepart (yang diketahui)</td><td style="text-align:right">${formatRupiah(r.modal)}</td></tr>
-            <tr><td><strong>Laba sparepart</strong></td><td style="text-align:right"><strong>${formatRupiah(r.laba)}</strong>${
-              r.margin === null ? '' : ` <span style="color:var(--color-text-muted)">(${r.margin}%)</span>`
-            }</td></tr>
-          </tbody>
-        </table>
-        ${lap.catatan.map((c) => `<p class="nota-telat" style="margin:6px 0 0;font-size:0.82rem">${esc(c)}</p>`).join('')}
-        <button id="pr-ekspor" style="margin-top:10px">⬇ Export Excel</button>
-      </div>
-      ${tabel('Per outlet', lap.perOutlet, 'Outlet')}
-      ${tabel('Per asal data', lap.perSumber, 'Asal')}
-      ${tabel('Per nopol (sparepart)', lap.perNopol, 'Nopol')}
-      ${tabel('Per SKU (sparepart)', lap.perSku, 'SKU')}`;
+    const kepala = `
+      <p style="font-size:0.84rem;color:var(--color-text-muted);margin:0 0 4px">${esc(subjudul)}</p>
+      ${catatan.map((c) => `<p class="nota-telat" style="margin:2px 0;font-size:0.8rem">${esc(c)}</p>`).join('')}
+      <button id="pr-ekspor" style="margin:8px 0 10px">⬇ Export Excel (kedua laporan)</button>`;
 
-    kotak.querySelector('#pr-ekspor').addEventListener(
+    if (state.sub === 'jual') {
+      kotak.innerHTML = kepala + tabelSheet(lapJual);
+    } else if (state.sub === 'beli') {
+      kotak.innerHTML = kepala + tabelSheet(lapBeli);
+    } else {
+      const lap = susunLaporanBengkel({
+        baris,
+        periode: { dari: state.dari, sampai: state.sampai, outlet: state.outletId ? namaOutlet(state.outletId) : '' }
+      });
+      const r = lap.ringkas;
+      const tabel = (judul, daftar, kolomKunci) => `
+        <h4 style="margin:14px 0 4px;font-size:0.92rem">${esc(judul)}</h4>
+        <div class="table-scroll"><table class="data-table kartu-sempit">
+          <thead><tr><th>${esc(kolomKunci)}</th><th>Baris</th><th>Qty</th><th>Omzet</th><th>Modal</th><th>Laba</th><th>Margin</th></tr></thead>
+          <tbody>${daftar
+            .slice(0, 100)
+            .map(
+              (k) => `<tr>
+                <td data-label="${esc(kolomKunci)}">${esc(k.label ?? k.kunci)}</td>
+                <td data-label="Baris" style="text-align:right">${k.baris}</td>
+                <td data-label="Qty" style="text-align:right">${formatNum(k.qtySparepart)}</td>
+                <td data-label="Omzet" style="text-align:right">${formatRupiah(k.omzet)}</td>
+                <td data-label="Modal" style="text-align:right">${k.tanpaModal === k.baris ? '—' : formatRupiah(k.modal)}</td>
+                <td data-label="Laba" style="text-align:right">${k.omzetBermodal ? formatRupiah(k.laba) : '—'}</td>
+                <td data-label="Margin" style="text-align:right">${k.margin === null ? '—' : k.margin + '%'}</td>
+              </tr>`
+            )
+            .join('')}</tbody>
+        </table></div>`;
+      kotak.innerHTML =
+        kepala +
+        `<div class="inline-card" style="max-width:720px">
+          <table class="data-table" style="max-width:460px">
+            <tbody>
+              <tr><td>Omzet sparepart</td><td style="text-align:right">${formatRupiah(r.omzetSparepart)}</td></tr>
+              <tr><td>Omzet jasa</td><td style="text-align:right">${formatRupiah(r.omzetJasa)}</td></tr>
+              <tr><td><strong>Omzet total</strong></td><td style="text-align:right"><strong>${formatRupiah(r.omzet)}</strong></td></tr>
+              <tr><td>Modal sparepart (yang diketahui)</td><td style="text-align:right">${formatRupiah(r.modal)}</td></tr>
+              <tr><td><strong>Laba sparepart</strong></td><td style="text-align:right"><strong>${formatRupiah(r.laba)}</strong>${
+                r.margin === null ? '' : ` <span style="color:var(--color-text-muted)">(${r.margin}%)</span>`
+              }</td></tr>
+              <tr><td>Nilai pembelian (periode ini)</td><td style="text-align:right">${formatRupiah(lapBeli.ringkas.nilai)}</td></tr>
+              <tr><td>Pembelian yang ketemu pemakaiannya</td><td style="text-align:right">${cocokan.ringkas.cocok + cocokan.ringkas.sebagian} dari ${cocokan.ringkas.jualSparepart} baris jual</td></tr>
+            </tbody>
+          </table>
+        </div>
+        ${tabel('Per outlet', lap.perOutlet, 'Outlet')}
+        ${tabel('Per asal data', lap.perSumber, 'Asal')}
+        ${tabel('Per nopol (sparepart)', lap.perNopol, 'Nopol')}
+        ${tabel('Per SKU (sparepart)', lap.perSku, 'SKU')}`;
+    }
+
+    kotak.querySelector('#pr-ekspor')?.addEventListener(
       'click',
       sekaliJalan(async () => {
-        const lembarRingkas = (judul, daftar) => ({
-          sheetName: judul.slice(0, 28),
-          title: `${lap.judul} — ${judul}`,
-          subtitle: lap.subjudul,
-          columns: [
-            { header: judul, width: 28 },
-            { header: 'Baris', numeric: true, width: 10 },
-            { header: 'Qty', numeric: true, width: 10 },
-            { header: 'Omzet', numeric: true, width: 16 },
-            { header: 'Modal', numeric: true, width: 16 },
-            { header: 'Laba', numeric: true, width: 16 },
-            { header: 'Margin %', numeric: true, width: 12 }
-          ],
-          rows: daftar.map((k) => [k.label ?? k.kunci, k.baris, k.qtySparepart, k.omzet, k.modal, k.laba, k.margin])
-        });
+        // SATU berkas, dua lembar — persis dua laporan yang diminta. Dua
+        // berkas terpisah berarti dua kali kirim, dan yang menerimanya harus
+        // mencocokkan sendiri periodenya.
         await exportSheetsXLSX({
-          filename: lap.namaBerkas,
+          filename: namaBerkas,
           sheets: [
             {
-              sheetName: 'Rincian',
-              title: lap.judul,
-              subtitle: lap.subjudul,
-              columns: [
-                { header: 'Tanggal', width: 12 },
-                { header: 'Invoice', width: 20 },
-                { header: 'Asal', width: 10 },
-                { header: 'Outlet', width: 18 },
-                { header: 'Nopol', width: 12 },
-                { header: 'Pelanggan', width: 22 },
-                { header: 'Jenis', width: 11 },
-                { header: 'SKU', width: 18 },
-                { header: 'Nama', width: 30 },
-                { header: 'Qty', numeric: true, width: 8 },
-                { header: 'Harga', numeric: true, width: 14 },
-                { header: 'Total', numeric: true, width: 14 },
-                { header: 'Modal', numeric: true, width: 14 },
-                { header: 'Laba', numeric: true, width: 14 }
-              ],
-              rows: baris.map((b) => [
-                b.tanggal,
-                b.invoice_no,
-                b.sumber === 'korporat' ? 'Korporat' : 'Turboly',
-                b.outlet_nama,
-                b.nopol ?? '',
-                b.company || b.customer || '',
-                b.item_type === 'sparepart' ? 'Sparepart' : 'Jasa',
-                b.sku ?? '',
-                b.nama,
-                Number(b.qty) || 0,
-                b.harga_satuan === null ? null : Number(b.harga_satuan),
-                Number(b.total) || 0,
-                // null, BUKAN 0 — sel kosong di Excel terbaca "belum diisi",
-                // dan 0 terbaca "gratis". Keduanya berbeda artinya.
-                b.modal === null ? null : Number(b.modal),
-                b.laba === null ? null : Number(b.laba)
-              ])
+              sheetName: 'Penjualan',
+              title: 'Rincian Penjualan Bengkel',
+              subtitle: [subjudul, ...catatan].join(' · '),
+              columns: lapJual.kolom,
+              rows: lapJual.rows
             },
-            lembarRingkas('Per outlet', lap.perOutlet),
-            lembarRingkas('Per nopol', lap.perNopol),
-            lembarRingkas('Per SKU', lap.perSku)
+            {
+              sheetName: 'Pengeluaran',
+              title: 'Laporan Pengeluaran / Pembelian Sparepart',
+              subtitle: [subjudul, ...catatan].join(' · '),
+              columns: lapBeli.kolom,
+              rows: lapBeli.rows
+            }
           ]
         });
-        toast('Laporan terunduh.', 'success');
+        toast('Dua laporan terunduh dalam satu berkas.', 'success');
       })
     );
   }
