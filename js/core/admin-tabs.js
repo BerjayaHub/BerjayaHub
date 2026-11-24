@@ -45,6 +45,12 @@ export const ADMIN_TAB_CATALOG = [
   // penjualan bisa dicatat sama sekali. Tetap bisa diberikan ke admin BU/outlet,
   // tapi sengaja terdaftar terpisah supaya izinnya bisa dicabut sendiri.
   { code: 'harga_outlet', label: 'Harga per Outlet', group: 'Inventory' },
+  // Kodenya TIDAK ada di tabel `modules` — ia tab turunan modul Menu
+  // (`syaratModul: 'menu'` di main-admin.js). Tetap wajib terdaftar di sini:
+  // begitu seorang admin punya daftar izin (whitelist tidak kosong),
+  // `canAccessTab` menolak kode yang tidak pernah bisa dicentang, dan tab yang
+  // disaring keluar tidak meninggalkan galat apa pun untuk ditelusuri.
+  { code: 'menu_per_outlet', label: 'Menu per Outlet', group: 'Inventory' },
   { code: 'production', label: 'Produksi', group: 'Inventory' },
   { code: 'sales', label: 'Penjualan', group: 'Inventory' },
 
@@ -53,10 +59,22 @@ export const ADMIN_TAB_CATALOG = [
   // keduanya sama sekali, dan izinnya tetap bisa dicabut per user.
   //
   // Grupnya 'Inventory' walaupun sparepart TIDAK menyimpan stok: tempat orang
-  // mencari "daftar barang" adalah grup itu, dan grup baru berisi dua tab
-  // hanya menambah tempat untuk gagal menemukannya.
+  // mencari "daftar barang" adalah grup itu.
   { code: 'sparepart', label: 'Sparepart & Jasa', group: 'Inventory' },
-  { code: 'penjualan_bengkel', label: 'Penjualan Bengkel', group: 'Inventory' },
+
+  // Tiga tab di bawah satu menu "Penjualan Bengkel" (grup `grp_bengkel` di
+  // main-admin.js). Grupnya di sini DISAMAKAN dengan nama menu itu: yang
+  // mencari izin untuk layar yang dilihatnya mencarinya dengan nama yang
+  // tertulis di sidebar, bukan nama grup lain.
+  //
+  // `penjualan_bengkel_rinci` punya baris di tabel `modules`, jadi ia hidup
+  // per BU. `cek_silang_bengkel` TIDAK punya — ia tab turunan rinci
+  // (`syaratModul`), dan alasan ia tetap harus terdaftar di sini sama dengan
+  // 'Menu per Outlet' di atas: tanpa barisnya, admin ber-whitelist tidak akan
+  // pernah bisa diberi aksesnya, tanpa satu pun galat.
+  { code: 'penjualan_bengkel', label: 'Omzet Harian (laporan staff)', group: 'Penjualan Bengkel' },
+  { code: 'penjualan_bengkel_rinci', label: 'Rinci & Impor Turboly', group: 'Penjualan Bengkel' },
+  { code: 'cek_silang_bengkel', label: 'Cek Silang (harian vs Turboly)', group: 'Penjualan Bengkel' },
 
   // Menu berdiri sendiri (tidak digabung ke grup Inventory) supaya mudah dicari.
   { code: 'reservation', label: 'Reservasi', group: 'Modul lain' },

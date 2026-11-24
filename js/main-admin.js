@@ -36,6 +36,7 @@ import { renderDokumenAdminPage } from './modules/owner/dokumen.admin.page.js';
 import { renderSparepartAdminPage } from './modules/sparepart/sparepart.admin.page.js';
 import { renderPenjualanBengkelAdminPage } from './modules/sparepart/penjualan-bengkel.admin.page.js';
 import { renderPenjualanRinciAdminPage } from './modules/bengkel/penjualan-rinci.admin.page.js';
+import { renderCekSilangAdminPage } from './modules/bengkel/cek-silang.admin.page.js';
 import { listBusinessUnitsBasic } from './modules/organization/organization.service.js';
 import { renderGroupPage } from './core/group-page.js';
 import { canAccessTab } from './core/admin-tabs.js';
@@ -91,6 +92,36 @@ const GROUPS = {
     tabs: [
       { code: 'master_user', label: 'Master User', render: renderMasterUserPage, core: true },
       { code: 'staff_data', label: 'Data Staff', render: renderStaffDataPage, core: true }
+    ]
+  },
+  // ============ SATU MENU UNTUK BENGKEL ============
+  //
+  // Dua modul penjualan bengkel pernah berdiri sebagai menu terpisah dengan
+  // nama yang nyaris sama — undangan untuk salah tempat: cepat atau lambat
+  // ada yang mengetik penjualan korporat ke form harian, dan tidak ada apa pun
+  // yang menahannya.
+  //
+  // DATANYA tetap dua tabel, dan itu disengaja: `bengkel_sales` (nominal
+  // harian dari staff) dan `bengkel_sale_invoices` (per baris dari Turboly)
+  // mengaku mencatat penjualan yang sama dari dua jalur yang berbeda.
+  // Dijumlahkan, omzetnya dua kali lipat — dan angkanya tetap terlihat wajar,
+  // karena dua-duanya benar di tempat asalnya. Yang disatukan cuma menunya,
+  // ditambah satu tab yang MEMBANDINGKAN keduanya.
+  grp_bengkel: {
+    name: 'Penjualan Bengkel',
+    icon: '🔧',
+    tabs: [
+      { code: 'penjualan_bengkel', label: 'Omzet Harian', render: renderPenjualanBengkelAdminPage },
+      { code: 'penjualan_bengkel_rinci', label: 'Rinci & Impor', render: renderPenjualanRinciAdminPage },
+      // Kodenya tidak ada di tabel `modules`, jadi ia ikut hidup-matinya modul
+      // rinci lewat `syaratModul` — tanpa itu tabnya tidak akan pernah muncul,
+      // dan tab yang disaring keluar tidak meninggalkan jejak untuk ditelusuri.
+      {
+        code: 'cek_silang_bengkel',
+        label: 'Cek Silang',
+        render: renderCekSilangAdminPage,
+        syaratModul: 'penjualan_bengkel_rinci'
+      }
     ]
   },
   grp_inventory: {

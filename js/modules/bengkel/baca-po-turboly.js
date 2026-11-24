@@ -250,6 +250,21 @@ export function poUntukRpc(baris) {
     nama: b.nama ?? '',
     product_type: b.product_type ?? '',
     product_code: b.product_code ?? '',
+    // ============ TUJUAN PENGIRIMAN WAJIB IKUT ============
+    //
+    // `kirim_ke` adalah SATU-SATUNYA petunjuk outlet mana yang menerima
+    // barangnya: `impor_pembelian_bengkel` (0186) mencarinya di pemetaan
+    // `jenis = 'kirim'`, dan `petakan_tujuan_kirim` memakai kolom yang sama
+    // untuk menambal baris yang sudah lebih dulu diimpor.
+    //
+    // Pernah tidak dikirim sama sekali. Akibatnya tidak terlihat di mana pun:
+    // impornya berhasil, jumlah barisnya benar, nilainya benar, dan layar
+    // impor tetap menampilkan daftar alamat yang perlu dipetakan (ia
+    // membacanya dari berkas, bukan dari jawaban server). Yang berubah cuma
+    // satu: SELURUH pembelian masuk sebagai pembelian pusat, dan penyaringan
+    // per outlet yang memang diminta tidak pernah bekerja untuk satu baris pun.
+    warehouse: b.warehouse ?? '',
+    kirim_ke: b.kirim_ke ?? '',
     qty: b.qty ?? 0,
     // `null` dipertahankan: sel kosong dan nol adalah dua hal berbeda, dan
     // yang membedakannya cuma ini.

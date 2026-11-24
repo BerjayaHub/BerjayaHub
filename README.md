@@ -10722,3 +10722,121 @@ Tanpa itu, seluruh §2–§8 bisa hijau untuk perbaikan yang tidak memperbaiki
 apa pun.
 
 - [x] **Ubah jumlah di draft order** (`0184`) — tes PGlite 35 pemeriksaan, audit pola 18 tabel × 241 fungsi, 9 sabotase
+
+## Bengkel: jembatan Turboly ↔ Berjaya Hub (`0185`–`0188`)
+
+> "intinya saya mau output yang hampir mirip dengan kedua link spreadsheet yang
+>  saya kirim / jadi ada 2 output yaitu laporan penjualan dan pembelian / lalu
+>  bisa di export excel / lalu inputnya dari import 2 kali yaitu detailed
+>  service invoice dan detailed purchase order / lalu untuk korporate akan
+>  diinput manual tanpa import dari turboly"
+
+Turboly memegang penjualan pelanggan umum; pelanggan korporat ditagih kantor
+dan tidak pernah lewat kasir Turboly. Berjaya Hub menyatukan keduanya menjadi
+dua laporan yang bentuknya sama dengan sheet yang sudah dipakai sehari-hari.
+
+### Seluruh modul ini punya SATU bentuk kegagalan
+
+Angkanya tetap keluar, tetap rapi, tetap masuk akal — dan salah. Tidak ada
+galat, tidak ada baris merah, tidak ada momen yang bisa ditunjuk sebagai saat
+ia mulai salah. Daftar di bawah ini semuanya nyata, dari data Oktober si
+pemakai sendiri:
+
+| Yang halus | Akibatnya | Yang menahannya sekarang |
+|---|---|---|
+| `Cost` Turboly adalah **total per baris**, bukan per unit | HPP oli 4 liter jadi 1,8 juta, bukan 459 ribu | `test-baca-invoice-turboly`, audit |
+| Modal tidak diketahui disimpan `0` | laba terbaca **100%**, tak bisa dibedakan dari laba sungguhan | kolom `numeric` NULL + `modal: '' ≠ 0` |
+| Satu berkas memuat **beberapa store** | invoice store yang belum dipetakan dilewati diam-diam | `dilewati_store` dibalas RPC & wajib tampil |
+| Outlet pembelian datang dari **`Deliver To`**, bukan `Warehouse` | seluruh pembelian cabang masuk ke cabang yang salah | pemetaan `jenis = 'kirim'` |
+| Ekspor PO tingkat *store* **seluruh harganya 0** | pengeluaran terbaca nol, bukan "harga tidak terekspor" | `semuaHarganyaNol` + peringatan di layar |
+| Impor ulang berkas yang sama | omzet **dua kali lipat** | penggantian per invoice / per PO |
+| QTY diformat rupiah ("Rp191") | angka yang disalin dari kekeliruan sheet lama | tiap kolom angka wajib menyatakan `uang` |
+
+### Satu yang lolos berbulan-bulan, dan apa yang akhirnya menangkapnya
+
+`poUntukRpc` **tidak mengirim `kirim_ke`** ke server. Impornya berhasil, jumlah
+barisnya benar, nilainya benar, dan layar impor tetap menampilkan daftar alamat
+yang perlu dipetakan — karena ia membacanya dari **berkas**, bukan dari jawaban
+server. Yang berubah cuma satu: seluruh pembelian masuk sebagai pembelian
+pusat, dan penyaringan per outlet yang memang diminta tidak pernah bekerja
+untuk satu baris pun.
+
+Tidak ada tes yang merah, tidak ada layar yang kosong. Yang menangkapnya adalah
+`audit-bengkel-turboly.cjs` — dipasang setelahnya, dan merah pada sweep
+pertamanya. §7 `test-baca-po-turboly` sekarang menuntut kuncinya ikut terkirim.
+
+### Pencocokan beli ↔ jual adalah TEBAKAN, dan dikatakan begitu
+
+> "jadi dicocokan antara pembelian, penjualan dan tanggal"
+
+FIFO per SKU, dengan penjagaan **tanggal beli ≤ tanggal jual**: barang tidak
+bisa terjual sebelum dibeli, dan tanpa penjagaan itu pembelian bulan depan akan
+"membiayai" penjualan bulan ini — labanya tetap terlihat masuk akal. Hasilnya
+tiga tingkat (`cocok` / `sebagian` / `tidak ketemu`), dan kolom **Asal Harga
+Beli** membedakan modal dari nota sungguhan dengan modal hasil tebakan. Pada
+data Oktober: 91 dari 305 baris ketemu — angka yang rendah itu **informasi**,
+bukan kegagalan, karena sisanya dibeli sebelum periode yang diimpor.
+
+### Menarik kembali satu BERKAS, bukan satu dokumen
+
+> "saya tetap disuruh memilih salah satu nomor dokumen bukan satu file import"
+
+`bengkel_import_runs` mencatat tiap unggahan beserta **`nomor_dokumen`** —
+dicatat **saat impor**, bukan dihitung belakangan dari baris yang masih ada:
+dokumen yang sudah digantikan impor lain justru yang perlu ikut terhapus, dan ia
+tidak akan pernah terdaftar kalau dihitung dari sisa. `tarik_impor_bengkel(…,
+p_semua)` menyapunya, dengan satu batas keras: `sumber = 'turboly'` saja —
+invoice korporat diketik orang, tidak berasal dari berkas mana pun, dan tidak
+ada berkas untuk memulihkannya. Baris riwayatnya **tidak dihapus**: tanpa
+jejaknya, "angkanya kok hilang" tidak punya jawaban di mana pun.
+
+### Menunya digabung; DATANYA tidak
+
+> "modul penjualan bengkel dan modul penjualan bengkel rinci apakah baiknya
+>  digabung saja ya?"
+
+Satu menu **Penjualan Bengkel** dengan tiga tab: *Omzet Harian* (nominal dari
+staff), *Rinci & Impor* (per baris dari Turboly + korporat), dan *Cek Silang*.
+Dua menu bernama nyaris sama adalah undangan untuk salah tempat.
+
+Tapi `bengkel_sales` dan `bengkel_sale_lines` **tetap dua tabel**, dan itu
+disengaja: keduanya mengaku mencatat penjualan yang sama dari dua jalur yang
+berbeda. Dijumlahkan, omzetnya dua kali lipat — dan angkanya tetap terlihat
+wajar, karena dua-duanya benar di tempat asalnya. Auditnya menolak berkas mana
+pun selain layar cek silang yang membaca kedua sumber sekaligus.
+
+### Cek Silang: dua jalur yang selama ini tidak pernah saling melihat
+
+Omzet yang dilaporkan staff tiap sore disandingkan dengan penjualan Turboly,
+per tanggal per outlet. Selama keduanya hidup terpisah, dua kebocoran bisa
+bertahan bertahun-tahun: uang masuk yang tidak pernah dibukukan, dan transaksi
+dibukukan yang uangnya tidak pernah dilaporkan. Dilihat dari satu sisi,
+keduanya tampak wajar.
+
+Empat keputusan yang membuat layarnya tetap dibaca orang:
+
+- **Korporat tidak ikut dibandingkan** (tapi tetap ditampilkan di kolomnya
+  sendiri). Ikut dijumlahkan, setiap hari yang ada invoice korporatnya tampak
+  selisih — dan daftar yang selalu merah berhenti dibaca.
+- **Toleransi Rp1.000** yang bisa diubah: pembulatan kasir bukan kebocoran.
+- **Selisih per jenis** ikut dihitung: total yang kebetulan sama bisa
+  menyembunyikan sparepart kelebihan yang ditutup jasa kekurangan — itu dua
+  kesalahan yang saling menutupi, bukan nol kesalahan.
+- **Selisih mutlak** di ringkasan: kelebihan dan kekurangan di hari berbeda
+  saling menghapus, dan hasilnya nol yang membuat seluruh bulan terlihat beres.
+
+"Belum diimpor" dan "staff belum lapor" punya statusnya sendiri — bukan selisih
+sebesar seluruh omzet hari itu.
+
+### Tab yang disaring keluar tidak meninggalkan jejak
+
+`cek_silang_bengkel` tidak punya baris di tabel `modules`, jadi ia ikut
+hidup-matinya modul rinci lewat `syaratModul`. Dan setiap kode tab di dalam
+grup **wajib** terdaftar di `ADMIN_TAB_CATALOG`: begitu seorang admin punya
+daftar izin, `canAccessTab` menolak kode yang tidak ada di sana — dan kode itu
+tidak bisa dicentang siapa pun, karena `GRANTABLE_TABS` dibangun dari katalog
+yang sama. Layarnya hilang, tanpa satu pun galat. Auditnya memeriksa ini untuk
+**semua** grup, bukan cuma bengkel; sweep pertamanya menemukan `menu_per_outlet`
+yang sudah lama begitu.
+
+- [x] **Impor & laporan bengkel** (`0185`–`0188`) — tes murni 28+42+23+49+42+37 pemeriksaan, tes PGlite 40+25+40+29, audit 2 berkas, 34 sabotase

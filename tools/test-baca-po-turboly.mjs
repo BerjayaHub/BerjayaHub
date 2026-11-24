@@ -117,5 +117,31 @@ console.log('§5–§6 Nilai & ringkasan');
 cek('§6 larik kosong tidak melempar', ringkasPo(null).baris, 0);
 cek('§6 poUntukRpc tanpa argumen', poUntukRpc(), []);
 
+// ===============================================================
+console.log('§7 Tujuan pengiriman ikut dikirim');
+// ===============================================================
+//
+// `kirim_ke` adalah SATU-SATUNYA petunjuk outlet mana yang menerima barangnya.
+// Pernah tidak ikut dikirim, dan tidak ada apa pun yang menunjukkannya:
+// impornya berhasil, jumlah barisnya benar, nilainya benar, dan layar impor
+// tetap menampilkan daftar alamat yang perlu dipetakan — ia membacanya dari
+// BERKAS, bukan dari jawaban server. Yang berubah cuma satu: seluruh pembelian
+// masuk sebagai pembelian pusat, dan penyaringan per outlet tidak pernah
+// bekerja untuk satu baris pun.
+{
+  const h = bacaEksporPo(
+    berkas([baris({ 'Deliver To': 'Jl. Soekarno Hatta No. 1, Malang', Warehouse: 'GUDANG PUSAT' })])
+  );
+  const dikirim = poUntukRpc(h.baris)[0];
+  cek('§7 kirim_ke terbaca dari berkas', h.baris[0].kirim_ke, 'Jl. Soekarno Hatta No. 1, Malang');
+  cek('§7 kirim_ke IKUT ke server', dikirim.kirim_ke, 'Jl. Soekarno Hatta No. 1, Malang');
+  cek('§7 warehouse ikut (untuk jejak, bukan penentu outlet)', dikirim.warehouse, 'GUDANG PUSAT');
+  // Alamat kosong tetap dikirim sebagai teks kosong, bukan hilang: server
+  // membedakan "belum dipetakan" dari "memang tanpa alamat".
+  const kosong = poUntukRpc(bacaEksporPo(berkas([baris()])).baris)[0];
+  cek('§7 alamat kosong tetap ada kuncinya', kosong.kirim_ke, '');
+  benar('§7 kunci kirim_ke selalu ada', 'kirim_ke' in kosong);
+}
+
 console.log(`\n${gagal === 0 ? '✅' : '❌'} test-baca-po-turboly: ${n - gagal}/${n} lulus`);
 process.exit(gagal === 0 ? 0 : 1);
