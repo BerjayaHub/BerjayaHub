@@ -10840,3 +10840,87 @@ yang sama. Layarnya hilang, tanpa satu pun galat. Auditnya memeriksa ini untuk
 yang sudah lama begitu.
 
 - [x] **Impor & laporan bengkel** (`0185`–`0188`) — tes murni 28+42+23+49+42+37 pemeriksaan, tes PGlite 40+25+40+29, audit 2 berkas, 34 sabotase
+
+## Admin outlet bisa mengimpor Turboly (`0189`)
+
+> "scope admin outlet juga bisa akses dan upload / import dari turboly
+>  silahkan revisi"
+
+### Kenapa ini bukan sekadar melonggarkan satu `if`
+
+Dua sifat modul ini bertemu di satu titik:
+
+1. satu berkas ekspor Turboly bisa memuat **beberapa store sekaligus** — bukan
+   dugaan, berkas Oktober memang begitu;
+2. impornya bekerja dengan cara **mengganti**: tiap invoice dan tiap PO dihapus
+   isinya lalu diisi ulang, supaya impor ulang tidak menggandakan omzet.
+
+Kalau `is_bu_admin` di fungsi impor diganti begitu saja jadi "admin outlet juga
+boleh", admin outlet Malang yang mengunggah berkas berisi cabang lain akan
+**menimpa dan menghapus data cabang lain**. Tanpa galat. Angkanya cuma
+berpindah pemilik.
+
+Jadi yang dilonggarkan bukan *siapa yang boleh memanggil*, tapi **baris mana
+yang ikut diproses**:
+
+| | Admin BU | Admin outlet |
+|---|---|---|
+| Impor | seluruh isi berkas | hanya baris outletnya; sisanya dilewati **dan dilaporkan** |
+| Pembelian pusat | boleh | **boleh** (ia menambah, tidak menimpa) |
+| Pemetaan store/alamat | semua outlet | hanya outletnya; tidak bisa memindahkan pemetaan outlet lain |
+| Tarik kembali | semua impor | hanya unggahannya sendiri |
+| Tarik **menyeluruh** (`p_semua`) | boleh | tidak — jangkauannya lintas outlet |
+| Hapus satu dokumen | semua | hanya dokumen outletnya (pusat tidak termasuk) |
+
+### Urutan, bukan cuma adanya penjagaan
+
+Di `0188`, blok "PO pertama kali disentuh → hapus isi lamanya" berjalan
+**sebelum** alamat kirim dibaca. Urutan itu tidak apa-apa selama yang mengimpor
+adalah admin BU. Begitu admin outlet ikut boleh, ia menjadi lubang paling mahal
+di seluruh modul: PO cabang lain dihapus lebih dulu, lalu seluruh barisnya
+"dilewati karena outlet lain". **Laporan penghapusannya rapi; datanya tetap
+hilang.** Auditnya karena itu memeriksa *posisi* penjagaannya, bukan cuma
+keberadaannya — `indexOf` penjagaan harus lebih kecil dari `indexOf` tiap
+`delete`/`update`.
+
+Dua penjagaan lain yang lahir dari pertanyaan "bagaimana kalau ia pintar":
+
+- **Invoice yang sudah ada milik outlet lain** ikut diperiksa. Tanpa itu, admin
+  outlet cukup memetakan store baru ke outletnya sendiri lalu mengimpor nomor
+  invoice cabang lain — invoicenya berpindah outlet beserta omzetnya, lewat
+  jalan yang semuanya sah satu per satu.
+- **PO yang isinya milik outlet lain** ditolak seluruhnya, bukan per baris.
+  Alamat kirim yang dikosongkan bukan surat kuasa untuk menimpanya, dan menulis
+  sebagiannya akan meninggalkan dokumen setengah — separuh dari berkas lama,
+  separuh dari yang baru, tanpa apa pun di layar yang mengatakannya.
+
+### "Dilewati karena outlet lain" ≠ "belum dipetakan"
+
+Dua angka yang terpisah, dan sengaja: yang pertama perlu Admin BU, yang kedua
+perlu pemetaan. Disamakan, orangnya akan **memetakan ulang store cabang lain ke
+outletnya sendiri** untuk "membetulkannya".
+
+Nomor dokumen yang dilewati juga **tidak** tercatat sebagai milik impor itu —
+kalau ikut, "tarik menyeluruh" nanti akan menyapu invoice cabang lain yang tidak
+pernah disentuh impor itu.
+
+Dan pelaporannya tidak lewat toast: pesan yang hilang sendiri dalam tiga detik
+bukan cara menyampaikan bahwa separuh berkasnya tidak masuk.
+
+### Dua perbaikan ikutan
+
+- **`jenis` tidak disaring saat mencari store.** Sejak `0186` tabel pemetaan
+  memegang dua macam baris (nama Store dan alamat `Deliver To`), dan indeks
+  uniknya `(bu, jenis, nama)` membolehkan satu nama hidup di keduanya.
+  `select into` mengambil baris pertama **tanpa galat** — jadi penjualannya bisa
+  masuk ke outlet yang salah dan tidak ada apa pun yang menandainya. Ikut
+  diperbaiki di daftar "Pemetaan Store" di layar, yang tadinya memuat alamat
+  kirim juga.
+- **Dropdown outlet** di tiga tempat (pemetaan store, pemetaan alamat, invoice
+  korporat) kini hanya berisi outlet yang jadi wewenangnya. Dropdown yang
+  menawarkan pilihan yang pasti ditolak server membuat orangnya membaca
+  penolakan atas daftar yang salah — dan menyangka dirinya yang salah. Kalau
+  perannya gagal terbaca, daftarnya dibiarkan **utuh**: server tetap penjaga
+  terakhirnya, dan daftar kosong akan memblokir orang yang justru berwenang.
+
+- [x] **Admin outlet mengimpor Turboly** (`0189`) — tes PGlite 64 pemeriksaan, audit 1 berkas, 24 sabotase

@@ -74,6 +74,29 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
   }
   const namaOutlet = (id) => outlets.find((o) => o.id === id)?.name ?? '—';
 
+  // ============ OUTLET YANG JADI WEWENANGNYA (0189) ============
+  //
+  // Dipakai tiap dropdown outlet di layar ini: pemetaan store, pemetaan alamat
+  // kirim, dan invoice korporat. Ketiganya ditolak server kalau outletnya
+  // bukan wewenangnya (0189 untuk dua yang pertama, `is_admin_of_outlet` di
+  // 0185 untuk korporat).
+  //
+  // Dropdown yang tetap menawarkan SELURUH outlet berarti ia memilih, menekan
+  // Simpan, lalu membaca penolakan: yang salah daftarnya, tapi yang terlihat
+  // salah adalah dirinya.
+  //
+  // Admin BU & super admin tetap melihat semuanya (`adminBu`), dan kalau
+  // perannya tidak terbaca sama sekali daftarnya dibiarkan utuh: server tetap
+  // penjaga terakhirnya, dan daftar kosong akan memblokir orang yang
+  // sebenarnya berwenang.
+  let outletKewenanganku = outlets;
+  try {
+    const { adminBu, outlets: punyaku } = await scopeAdminSaya(businessUnitId);
+    if (!adminBu && punyaku.size) outletKewenanganku = outlets.filter((o) => punyaku.has(o.id));
+  } catch {
+    /* peran tidak terbaca — biarkan utuh, server yang memutuskan */
+  }
+
   container.innerHTML = `
     <div class="page-header">
       <h2 style="font-size:1.05rem;margin:0">Penjualan Bengkel (Rinci)</h2>
@@ -406,7 +429,7 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
         'Huruf besar-kecil dan spasi ganda tidak masalah.',
       fields: [
         { name: 'alamat', label: 'Alamat kirim (Deliver To)', type: 'text', required: true, value: alamat ?? '', placeholder: 'mis. Jl. Borobudur 45, Blimbing, Malang, Jawa Timur' },
-        { name: 'outlet', label: 'Outlet di Berjaya Hub', type: 'select', required: true, options: outlets.map((o) => ({ value: o.id, label: o.name })) }
+        { name: 'outlet', label: 'Outlet di Berjaya Hub', type: 'select', required: true, options: outletKewenanganku.map((o) => ({ value: o.id, label: o.name })) }
       ],
       submitText: 'Simpan'
     });
@@ -513,10 +536,26 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
       if (Number(h.ke_pusat)) catatan.push(`${h.ke_pusat} baris jadi pembelian pusat`);
       if (Number(h.tanpa_sku)) catatan.push(`${h.tanpa_sku} tanpa SKU`);
       if (Number(h.dilewati)) catatan.push(`${h.dilewati} dilewati`);
+      if (Number(h.dilewati_outlet_lain)) catatan.push(`${h.dilewati_outlet_lain} baris outlet lain dilewati`);
       toast(
         `${h.po_baru} PO baru, ${h.po_diganti} diganti, ${h.baris} baris` + (catatan.length ? ` · ${catatan.join('; ')}` : ''),
         catatan.length ? 'warning' : 'success'
       );
+      // Alasannya disebut, bukan cuma jumlahnya — lihat alasan yang sama di
+      // impor penjualan. Satu angka tanpa alamatnya tidak bisa ditindaklanjuti.
+      if (Number(h.dilewati_outlet_lain)) {
+        await infoDialog({
+          title: 'Sebagian berkas tidak ikut diimpor',
+          bodyHtml: `
+            <p><strong>${Number(h.dilewati_outlet_lain)} baris</strong> dikirim ke alamat yang
+              <strong>bukan outlet yang kamu pegang</strong>${
+                h.alamat_outlet_lain?.length ? `: <strong>${esc(h.alamat_outlet_lain.join(' · '))}</strong>` : ''
+              }.</p>
+            <p style="color:var(--color-text-muted);font-size:0.86rem">PO milik outlet lain tidak ditulis dan tidak
+              dihapus — isinya tetap seperti sebelumnya. Pembelian <em>pusat</em> (tanpa alamat, atau alamat yang
+              belum dipetakan) tetap ikut masuk.</p>`
+        });
+      }
     } catch (e) {
       toast(e.message ?? 'Gagal mengimpor pembelian.', 'error');
       return;
@@ -535,7 +574,7 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
           label: 'Outlet di Berjaya Hub',
           type: 'select',
           required: true,
-          options: outlets.map((o) => ({ value: o.id, label: o.name }))
+          options: outletKewenanganku.map((o) => ({ value: o.id, label: o.name }))
         }
       ],
       submitText: 'Simpan'
@@ -634,6 +673,23 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
           (lewat.length ? ` · dilewati — ${lewat.join('; ')}` : ''),
         lewat.length ? 'warning' : 'success'
       );
+      // ============ BUKAN TOAST (0189) ============
+      //
+      // Baris yang dilewati karena bukan wewenangnya perlu DIBACA, bukan
+      // dilewati bersama toast yang hilang sendiri dalam tiga detik. Tanpa ini
+      // ia menyangka seluruh berkasnya masuk — dan kekurangannya baru terasa
+      // di akhir bulan, saat sudah tidak ada yang ingat berkas mana.
+      if (h.dilewati_outlet_lain?.length) {
+        await infoDialog({
+          title: 'Sebagian berkas tidak ikut diimpor',
+          bodyHtml: `
+            <p>Berkas ini memuat store yang <strong>bukan outlet yang kamu pegang</strong>:</p>
+            <p style="margin:6px 0"><strong>${esc(h.dilewati_outlet_lain.join(' · '))}</strong></p>
+            <p style="color:var(--color-text-muted);font-size:0.86rem">Invoice dari store itu tidak ditulis dan
+              tidak diubah — datanya tetap seperti sebelumnya. Kalau memang harus ikut masuk, mintakan ke
+              Admin BU, atau minta berkas yang sudah difilter per cabang dari Turboly.</p>`
+        });
+      }
     } catch (e) {
       toast(e.message ?? 'Gagal mengimpor.', 'error');
       return;
@@ -901,7 +957,7 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
           type: 'select',
           required: true,
           value: invoice?.outlet_id ?? '',
-          options: outlets.map((o) => ({ value: o.id, label: o.name }))
+          options: outletKewenanganku.map((o) => ({ value: o.id, label: o.name }))
         },
         { name: 'tanggal', label: 'Tanggal', type: 'date', required: true, value: invoice?.tanggal ?? state.sampai },
         { name: 'company', label: 'Perusahaan', type: 'text', value: invoice?.company ?? '', placeholder: 'mis. PT SEMEN INDONESIA' },

@@ -16,8 +16,14 @@ export async function daftarStoreMap(businessUnitId) {
   if (!businessUnitId) return [];
   const { data, error } = await supabase
     .from('bengkel_store_map')
-    .select('id, store_name, outlet_id, outlets!outlet_id(name)')
+    .select('id, store_name, outlet_id, jenis, outlets!outlet_id(name)')
     .eq('business_unit_id', businessUnitId)
+    // `jenis` DISARING. Sejak 0186 tabel ini memegang dua macam pemetaan —
+    // nama Store Turboly dan alamat `Deliver To` — dan tanpa saringan ini
+    // daftar "Pemetaan Store" ikut memuat alamat kirim. Keduanya tampak
+    // seperti baris yang sama bentuknya, jadi yang membacanya akan menyangka
+    // storenya sudah dipetakan padahal belum.
+    .eq('jenis', 'store')
     .order('store_name');
   if (error) throw new Error(error.message ?? String(error));
   return data ?? [];
