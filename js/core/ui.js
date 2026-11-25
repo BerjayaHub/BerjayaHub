@@ -206,15 +206,24 @@ export function formDialog({
   // diam-diam — persis bentuk kegagalan yang pernah menghapus kolom pemegang
   // kas dari dialog tanpa satu pun tanda.
   danger = false,
+  // 'dokumen' = form bergaya dokumen (kepala + tabel baris). Melebar mengikuti
+  // layar di desktop, tetap menumpuk di HP. Dipisah dari `modal-lebar` yang
+  // cuma 560px: tabel 8 kolom di 560px menyisakan ~60px per kolom, dan
+  // angkanya terpotong di layar yang sebenarnya muat.
+  lebar = '',
   onReady
 } = {}) {
   return new Promise((resolve) => {
     const overlay = buildOverlay();
     overlay.innerHTML = `
       <div class="modal-card modal-form${
-        // Dialog yang memuat komponen tertanam butuh ruang lebih: isinya bukan
-        // deretan kotak sebaris-satu, melainkan baris berisi beberapa isian.
-        fields.some((f) => f.type === 'html') ? ' modal-lebar' : ''
+        lebar === 'dokumen'
+          ? ' modal-dokumen'
+          : // Dialog yang memuat komponen tertanam butuh ruang lebih: isinya bukan
+            // deretan kotak sebaris-satu, melainkan baris berisi beberapa isian.
+            fields.some((f) => f.type === 'html')
+            ? ' modal-lebar'
+            : ''
       }" role="dialog" aria-modal="true">
         <h3 class="modal-title">${escapeHtml(title)}</h3>
         ${description ? `<p class="modal-text">${escapeHtml(description)}</p>` : ''}
@@ -605,6 +614,56 @@ export function wireSearchSelect(widget, options, onChange) {
   const input = widget.querySelector('.ss-input');
   const list = widget.querySelector('.ss-list');
   const allowCreate = widget.dataset.allowCreate === '1';
+
+  // ============ DAFTARNYA MENGAMBANG DI BODY, BUKAN DI TEMPATNYA ============
+  //
+  // Bug yang membuat pencariannya tampak TIDAK ADA sama sekali.
+  //
+  // `.ss-list` tadinya `position: absolute` di dalam `.search-select`. Begitu
+  // kotaknya berada di dalam wadah yang bisa digulir — tabel baris di dialog
+  // Invoice Korporat memakai `.table-scroll`, dan satu sumbu `overflow: auto`
+  // membuat sumbu satunya ikut memotong — daftar hasilnya terpotong habis oleh
+  // tepi wadah itu. Penyaringannya tetap berjalan, hasilnya tetap dihitung,
+  // dan yang mengetik "shell" melihat KOSONG. Tidak ada galat, tidak ada
+  // petunjuk; satu-satunya kesimpulan yang masuk akal baginya adalah
+  // "pencariannya belum dibuat".
+  //
+  // `position: fixed` saja TIDAK cukup: `.modal-card` punya `transform`, dan
+  // elemen ber-transform menjadi containing block bagi keturunan `fixed` —
+  // wadah yang memotong tadi tetap berada di antaranya. Jadi daftarnya
+  // benar-benar DIPINDAH ke `document.body` selama terbuka, lalu dikembalikan.
+  const taruhDiBody = () => {
+    if (list.parentElement !== document.body) {
+      document.body.appendChild(list);
+      list.classList.add('ss-floating');
+    }
+    const r = input.getBoundingClientRect();
+    list.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - 268))}px`;
+    list.style.top = `${r.bottom + 4}px`;
+    list.style.minWidth = `${Math.max(r.width, 260)}px`;
+    // Ruang yang tersisa di bawah kotaknya. Daftar setinggi 240px di kotak
+    // yang berada 100px dari dasar layar akan keluar layar, dan pilihan yang
+    // tidak bisa digulir ke sana sama saja dengan tidak ada.
+    list.style.maxHeight = `${Math.max(140, window.innerHeight - r.bottom - 16)}px`;
+  };
+  const kembalikan = () => {
+    list.classList.remove('ss-floating');
+    list.removeAttribute('style');
+    if (list.parentElement !== widget) widget.appendChild(list);
+  };
+  const sembunyikan = () => {
+    list.hidden = true;
+    kembalikan();
+  };
+  // Layar yang digulir saat daftarnya terbuka membuatnya tertinggal di tempat
+  // lamanya — menempel di atas isi lain, menunjuk kotak yang sudah pindah.
+  const ikutGulir = () => {
+    if (list.hidden) return;
+    if (!input.isConnected) return sembunyikan();
+    taruhDiBody();
+  };
+  window.addEventListener('scroll', ikutGulir, true);
+  window.addEventListener('resize', ikutGulir);
   const cariOpsi = (val) => options.find((o) => String(o.value) === String(val));
   const labelFor = (val) => {
     const o = cariOpsi(val);
@@ -632,6 +691,7 @@ export function wireSearchSelect(widget, options, onChange) {
           )
           .join('') || (createItem || '<li class="ss-empty">Tidak ada hasil</li>');
     list.hidden = false;
+    taruhDiBody();
   };
 
   input.addEventListener('focus', () => draw(options));
@@ -649,12 +709,12 @@ export function wireSearchSelect(widget, options, onChange) {
     if (!li) return;
     hidden.value = li.dataset.val;
     input.value = labelFor(li.dataset.val) || li.dataset.val;
-    list.hidden = true;
+    sembunyikan();
     onChange?.(hidden.value);
   });
   input.addEventListener('blur', () => {
     setTimeout(() => {
-      list.hidden = true;
+      sembunyikan();
       if (allowCreate) {
         hidden.value = input.value.trim();
       } else {

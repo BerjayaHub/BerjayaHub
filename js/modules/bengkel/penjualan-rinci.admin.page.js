@@ -27,8 +27,16 @@ import { formatNum, formatRupiah } from '../../core/format.js';
 import { loadXLSX, exportSheetsXLSX } from '../../core/xlsx.js';
 import { monthRangeWIB } from '../../core/dates.js';
 import { listOutletsForBu } from '../organization/organization.service.js';
+import { scopeAdminSaya } from '../../core/base-scope.js';
 import { listSpareparts } from '../sparepart/sparepart.service.js';
 import { barisKosong, dariMaster, totalBaris, susunBarisKorporat, ringkasBarisKorporat } from './baris-korporat.js';
+import {
+  barisBeliKosong,
+  beliDariMaster,
+  nilaiBarisBeli,
+  susunBarisBeli,
+  ringkasBarisBeli
+} from './baris-pembelian-manual.js';
 import { bacaEksporTurboly, untukRpc, PESAN_MASALAH } from './baca-invoice-turboly.js';
 import { bacaEksporPo, poUntukRpc, semuaHarganyaNol, PESAN_MASALAH_PO } from './baca-po-turboly.js';
 import { susunLaporanBengkel, ringkasPenjualan, catatanLaporan, rupiah } from './laporan-penjualan-bengkel.js';
@@ -48,6 +56,9 @@ import {
   hapusDokumenImpor,
   simpanInvoiceKorporat,
   hapusInvoiceKorporat,
+  simpanPembelianManual,
+  hapusPembelianManual,
+  dokumenPembelianManual,
   barisPenjualan,
   invoiceKorporat,
   barisInvoice
@@ -57,7 +68,7 @@ const esc = escapeHtml;
 const TAB = [
   { kode: 'impor', label: '⬆ Impor Turboly' },
   { kode: 'penjualan', label: '📋 Penjualan' },
-  { kode: 'korporat', label: '🏢 Korporat' },
+  { kode: 'manual', label: '✍️ Input Manual' },
   { kode: 'laporan', label: '📊 Laporan' }
 ];
 
@@ -90,8 +101,14 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
   // penjaga terakhirnya, dan daftar kosong akan memblokir orang yang
   // sebenarnya berwenang.
   let outletKewenanganku = outlets;
+  // Dipakai juga oleh pilihan "Pembelian pusat": 0191 hanya mengizinkannya
+  // untuk Admin BU. Bawaannya `true` kalau peran tidak terbaca — menyembunyikan
+  // pilihan yang sebenarnya boleh lebih merepotkan daripada penolakan server
+  // yang kalimatnya sudah jelas.
+  let adminBuSaya = true;
   try {
     const { adminBu, outlets: punyaku } = await scopeAdminSaya(businessUnitId);
+    adminBuSaya = adminBu;
     if (!adminBu && punyaku.size) outletKewenanganku = outlets.filter((o) => punyaku.has(o.id));
   } catch {
     /* peran tidak terbaca — biarkan utuh, server yang memutuskan */
@@ -769,15 +786,38 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
   // =====================================================================
   // TAB KORPORAT
   // =====================================================================
-  async function gambarKorporat() {
+  /**
+   * TAB INPUT MANUAL — dua jalur yang tidak lewat Turboly.
+   *
+   * Penjualan korporat (ditagih kantor) dan pembelian manual (bon tulis
+   * tangan) berdiri di satu layar karena keduanya menjawab pertanyaan yang
+   * sama: "yang tidak ada di Turboly, dicatat di mana?". Dipisah ke dua menu,
+   * yang kedua tidak akan pernah ditemukan orang yang mencarinya.
+   *
+   * DATANYA tetap terpisah — penjualan ke `bengkel_sale_invoices`, pembelian
+   * ke `bengkel_purchase_lines`. Yang disatukan cuma tempat mengetiknya.
+   */
+  async function gambarManual() {
     isi.innerHTML =
       saringanHtml() +
-      `<button id="pr-korp-baru" class="primary" style="max-width:240px;margin-bottom:10px">+ Invoice Korporat</button>
-       <div id="pr-korp">${loadingHtml('Memuat…', { baris: 4 })}</div>`;
-    wiringSaringan(gambarKorporat);
+      `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+         <button id="pr-korp-baru" class="primary" style="max-width:240px">+ Invoice Korporat</button>
+         <button id="pr-beli-baru" style="max-width:240px">+ Pembelian Manual</button>
+       </div>
+       <h4 style="margin:0 0 6px;font-size:0.92rem">Penjualan korporat</h4>
+       <div id="pr-korp">${loadingHtml('Memuat…', { baris: 3 })}</div>
+       <h4 style="margin:16px 0 6px;font-size:0.92rem">Pembelian manual <span style="font-weight:400;color:var(--color-text-muted);font-size:0.82rem">— di luar Turboly</span></h4>
+       <div id="pr-beli">${loadingHtml('Memuat…', { baris: 3 })}</div>`;
+    wiringSaringan(gambarManual);
     isi.querySelector('#pr-korp-baru').addEventListener('click', sekaliJalan(() => dialogKorporat(null)));
-    const kotak = isi.querySelector('#pr-korp');
+    isi.querySelector('#pr-beli-baru').addEventListener('click', sekaliJalan(() => dialogPembelianManual()));
 
+    await Promise.all([gambarDaftarKorporat(), gambarDaftarBeliManual()]);
+  }
+
+  async function gambarDaftarKorporat() {
+    const kotak = isi.querySelector('#pr-korp');
+    if (!kotak) return;
     let daftar = [];
     try {
       daftar = await invoiceKorporat(businessUnitId, state);
@@ -830,26 +870,114 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
             toast(e.message ?? 'Gagal menghapus.', 'error');
             return;
           }
-          await gambarKorporat();
+          await gambarManual();
         })
       )
     );
   }
 
+  async function gambarDaftarBeliManual() {
+    const kotak = isi.querySelector('#pr-beli');
+    if (!kotak) return;
+    let daftar = [];
+    try {
+      daftar = await dokumenPembelianManual(businessUnitId, state);
+    } catch (e) {
+      kotak.innerHTML = `<p class="error-text">${esc(
+        /sumber/.test(String(e.message ?? e)) ? 'Migration 0191 belum dijalankan di Supabase.' : e.message ?? e
+      )}</p>`;
+      return;
+    }
+    if (!daftar.length) {
+      kotak.innerHTML = `<p style="color:var(--color-text-muted)">Belum ada pembelian manual pada rentang ini.</p>`;
+      return;
+    }
+    kotak.innerHTML = `
+      <div class="table-scroll"><table class="data-table kartu-sempit">
+        <thead><tr><th>No. dokumen</th><th>Tanggal</th><th>Outlet</th><th>Supplier</th><th>Baris</th><th>Nilai</th><th>Aksi</th></tr></thead>
+        <tbody>${daftar
+          .map(
+            (d) => `<tr>
+              <td data-label="No. dokumen" style="font-family:monospace;font-size:0.78rem">${esc(d.po_no)}</td>
+              <td data-label="Tanggal">${esc(d.tanggal)}</td>
+              <td data-label="Outlet">${esc(d.outlet_nama ?? 'Pusat')}</td>
+              <td data-label="Supplier">${esc(d.supplier || '—')}</td>
+              <td data-label="Baris">${d.baris.length}</td>
+              <td data-label="Nilai" style="text-align:right">${formatRupiah(d.nilai)}${
+                // Baris tanpa harga disebut DI SAMPING nilainya, bukan
+                // disembunyikan: nilai yang terlihat lengkap padahal
+                // sebagiannya belum diketahui adalah angka yang menyesatkan.
+                d.tanpaHarga
+                  ? `<div style="font-size:0.72rem;color:var(--color-warning,#b26a00)">${d.tanpaHarga} baris belum berharga</div>`
+                  : ''
+              }</td>
+              <td data-label="Aksi">
+                <button class="pr-beli-hapus btn-danger" data-no="${esc(d.po_no)}">Hapus</button>
+              </td>
+            </tr>`
+          )
+          .join('')}</tbody>
+      </table></div>`;
+
+    kotak.querySelectorAll('.pr-beli-hapus').forEach((b) =>
+      b.addEventListener(
+        'click',
+        sekaliJalan(async () => {
+          const ok = await confirmDialog({
+            title: `Hapus ${b.dataset.no}?`,
+            message: 'Seluruh baris dokumen ini dihapus. Tidak bisa dibatalkan.',
+            confirmText: 'Hapus',
+            danger: true
+          });
+          if (!ok) return;
+          try {
+            const h = await hapusPembelianManual({ businessUnitId, nomor: b.dataset.no });
+            toast(`${h.dihapus} baris dihapus.`, 'success');
+          } catch (e) {
+            toast(e.message ?? 'Gagal menghapus.', 'error');
+            return;
+          }
+          await gambarManual();
+        })
+      )
+    );
+  }
+
+  // =====================================================================
+  // FORM DOKUMEN (gaya Turboly) — dipakai penjualan korporat & pembelian
+  // =====================================================================
+  //
+  // Satu bentuk untuk dua jalur masuk manual, meniru tata letak layar PO
+  // Turboly: kepala dokumen di atas (label + isian), lalu TABEL BARIS dengan
+  // nomor urut, produk, qty, harga, dan jumlah per baris.
+  //
+  // ============ KENAPA DISAMAKAN DENGAN TURBOLY ============
+  //
+  // Orang yang sama mengetik di kedua aplikasi dalam satu hari. Dua tata letak
+  // yang berbeda untuk pekerjaan yang sama berarti ia harus mengingat dua
+  // tempat untuk tiap kolom — dan yang terjadi bukan ia salah, melainkan ia
+  // berhenti memakai yang lebih asing.
+  //
+  // Lebarnya `dokumen`: mengikuti layar di desktop, menumpuk jadi kartu di HP.
+  // Tabel 8 kolom yang dipaksa 560px menyisakan ~60px per kolom, dan angkanya
+  // terpotong di layar yang sebenarnya muat.
+
+  /** Satu baris kepala dokumen. `lebar` = memanjang dua kolom di desktop. */
+  const kepalaBaris = ({ label, html, lebar = false }) =>
+    `<div class="dok-baris${lebar ? ' dok-lebar' : ''}"><label>${esc(label)}</label>${html}</div>`;
+
+  const kotakTeks = (nama, nilai, placeholder = '') =>
+    `<input id="${nama}" value="${esc(nilai ?? '')}" placeholder="${esc(placeholder)}" />`;
+
+  const kotakPilih = (nama, opsi, nilai) =>
+    `<select id="${nama}">${opsi
+      .map((o) => `<option value="${esc(o.value)}"${String(o.value) === String(nilai ?? '') ? ' selected' : ''}>${esc(o.label)}</option>`)
+      .join('')}</select>`;
+
+  const idBaris = () => `br-${Math.random().toString(36).slice(2, 9)}`;
+
   /**
-   * Dialog invoice korporat.
-   *
-   * Barisnya diketik sebagai TEKS banyak baris, satu baris per barang:
-   *
-   *     sparepart | OLI.X | OLI MESIN | 4 | 150000 | 400000
-   *
-   * Bukan karena itu bentuk terbaik, tapi karena yang mengetiknya sekarang
-   * memakai spreadsheet — dan menyalin-tempel dari sana jauh lebih dekat ke
-   * kebiasaannya daripada mengisi lima kotak per barang di layar HP. Kolom
-   * modal boleh dikosongkan; yang kosong tetap kosong, bukan nol.
-   */
-  /**
-   * Dialog invoice korporat.
+   * Dialog invoice korporat — penjualan yang tidak lewat Turboly.
    *
    * ============ SATU KOTAK PER ISIAN, BUKAN SATU KOTAK UNTUK SEMUA ============
    *
@@ -858,11 +986,6 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
    * menggeser seluruh kolom sesudahnya — harga masuk ke kolom modal, dan
    * labanya tetap berupa angka yang masuk akal. Tidak ada galat, dan yang
    * menemukannya adalah orang yang membaca laporan sebulan kemudian.
-   *
-   * Sekarang: satu baris = satu deret kotak, dengan dropdown sparepart dari
-   * master yang sudah terdaftar. Memilih dari master mengisi SKU, nama, harga
-   * jual, dan modal sekaligus — dan ketiganya tetap bisa diubah, karena harga
-   * korporat sering berbeda dari harga umum.
    */
   async function dialogKorporat(invoice) {
     let master = [];
@@ -904,16 +1027,16 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
       }
     }
 
-    const idBaris = () => `kb-${Math.random().toString(36).slice(2, 9)}`;
     const gambarBaris = (b, key) => `
       <tr data-baris="${key}">
+        <td class="dok-no"></td>
         <td data-label="Jenis">
-          <select class="kb-jenis" style="min-width:104px">
+          <select class="kb-jenis">
             <option value="sparepart"${b.item_type === 'sparepart' ? ' selected' : ''}>Sparepart</option>
             <option value="jasa"${b.item_type === 'jasa' ? ' selected' : ''}>Jasa</option>
           </select>
         </td>
-        <td data-label="Pilih dari master" style="min-width:230px">
+        <td data-label="Cari produk" style="min-width:200px">
           ${renderSearchSelect({
             name: `sp-${key}`,
             options: opsiMaster,
@@ -921,52 +1044,47 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
             placeholder: opsiMaster.length ? 'ketik SKU / nama…' : 'master tidak termuat'
           })}
         </td>
-        <td data-label="SKU"><input class="kb-sku" value="${esc(b.sku)}" style="min-width:96px" placeholder="opsional" /></td>
-        <td data-label="Nama barang / jasa"><input class="kb-nama" value="${esc(b.nama)}" style="min-width:160px" /></td>
-        <td data-label="Qty"><input class="kb-qty" inputmode="decimal" value="${esc(b.qty)}" style="min-width:64px;text-align:right" /></td>
-        <td data-label="Harga jual"><input class="kb-harga" inputmode="decimal" value="${esc(b.harga)}" style="min-width:104px;text-align:right" /></td>
-        <td data-label="Modal"><input class="kb-modal" inputmode="decimal" value="${esc(b.modal)}" style="min-width:104px;text-align:right" placeholder="boleh kosong" /></td>
-        <td data-label="Total" class="kb-total" style="text-align:right;white-space:nowrap">—</td>
-        <td data-label=""><button type="button" class="kb-hapus btn-ghost" title="Hapus baris">✕</button></td>
+        <td data-label="SKU"><input class="kb-sku" value="${esc(b.sku)}" placeholder="opsional" /></td>
+        <td data-label="Nama barang / jasa"><input class="kb-nama" value="${esc(b.nama)}" /></td>
+        <td data-label="Qty" class="dok-angka"><input class="kb-qty" inputmode="decimal" value="${esc(b.qty)}" /></td>
+        <td data-label="Harga jual" class="dok-angka"><input class="kb-harga" inputmode="decimal" value="${esc(b.harga)}" /></td>
+        <td data-label="Modal" class="dok-angka"><input class="kb-modal" inputmode="decimal" value="${esc(b.modal)}" placeholder="boleh kosong" /></td>
+        <td data-label="Jumlah" class="dok-jumlah kb-total">—</td>
+        <td class="dok-buang"><button type="button" class="kb-hapus btn-ghost" title="Hapus baris">✕</button></td>
       </tr>`;
 
-    const htmlBaris = `
-      <div class="table-scroll" style="max-height:38vh">
-        <table class="data-table kartu-sempit" id="kb-tabel" style="font-size:0.84rem">
-          <thead><tr>
-            <th>Jenis</th><th>Pilih dari master</th><th>SKU</th><th>Nama barang / jasa</th>
-            <th>Qty</th><th>Harga jual</th><th>Modal</th><th>Total</th><th></th>
-          </tr></thead>
-          <tbody>${awalBaris.map((b) => gambarBaris(b, idBaris())).join('')}</tbody>
-        </table>
+    const htmlDokumen = `
+      <div class="dok-kepala">
+        ${kepalaBaris({
+          label: 'Outlet',
+          html: kotakPilih('dk-outlet', outletKewenanganku.map((o) => ({ value: o.id, label: o.name })), invoice?.outlet_id ?? '')
+        })}
+        ${kepalaBaris({ label: 'Tanggal', html: `<input type="date" id="dk-tanggal" value="${esc(invoice?.tanggal ?? state.sampai)}" />` })}
+        ${kepalaBaris({ label: 'Perusahaan', html: kotakTeks('dk-company', invoice?.company, 'mis. PT SEMEN INDONESIA') })}
+        ${kepalaBaris({ label: 'Nama PIC / pelanggan', html: kotakTeks('dk-customer', invoice?.customer) })}
+        ${kepalaBaris({ label: 'Nopol', html: kotakTeks('dk-nopol', invoice?.nopol, 'kosongkan kalau penjualan barang saja') })}
+        ${kepalaBaris({ label: 'Pembayaran', html: kotakTeks('dk-pembayaran', invoice?.pembayaran, 'mis. Transfer / Tempo 30 hari') })}
+        ${kepalaBaris({ label: 'Catatan', lebar: true, html: kotakTeks('dk-catatan', invoice?.catatan) })}
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap">
+      <table class="dok-baris-tabel" id="kb-tabel">
+        <thead><tr>
+          <th>No</th><th>Jenis</th><th>Cari produk</th><th>SKU</th><th>Nama barang / jasa</th>
+          <th>Qty</th><th>Harga jual</th><th>Modal</th><th>Jumlah</th><th></th>
+        </tr></thead>
+        <tbody>${awalBaris.map((b) => gambarBaris(b, idBaris())).join('')}</tbody>
+      </table>
+      <div class="dok-kaki">
         <button type="button" id="kb-tambah">+ Tambah baris</button>
-        <span id="kb-ringkas" style="font-size:0.84rem;color:var(--color-text-muted)"></span>
+        <span class="dok-total" id="kb-ringkas"></span>
       </div>`;
 
     const v = await formDialog({
       title: invoice ? `Ubah ${invoice.invoice_no}` : 'Invoice Korporat Baru',
       description:
-        'Pilih sparepart dari master supaya SKU, nama, harga, dan modalnya ikut terisi — semuanya masih bisa diubah. ' +
+        'Pilih produk dari master supaya SKU, nama, harga, dan modalnya ikut terisi — semuanya masih bisa diubah. ' +
         'Modal yang dikosongkan TIDAK dianggap nol; laporannya akan menyebut berapa baris yang belum bermodal.',
-      fields: [
-        {
-          name: 'outlet',
-          label: 'Outlet',
-          type: 'select',
-          required: true,
-          value: invoice?.outlet_id ?? '',
-          options: outletKewenanganku.map((o) => ({ value: o.id, label: o.name }))
-        },
-        { name: 'tanggal', label: 'Tanggal', type: 'date', required: true, value: invoice?.tanggal ?? state.sampai },
-        { name: 'company', label: 'Perusahaan', type: 'text', value: invoice?.company ?? '', placeholder: 'mis. PT SEMEN INDONESIA' },
-        { name: 'customer', label: 'Nama PIC / pelanggan', type: 'text', value: invoice?.customer ?? '' },
-        { name: 'nopol', label: 'Nopol', type: 'text', value: invoice?.nopol ?? '', placeholder: 'kosongkan kalau penjualan barang saja' },
-        { name: 'pembayaran', label: 'Pembayaran', type: 'text', value: invoice?.pembayaran ?? '', placeholder: 'mis. Transfer / Tempo 30 hari' },
-        { name: 'catatan', label: 'Catatan', type: 'text', value: invoice?.catatan ?? '' },
-        { name: 'baris', label: 'Baris barang / jasa', type: 'html', html: htmlBaris }
-      ],
+      lebar: 'dokumen',
+      fields: [{ name: 'dok', label: '', type: 'html', html: htmlDokumen }],
       submitText: 'Simpan',
       onReady: (form, { kumpulkan, setError }) => {
         const tbody = form.querySelector('#kb-tabel tbody');
@@ -984,15 +1102,15 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
         const semua = () => [...tbody.querySelectorAll('tr')].map(bacaBaris);
 
         const segarkan = () => {
-          for (const tr of tbody.querySelectorAll('tr')) {
+          [...tbody.querySelectorAll('tr')].forEach((tr, i) => {
+            tr.querySelector('.dok-no').textContent = String(i + 1);
             const t = totalBaris(bacaBaris(tr));
             tr.querySelector('.kb-total').textContent = t === null ? '—' : formatRupiah(t);
-          }
+          });
           const r = ringkasBarisKorporat(semua());
-          ringkasEl.textContent = r.baris
-            ? `${r.baris} baris · total ${formatRupiah(r.total)}` +
-              (r.tanpaModal ? ` · ${r.tanpaModal} baris belum bermodal` : '')
-            : 'Belum ada baris terisi.';
+          ringkasEl.innerHTML = r.baris
+            ? `${formatRupiah(r.total)}<small>${r.baris} baris${r.tanpaModal ? ` · ${r.tanpaModal} belum bermodal` : ''}</small>`
+            : '<small>Belum ada baris terisi.</small>';
         };
 
         const pasangBaris = (tr) => {
@@ -1037,11 +1155,22 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
         // Nilainya dikumpulkan SAAT Simpan ditekan, selagi dialognya masih
         // berdiri — bukan dibaca sesudah dialognya ditutup.
         kumpulkan(() => {
+          const kepala = {
+            outlet: form.querySelector('#dk-outlet').value,
+            tanggal: form.querySelector('#dk-tanggal').value,
+            company: form.querySelector('#dk-company').value,
+            customer: form.querySelector('#dk-customer').value,
+            nopol: form.querySelector('#dk-nopol').value,
+            pembayaran: form.querySelector('#dk-pembayaran').value,
+            catatan: form.querySelector('#dk-catatan').value
+          };
+          if (!kepala.outlet) return 'Outlet wajib dipilih.';
+          if (!kepala.tanggal) return 'Tanggal wajib diisi.';
           const { baris, salah } = susunBarisKorporat(semua());
           if (salah.length) return salah.join(' ');
           if (!baris.length) return 'Isi minimal satu baris barang atau jasa.';
           setError('');
-          return { barisKorporat: baris };
+          return { ...kepala, barisKorporat: baris };
         });
       }
     });
@@ -1067,7 +1196,181 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
       toast(e.message ?? 'Gagal menyimpan.', 'error');
       return;
     }
-    await gambarKorporat();
+    await gambarManual();
+  }
+
+  /**
+   * Dialog pembelian manual (0191) — bon tulis tangan, beli langsung di toko.
+   *
+   * Bentuknya sengaja sama dengan dialog di atas dan dengan layar PO Turboly.
+   * Bedanya cuma yang memang berbeda:
+   *
+   *   - harga BELI, dan harga boleh DIKOSONGKAN (nota menyusul). Kosong tetap
+   *     kosong di database — nol adalah harga, dan laporan pengeluaran yang
+   *     menjumlahkan nol sebagai harga akan diam saja;
+   *   - tidak ada modal & tidak ada jenis: pembelian tidak punya keduanya;
+   *   - outletnya bisa "Pembelian pusat" untuk Admin BU.
+   */
+  async function dialogPembelianManual() {
+    let master = [];
+    try {
+      master = await listSpareparts(businessUnitId, { hanyaAktif: true });
+    } catch (e) {
+      toast(`Daftar sparepart gagal dimuat (${e.message ?? e}) — nama barang bisa diketik manual.`, 'warning');
+    }
+    const opsiMaster = master.map((m) => ({
+      value: m.id,
+      label: `${m.sku ? m.sku + ' — ' : ''}${m.name}`
+    }));
+    const petaMaster = new Map(master.map((m) => [m.id, m]));
+
+    // "Pembelian pusat" hanya ditawarkan kepada Admin BU: 0191 menolaknya
+    // untuk admin outlet, dan pilihan yang pasti ditolak server membuat
+    // orangnya membaca penolakan atas daftar yang salah.
+    const opsiOutlet = [
+      ...outletKewenanganku.map((o) => ({ value: o.id, label: o.name })),
+      ...(adminBuSaya ? [{ value: '', label: '— Pembelian pusat (tanpa outlet) —' }] : [])
+    ];
+
+    const gambarBaris = (b, key) => `
+      <tr data-baris="${key}">
+        <td class="dok-no"></td>
+        <td data-label="Cari produk" style="min-width:200px">
+          ${renderSearchSelect({
+            name: `bp-${key}`,
+            options: opsiMaster,
+            value: b.sparepart_id,
+            placeholder: opsiMaster.length ? 'ketik SKU / nama…' : 'master tidak termuat'
+          })}
+        </td>
+        <td data-label="SKU"><input class="bp-sku" value="${esc(b.sku)}" placeholder="opsional" /></td>
+        <td data-label="Nama barang"><input class="bp-nama" value="${esc(b.nama)}" /></td>
+        <td data-label="Qty" class="dok-angka"><input class="bp-qty" inputmode="decimal" value="${esc(b.qty)}" /></td>
+        <td data-label="Harga beli" class="dok-angka"><input class="bp-harga" inputmode="decimal" value="${esc(b.harga)}" placeholder="boleh kosong" /></td>
+        <td data-label="Jumlah" class="dok-jumlah bp-total">—</td>
+        <td data-label="Catatan"><input class="bp-catatan" value="${esc(b.catatan)}" placeholder="opsional" /></td>
+        <td class="dok-buang"><button type="button" class="bp-hapus btn-ghost" title="Hapus baris">✕</button></td>
+      </tr>`;
+
+    const htmlDokumen = `
+      <div class="dok-kepala">
+        ${kepalaBaris({ label: 'Outlet penerima', html: kotakPilih('dp-outlet', opsiOutlet, outletKewenanganku[0]?.id ?? '') })}
+        ${kepalaBaris({ label: 'Tanggal', html: `<input type="date" id="dp-tanggal" value="${esc(state.sampai)}" />` })}
+        ${kepalaBaris({ label: 'Supplier', html: kotakTeks('dp-supplier', '', 'mis. TB Sinar Jaya') })}
+        ${kepalaBaris({ label: 'No. nota / referensi', html: kotakTeks('dp-referensi', '', 'nomor bon dari supplier') })}
+        ${kepalaBaris({
+          label: 'No. dokumen (opsional)',
+          html: kotakTeks('dp-nomor', '', 'kosongkan → dibuatkan MAN/YYMM/0001')
+        })}
+      </div>
+      <table class="dok-baris-tabel" id="bp-tabel">
+        <thead><tr>
+          <th>No</th><th>Cari produk</th><th>SKU</th><th>Nama barang</th>
+          <th>Qty</th><th>Harga beli</th><th>Jumlah</th><th>Catatan</th><th></th>
+        </tr></thead>
+        <tbody>${[barisBeliKosong()].map((b) => gambarBaris(b, idBaris())).join('')}</tbody>
+      </table>
+      <div class="dok-kaki">
+        <button type="button" id="bp-tambah">+ Tambah baris</button>
+        <span class="dok-total" id="bp-ringkas"></span>
+      </div>`;
+
+    const v = await formDialog({
+      title: 'Pembelian Manual Baru',
+      description:
+        'Untuk pembelian yang TIDAK lewat Turboly — bon tulis tangan, beli langsung di toko. ' +
+        'Nomornya diberi awalan MAN/ supaya tidak pernah tertimpa impor Turboly. ' +
+        'Harga boleh dikosongkan kalau notanya menyusul; yang kosong tidak dianggap nol.',
+      lebar: 'dokumen',
+      fields: [{ name: 'dok', label: '', type: 'html', html: htmlDokumen }],
+      submitText: 'Simpan',
+      onReady: (form, { kumpulkan, setError }) => {
+        const tbody = form.querySelector('#bp-tabel tbody');
+        const ringkasEl = form.querySelector('#bp-ringkas');
+
+        const bacaBaris = (tr) => ({
+          sparepart_id: tr.querySelector('.search-select input[type="hidden"]')?.value ?? '',
+          sku: tr.querySelector('.bp-sku').value,
+          nama: tr.querySelector('.bp-nama').value,
+          qty: tr.querySelector('.bp-qty').value,
+          harga: tr.querySelector('.bp-harga').value,
+          catatan: tr.querySelector('.bp-catatan').value
+        });
+        const semua = () => [...tbody.querySelectorAll('tr')].map(bacaBaris);
+
+        const segarkan = () => {
+          [...tbody.querySelectorAll('tr')].forEach((tr, i) => {
+            tr.querySelector('.dok-no').textContent = String(i + 1);
+            const t = nilaiBarisBeli(bacaBaris(tr));
+            tr.querySelector('.bp-total').textContent = t === null ? '—' : formatRupiah(t);
+          });
+          const r = ringkasBarisBeli(semua());
+          ringkasEl.innerHTML = r.baris
+            ? `${formatRupiah(r.nilai)}<small>${r.baris} baris · ${formatNum(r.qty)} unit${
+                // Baris tanpa harga DISEBUT: tanpa itu, totalnya terlihat
+                // lengkap padahal sebagiannya belum diketahui.
+                r.tanpaHarga ? ` · ${r.tanpaHarga} belum berharga` : ''
+              }</small>`
+            : '<small>Belum ada baris terisi.</small>';
+        };
+
+        const pasangBaris = (tr) => {
+          wireSearchSelect(tr.querySelector('.search-select'), opsiMaster, (val) => {
+            const sp = petaMaster.get(val);
+            if (!sp) return;
+            const isi = beliDariMaster(sp);
+            tr.querySelector('.bp-sku').value = isi.sku;
+            tr.querySelector('.bp-nama').value = isi.nama;
+            if (!tr.querySelector('.bp-harga').value) tr.querySelector('.bp-harga').value = isi.harga;
+            segarkan();
+            tr.querySelector('.bp-qty').focus();
+          });
+          tr.querySelectorAll('input').forEach((el) => el.addEventListener('input', segarkan));
+          tr.querySelector('.bp-hapus').addEventListener('click', () => {
+            if (tbody.querySelectorAll('tr').length === 1) {
+              tr.querySelectorAll('input').forEach((el) => (el.value = ''));
+            } else {
+              tr.remove();
+            }
+            segarkan();
+          });
+        };
+
+        tbody.querySelectorAll('tr').forEach(pasangBaris);
+        form.querySelector('#bp-tambah').addEventListener('click', () => {
+          tbody.insertAdjacentHTML('beforeend', gambarBaris(barisBeliKosong(), idBaris()));
+          pasangBaris(tbody.lastElementChild);
+          segarkan();
+        });
+        segarkan();
+
+        kumpulkan(() => {
+          const kepala = {
+            outlet_id: form.querySelector('#dp-outlet').value || null,
+            tanggal: form.querySelector('#dp-tanggal').value,
+            supplier: form.querySelector('#dp-supplier').value,
+            referensi: form.querySelector('#dp-referensi').value,
+            po_no: form.querySelector('#dp-nomor').value
+          };
+          if (!kepala.tanggal) return 'Tanggal wajib diisi.';
+          const { baris, salah } = susunBarisBeli(semua());
+          if (salah.length) return salah.join(' ');
+          if (!baris.length) return 'Isi minimal satu baris barang.';
+          setError('');
+          return { dokumen: { ...kepala, baris } };
+        });
+      }
+    });
+    if (!v) return;
+
+    try {
+      const h = await simpanPembelianManual({ businessUnitId, dokumen: v.dokumen });
+      toast(`${h.po_no} tersimpan — ${h.baris} baris, ${formatRupiah(Number(h.nilai) || 0)}.`, 'success');
+    } catch (e) {
+      toast(e.message ?? 'Gagal menyimpan pembelian.', 'error');
+      return;
+    }
+    await gambarManual();
   }
 
   // =====================================================================
@@ -1263,7 +1566,7 @@ export async function renderPenjualanRinciAdminPage(container, { businessUnitId 
   function gambar() {
     if (state.tab === 'impor') return gambarImpor();
     if (state.tab === 'penjualan') return gambarPenjualan();
-    if (state.tab === 'korporat') return gambarKorporat();
+    if (state.tab === 'manual') return gambarManual();
     return gambarLaporan();
   }
 

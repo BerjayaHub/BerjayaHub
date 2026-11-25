@@ -10998,3 +10998,102 @@ bukan dipaksakan: membatalkan pembelian 10 sementara sisanya tinggal 3 berarti
 diperiksa siapa pun karena ia terlihat seperti galat sistem.
 
 - [x] **Penambahan aset** (`0190`) — tes PGlite 57 pemeriksaan, tes murni 114, audit 1 berkas, 25 sabotase
+
+## Input manual bengkel, form gaya Turboly, & hapus massal (`0191`)
+
+### Pencariannya SUDAH ada — hasilnya yang tidak terlihat
+
+> "di pilihan SKU atau nama produk ini masih belum ada pencarian fuzzy saya lihat"
+
+`fuzzyMatch` sudah terpasang di `wireSearchSelect` sejak lama, dan mengetik
+"shell" memang menyaring seluruh master. Yang rusak adalah **tempat hasilnya
+digambar**: `.ss-list` ber-`position: absolute` di dalam `.search-select`, dan
+kotak itu berada di dalam `.table-scroll`. Satu sumbu `overflow: auto` membuat
+sumbu satunya ikut memotong — jadi daftarnya terpotong **habis**.
+
+Penyaringannya berjalan, hasilnya dihitung, dan yang mengetik melihat kosong.
+Tidak ada galat, tidak ada petunjuk; satu-satunya kesimpulan yang masuk akal
+baginya adalah *"pencariannya belum dibuat"*. Itu persis yang terjadi.
+
+`position: fixed` saja **tidak cukup**: `.modal-card` punya `transform`, dan
+elemen ber-transform menjadi containing block bagi keturunan `fixed` — wadah
+yang memotong tadi tetap ada di antaranya. Jadi daftarnya benar-benar
+**dipindah ke `<body>`** selama terbuka, diberi `z-index` di atas dialog, ikut
+bergerak saat layar digulir, lalu dikembalikan.
+
+### Form bergaya dokumen: melebar di desktop, menumpuk di HP
+
+> "bila di HP maka kecil seperti sekarang oke, tapi bila di dekstop melebar
+>  menyesuaikan ukuran dekstop … UI inputnya saya ingin kamu hampir samakan
+>  dengan turboly"
+
+`max-width: min(1100px, calc(100vw - 32px))` — satu aturan untuk keduanya,
+bukan dua tata letak yang harus dijaga sejalan. Tata letaknya meniru layar PO
+Turboly: kepala dokumen (label + isian) di atas, lalu tabel baris bernomor
+dengan Qty, Harga, dan **Jumlah per baris** serta total di kanan bawah.
+
+Di bawah 760px tabelnya berubah jadi **kartu bertumpuk** — delapan kolom di
+layar 360px tidak akan pernah terbaca, dan menggulir mendatar untuk mengisi
+satu baris adalah cara tercepat membuat orang berhenti memakainya.
+
+Tabel barisnya sengaja **tidak** dibungkus wadah bergulir lagi: wadah itulah
+yang memotong daftar pilihan sparepart.
+
+### Dua jalur manual, satu layar
+
+Tab **Korporat** jadi **Input Manual**, berisi dua daftar:
+
+- **Penjualan korporat** — seperti sebelumnya, ditagih kantor;
+- **Pembelian manual** (baru) — bon tulis tangan, beli langsung di toko.
+
+Keduanya menjawab pertanyaan yang sama: *"yang tidak ada di Turboly, dicatat di
+mana?"*. Dipisah ke dua menu, yang kedua tidak akan pernah ditemukan.
+
+**Satu tabel, satu kolom pembeda** (`sumber`), bukan tabel baru: tabel kedua
+berarti tiap laporan dan tiap pencocokan FIFO harus ingat membaca keduanya, dan
+yang lupa tidak mendapat galat — ia mendapat angka yang lebih kecil, dan angka
+yang lebih kecil terlihat seperti bulan yang sepi.
+
+**Nomornya selalu berawalan `MAN/`**, dipaksakan di server. Impor Turboly
+mengganti isi PO per nomor; nomor manual yang bertabrakan akan dihapus impor
+berikutnya, dan tidak ada berkas mana pun untuk memulihkan bon yang diketik
+orang. Impor pun melewati nomor yang sudah milik dokumen manual — **dan
+menyebutkannya**, bukan melewatinya diam-diam.
+
+Harga beli boleh **dikosongkan** (nota menyusul). Kosong tetap kosong di
+database: nol adalah harga, dan laporan pengeluaran yang menjumlahkan nol
+sebagai harga akan diam saja. Daftarnya menyebut "N baris belum berharga" di
+samping nilainya.
+
+### Hapus massal sparepart — dengan pratinjau
+
+> "sediakan juga hapus massal di modul sparepart dan jasa ini"
+
+Impor Turboly memasukkan ribuan baris; membersihkannya satu per satu bukan
+pekerjaan yang bisa diselesaikan siapa pun. Tapi menghapus 1.900 baris dengan
+satu tekanan tidak bisa dibatalkan, jadi ada **dua** fungsi: `dampak_...`
+(tidak mengubah apa pun) lalu `hapus_...`.
+
+Yang SKU-nya **masih dipakai invoice tidak ikut terhapus** — invoice lama akan
+kehilangan rujukan ke barang yang pernah dijualnya — dan jumlah yang dilewati
+disebut **sebelum** menekan, bukan sesudah: "20 terhapus" dari 25 yang dipilih
+tanpa keterangan membuat orangnya mengulang penghapusan yang sama.
+
+Pilihannya tinggal di `Set`, bukan di DOM: layar ini menggambar ulang seluruh
+tabel tiap huruf yang diketik di kotak cari, dan 30 centang yang hilang pada
+huruf berikutnya tidak punya penjelasan apa pun di layar.
+
+### Impor memperbarui nama — sudah begitu sejak `0167`
+
+> "bila saya import SKU yang sama … lalu nama nya sudah saya ubah di turboly
+>  apakah akan berubah otomatis di berjaya hub"
+
+Ya. `impor_sparepart` mencocokkan lewat `upper(btrim(sku))` dan `do update set
+name = excluded.name`. Yang **tidak** ditimpa: `jenis` (tebakan dari nama tidak
+boleh membatalkan koreksi admin), `is_active`, dan harga yang **tidak disebut**
+berkas — sel kosong berarti "tidak disebut", bukan "gratis".
+
+§9b di `test-migrasi-0166` sekarang membuktikannya dengan huruf kecil-besar
+yang berbeda sekaligus, supaya jawabannya tidak perlu dipercaya begitu saja.
+
+- [x] **Input manual & hapus massal** (`0191`) — tes PGlite 53 + 72 pemeriksaan, tes murni 35, audit 1 berkas, 33 sabotase

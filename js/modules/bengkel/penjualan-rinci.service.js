@@ -202,6 +202,83 @@ export async function barisPembelian(businessUnitId, { dari = null, sampai = nul
 }
 
 // =====================================================================
+// PEMBELIAN MANUAL (0191)
+// =====================================================================
+
+/**
+ * Simpan satu dokumen pembelian manual (bon tulis tangan, beli langsung).
+ *
+ * Nomornya SELALU berawalan `MAN/` — dipaksakan di server, bukan di sini.
+ * Tanpa awalan itu, nomor yang kebetulan sama dengan PO Turboly akan dihapus
+ * impor berikutnya, dan tidak ada berkas mana pun untuk memulihkannya.
+ */
+export async function simpanPembelianManual({ businessUnitId, dokumen }) {
+  const { data, error } = await supabase.rpc(
+    'simpan_pembelian_manual',
+    argumenRpc({ p_bu: businessUnitId, p_dok: dokumen })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? {};
+}
+
+export async function hapusPembelianManual({ businessUnitId, nomor }) {
+  const { data, error } = await supabase.rpc(
+    'hapus_pembelian_manual',
+    argumenRpc({ p_bu: businessUnitId, p_no: nomor })
+  );
+  if (error) throw new Error(error.message ?? String(error));
+  return data ?? {};
+}
+
+/**
+ * Dokumen pembelian manual satu rentang, SUDAH DIKELOMPOKKAN per nomor.
+ *
+ * Dikelompokkan di sini, bukan di layar: daftar yang menampilkan baris satu
+ * per satu membuat satu bon berisi sepuluh barang terlihat seperti sepuluh
+ * pembelian, dan yang membacanya menghitungnya sepuluh kali.
+ */
+export async function dokumenPembelianManual(businessUnitId, { dari = null, sampai = null, outletId = null } = {}) {
+  if (!businessUnitId) return [];
+  const baris = await ambilSemua((awal, akhir) => {
+    let q = supabase
+      .from('bengkel_pembelian_rinci')
+      .select('id, outlet_id, outlet_nama, po_no, urut, tanggal, supplier, sku, nama, qty, harga, nilai, catatan, sumber', {
+        count: 'exact'
+      })
+      .eq('business_unit_id', businessUnitId)
+      .eq('sumber', 'manual')
+      .order('tanggal', { ascending: false })
+      .order('po_no')
+      .order('urut');
+    if (dari) q = q.gte('tanggal', dari);
+    if (sampai) q = q.lte('tanggal', sampai);
+    if (outletId) q = q.eq('outlet_id', outletId);
+    return q.range(awal, akhir);
+  });
+
+  const peta = new Map();
+  for (const b of baris) {
+    if (!peta.has(b.po_no)) {
+      peta.set(b.po_no, {
+        po_no: b.po_no,
+        tanggal: b.tanggal,
+        outlet_id: b.outlet_id,
+        outlet_nama: b.outlet_nama,
+        supplier: b.supplier,
+        baris: [],
+        nilai: 0,
+        tanpaHarga: 0
+      });
+    }
+    const d = peta.get(b.po_no);
+    d.baris.push(b);
+    if (b.harga === null || b.harga === undefined) d.tanpaHarga += 1;
+    else d.nilai += Number(b.nilai) || 0;
+  }
+  return [...peta.values()];
+}
+
+// =====================================================================
 // RIWAYAT IMPOR & PENARIKAN (0187)
 // =====================================================================
 

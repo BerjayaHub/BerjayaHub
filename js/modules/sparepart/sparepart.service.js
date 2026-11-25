@@ -92,6 +92,39 @@ export async function simpanSparepart({ id, business_unit_id, sku, name, jenis, 
   return data[0].id;
 }
 
+/**
+ * Berapa yang akan hilang kalau baris-baris ini dihapus. TIDAK mengubah apa pun.
+ *
+ * Dipanggil SEBELUM menghapus, selalu. Menghapus 1.900 baris dengan satu
+ * tekanan adalah tindakan yang tidak bisa dibatalkan, dan pada saat menekannya
+ * orangnya belum tentu tahu berapa yang kena — apalagi berapa di antaranya
+ * yang masih dipakai invoice.
+ */
+export async function dampakHapusMassal(businessUnitId, ids) {
+  const { data, error } = await supabase.rpc('dampak_hapus_sparepart_massal', {
+    p_bu: businessUnitId,
+    p_ids: ids
+  });
+  if (error) throw error;
+  return data ?? { total: 0, dipakai_invoice: 0, bisa_dihapus: 0, harga_outlet: 0, contoh: [] };
+}
+
+/**
+ * Hapus banyak sekaligus.
+ *
+ * Lewat RPC, bukan `.delete().in('id', ids)` dari klien: penolakan RLS pada
+ * DELETE membalas SUKSES dengan nol baris, jadi layarnya akan berkata "25
+ * terhapus" kepada orang yang sebenarnya ditolak seluruhnya.
+ */
+export async function hapusSparepartMassal(businessUnitId, ids) {
+  const { data, error } = await supabase.rpc('hapus_sparepart_massal', {
+    p_bu: businessUnitId,
+    p_ids: ids
+  });
+  if (error) throw error;
+  return data ?? { dihapus: 0, dilewati_dipakai: 0 };
+}
+
 export async function hapusSparepart(id) {
   const { data, error } = await supabase.from('spareparts').delete().eq('id', id).select('id');
   if (error) throw error;

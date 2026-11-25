@@ -9,6 +9,8 @@ import {
   listHargaOutlet,
   simpanSparepart,
   hapusSparepart,
+  dampakHapusMassal,
+  hapusSparepartMassal,
   aturHargaOutlet,
   imporSparepart
 } from './sparepart.service.js';
@@ -25,6 +27,13 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
   container.innerHTML = loadingHtml('Memuat master sparepart…');
 
   const state = { q: '', jenis: '', kategori: '', outletHarga: '', hanyaAktif: false };
+  // ============ PILIHAN BERTAHAN SAAT SARINGAN BERUBAH ============
+  //
+  // `Set`, bukan daftar centang di DOM: layar ini menggambar ulang seluruh
+  // tabel tiap kali kotak cari diketik. Kalau pilihannya tinggal di DOM, ia
+  // hilang pada huruf berikutnya — dan orang yang mencentang 30 baris lalu
+  // mengetik satu huruf kehilangan semuanya tanpa tahu kenapa.
+  const terpilih = new Set();
   const rp = (v) => (v === null || v === undefined ? '<span style="color:var(--color-text-muted)">—</span>' : formatRupiah(v));
   let daftar = [];
   let hargaOutlet = new Map();
@@ -135,6 +144,12 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
         </label>
       </div>
 
+      <div id="sp-massal" style="display:${terpilih.size ? 'flex' : 'none'};gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding:8px 10px;border:1px solid var(--color-border);border-radius:var(--radius);background:var(--color-bg)">
+        <strong style="font-size:0.88rem">${terpilih.size} baris dipilih</strong>
+        <button id="sp-hapus-massal" class="btn-danger">Hapus yang dipilih</button>
+        <button id="sp-batal-pilih" class="btn-ghost">Batal pilih</button>
+      </div>
+
       <p style="margin:0 0 8px;font-size:0.85rem;color:var(--color-text-muted)">
         ${baris.length} dari ${daftar.length} baris${state.outletHarga ? ` &middot; menampilkan harga <strong>${escapeHtml(outletNama)}</strong>` : ''}
       </p>
@@ -142,6 +157,7 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
       <table class="data-table">
         <thead>
           <tr>
+            <th style="width:34px"><input type="checkbox" id="sp-pilih-semua" title="Pilih semua yang tampil"></th>
             <th>SKU</th><th>Nama</th><th>Jenis</th><th>Kategori</th><th>Merek</th>
             <th>Harga beli</th><th>Harga jual</th>
             <th>Status</th><th>Aksi</th>
@@ -154,7 +170,7 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
                   .slice(0, 500)
                   .map((s) => barisHtml(s))
                   .join('')
-              : '<tr><td colspan="9" style="color:var(--color-text-muted)">Tidak ada yang cocok.</td></tr>'
+              : '<tr><td colspan="10" style="color:var(--color-text-muted)">Tidak ada yang cocok.</td></tr>'
           }
         </tbody>
       </table>
@@ -180,6 +196,7 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
       }</td>`;
     return `
       <tr${s.is_active === false ? ' style="opacity:.55"' : ''}>
+        <td><input type="checkbox" class="sp-pilih" data-id="${s.id}"${terpilih.has(s.id) ? ' checked' : ''}></td>
         <td style="font-family:monospace;font-size:0.8rem">${escapeHtml(s.sku)}</td>
         <td>${escapeHtml(s.name)}</td>
         <td>${s.jenis === 'jasa' ? '<span class="badge badge-pending">Jasa</span>' : 'Sparepart'}</td>
@@ -253,9 +270,116 @@ export async function renderSparepartAdminPage(container, { businessUnitId }) {
       )
     );
 
+    // ---- Pilih banyak ----
+    container.querySelectorAll('.sp-pilih').forEach((c) =>
+      c.addEventListener('change', () => {
+        if (c.checked) terpilih.add(c.dataset.id);
+        else terpilih.delete(c.dataset.id);
+        // Hanya bar aksinya yang digambar ulang, BUKAN seluruh tabel:
+        // menggambar ulang 500 baris tiap satu centang membuat layarnya
+        // tersendat, dan posisi gulirnya melompat ke atas setiap kali.
+        segarkanBarMassal();
+      })
+    );
+    const semuaKotak = container.querySelector('#sp-pilih-semua');
+    if (semuaKotak) {
+      semuaKotak.addEventListener('change', () => {
+        // "Semua" = semua yang SEDANG TAMPIL, bukan seluruh master. Mencentang
+        // 1.926 baris yang tidak terlihat satu pun adalah cara tercepat
+        // menghapus hal yang tidak pernah dilihat orangnya.
+        container.querySelectorAll('.sp-pilih').forEach((c) => {
+          c.checked = semuaKotak.checked;
+          if (c.checked) terpilih.add(c.dataset.id);
+          else terpilih.delete(c.dataset.id);
+        });
+        segarkanBarMassal();
+      });
+    }
+    container.querySelector('#sp-batal-pilih')?.addEventListener('click', () => {
+      terpilih.clear();
+      gambar();
+    });
+    container.querySelector('#sp-hapus-massal')?.addEventListener('click', sekaliJalan(hapusMassal));
+
     container.querySelector('#sp-impor').addEventListener('click', dialogImpor);
     container.querySelector('#sp-xlsx').addEventListener('click', sekaliJalan(eksporXlsx));
     container.querySelector('#sp-pdf').addEventListener('click', sekaliJalan(eksporPdf));
+  }
+
+  /** Perbarui bar aksi massal tanpa menggambar ulang tabelnya. */
+  function segarkanBarMassal() {
+    const bar = container.querySelector('#sp-massal');
+    if (!bar) return;
+    bar.style.display = terpilih.size ? 'flex' : 'none';
+    const label = bar.querySelector('strong');
+    if (label) label.textContent = `${terpilih.size} baris dipilih`;
+  }
+
+  /**
+   * Hapus banyak sekaligus — dengan PRATINJAU lebih dulu.
+   *
+   * Angkanya datang dari server, bukan dihitung di sini: yang menentukan
+   * berapa yang benar-benar bisa dihapus adalah baris penjualan yang memakai
+   * SKU-nya, dan layar ini tidak memuatnya. Menebak di sini berarti
+   * menjanjikan "25 terhapus" lalu menghapus 20.
+   */
+  async function hapusMassal() {
+    const ids = [...terpilih];
+    if (!ids.length) return;
+
+    let dampak;
+    try {
+      dampak = await dampakHapusMassal(businessUnitId, ids);
+    } catch (error) {
+      toast(error.message ?? 'Gagal memeriksa dampak penghapusan.', 'error');
+      return;
+    }
+
+    const contoh = Array.isArray(dampak.contoh) ? dampak.contoh : [];
+    const ok = await confirmDialog({
+      title: `Hapus ${dampak.total} baris master?`,
+      messageHtml: `
+        <div style="font-size:0.9rem">
+          <p style="margin:0 0 8px"><strong>${dampak.bisa_dihapus}</strong> baris akan dihapus.</p>
+          ${
+            // Yang terpakai invoice disebut SEBELUM menekan, bukan sesudah:
+            // "20 terhapus" dari 25 yang dipilih tanpa keterangan membuat
+            // orangnya mengulang penghapusan yang sama berkali-kali.
+            dampak.dipakai_invoice
+              ? `<p style="margin:0 0 8px;color:var(--color-warning,#b26a00)"><strong>${dampak.dipakai_invoice}</strong> dilewati karena SKU-nya masih dipakai invoice. Menghapusnya membuat invoice lama kehilangan rujukan ke barang yang pernah dijualnya.</p>`
+              : ''
+          }
+          ${
+            dampak.harga_outlet
+              ? `<p style="margin:0 0 8px">${dampak.harga_outlet} harga khusus outlet ikut terhapus.</p>`
+              : ''
+          }
+          ${
+            contoh.length
+              ? `<p style="margin:0 0 4px;color:var(--color-text-muted)">Contoh: ${escapeHtml(contoh.join(' · '))}${
+                  dampak.total > contoh.length ? ` … (+${dampak.total - contoh.length} lagi)` : ''
+                }</p>`
+              : ''
+          }
+          <p style="margin:8px 0 0">Tidak bisa dibatalkan. Kalau cuma ingin menyembunyikannya dari daftar, matikan "Aktif" lewat Edit.</p>
+        </div>`,
+      confirmText: `Hapus ${dampak.bisa_dihapus} baris`,
+      danger: true
+    });
+    if (!ok) return;
+
+    try {
+      const hasil = await hapusSparepartMassal(businessUnitId, ids);
+      terpilih.clear();
+      toast(
+        `${hasil.dihapus} baris dihapus` +
+          (hasil.dilewati_dipakai ? ` · ${hasil.dilewati_dipakai} dilewati karena masih dipakai invoice` : '.'),
+        hasil.dilewati_dipakai ? 'warning' : 'success'
+      );
+      await muat();
+    } catch (error) {
+      toast(error.message ?? 'Gagal menghapus.', 'error');
+    }
   }
 
   // -------------------------------------------------------------

@@ -1727,6 +1727,117 @@ select.sc-cell.shift-w5 { border-style: solid; background-color: #fce7f3; color:
 /* Dialog yang memuat komponen tertanam (item picker) diberi ruang lebih. */
 .modal-card.modal-lebar { max-width: 560px; }
 
+/* ============ DOKUMEN: SELEBAR LAYAR YANG ADA ============
+
+   Form bergaya dokumen (Invoice Korporat, Pembelian Manual) berisi tabel baris
+   dengan 7–8 kolom. Dipaksa 560px, tiap kolomnya tinggal ~60px: angka
+   terpotong, nama barang pecah satu-dua huruf per baris, dan orangnya menggulir
+   mendatar untuk melihat kolom yang sebenarnya muat di layarnya.
+
+   `min()` menjaga keduanya dalam satu aturan: di HP ia tetap selebar layar
+   dikurangi tepi, di desktop ia melebar sampai 1100px. Tidak ada dua tata letak
+   yang harus dijaga sejalan. */
+.modal-card.modal-dokumen {
+  max-width: min(1100px, calc(100vw - 32px));
+}
+
+/* Kepala dokumen: label di kiri, isian di kanan — meniru tata letak Turboly,
+   supaya yang pindah-pindah antar dua aplikasi tidak perlu belajar dua kali.
+   Di layar sempit ia kembali menumpuk, karena label 140px di layar 360px
+   menyisakan ruang isian yang tidak bisa dibaca. */
+.dok-kepala {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px 14px;
+  margin-bottom: 12px;
+}
+.dok-kepala .dok-baris { display: flex; flex-direction: column; gap: 4px; }
+.dok-kepala label {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+.dok-kepala input, .dok-kepala select, .dok-kepala textarea {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 16px;
+  background: var(--color-surface);
+}
+.dok-kepala textarea { min-height: 64px; resize: vertical; }
+
+/* Tabel barisnya TIDAK dibungkus wadah bergulir di desktop: wadah bergulir
+   memotong daftar pilihan sparepart (lihat `wireSearchSelect`), dan di layar
+   selebar ini kolomnya memang muat. */
+.dok-baris-tabel { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.dok-baris-tabel th {
+  text-align: left;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+  padding: 6px 6px;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+.dok-baris-tabel td { padding: 4px 6px; vertical-align: middle; border-bottom: 1px solid var(--color-border); }
+.dok-baris-tabel input, .dok-baris-tabel select {
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-size: 15px;
+}
+.dok-baris-tabel .dok-no { width: 34px; color: var(--color-text-muted); text-align: right; }
+.dok-baris-tabel .dok-angka input { text-align: right; }
+.dok-baris-tabel .dok-jumlah { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dok-baris-tabel .dok-buang { width: 34px; text-align: center; }
+.dok-kaki {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.dok-total { font-size: 0.95rem; font-weight: 700; }
+.dok-total small { display: block; font-weight: 400; font-size: 0.78rem; color: var(--color-text-muted); }
+
+@media (min-width: 760px) {
+  .dok-kepala { grid-template-columns: 1fr 1fr; }
+  /* Catatan memanjang dua kolom: ia satu-satunya isian yang isinya kalimat. */
+  .dok-kepala .dok-baris.dok-lebar { grid-column: 1 / -1; }
+}
+
+/* ============ DI HP: TABELNYA JADI KARTU ============
+   Delapan kolom di layar 360px tidak akan pernah terbaca. Tiap baris jadi satu
+   kartu bertumpuk dengan label di depan nilainya — pola `kartu-sempit` yang
+   sudah dipakai tabel lain, ditulis ulang di sini karena isinya kotak isian,
+   bukan teks. */
+@media (max-width: 759px) {
+  .dok-baris-tabel thead { display: none; }
+  .dok-baris-tabel, .dok-baris-tabel tbody, .dok-baris-tabel tr, .dok-baris-tabel td { display: block; width: 100%; }
+  .dok-baris-tabel tr {
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    padding: 8px;
+    margin-bottom: 10px;
+    background: var(--color-surface);
+  }
+  .dok-baris-tabel td { border: none; padding: 3px 0; }
+  .dok-baris-tabel td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.74rem;
+    color: var(--color-text-muted);
+    margin-bottom: 2px;
+  }
+  .dok-baris-tabel .dok-no { text-align: left; font-weight: 600; }
+  .dok-baris-tabel .dok-no::before { content: 'Baris'; }
+  .dok-baris-tabel .dok-buang { text-align: right; }
+}
+
 .line-rows { display: flex; flex-direction: column; gap: 8px; }
 .line-row { display: flex; gap: 8px; align-items: center; }
 .line-row .search-select { flex: 1; min-width: 0; }
@@ -1763,7 +1874,7 @@ select.sc-cell.shift-w5 { border-style: solid; background-color: #fce7f3; color:
   border-radius: var(--radius);
   font-size: 16px;
 }
-.search-select .ss-list {
+.search-select .ss-list, .ss-list {
   position: absolute;
   z-index: 5;
   left: 0;
@@ -1785,13 +1896,13 @@ select.sc-cell.shift-w5 { border-style: solid; background-color: #fce7f3; color:
   max-height: 240px;
   overflow-y: auto;
 }
-.search-select .ss-list li {
+.search-select .ss-list li, .ss-list li {
   padding: 8px 10px;
   border-radius: 8px;
   cursor: pointer;
   font-size: 0.92rem;
 }
-.search-select .ss-list li:hover { background: var(--color-bg); }
+.search-select .ss-list li:hover, .ss-list li:hover { background: var(--color-bg); }
 /* Keterangan satuan beli — "1 PACK@100PCS = 100 pcs".
    Baris sendiri dan redup: ia menolong yang membacanya, dan tidak boleh
    bersaing dengan nama barangnya. `display:block` supaya nama yang panjang
@@ -1802,12 +1913,32 @@ select.sc-cell.shift-w5 { border-style: solid; background-color: #fce7f3; color:
   color: var(--color-text-muted);
   margin-top: 2px;
 }
-.search-select .ss-list li.ss-empty { color: var(--color-text-muted); cursor: default; }
-.search-select .ss-list li.ss-create {
+.search-select .ss-list li.ss-empty, .ss-list li.ss-empty { color: var(--color-text-muted); cursor: default; }
+.search-select .ss-list li.ss-create, .ss-list li.ss-create {
   color: var(--color-primary);
   font-weight: 600;
   border-bottom: 1px solid var(--color-border);
   border-radius: 8px 8px 0 0;
+}
+
+/* DAFTAR YANG SEDANG MENGAMBANG.
+   Dipindah ke <body> selama terbuka supaya tidak terpotong wadah yang bisa
+   digulir — lihat catatan panjang di `wireSearchSelect`. `z-index` harus di
+   ATAS dialog (1000-an), kalau tidak ia tersembunyi di belakangnya dan
+   akibatnya persis sama dengan terpotong: pencariannya terlihat tidak ada. */
+.ss-list.ss-floating {
+  position: fixed;
+  z-index: 2000;
+}
+/* Kembaran `.search-select .ss-list li .ss-hint` di atas. Ditulis terpisah,
+   BUKAN digabung ke selektor yang sama: aturan itu dijaga `audit-satuan-beli`
+   dengan mencocokkan selektornya persis, dan menyisipkan koma di tengahnya
+   membuat penjaga itu diam-diam berhenti cocok. */
+.ss-list.ss-floating li .ss-hint {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  margin-top: 2px;
 }
 
 .money-wrap { position: relative; display: flex; align-items: center; }

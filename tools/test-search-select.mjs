@@ -49,6 +49,15 @@ const pasang = (allowCreate, nilai = '') => {
   wireSearchSelect(w, OPSI);
   return { w, input: w.querySelector('.ss-input'), hidden: w.querySelector('input[type="hidden"]') };
 };
+/**
+ * Cari item daftar DI SELURUH DOKUMEN, bukan di dalam widgetnya.
+ *
+ * Sejak perbaikan "daftar pilihan terpotong wadah bergulir", `.ss-list`
+ * DIPINDAH ke <body> selama terbuka — kalau tidak, ia terpotong habis oleh
+ * tepi wadah dan pencariannya terlihat seperti tidak ada sama sekali.
+ */
+const item = (val) => document.querySelector(`li[data-val="${val}"]`);
+
 const sentuhLalu = async (input) => {
   input.dispatchEvent(new window.Event('focus'));
   input.dispatchEvent(new window.Event('blur'));
@@ -68,7 +77,7 @@ assert.equal(a.hidden.value, 'CV BADANSA JAYA ABADI');
 ok('INTI: disentuh lalu ditinggalkan tanpa mengetik — nilainya tidak berubah');
 
 a.input.dispatchEvent(new window.Event('focus'));
-a.w.querySelector('li[data-val="AICE"]').dispatchEvent(new window.Event('mousedown', { bubbles: true }));
+item('AICE').dispatchEvent(new window.Event('mousedown', { bubbles: true }));
 await sentuhLalu(a.input);
 assert.equal(a.hidden.value, 'AICE');
 assert.equal(a.input.value, 'AICE');
@@ -85,12 +94,12 @@ ok('nama baru yang diketik sendiri tetap tersimpan apa adanya');
 // dibandingkan sudah tercemar keterangannya.
 a.input.value = 'AICE';
 a.input.dispatchEvent(new window.Event('input'));
-assert.equal(a.w.querySelectorAll('li.ss-create').length, 0);
+assert.equal(document.querySelectorAll('li.ss-create').length, 0);
 ok('nama yang sudah terdaftar tidak ditawari "+ Tambah"');
 
 a.input.value = 'Warung Ujung';
 a.input.dispatchEvent(new window.Event('input'));
-assert.equal(a.w.querySelectorAll('li.ss-create').length, 1);
+assert.equal(document.querySelectorAll('li.ss-create').length, 1);
 ok('nama yang memang baru tetap ditawari "+ Tambah"');
 
 console.log('\n§2 Tanpa allowCreate: keterangan tetap tampil');
@@ -114,7 +123,7 @@ console.log('\n§3 Keterangan selalu tampil di DAFTARNYA');
 for (const allowCreate of [true, false]) {
   const c = pasang(allowCreate);
   c.input.dispatchEvent(new window.Event('focus'));
-  const li = c.w.querySelector('li[data-val="AICE"]');
+  const li = item('AICE');
   assert.ok(li.querySelector('.ss-hint'), `allowCreate=${allowCreate}: keterangan hilang dari daftar`);
   assert.equal(li.querySelector('.ss-hint').textContent, 'kode ESB CK19');
 }
@@ -122,7 +131,7 @@ ok('daftarnya menampilkan keterangan di kedua mode — di sanalah ia menolong me
 
 const tanpaHint = pasang(true);
 tanpaHint.input.dispatchEvent(new window.Event('focus'));
-assert.equal(tanpaHint.w.querySelector('li[data-val="Pasar"]').querySelector('.ss-hint'), null);
+assert.equal(item('Pasar').querySelector('.ss-hint'), null);
 ok('opsi tanpa keterangan tidak diberi baris kosong');
 
 console.log('\n§4 Pencarian tetap pada nama');
@@ -132,12 +141,35 @@ d.input.value = 'CK19';
 d.input.dispatchEvent(new window.Event('input'));
 // Keterangan memuat angka; mencocokkannya akan membuat mengetik kode
 // memunculkan barang yang tidak bernama kode itu.
-assert.equal(d.w.querySelectorAll('li[data-val]').length, 0);
+assert.equal(document.querySelectorAll('li[data-val]').length, 0);
 ok('mengetik kode ESB tidak memunculkan apa pun — pencarian tetap pada nama');
 
 d.input.value = 'aice';
 d.input.dispatchEvent(new window.Event('input'));
-assert.equal(d.w.querySelectorAll('li[data-val="AICE"]').length, 1);
+assert.equal(document.querySelectorAll('li[data-val="AICE"]').length, 1);
 ok('pencarian nama biasa tetap jalan');
+
+console.log('\n§5 Daftarnya mengambang, lalu dikembalikan');
+
+// ============ KENAPA INI DIUJI ============
+//
+// `.ss-list` tadinya absolut di dalam `.search-select`. Begitu kotaknya ada di
+// dalam wadah bergulir — tabel baris di dialog Invoice Korporat — daftar
+// hasilnya terpotong HABIS. Penyaringannya tetap jalan, hasilnya tetap
+// dihitung, dan yang mengetik "shell" melihat kosong lalu menyimpulkan
+// pencariannya belum dibuat. Jadi selama terbuka ia dipindah ke <body>.
+const e = pasang(false);
+e.input.dispatchEvent(new window.Event('focus'));
+const daftar = document.querySelector('.ss-list');
+assert.equal(daftar.parentElement, document.body, 'daftar tidak dipindah ke <body> — ia akan terpotong wadah bergulir');
+assert.ok(daftar.classList.contains('ss-floating'));
+ok('selama terbuka, daftarnya mengambang di <body>');
+
+// Dan dikembalikan: daftar yang tertinggal di <body> akan menempel di atas
+// layar lain setelah dialognya hilang.
+await sentuhLalu(e.input);
+assert.equal(document.querySelector('.ss-list').parentElement, e.w, 'daftar tidak dikembalikan ke kotaknya');
+assert.ok(!document.querySelector('.ss-list').classList.contains('ss-floating'));
+ok('sesudah ditutup, daftarnya kembali ke kotaknya');
 
 console.log(`\n${n} pemeriksaan search-select lolos. ✅`);

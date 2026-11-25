@@ -549,6 +549,33 @@ cek(
 );
 
 // ===============================================================
+console.log('\n§9b Nama yang diubah di Turboly ikut berubah di sini');
+// ===============================================================
+//
+// Pertanyaan yang ditanyakan langsung: "kalau SKU-nya sama tapi namanya sudah
+// saya ubah di Turboly, apakah ikut berubah saat saya impor lagi?"
+//
+// Harus IYA. Master ini ada supaya nama barang sama di semua tempat; master
+// yang menyimpan nama lama selamanya justru menjadi sumber ketidaksamaan yang
+// baru — dan tidak ada apa pun di layar yang menandainya, karena baris lamanya
+// tetap terlihat wajar.
+await impor(BENGKEL, [{ sku: 'GANTI.NAMA', name: 'OLI SHELL HELIX 10W', harga_jual: 90000 }]);
+const gn1 = await ambilSku(BENGKEL, 'GANTI.NAMA');
+cek('§9b nama awal', gn1.name, 'OLI SHELL HELIX 10W');
+
+const hGanti = (await impor(BENGKEL, [{ sku: 'ganti.nama', name: 'OLI SHELL HELIX HX5 10W-40 4L' }])).h;
+const gn2 = await ambilSku(BENGKEL, 'GANTI.NAMA');
+cek('§9b namanya ikut diperbarui', gn2.name, 'OLI SHELL HELIX HX5 10W-40 4L');
+// SKU dicocokkan tanpa peduli huruf besar-kecil: ekspor Turboly tidak
+// menjamin hurufnya, dan "ganti.nama" yang jadi baris kedua di samping
+// "GANTI.NAMA" adalah cara master ini mulai berisi barang kembar.
+cek('§9b tidak jadi baris baru', hitungan(hGanti), [0, 1, 0]);
+cek('§9b idnya sama', gn2.id, gn1.id);
+// Harga lama yang TIDAK disebut berkas tetap utuh — yang diperbarui cuma
+// namanya.
+cek('§9b harga lama tidak ikut hilang', Number(gn2.harga_jual), 90000);
+
+// ===============================================================
 console.log('\n§10 Dijalankan ulang');
 // ===============================================================
 const sebelum = Number((await satu(`select count(*) c from spareparts`)).c);
