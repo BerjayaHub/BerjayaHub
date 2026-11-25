@@ -319,6 +319,23 @@ const LABEL_KOLOM = {
 const LABEL_JENIS = { rusak: 'Rusak', pecah: 'Pecah', hilang: 'Hilang' };
 
 /**
+ * Sumber penambahan (0190).
+ *
+ * Pilihan TETAP, bukan teks bebas: teks bebas akan berisi "beli",
+ * "pembelian", "Beli baru" — tiga ejaan untuk satu hal, dan rekap mana pun
+ * yang mengelompokkannya akan salah tanpa terlihat salah.
+ */
+export const SUMBER_TAMBAH = {
+  pembelian: 'Pembelian baru',
+  hibah: 'Hibah / sumbangan',
+  temuan: 'Temuan / koreksi hitung',
+  kembali: 'Kembali dari outlet lain',
+  lainnya: 'Lain-lain'
+};
+
+export const SUMBER_TAMBAH_OPTIONS = Object.entries(SUMBER_TAMBAH).map(([value, label]) => ({ value, label }));
+
+/**
  * Satu baris riwayat jadi KALIMAT.
  *
  * ============ KENAPA BUKAN SEKADAR MENAMPILKAN KOLOMNYA ============
@@ -344,6 +361,23 @@ export function kalimatRiwayat(l) {
   if (l?.aksi === 'batal-rusak') {
     const jenis = LABEL_JENIS[l?.kolom] ?? kolom;
     return `Pembatalan catatan ${jenis.toLowerCase()} ${dari} unit${teks(l?.catatan) ? ` — ${teks(l.catatan)}` : ''}`;
+  }
+  // ============ PENAMBAHAN (0190) ============
+  //
+  // Baris ini berdampingan dengan baris "Jumlah: 28 → 30" dari trigger, dan
+  // keduanya memang perlu: yang satu angkanya, yang satu SEBABNYA. Kalimatnya
+  // menyebut selisihnya (+2), bukan mengulang angka akhirnya — kalau cuma
+  // mengulang, pembacanya harus menghitung sendiri berapa yang masuk, persis
+  // pekerjaan yang membuat perubahan ini diminta.
+  if (l?.aksi === 'tambah') {
+    const sumber = SUMBER_TAMBAH[l?.kolom] ?? kolom;
+    const masuk = Number(ke) - Number(dari);
+    const jml = Number.isFinite(masuk) && masuk > 0 ? `+${masuk} unit` : `${ke} unit`;
+    return `${sumber}: ${jml} (${dari || '—'} → ${ke || '—'})${teks(l?.catatan) ? ` — ${teks(l.catatan)}` : ''}`;
+  }
+  if (l?.aksi === 'batal-tambah') {
+    const sumber = SUMBER_TAMBAH[l?.kolom] ?? kolom;
+    return `Pembatalan catatan ${sumber.toLowerCase()} ${dari} unit${teks(l?.catatan) ? ` — ${teks(l.catatan)}` : ''}`;
   }
   if (l?.aksi === 'didata') return `Didata pertama kali: ${ke} unit`;
   if (l?.aksi === 'hapus') return `Dihapus dari outlet ini (terakhir ${dari} unit)`;

@@ -557,6 +557,56 @@ export async function catatKerusakan({ itemId, outletId, qty, jenis, sebab, tang
   return data;
 }
 
+/**
+ * Catat penambahan aset (pembelian, hibah, temuan).
+ *
+ * LEWAT RPC, bukan `saveAsset` dengan angka baru. Dua alasan, dan keduanya
+ * tidak terlihat di layar:
+ *
+ *   - `saveAsset` MENETAPKAN angka akhir. Dua orang yang sama-sama membuka
+ *     layar saat jumlahnya 28 lalu mencatat pembelian 2 dan 3 akan saling
+ *     menimpa — yang terakhir menyimpan menang, dan pembelian satunya hilang
+ *     tanpa galat. RPC ini menambahkan di atas baris yang dikunci.
+ *   - Riwayatnya cuma akan berbunyi "28 jadi 30", dan pertanyaan "dibeli atau
+ *     salah hitung" tidak terjawab di mana pun.
+ */
+export async function tambahStokAset({ itemId, outletId, jumlah, sumber, tanggal, catatan }) {
+  const { data, error } = await supabase.rpc('tambah_stok_aset', {
+    p_item: itemId,
+    p_outlet: outletId,
+    p_jumlah: Number(jumlah),
+    p_sumber: sumber || 'pembelian',
+    p_tanggal: tanggal || null,
+    p_catatan: catatan?.trim() || null
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function batalkanPenambahanAset(id, alasan) {
+  const { data, error } = await supabase.rpc('batalkan_penambahan_aset', { p_id: id, p_alasan: alasan });
+  if (error) throw error;
+  return data;
+}
+
+/** Catatan penambahan satu BU, boleh disaring outlet & rentang tanggal. */
+export async function listPenambahanAset({ businessUnitId, outletId, dari, sampai }) {
+  return ambilSemua((a, b) => {
+    let q = supabase
+      .from('asset_penambahan')
+      .select(
+        'id, jumlah, sumber, catatan, tanggal, qty_sebelum, qty_sesudah, dicatat_by_nama, created_at, ' +
+          'dibatalkan_at, dibatalkan_by_nama, alasan_batal, outlet_id, ' +
+          'asset_items!inner(id, kode, name, category, business_unit_id), outlets!outlet_id(name)'
+      )
+      .eq('asset_items.business_unit_id', businessUnitId);
+    if (outletId) q = q.eq('outlet_id', outletId);
+    if (dari) q = q.gte('tanggal', dari);
+    if (sampai) q = q.lte('tanggal', sampai);
+    return q.order('tanggal', { ascending: false }).range(a, b);
+  });
+}
+
 export async function batalkanKerusakan(id, alasan) {
   const { data, error } = await supabase.rpc('batalkan_kerusakan_aset', { p_id: id, p_alasan: alasan });
   if (error) throw error;

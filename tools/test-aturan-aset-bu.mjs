@@ -19,6 +19,8 @@
 import {
   bacaKode,
   kalimatRiwayat,
+  SUMBER_TAMBAH,
+  SUMBER_TAMBAH_OPTIONS,
   rekapKerusakan,
   cariMirip,
   dugaanKembar,
@@ -447,6 +449,45 @@ console.log('§10 Foto yang berlaku & asalnya (0179 + Admin Portal)');
   cek('§10 yang punya foto sendiri tidak membawa acuan', punyaSendiri.photo_acuan, null);
   cek('§10 dan tidak menandai warisan', punyaSendiri.photo_acuan_warisan, false);
 }
+
+// ===============================================================
+console.log('§11 Kalimat penambahan (0190)');
+// ===============================================================
+//
+// Baris ini berdampingan dengan "Jumlah: 28 → 30" dari trigger. Kalau ia cuma
+// mengulang angka akhirnya, pembacanya harus menghitung sendiri berapa yang
+// masuk — pekerjaan yang justru membuat perubahan ini diminta.
+cek(
+  '§11 selisihnya disebut, bukan cuma angka akhir',
+  kalimatRiwayat({ aksi: 'tambah', kolom: 'pembelian', sebelum: '28', sesudah: '30', catatan: 'nota 1123' }),
+  'Pembelian baru: +2 unit (28 → 30) — nota 1123'
+);
+cek(
+  '§11 tanpa catatan tetap terbaca',
+  kalimatRiwayat({ aksi: 'tambah', kolom: 'hibah', sebelum: '0', sesudah: '5' }),
+  'Hibah / sumbangan: +5 unit (0 → 5)'
+);
+// Sumber yang tidak dikenal (data lama, atau pilihan baru yang belum
+// diterjemahkan) tidak boleh membuat barisnya kosong: kode mentahnya lebih
+// berguna daripada kalimat yang menghilang.
+benar(
+  '§11 sumber tak dikenal tidak menghilangkan barisnya',
+  /xyz/.test(kalimatRiwayat({ aksi: 'tambah', kolom: 'xyz', sebelum: '1', sesudah: '2' }))
+);
+// Angka yang tidak bisa dikurangkan tidak boleh jadi "+NaN unit".
+benar(
+  '§11 angka rusak tidak jadi NaN',
+  !/NaN/.test(kalimatRiwayat({ aksi: 'tambah', kolom: 'pembelian', sebelum: '', sesudah: '' }))
+);
+benar(
+  '§11 pembatalan penambahan terbaca sebagai pembatalan',
+  /Pembatalan/.test(kalimatRiwayat({ aksi: 'batal-tambah', kolom: 'pembelian', sebelum: '20', catatan: 'salah ketik' }))
+);
+// Pilihan TETAP: teks bebas akan jadi "beli", "pembelian", "Beli baru" — tiga
+// ejaan untuk satu hal, dan rekap mana pun yang mengelompokkannya salah.
+cek('§11 sumber yang dikenal persis lima', Object.keys(SUMBER_TAMBAH).length, 5);
+cek('§11 pilihannya sejalan dengan labelnya', SUMBER_TAMBAH_OPTIONS.map((o) => o.value), Object.keys(SUMBER_TAMBAH));
+benar('§11 setiap pilihan punya label', SUMBER_TAMBAH_OPTIONS.every((o) => typeof o.label === 'string' && o.label.length > 2));
 
 // ---------------------------------------------------------------
 console.log(`\n${gagal === 0 ? '✅' : '❌'} test-aturan-aset-bu: ${n - gagal}/${n} lulus`);

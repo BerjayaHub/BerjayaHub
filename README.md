@@ -10924,3 +10924,77 @@ bukan cara menyampaikan bahwa separuh berkasnya tidak masuk.
   terakhirnya, dan daftar kosong akan memblokir orang yang justru berwenang.
 
 - [x] **Admin outlet mengimpor Turboly** (`0189`) — tes PGlite 64 pemeriksaan, audit 1 berkas, 24 sabotase
+
+## Penambahan aset punya jejaknya sendiri (`0190`)
+
+> "tambahkan aksi tambah untuk menambahkan jumlah asset, apabila terjadi
+>  pembelian baru, sehingga akan tercatat di history bukan cuma perubahan
+>  angka tanpa ada riwayat nya"
+
+### Angka yang berubah bukan riwayat
+
+Menambah piring hasil pembelian dilakukan dengan membuka Edit dan mengetik 30
+di tempat 28. Triggernya memang mencatat (`Jumlah: 28 → 30`), jadi secara
+teknis ada jejaknya — tapi jejak itu tidak menjawab satu pun pertanyaan yang
+benar-benar ditanyakan enam bulan kemudian:
+
+- dibeli, dihibahkan, atau ternyata selama ini salah hitung?
+- barangnya masuk kapan — hari diketik, atau minggu lalu?
+- notanya mana?
+
+Dan selama satu-satunya jalan adalah mengetik angka baru, `28 → 30` tidak bisa
+dibedakan dari "yang mengetik salah lihat baris".
+
+Bentuknya **meniru kerusakan aset (`0170`)**, bukan membuat pola baru:
+
+| | kejadiannya | akibatnya |
+|---|---|---|
+| `asset_damage` | pecah 2 unit, ada fotonya | stok **berkurang** |
+| `asset_penambahan` | beli 2 unit, nota 1123 | stok **bertambah** |
+
+Triggernya tetap satu-satunya pencatat angka, dan RPC menambahkan **satu baris
+log lagi** yang menjelaskan sebabnya — sehingga Riwayat memuat keduanya:
+`Jumlah: 28 → 30` dan `Pembelian baru: +2 unit (28 → 30) — nota 1123`.
+
+### Menambah, bukan menetapkan
+
+`catat_stok_aset` (`0169`) menetapkan angka akhir (`qty = 30`). Untuk Edit itu
+benar; untuk pembelian **tidak**. Dua orang yang sama-sama membuka layar saat
+jumlahnya 28, lalu masing-masing mencatat pembelian 2 dan 3, akan saling
+menimpa — yang terakhir menyimpan menang, dan pembelian satunya hilang tanpa
+galat. Di sini `qty = qty + n` di atas baris yang sudah dikunci `for update`,
+jadi keduanya masuk.
+
+Formnya juga menanyakan **jumlah yang MASUK**, bukan jumlah akhir: itu angka
+yang ada di notanya, dan tidak perlu menjumlah sendiri. Kotak seperti ini
+pernah salah diisi dengan jumlah akhir di hampir setiap aplikasi yang punya
+dua-duanya, jadi kalimatnya tegas dan toast-nya menyebut angka sesudahnya —
+yang keliru melihatnya saat itu juga.
+
+### Sumber adalah pilihan tetap, bukan teks bebas
+
+`pembelian · hibah · temuan · kembali · lainnya`, dengan `check` di database,
+bukan cuma dropdown — layar bukan satu-satunya jalan masuk. Teks bebas akan
+berisi "beli", "pembelian", "Beli baru", dan rekap mana pun yang
+mengelompokkannya salah tanpa terlihat salah. Catatan bebas tetap ada di
+kolomnya sendiri (nomor nota, nama supplier).
+
+Tanggalnya **tanggal masuk barang**, boleh mundur, tidak boleh maju — alasannya
+sama dengan `0170`. Tanggal yang bukan hari ini ikut ditulis ke catatan log,
+karena baris log hanya punya waktu pengetikan dan selisih keduanya justru yang
+sering jadi pertanyaan.
+
+### Edit sengaja tetap terbuka
+
+Tombol Tambah adalah jalan yang lebih mudah, bukan satu-satunya jalan: salah
+ketik jumlah awal harus tetap bisa dibetulkan. Yang dijaga adalah koreksi tidak
+menyamar jadi pembelian — perubahan lewat Edit tetap tercatat sebagai `ubah`
+dan tidak menambah baris `asset_penambahan`.
+
+Penambahan yang salah bisa **dibatalkan** (admin outlet), dan yang dibatalkan
+tetap terlihat beserta alasannya. Pembatalan yang melebihi sisa **ditolak**,
+bukan dipaksakan: membatalkan pembelian 10 sementara sisanya tinggal 3 berarti
+7-nya sudah terpakai, pecah, atau pindah — dan stok minus tidak pernah
+diperiksa siapa pun karena ia terlihat seperti galat sistem.
+
+- [x] **Penambahan aset** (`0190`) — tes PGlite 57 pemeriksaan, tes murni 114, audit 1 berkas, 25 sabotase

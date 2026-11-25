@@ -18,6 +18,7 @@ import {
   ubahItemAset,
   catatKerusakan,
   batalkanKerusakan,
+  tambahStokAset,
   dampakHapusItem,
   hapusItemAset,
   listRiwayatAset,
@@ -36,7 +37,7 @@ import { pesanGagalFoto, PESAN_GAGAL_UMUM } from '../../core/tautan-foto.js';
 // Aturan impornya tinggal di modul murni — bisa diuji terhadap berkas .xlsx
 // sungguhan tanpa browser, dan layar ini cuma menggambarkannya.
 import { barisTemplateAset, susunImporAset, nilaiSimpan, ringkasImpor } from './impor-aset.js';
-import { kalimatRiwayat, fotoBerlaku, asalFoto } from './aturan-aset-bu.js';
+import { kalimatRiwayat, fotoBerlaku, asalFoto, SUMBER_TAMBAH_OPTIONS } from './aturan-aset-bu.js';
 
 /**
  * Inventaris Aset — dipakai Staff App maupun Admin Portal.
@@ -309,6 +310,14 @@ async function render(container, { businessUnitId }, isAdmin) {
                         // menghasilkan penolakan yang membingungkan.
                         a.id && a.qty > 0 ? `<button class="as-rusak" data-item="${a.itemId}">Catat rusak</button>` : ''
                       }
+                      ${
+                        // "Tambah" cuma untuk barang yang sudah PUNYA baris di
+                        // outlet ini — ia menambah di atas jumlah yang ada.
+                        // Barang yang belum didata dimulai lewat tombol Data di
+                        // sebelahnya, dan menawarkan keduanya sekaligus cuma
+                        // menghasilkan penolakan yang membingungkan.
+                        a.id ? `<button class="as-tambah" data-item="${a.itemId}">Tambah</button>` : ''
+                      }
                       <button class="as-riwayat" data-item="${a.itemId}">Riwayat</button>
                       ${a.id ? `<button class="as-del" data-id="${a.id}">Hapus</button>` : ''}
                       ${
@@ -393,6 +402,9 @@ async function render(container, { businessUnitId }, isAdmin) {
     );
     list.querySelectorAll('.as-rusak').forEach((b) =>
       b.addEventListener('click', () => dialogKerusakan(rows.find((a) => a.itemId === b.dataset.item)))
+    );
+    list.querySelectorAll('.as-tambah').forEach((b) =>
+      b.addEventListener('click', () => dialogTambahStok(rows.find((a) => a.itemId === b.dataset.item)))
     );
     list.querySelectorAll('.as-riwayat').forEach((b) =>
       b.addEventListener('click', () => dialogRiwayat(rows.find((a) => a.itemId === b.dataset.item)))
@@ -575,6 +587,82 @@ async function render(container, { businessUnitId }, isAdmin) {
 
   /** Hari ini menurut WIB — sama dengan yang dipakai database (0170). */
   const hariIniWIB = () => new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+
+  /**
+   * Catat penambahan jumlah (pembelian baru, hibah, temuan).
+   *
+   * ============ KENAPA TOMBOL TERSENDIRI, BUKAN LEWAT EDIT ============
+   *
+   * Mengetik 30 di tempat 28 memang sudah tercatat triggernya ("Jumlah: 28 →
+   * 30"), tapi jejak itu tidak menjawab satu pun pertanyaan yang benar-benar
+   * ditanyakan enam bulan kemudian: dibeli, dihibahkan, atau ternyata selama
+   * ini salah hitung? Notanya mana? Barangnya masuk kapan?
+   *
+   * Dan selama satu-satunya jalan adalah mengetik angka baru, "28 → 30" tidak
+   * bisa dibedakan dari "yang mengetik salah lihat baris".
+   *
+   * Yang DIISI orangnya adalah JUMLAH YANG MASUK, bukan jumlah akhir. Dua
+   * alasan: itu angka yang ada di notanya (tidak perlu menjumlah sendiri),
+   * dan dua orang yang mencatat bersamaan tidak saling menimpa.
+   */
+  async function dialogTambahStok(a) {
+    if (!a?.itemId || !a?.id) return;
+    const values = await formDialog({
+      title: `Tambah jumlah — ${a.name}`,
+      description: `Tercatat sekarang ${formatNum(a.qty)} unit di ${namaOutlet(a)}.`,
+      fields: [
+        {
+          name: 'jumlah',
+          label: 'Berapa unit yang MASUK?',
+          type: 'number',
+          required: true,
+          min: 1,
+          // Dikatakan tegas: kotak ini pernah salah diisi dengan jumlah akhir
+          // di hampir setiap aplikasi yang punya dua-duanya, dan hasilnya
+          // stok yang melonjak tanpa ada yang merasa melakukannya.
+          help: 'Isi jumlah TAMBAHANNYA, bukan jumlah akhir. Angka ini akan DITAMBAHKAN ke jumlah yang sekarang.'
+        },
+        { name: 'sumber', label: 'Dari mana', type: 'select', value: 'pembelian', options: SUMBER_TAMBAH_OPTIONS },
+        {
+          name: 'tanggal',
+          label: 'Tanggal masuk',
+          type: 'date',
+          required: true,
+          value: hariIniWIB(),
+          help: 'Boleh mundur kalau barangnya datang beberapa hari lalu.'
+        },
+        {
+          name: 'catatan',
+          label: 'Catatan (opsional)',
+          type: 'text',
+          placeholder: 'mis. nota 1123, TB Sinar Jaya'
+        }
+      ],
+      submitText: 'Tambah & catat di riwayat'
+    });
+    if (!values) return;
+
+    try {
+      const hasil = await tambahStokAset({
+        itemId: a.itemId,
+        outletId: a.outlet_id,
+        jumlah: values.jumlah,
+        sumber: values.sumber,
+        tanggal: values.tanggal,
+        catatan: values.catatan
+      });
+      // Angka SESUDAHNYA disebut, bukan cuma "berhasil": itu satu-satunya cara
+      // orangnya tahu angkanya ditambahkan, bukan ditetapkan — dan kalau ia
+      // keliru mengisi jumlah akhir, ia melihatnya saat itu juga.
+      toast(
+        `Ditambahkan ${formatNum(values.jumlah)} unit. Sekarang ${formatNum(hasil?.sesudah ?? 0)} unit di outlet ini.`,
+        'success'
+      );
+      await refresh();
+    } catch (error) {
+      toast(error.message ?? 'Gagal menambah jumlah.', 'error');
+    }
+  }
 
   /**
    * Catat barang rusak/pecah/hilang.
