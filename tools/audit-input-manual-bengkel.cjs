@@ -201,6 +201,20 @@ const fungsi = (nama) => {
 };
 
 if (sql) {
+  // ============ BERGANTUNG PADA 0189, DAN MENGATAKANNYA ============
+  //
+  // PostgreSQL tidak memeriksa isi badan fungsi plpgsql saat dibuat: 0191
+  // tanpa 0189 terpasang MULUS, lalu gagal berminggu-minggu kemudian di
+  // tangan orang yang mengunggah berkas pembelian — dengan pesan "function
+  // outlet_admin_saya(uuid, uuid) does not exist" yang tidak menyebut satu
+  // pun kata "migration". Itu betul-betul terjadi.
+  if (!/to_regprocedure\('outlet_admin_saya\(uuid, uuid\)'\) is null/.test(sql)) {
+    salah(`${MIG}: tidak memeriksa bahwa 0189 sudah dijalankan — tanpa itu migrationnya terpasang mulus dan baru gagal saat ada yang mengimpor pembelian, jauh dari sebabnya.`);
+  }
+  if (!/Migration 0189 belum dijalankan/.test(sql)) {
+    salah(`${MIG}: pesan ketergantungannya tidak menyebut migration mana yang kurang — "function does not exist" memindahkan pekerjaan menebak ke orang yang paling tidak punya bahan untuk menebak.`);
+  }
+
   if (!/check \(sumber in \('turboly', 'manual'\)\)/.test(sql)) {
     salah(`${MIG}: kolom \`sumber\` tidak dibatasi — ejaan bebas masuk lewat jalur mana pun selain layar.`);
   }

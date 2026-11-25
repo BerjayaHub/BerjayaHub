@@ -193,6 +193,26 @@ sabotase(
 );
 
 // =====================================================================
+console.log('\nKETERGANTUNGAN MIGRATION');
+// =====================================================================
+
+// Tanpa pemeriksaan ini, 0191 terpasang mulus di atas database yang belum
+// punya 0189 — dan gagal berminggu-minggu kemudian, jauh dari sebabnya.
+sabotase(
+  'ketergantungan pada 0189 tidak diperiksa',
+  MIG,
+  `do $$
+begin
+  if to_regprocedure('outlet_admin_saya(uuid, uuid)') is null then
+    raise exception
+      'Migration 0189 belum dijalankan. Jalankan 0189_impor_bengkel_admin_outlet.sql dulu, baru 0191 ini — fungsi outlet_admin_saya() lahir di sana.';
+  end if;
+end $$;`,
+  '',
+  PG
+);
+
+// =====================================================================
 console.log('\nNOMOR DOKUMEN MANUAL');
 // =====================================================================
 

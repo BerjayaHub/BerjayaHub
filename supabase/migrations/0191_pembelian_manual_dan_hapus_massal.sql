@@ -8,6 +8,37 @@
 --   "sediakan juga hapus massal di modul sparepart dan jasa ini"
 --
 -- =========================================================
+-- BAGIAN 0 — MIGRATION INI BERGANTUNG PADA 0189
+-- =========================================================
+--
+-- `impor_pembelian_bengkel` di bawah ditulis ulang dari versi 0189 dan
+-- memanggil `outlet_admin_saya` yang LAHIR di 0189.
+--
+-- ============ KENAPA DIPERIKSA DI SINI, BUKAN DIBIARKAN ============
+--
+-- PostgreSQL TIDAK memeriksa isi badan fungsi plpgsql saat fungsinya dibuat.
+-- Jadi menjalankan 0191 tanpa 0189 BERHASIL — tidak ada galat, tidak ada
+-- peringatan, dan layarnya terlihat normal. Yang gagal adalah orang yang
+-- mengunggah berkas pembelian berminggu-minggu kemudian, dengan pesan
+-- "function outlet_admin_saya(uuid, uuid) does not exist" yang tidak
+-- menyebutkan satu pun kata "migration".
+--
+-- Itu betul-betul terjadi. Pemeriksaan di bawah mengubah kegagalan yang
+-- muncul jauh dari sebabnya menjadi kegagalan di tempat sebabnya.
+--
+-- URUTANNYA JUGA PENTING: 0189 memuat versi LAMA
+-- `impor_pembelian_bengkel`. Menjalankan 0189 SESUDAH 0191 akan menimpa versi
+-- di berkas ini — tanpa galat — dan penjagaan dokumen manual hilang diam-diam.
+-- Kalau 0189 baru dijalankan belakangan, jalankan 0191 sekali lagi sesudahnya.
+do $$
+begin
+  if to_regprocedure('outlet_admin_saya(uuid, uuid)') is null then
+    raise exception
+      'Migration 0189 belum dijalankan. Jalankan 0189_impor_bengkel_admin_outlet.sql dulu, baru 0191 ini — fungsi outlet_admin_saya() lahir di sana.';
+  end if;
+end $$;
+
+-- =========================================================
 -- BAGIAN 1 — PEMBELIAN MANUAL
 -- =========================================================
 --

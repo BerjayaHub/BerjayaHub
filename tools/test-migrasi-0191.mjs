@@ -12,6 +12,7 @@
  *   §7 Hapus: hanya yang manual; yang impor ditolak dengan menunjuk jalannya.
  *   §8 Hapus massal sparepart: pratinjau dulu, yang terpakai invoice dilewati.
  *   §9 Penjagaan 0186/0189 masih utuh; dijalankan dua kali tetap aman.
+ *   §0 Dijalankan TANPA 0189 ditolak dengan menyebut migrationnya.
  */
 import { PGlite } from '@electric-sql/pglite';
 import fs from 'node:fs';
@@ -70,6 +71,38 @@ await db.exec(`
 `);
 
 const jalankan = async (b) => db.exec(fs.readFileSync(path.join(AKAR, 'supabase/migrations', b), 'utf8').replace(/notify pgrst[^;]*;/g, ''));
+
+// ===============================================================
+console.log('§0 Tanpa 0189, migrationnya menolak jalan');
+// ===============================================================
+//
+// PostgreSQL tidak memeriksa isi badan fungsi plpgsql saat dibuat, jadi 0191
+// tanpa 0189 BERHASIL dipasang tanpa satu pun galat — dan yang gagal adalah
+// orang yang mengunggah berkas pembelian berminggu-minggu kemudian, dengan
+// pesan "function outlet_admin_saya(uuid, uuid) does not exist" yang tidak
+// menyebut satu pun kata "migration". Itu betul-betul terjadi.
+{
+  const sendiri = new PGlite();
+  const pesan = await (async () => {
+    try {
+      await sendiri.exec(
+        fs.readFileSync(path.join(AKAR, 'supabase/migrations/0191_pembelian_manual_dan_hapus_massal.sql'), 'utf8')
+          .replace(/notify pgrst[^;]*;/g, '')
+      );
+      return null;
+    } catch (e) {
+      return String(e.message ?? e);
+    }
+  })();
+  benar('§0 ditolak', pesan !== null, 'migrationnya lolos padahal 0189 belum ada');
+  // Pesannya menyebut NOMOR migrationnya dan nama berkasnya: "function does
+  // not exist" saja memindahkan pekerjaan menebak ke orang yang paling tidak
+  // punya bahan untuk menebak.
+  benar('§0 pesannya menyebut 0189', /0189/.test(pesan ?? ''), pesan ?? '');
+  benar('§0 dan menyebut nama berkasnya', /0189_impor_bengkel_admin_outlet\.sql/.test(pesan ?? ''), pesan ?? '');
+  await sendiri.close();
+}
+
 for (const m of [
   '0185_penjualan_bengkel_rinci.sql',
   '0186_pembelian_bengkel.sql',
